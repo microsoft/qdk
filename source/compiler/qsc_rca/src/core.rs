@@ -3,7 +3,7 @@
 
 use crate::{
     ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ComputePropertiesLookup,
-    ParamApplication, RuntimeFeatureFlags, ValueKind,
+    ElemParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
         AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
@@ -260,12 +260,16 @@ impl<'a> Analyzer<'a> {
             value_kind,
         } = &mut compute_kind
         {
+            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
+            if *lhs_expr_ty == Ty::Prim(Prim::Result) {
+                *value_kind = ValueKind::Variable;
+            }
+
             *runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(*value_kind, expr_type);
 
-            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
             if *value_kind == ValueKind::Variable
-                && matches!(lhs_expr_ty, Ty::Prim(Prim::String))
+                && *lhs_expr_ty == Ty::Prim(Prim::String)
                 && expr_type == &Ty::Prim(Prim::Bool)
             {
                 // Strings can only be concatenated or compared for equality, and only equality comparison
@@ -2278,7 +2282,10 @@ fn derive_intrinsic_function_application_generator_set(
             Ty::Array(_) => {
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
-            _ => ParamApplication::Element(param_compute_kind),
+            _ => ParamApplication::Element(ElemParamApplication {
+                constant: ComputeKind::Static,
+                variable: param_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }
@@ -2303,6 +2310,10 @@ fn array_param_application_from_runtime_features(
             runtime_features: runtime_features | RuntimeFeatureFlags::UseOfDynamicallySizedArray,
             value_kind,
         },
+        constant_content: ComputeKind::Dynamic {
+            runtime_features,
+            value_kind: ValueKind::Constant,
+        },
     })
 }
 
@@ -2311,10 +2322,12 @@ fn derive_instrinsic_operation_application_generator_set(
 ) -> ApplicationGeneratorSet {
     assert!(matches!(callable_context.kind, CallableKind::Operation));
 
-    // The value kind of intrinsic operations is inherently dynamic if their output is not `Unit` or `Qubit`.
-    let runtime_kind = if callable_context.output_type == Ty::UNIT
-        || callable_context.output_type == Ty::Prim(Prim::Qubit)
-    {
+    // The value kind of intrinsic operations is inherently dynamic if their output is not `Unit`, `Qubit` or `Result`.
+    let inherent_value_kind = if callable_context.output_type == Ty::UNIT
+        || matches!(
+            callable_context.output_type,
+            Ty::Prim(Prim::Qubit | Prim::Result)
+        ) {
         ValueKind::Constant
     } else {
         ValueKind::new_variable_from_type(&callable_context.output_type)
@@ -2331,7 +2344,7 @@ fn derive_instrinsic_operation_application_generator_set(
     // The compute kind of intrinsic operations is always dynamic.
     let inherent_compute_kind = ComputeKind::Dynamic {
         runtime_features: inherent_runtime_features,
-        value_kind: runtime_kind,
+        value_kind: inherent_value_kind,
     };
 
     // Determine the compute kind of all dynamic parameter applications.
@@ -2339,14 +2352,18 @@ fn derive_instrinsic_operation_application_generator_set(
         Vec::<ParamApplication>::with_capacity(callable_context.input_params.len());
     for param in &callable_context.input_params {
         // For intrinsic operations, we assume any parameter can contribute to the output, so if any parameter is
-        // dynamic the output of the operation is dynamic.
+        // dynamic the output of the operation is dynamic, unless it is of type `Result`.
         // When a parameter is bound to a dynamic value, its type contributes to the runtime features used by the
         // operation application.
         let runtime_features = derive_runtime_features_for_value_kind_associated_to_type(
             ValueKind::new_variable_from_type(&param.ty),
             &param.ty,
         );
-        let value_kind = ValueKind::new_variable_from_type(&callable_context.output_type);
+        let value_kind = if matches!(callable_context.output_type, Ty::Prim(Prim::Result)) {
+            ValueKind::Constant
+        } else {
+            ValueKind::new_variable_from_type(&callable_context.output_type)
+        };
         let param_compute_kind = ComputeKind::Dynamic {
             runtime_features,
             value_kind,
@@ -2357,7 +2374,13 @@ fn derive_instrinsic_operation_application_generator_set(
             Ty::Array(_) => {
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
-            _ => ParamApplication::Element(param_compute_kind),
+            _ => ParamApplication::Element(ElemParamApplication {
+                constant: ComputeKind::Dynamic {
+                    runtime_features: inherent_runtime_features,
+                    value_kind: inherent_value_kind,
+                },
+                variable: param_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }

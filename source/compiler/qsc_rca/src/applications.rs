@@ -33,7 +33,7 @@ impl GeneratorSetsBuilder {
         //   application. For array parameters it is a three-element vector and for the parameters of any other type it
         //   is a single-element vector.
         let mut application_instances =
-            Vec::<Vec<ApplicationInstance>>::with_capacity(input_params.len() + 1);
+            Vec::<Vec<ApplicationInstance>>::with_capacity((input_params.len() * 2) + 1);
 
         // Insert the inherent application instance.
         application_instances.push(vec![ApplicationInstance::new(
@@ -47,9 +47,10 @@ impl GeneratorSetsBuilder {
         for input_param in input_params {
             let input_param_variants = match input_param.ty {
                 Ty::Array(_) => {
-                    // For parameters of type array, two dynamic variants exist:
+                    // For parameters of type array, three dynamic variants exist:
                     // - An array with dynamic content and static size.
                     // - An array with dynamic content and dynamic size.
+                    // - An array with constant content.
                     let dynamic_content_static_size = ApplicationInstance::new(
                         input_params,
                         controls,
@@ -74,11 +75,7 @@ impl GeneratorSetsBuilder {
                             },
                         )),
                     );
-                    vec![dynamic_content_static_size, dynamic_content_dynamic_size]
-                }
-                _ => {
-                    // For non-array params, only one dynamic variant exists.
-                    vec![ApplicationInstance::new(
+                    let constant_content = ApplicationInstance::new(
                         input_params,
                         controls,
                         return_type,
@@ -86,10 +83,43 @@ impl GeneratorSetsBuilder {
                             input_param.index,
                             ComputeKind::Dynamic {
                                 runtime_features: RuntimeFeatureFlags::empty(),
-                                value_kind: ValueKind::Variable,
+                                value_kind: ValueKind::Constant,
                             },
                         )),
-                    )]
+                    );
+                    vec![
+                        dynamic_content_static_size,
+                        dynamic_content_dynamic_size,
+                        constant_content,
+                    ]
+                }
+                _ => {
+                    vec![
+                        ApplicationInstance::new(
+                            input_params,
+                            controls,
+                            return_type,
+                            Some((
+                                input_param.index,
+                                ComputeKind::Dynamic {
+                                    runtime_features: RuntimeFeatureFlags::empty(),
+                                    value_kind: ValueKind::Constant,
+                                },
+                            )),
+                        ),
+                        ApplicationInstance::new(
+                            input_params,
+                            controls,
+                            return_type,
+                            Some((
+                                input_param.index,
+                                ComputeKind::Dynamic {
+                                    runtime_features: RuntimeFeatureFlags::empty(),
+                                    value_kind: ValueKind::Variable,
+                                },
+                            )),
+                        ),
+                    ]
                 }
             };
             application_instances.push(input_param_variants);
@@ -218,6 +248,15 @@ impl GeneratorSetsBuilder {
                             .dynamic_size
                             .aggregate_value_kind(*value_kind);
                     });
+                array_compute_properties
+                    .constant_content
+                    .value_kind
+                    .iter()
+                    .for_each(|value_kind| {
+                        array_param_application
+                            .constant_content
+                            .aggregate_value_kind(*value_kind);
+                    });
             }
             crate::ParamApplication::Element(element_param_application) => {
                 let ParamApplicationComputeProperties::Element(element_compute_properties) =
@@ -226,10 +265,22 @@ impl GeneratorSetsBuilder {
                     panic!("expected an element param application");
                 };
                 element_compute_properties
+                    .constant
                     .value_kind
                     .iter()
                     .for_each(|value_kind| {
-                        element_param_application.aggregate_value_kind(*value_kind);
+                        element_param_application
+                            .constant
+                            .aggregate_value_kind(*value_kind);
+                    });
+                element_compute_properties
+                    .variable
+                    .value_kind
+                    .iter()
+                    .for_each(|value_kind| {
+                        element_param_application
+                            .variable
+                            .aggregate_value_kind(*value_kind);
                     });
             }
         }
@@ -245,8 +296,8 @@ impl GeneratorSetsBuilder {
     }
 
     fn close_param(&mut self, param_index: InputParamIndex) -> ParamApplicationComputeProperties {
-        const DYNAMIC_ELEMENTS_PARAM_VARIANTS: usize = 1;
-        const DYNAMIC_ARRAY_PARAM_VARIANTS: usize = 2;
+        const DYNAMIC_ELEMENTS_PARAM_VARIANTS: usize = 2;
+        const DYNAMIC_ARRAY_PARAM_VARIANTS: usize = 3;
 
         // We need to offset the index since the first top-level vector in application instances is reserved for the
         // inherent variant.
@@ -257,14 +308,26 @@ impl GeneratorSetsBuilder {
 
         // The kind of parameter application we create depends on the number of variants that the parameter has.
         if variants.len() == DYNAMIC_ELEMENTS_PARAM_VARIANTS {
-            let application_instance = variants
+            // IMPORTANT: the position of each application instance in the variants vector has a specific meaning, so
+            // we need the order of pops to remain consistent.
+            let variable_application_instance = variants
                 .pop()
                 .expect("element parameter application instance could not be popped");
-            let compute_properties = application_instance.close();
-            ParamApplicationComputeProperties::Element(compute_properties)
+            let constant_application_instance = variants
+                .pop()
+                .expect("element parameter application instance could not be popped");
+            ParamApplicationComputeProperties::Element(Box::new(
+                ElemParamApplicationComputeProperties {
+                    constant: constant_application_instance.close(),
+                    variable: variable_application_instance.close(),
+                },
+            ))
         } else if variants.len() == DYNAMIC_ARRAY_PARAM_VARIANTS {
             // IMPORTANT: the position of each application instance in the variants vector has a specific meaning, so
             // we need the order of pops to remain consistent.
+            let constant_content_application_instance = variants
+                .pop()
+                .expect("array parameter application instance could not be popped");
             let dynamic_size_application_instance = variants
                 .pop()
                 .expect("array parameter application instance could not be popped");
@@ -275,6 +338,7 @@ impl GeneratorSetsBuilder {
                 ArrayParamApplicationComputeProperties {
                     static_size: static_size_application_instance.close(),
                     dynamic_size: dynamic_size_application_instance.close(),
+                    constant_content: constant_content_application_instance.close(),
                 },
             ))
         } else {
@@ -647,7 +711,7 @@ impl ApplicationInstanceComputeProperties {
 }
 
 enum ParamApplicationComputeProperties {
-    Element(ApplicationInstanceComputeProperties),
+    Element(Box<ElemParamApplicationComputeProperties>),
     Array(Box<ArrayParamApplicationComputeProperties>),
 }
 
@@ -655,23 +719,33 @@ impl ParamApplicationComputeProperties {
     fn remove_item(&mut self, item: ApplicationInstanceItem) -> crate::ParamApplication {
         match self {
             Self::Element(compute_properties) => {
-                let compute_kind = compute_properties.remove(item);
-                crate::ParamApplication::Element(compute_kind)
+                // let compute_kind = compute_properties.remove(item);
+                let constant = compute_properties.constant.remove(item);
+                let variable = compute_properties.variable.remove(item);
+                crate::ParamApplication::Element(crate::ElemParamApplication { constant, variable })
             }
             Self::Array(array_param) => {
-                let dynamic_content_static_size = array_param.static_size.remove(item);
-                let dynamic_content_dynamic_size = array_param.dynamic_size.remove(item);
+                let static_size = array_param.static_size.remove(item);
+                let dynamic_size = array_param.dynamic_size.remove(item);
+                let constant_content = array_param.constant_content.remove(item);
                 crate::ParamApplication::Array(crate::ArrayParamApplication {
-                    static_size: dynamic_content_static_size,
-                    dynamic_size: dynamic_content_dynamic_size,
+                    static_size,
+                    dynamic_size,
+                    constant_content,
                 })
             }
         }
     }
 }
 
+struct ElemParamApplicationComputeProperties {
+    constant: ApplicationInstanceComputeProperties,
+    variable: ApplicationInstanceComputeProperties,
+}
+
 #[allow(clippy::struct_field_names)]
 struct ArrayParamApplicationComputeProperties {
     static_size: ApplicationInstanceComputeProperties,
     dynamic_size: ApplicationInstanceComputeProperties,
+    constant_content: ApplicationInstanceComputeProperties,
 }
