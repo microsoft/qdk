@@ -1,4 +1,6 @@
 namespace Kata {
+    import Std.Convert.*;
+
     import Std.Arrays.*;
 
     operation PeriodicState(qs : Qubit[], F : Int) : Unit is Adj + Ctl {
