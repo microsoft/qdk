@@ -144,10 +144,8 @@ impl Scope {
                     Arg::Discard(value) => value,
                     Arg::Var(_, var) => &var.value,
                 };
-                ComputeKind::Dynamic {
-                    runtime_features: RuntimeFeatureFlags::empty(),
-                    value_kind: map_eval_value_to_value_kind(value),
-                }
+
+                map_eval_value_to_compute_kind(value)
             })
             .collect();
 
@@ -296,28 +294,60 @@ impl EvalControlFlow {
     }
 }
 
-fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
+fn map_eval_value_to_compute_kind(value: &Value) -> ComputeKind {
     match value {
         Value::Array(elements) => {
+            let mut dynamic_count = 0;
             for element in elements.iter() {
-                let element_runtime_kind = map_eval_value_to_value_kind(element);
-                if element_runtime_kind == ValueKind::Variable {
-                    return ValueKind::Variable;
+                let element_compute_kind = map_eval_value_to_compute_kind(element);
+                if let ComputeKind::Dynamic { value_kind, .. } = element_compute_kind {
+                    if value_kind == ValueKind::Variable {
+                        // A dynamic variable in an array makes the whole array dynamic and variable.
+                        return element_compute_kind;
+                    }
+                    dynamic_count += 1;
                 }
             }
-
-            ValueKind::Constant
+            if dynamic_count > 0 {
+                // If there are any dynamic constant elements, the array is dynamic and constant.
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: ValueKind::Constant,
+                }
+            } else {
+                ComputeKind::Static
+            }
         }
         Value::Tuple(elements, _) => {
+            let mut dynamic_count = 0;
             for element in elements.iter() {
-                let element_runtime_kind = map_eval_value_to_value_kind(element);
-                if element_runtime_kind == ValueKind::Variable {
-                    return ValueKind::Variable;
+                let element_compute_kind = map_eval_value_to_compute_kind(element);
+                if let ComputeKind::Dynamic { value_kind, .. } = element_compute_kind {
+                    if value_kind == ValueKind::Variable {
+                        // A dynamic variable in a tuple makes the whole tuple dynamic and variable.
+                        return element_compute_kind;
+                    }
+                    dynamic_count += 1;
                 }
             }
-            ValueKind::Constant
+            if dynamic_count > 0 {
+                // If there are any dynamic constant elements, the tuple is dynamic and constant.
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: ValueKind::Constant,
+                }
+            } else {
+                ComputeKind::Static
+            }
         }
-        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Variable,
+        Value::Result(Result::Loss) | Value::Var(_) => ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::empty(),
+            value_kind: ValueKind::Variable,
+        },
+        Value::Qubit(_) | Value::Result(Result::Id(_)) => ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::empty(),
+            value_kind: ValueKind::Constant,
+        },
         Value::BigInt(_)
         | Value::Bool(_)
         | Value::Closure(_)
@@ -325,9 +355,8 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Global(_, _)
         | Value::Int(_)
         | Value::Pauli(_)
-        | Value::Qubit(_)
         | Value::Range(_)
         | Value::Result(Result::Val(_))
-        | Value::String(_) => ValueKind::Constant,
+        | Value::String(_) => ComputeKind::Static,
     }
 }

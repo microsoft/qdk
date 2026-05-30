@@ -83,7 +83,7 @@ pub fn get_partial_evaluation_error_with_capabilities(
         },
     );
     match maybe_program {
-        Ok(_) => panic!("partial evaluation succeeded"),
+        Ok(program) => panic!("partial evaluation succeeded: {program}"),
         Err(error) => error,
     }
 }

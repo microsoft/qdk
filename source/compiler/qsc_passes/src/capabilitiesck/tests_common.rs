@@ -528,3 +528,15 @@ pub const DYNAMIC_ARRAY_BINARY_OP: &str = r#"
         MResetEachZ(qs) == [Zero, Zero];
     }
 "#;
+
+pub const DYNAMIC_RESULT_LITERAL: &str = r#"
+    namespace Test {
+        operation Foo() : Result {
+            use q = Qubit();
+            if M(q) == One {
+                One
+            } else {
+                M(q)
+            }
+        }
+    }"#;

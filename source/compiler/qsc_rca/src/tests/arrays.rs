@@ -34,7 +34,7 @@ fn check_rca_for_array_with_dynamic_results() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -89,7 +89,7 @@ fn check_rca_for_array_repeat_with_dynamic_result_value_and_classical_size() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -179,7 +179,7 @@ fn check_rca_for_mutable_array_statically_appended() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -522,7 +522,7 @@ fn check_rca_for_array_with_static_size_bound_through_dynamic_tuple() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }

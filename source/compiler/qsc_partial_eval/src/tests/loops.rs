@@ -1611,6 +1611,118 @@ fn result_array_index_range_in_for_loop_unrolled() {
 }
 
 #[test]
+fn result_array_index_range_in_for_loop() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use qs = Qubit[2];
+                let results = MResetEachZ(qs);
+                mutable count = 0;
+                for i in Std.Arrays.IndexRange(results) {
+                    if results[i] == One {
+                        set count += 1;
+                    }
+                }
+                count
+            }
+        }
+    "#},
+        Profile::AdaptiveRIFLA.into(),
+    );
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: __quantum__qis__mresetz__body
+                    call_type: Measurement
+                    input_type:
+                        [0]: Qubit
+                        [1]: Result
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 3: Callable:
+                    name: __quantum__rt__read_result
+                    call_type: Readout
+                    input_type:
+                        [0]: Result
+                    output_type: Boolean
+                    body: <NONE>
+                Callable 4: Callable:
+                    name: __quantum__rt__int_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Call id(1), args( Pointer, )
+                    Variable(0, Integer) = Store Integer(0)
+                    Variable(0, Integer) = Store Integer(1)
+                    Variable(0, Integer) = Store Integer(2)
+                    Variable(1, Integer) = Store Integer(0)
+                    Call id(2), args( Qubit(0), Result(0), )
+                    Variable(1, Integer) = Store Integer(1)
+                    Call id(2), args( Qubit(1), Result(1), )
+                    Variable(1, Integer) = Store Integer(2)
+                    Variable(2, Integer) = Store Integer(0)
+                    Variable(3, Integer) = Store Integer(0)
+                    Jump(1)
+                Block 1: Block:
+                    Variable(4, Boolean) = Icmp Sle, Variable(3, Integer), Integer(1)
+                    Variable(5, Boolean) = Store Bool(true)
+                    Branch Variable(4, Boolean), 3, 4
+                Block 2: Block:
+                    Variable(11, Integer) = Store Variable(2, Integer)
+                    Call id(4), args( Variable(11, Integer), Tag(0, 3), )
+                    Return
+                Block 3: Block:
+                    Branch Variable(5, Boolean), 5, 2
+                Block 4: Block:
+                    Variable(5, Boolean) = Store Bool(false)
+                    Jump(3)
+                Block 5: Block:
+                    Variable(6, Result) = Index Array(0), Variable(3, Integer)
+                    Variable(7, Boolean) = Call id(3), args( Variable(6, Result), )
+                    Variable(8, Boolean) = Store Variable(7, Boolean)
+                    Branch Variable(8, Boolean), 7, 6
+                Block 6: Block:
+                    Variable(10, Integer) = Add Variable(3, Integer), Integer(1)
+                    Variable(3, Integer) = Store Variable(10, Integer)
+                    Jump(1)
+                Block 7: Block:
+                    Variable(9, Integer) = Add Variable(2, Integer), Integer(1)
+                    Variable(2, Integer) = Store Variable(9, Integer)
+                    Jump(6)
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+            num_qubits: 2
+            num_results: 2
+            tags:
+                [0]: 0_i
+            array_literals:
+                [0]: [Result(0), Result(1)]
+    "#]].assert_eq(&program.to_string());
+}
+
+#[test]
 fn dynamic_while_loop() {
     let program = get_rir_program_with_capabilities(
         indoc! {

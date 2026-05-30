@@ -64,7 +64,7 @@ fn immutable_result_binding_does_not_generate_store_instruction() {
 }
 
 #[test]
-fn mutable_result_binding_does_not_generate_store_instruction() {
+fn mutable_result_binding_generates_store_instruction() {
     let program = get_rir_program(indoc! {r#"
         namespace Test {
             @EntryPoint()
@@ -109,6 +109,7 @@ fn mutable_result_binding_does_not_generate_store_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Result) = Store Result(0)
                 Call id(3), args( Result(0), Tag(0, 3), )
                 Return"#]],
     );

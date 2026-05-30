@@ -191,7 +191,7 @@ fn check_rca_for_operation_lambda_two_parameters() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }

@@ -14,6 +14,9 @@ mod tests_adaptive_plus_integers;
 mod tests_adaptive_plus_integers_and_floats;
 
 #[cfg(test)]
+mod tests_adaptive_plus_integers_and_floats_and_loops;
+
+#[cfg(test)]
 pub mod tests_common;
 
 use qsc_data_structures::{span::Span, target::TargetCapabilityFlags};

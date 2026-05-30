@@ -109,3 +109,53 @@ fn check_rca_for_if_else_expr_with_dynamic_condition_and_classic_branch_blocks()
                 dynamic_param_applications: <empty>"#]],
     );
 }
+
+#[test]
+fn check_rca_for_if_else_expr_with_static_result_literal_in_then_block() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let r = if M(q) == One {
+            One
+        } else {
+            M(q)
+        };
+        r"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | UseOfDynamicResult | UseOfStaticResultInVariable)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_if_else_expr_with_static_result_literal_in_else_block() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let r = if M(q) == One {
+            M(q)
+        } else {
+            Zero
+        };
+        r"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | UseOfDynamicResult | UseOfStaticResultInVariable)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}

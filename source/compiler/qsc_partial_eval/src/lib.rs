@@ -604,9 +604,15 @@ impl<'a> PartialEvaluator<'a> {
                 rhs_expr_id,
                 bin_op_expr_span,
             ),
-            Value::Result(lhs_result) => self.eval_bin_op_with_lhs_result_operand(
+            Value::Result(_) => self.eval_bin_op_with_lhs_result_operand(
                 bin_op,
-                lhs_result,
+                &lhs_value,
+                rhs_expr_id,
+                bin_op_expr_span,
+            ),
+            Value::Var(v) if v.ty == VarTy::Result => self.eval_bin_op_with_lhs_result_operand(
+                bin_op,
+                &lhs_value,
                 rhs_expr_id,
                 bin_op_expr_span,
             ),
@@ -645,6 +651,33 @@ impl<'a> PartialEvaluator<'a> {
                     ));
                 };
                 Ok(EvalControlFlow::Continue(rhs_value))
+            }
+            Value::Pauli(p) => {
+                let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
+                let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
+                    return Err(Error::Unexpected(
+                        "embedded return in RHS expression".to_string(),
+                        self.get_expr_package_span(rhs_expr_id),
+                    ));
+                };
+                match bin_op {
+                    BinOp::Eq => {
+                        let Value::Pauli(rhs_pauli) = rhs_value else {
+                            panic!("expected pauli value from RHS expression");
+                        };
+                        Ok(EvalControlFlow::Continue(Value::Bool(p == rhs_pauli)))
+                    }
+                    BinOp::Neq => {
+                        let Value::Pauli(rhs_pauli) = rhs_value else {
+                            panic!("expected pauli value from RHS expression");
+                        };
+                        Ok(EvalControlFlow::Continue(Value::Bool(p != rhs_pauli)))
+                    }
+                    _ => Err(Error::Unimplemented(
+                        "pauli binary operation".to_string(),
+                        bin_op_expr_span,
+                    )),
+                }
             }
             _ => Err(Error::Unexpected(
                 format!("unsupported LHS value: {lhs_value}"),
@@ -696,7 +729,7 @@ impl<'a> PartialEvaluator<'a> {
     fn eval_bin_op_with_lhs_result_operand(
         &mut self,
         bin_op: BinOp,
-        lhs_result: val::Result,
+        lhs_value: &Value,
         rhs_expr_id: ExprId,
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<EvalControlFlow, Error> {
@@ -707,9 +740,6 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(rhs_expr_id),
             ));
         };
-        let Value::Result(rhs_result) = rhs_value else {
-            panic!("expected result value from RHS expression");
-        };
 
         // Even though to get to this path, an expression would have to be categorized as hybrid by RCA, it is
         // possible that the expression is in fact purely classical.
@@ -717,8 +747,10 @@ impl<'a> PartialEvaluator<'a> {
         // dynamic values. In such instances, RCA identifies all the contents of the data structure as dynamic even if
         // some values are static.
         // Here we handle this case and if both operands are purely classical we evaluate them.
-        if let (val::Result::Val(lhs_result_value), val::Result::Val(rhs_result_value)) =
-            (lhs_result, rhs_result)
+        if let (
+            Value::Result(val::Result::Val(lhs_result_value)),
+            Value::Result(val::Result::Val(rhs_result_value)),
+        ) = (lhs_value, &rhs_value)
         {
             let bool_value = match bin_op {
                 BinOp::Eq => lhs_result_value == rhs_result_value,
@@ -734,8 +766,8 @@ impl<'a> PartialEvaluator<'a> {
         }
 
         // Get the operands to use when generating the binary operation instruction.
-        let lhs_operand = self.eval_result_as_bool_operand(lhs_result);
-        let rhs_operand = self.eval_result_as_bool_operand(rhs_result);
+        let lhs_operand = self.eval_result_as_bool_operand(lhs_value);
+        let rhs_operand = self.eval_result_as_bool_operand(&rhs_value);
 
         // Create a variable to store the result of the expression.
         let variable_id = self.resource_manager.next_var();
@@ -1155,7 +1187,7 @@ impl<'a> PartialEvaluator<'a> {
                     bin_op_expr_span,
                 )
             }
-            VarTy::Qubit => Err(Error::Unexpected(
+            VarTy::Qubit | VarTy::Result => Err(Error::Unexpected(
                 format!(
                     "unsupported LHS variable type {} in binary operation",
                     lhs_eval_var.ty
@@ -1822,14 +1854,7 @@ impl<'a> PartialEvaluator<'a> {
                     callee_expr_span,
                 ))
             }
-            "IntAsDouble" => {
-                let variable_id = self.resource_manager.next_var();
-                self.convert_value(&args_value, rir::Variable::new_double(variable_id))
-            }
-            "Truncate" => {
-                let variable_id = self.resource_manager.next_var();
-                self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
-            }
+            "IntAsDouble" | "Truncate" => self.convert_value(&args_value, args_span),
             _ => self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
                 callable_decl,
@@ -1887,8 +1912,11 @@ impl<'a> PartialEvaluator<'a> {
         let ret_val = match output_var {
             None => Value::unit(),
             Some(output_var) => {
-                if output_var.ty == rir::Ty::Prim(rir::Prim::Qubit) {
-                    // We don't actually accept custom intrinsics that return qubits, so emit an error here.
+                if matches!(
+                    output_var.ty,
+                    rir::Ty::Prim(rir::Prim::Qubit | rir::Prim::Result)
+                ) {
+                    // We don't actually accept custom intrinsics that return qubits or results, so emit an error here.
                     return Err(Error::UnsupportedCustomIntrinsicType(
                         callable_decl.output.to_string(),
                         callee_expr_span,
@@ -2246,14 +2274,6 @@ impl<'a> PartialEvaluator<'a> {
             ));
         };
 
-        // Get the variable type corresponding to the value the unary operator acts upon.
-        let Some(eval_variable_type) = try_get_eval_var_type(&value) else {
-            return Err(Error::Unexpected(
-                format!("invalid type for unary operation value: {value}"),
-                value_expr_package_span,
-            ));
-        };
-
         // The leading positive operator is a no-op.
         if matches!(un_op, UnOp::Pos) {
             let control_flow = EvalControlFlow::Continue(value);
@@ -2269,6 +2289,14 @@ impl<'a> PartialEvaluator<'a> {
         // For all the other supported unary operations we have to generate an instruction, so create a variable to
         // store the result.
         let variable_id = self.resource_manager.next_var();
+
+        // Get the variable type corresponding to the value the unary operator acts upon.
+        let Some(eval_variable_type) = try_get_eval_var_type(&value) else {
+            return Err(Error::Unexpected(
+                format!("invalid type for unary operation value: {value}"),
+                value_expr_package_span,
+            ));
+        };
         let rir_variable_type = map_eval_var_type_to_rir_type(eval_variable_type);
         let rir_variable = rir::Variable {
             variable_id,
@@ -2370,7 +2398,7 @@ impl<'a> PartialEvaluator<'a> {
                                 .capabilities
                                 .contains(TargetCapabilityFlags::BackwardsBranching))
                     {
-                        map_rir_literal_to_eval_value(*literal)
+                        map_rir_literal_to_eval_value(*literal, var.ty)
                     } else {
                         bound_value.clone()
                     }
@@ -2538,36 +2566,43 @@ impl<'a> PartialEvaluator<'a> {
         Ok(EvalControlFlow::Continue(Value::unit()))
     }
 
-    fn eval_result_as_bool_operand(&mut self, result: val::Result) -> Operand {
-        match result {
-            val::Result::Id(id) => {
-                // If this is a result ID, generate the instruction to read it.
-                let result_operand = Operand::Literal(Literal::Result(
-                    id.try_into().expect("could not convert result ID to u32"),
-                ));
-                let read_result_callable_id =
-                    self.get_or_insert_callable(builder::read_result_decl());
-                let variable_id = self.resource_manager.next_var();
-                let variable_ty = rir::Ty::Prim(rir::Prim::Boolean);
-                let variable = rir::Variable {
-                    variable_id,
-                    ty: variable_ty,
-                };
-                // Current debug location should be set to the call expression currently being evaluated.
-                let metadata = self.metadata_from_current_dbg_location();
-                let current_block = self.get_current_rir_block_mut();
-                let instruction = Instruction::Call(
-                    read_result_callable_id,
-                    vec![result_operand],
-                    Some(variable),
-                    metadata,
-                );
-                current_block.0.push(instruction);
-                Operand::Variable(variable)
+    fn eval_result_as_bool_operand(&mut self, result: &Value) -> Operand {
+        let result_operand = match result {
+            Value::Result(val::Result::Id(id)) => Operand::Literal(Literal::Result(
+                (*id)
+                    .try_into()
+                    .expect("could not convert result ID to u32"),
+            )),
+            Value::Var(v) if v.ty == VarTy::Result => {
+                Operand::Variable(map_eval_var_to_rir_var(*v))
             }
-            val::Result::Val(bool) => Operand::Literal(Literal::Bool(bool)),
-            val::Result::Loss => panic!("loss result should not occur in partial evaluation"),
-        }
+            Value::Result(val::Result::Val(bool)) => return Operand::Literal(Literal::Bool(*bool)),
+            Value::Result(val::Result::Loss) => {
+                panic!("loss result should not occur in partial evaluation")
+            }
+            _ => unreachable!(
+                "result eval value should be result id or result variable, found: {result:?}"
+            ),
+        };
+        // Generate the instruction to read the result.
+        let read_result_callable_id = self.get_or_insert_callable(builder::read_result_decl());
+        let variable_id = self.resource_manager.next_var();
+        let variable_ty = rir::Ty::Prim(rir::Prim::Boolean);
+        let variable = rir::Variable {
+            variable_id,
+            ty: variable_ty,
+        };
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
+        let current_block = self.get_current_rir_block_mut();
+        let instruction = Instruction::Call(
+            read_result_callable_id,
+            vec![result_operand],
+            Some(variable),
+            metadata,
+        );
+        current_block.0.push(instruction);
+        Operand::Variable(variable)
     }
 
     fn generate_instructions_for_binary_operation_with_double_operands(
@@ -2975,6 +3010,12 @@ impl<'a> PartialEvaluator<'a> {
         // Check if we can create a mutable variable for this value.
         let var_ty = try_get_eval_var_type(value)?;
 
+        // If the value is a result literal, we skip creating a mutable variable as these are not
+        // representable in QIR.
+        if var_ty == VarTy::Result && matches!(value, Value::Result(val::Result::Val(_))) {
+            return None;
+        }
+
         // Create an evaluator variable and insert it.
         let var_id = self.resource_manager.next_var();
         let eval_var = Var {
@@ -3314,15 +3355,38 @@ impl<'a> PartialEvaluator<'a> {
     fn convert_value(
         &mut self,
         args_value: &Value,
-        variable: rir::Variable,
+        args_span: PackageSpan,
     ) -> Result<Value, Error> {
-        let instruction =
-            Instruction::Convert(self.map_eval_value_to_rir_operand(args_value), variable);
-        let current_block = self.get_current_rir_block_mut();
-        current_block.0.push(instruction);
-        Ok(Value::Var(
-            map_rir_var_to_eval_var(variable).expect("variable should convert"),
-        ))
+        match args_value {
+            Value::Var(var) => {
+                let variable_id = self.resource_manager.next_var();
+                let variable = match var.ty {
+                    VarTy::Double => rir::Variable::new_integer(variable_id),
+                    VarTy::Integer => rir::Variable::new_double(variable_id),
+                    _ => {
+                        return Err(Error::Unimplemented(
+                            format!("unsupported variable type in conversion {:?}", var.ty),
+                            args_span,
+                        ));
+                    }
+                };
+                let instruction =
+                    Instruction::Convert(self.map_eval_value_to_rir_operand(args_value), variable);
+                let current_block = self.get_current_rir_block_mut();
+                current_block.0.push(instruction);
+                Ok(Value::Var(
+                    map_rir_var_to_eval_var(variable).expect("variable should convert"),
+                ))
+            }
+            #[allow(clippy::cast_precision_loss)]
+            Value::Int(i) => Ok(Value::Double(*i as f64)),
+            #[allow(clippy::cast_possible_truncation)]
+            Value::Double(d) => Ok(Value::Int(*d as i64)),
+            _ => Err(Error::Unimplemented(
+                format!("unsupported value type in conversion {args_value:?}"),
+                args_span,
+            )),
+        }
     }
 
     fn update_bindings(&mut self, lhs_expr_id: ExprId, rhs_value: Value) -> Result<(), Error> {
@@ -3388,8 +3452,14 @@ impl<'a> PartialEvaluator<'a> {
             // Insert a store instruction when the value of a variable is updated.
             let rhs_operand = self.map_eval_value_to_rir_operand(&value);
             let rir_var = map_eval_var_to_rir_var(*var);
-            let store_ins = Instruction::Store(rhs_operand, rir_var);
-            self.get_current_rir_block_mut().0.push(store_ins);
+
+            // We only want to emit a store instruction if that does not involve storing a boolean literal into a result variable.
+            // Result literals are rendered as boolean but are not expected to be emitted into the RIR, as QIR does not support the notion
+            // of a result literal.
+            if !(var.ty == VarTy::Result && matches!(value, Value::Result(val::Result::Val(_)))) {
+                let store_ins = Instruction::Store(rhs_operand, rir_var);
+                self.get_current_rir_block_mut().0.push(store_ins);
+            }
 
             // If this is a mutable variable, make sure to update whether it is static or dynamic.
             let current_scope = self.eval_context.get_current_scope_mut();
@@ -3547,6 +3617,7 @@ impl<'a> PartialEvaluator<'a> {
             Ty::Prim(Prim::Bool) => (self.get_bool_record_callable(), "b"),
             Ty::Prim(Prim::Int) => (self.get_int_record_callable(), "i"),
             Ty::Prim(Prim::Double) => (self.get_double_record_callable(), "d"),
+            Ty::Prim(Prim::Result) => (self.get_result_record_callable(), "r"),
             _ => panic!("unsupported variable type in output recording"),
         };
         let tag = format!("{idx}_{tag_root}{tag_ty}");
@@ -4130,13 +4201,6 @@ fn eval_bin_op_with_double_literals(
     rhs_literal: Literal,
     bin_op_expr_span: PackageSpan, // For diagnostic purposes only
 ) -> Result<Value, Error> {
-    fn eval_double_div(lhs: f64, rhs: f64, span: PackageSpan) -> Result<Value, Error> {
-        match (lhs, rhs) {
-            (_, 0.0) => Err(EvalError::DivZero(span).into()),
-            (lhs, rhs) => Ok(Value::Double(lhs / rhs)),
-        }
-    }
-
     // Validate that both literals are doubles.
     let (Literal::Double(lhs), Literal::Double(rhs)) = (lhs_literal, rhs_literal) else {
         panic!("at least one literal is not an double: {lhs_literal}, {rhs_literal}");
@@ -4160,7 +4224,14 @@ fn eval_bin_op_with_double_literals(
         BinOp::Add => Ok(Value::Double(lhs + rhs)),
         BinOp::Sub => Ok(Value::Double(lhs - rhs)),
         BinOp::Mul => Ok(Value::Double(lhs * rhs)),
-        BinOp::Div => eval_double_div(lhs, rhs, bin_op_expr_span),
+        BinOp::Div => match (lhs, rhs) {
+            (_, 0.0) => Err(EvalError::DivZero(bin_op_expr_span).into()),
+            (lhs, rhs) => Ok(Value::Double(lhs / rhs)),
+        },
+        BinOp::Mod => match (lhs, rhs) {
+            (_, 0.0) => Err(EvalError::DivZero(bin_op_expr_span).into()),
+            (lhs, rhs) => Ok(Value::Double(lhs % rhs)),
+        },
         _ => panic!("invalid double operator: {bin_op:?}"),
     }
 }
@@ -4254,6 +4325,7 @@ fn map_eval_var_type_to_rir_type(var_ty: VarTy) -> rir::Ty {
         VarTy::Integer => rir::Ty::Prim(rir::Prim::Integer),
         VarTy::Double => rir::Ty::Prim(rir::Prim::Double),
         VarTy::Qubit => rir::Ty::Prim(rir::Prim::Qubit),
+        VarTy::Result => rir::Ty::Prim(rir::Prim::Result),
     }
 }
 
@@ -4268,11 +4340,16 @@ fn map_fir_type_to_rir_type(ty: &Ty) -> Result<rir::Ty, String> {
     }
 }
 
-fn map_rir_literal_to_eval_value(literal: rir::Literal) -> Value {
+fn map_rir_literal_to_eval_value(literal: rir::Literal, var_ty: VarTy) -> Value {
     match literal {
-        rir::Literal::Bool(b) => Value::Bool(b),
+        rir::Literal::Bool(b) => match var_ty {
+            VarTy::Boolean => Value::Bool(b),
+            VarTy::Result => Value::Result(val::Result::Val(b)),
+            _ => panic!("Incompatible literal and variable types: {literal}, {var_ty}"),
+        },
         rir::Literal::Double(d) => Value::Double(d),
         rir::Literal::Integer(i) => Value::Int(i),
+        rir::Literal::Result(r) => Value::Result(val::Result::Id(r as usize)),
         _ => panic!("{literal:?} RIR literal cannot be mapped to evaluator value"),
     }
 }
@@ -4290,6 +4367,7 @@ fn map_rir_type_to_eval_var_type(ty: rir::Ty) -> Result<VarTy, ()> {
         rir::Ty::Prim(rir::Prim::Integer) => Ok(VarTy::Integer),
         rir::Ty::Prim(rir::Prim::Double) => Ok(VarTy::Double),
         rir::Ty::Prim(rir::Prim::Qubit) => Ok(VarTy::Qubit),
+        rir::Ty::Prim(rir::Prim::Result) => Ok(VarTy::Result),
         _ => Err(()),
     }
 }
@@ -4300,6 +4378,7 @@ fn try_get_eval_var_type(value: &Value) -> Option<VarTy> {
         Value::Int(_) => Some(VarTy::Integer),
         Value::Double(_) => Some(VarTy::Double),
         Value::Qubit(_) => Some(VarTy::Qubit),
+        Value::Result(_) => Some(VarTy::Result),
         Value::Var(var) => Some(var.ty),
         _ => None,
     }

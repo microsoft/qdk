@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ParamApplication,
-    RuntimeFeatureFlags, ValueKind, common::LocalSpecId, cycle_detection::CycleDetector,
-    scaffolding::InternalPackageStoreComputeProperties,
+    ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ElemParamApplication,
+    ParamApplication, RuntimeFeatureFlags, ValueKind, common::LocalSpecId,
+    cycle_detection::CycleDetector, scaffolding::InternalPackageStoreComputeProperties,
 };
 use qsc_fir::{
     extensions::InputParam,
@@ -151,14 +151,22 @@ impl<'a> Analyzer<'a> {
                 runtime_features: RuntimeFeatureFlags::CallToCyclicFunctionWithDynamicArg,
                 value_kind,
             };
+            let constant_compute_kind = ComputeKind::Dynamic {
+                runtime_features: RuntimeFeatureFlags::CallToCyclicFunctionWithDynamicArg,
+                value_kind: ValueKind::Constant,
+            };
 
             // Create a parameter application depending on the parameter type.
             let param_application = match &param.ty {
                 Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
                     static_size: param_compute_kind,
                     dynamic_size: param_compute_kind,
+                    constant_content: constant_compute_kind,
                 }),
-                _ => ParamApplication::Element(param_compute_kind),
+                _ => ParamApplication::Element(ElemParamApplication {
+                    constant: constant_compute_kind,
+                    variable: param_compute_kind,
+                }),
             };
             dynamic_param_applications.push(param_application);
         }
@@ -281,6 +289,10 @@ fn create_operation_specialization_application_generator_set(
         runtime_features: RuntimeFeatureFlags::CyclicOperationSpec,
         value_kind,
     };
+    let constant_compute_kind = ComputeKind::Dynamic {
+        runtime_features: RuntimeFeatureFlags::CyclicOperationSpec,
+        value_kind: ValueKind::Constant,
+    };
 
     // The compute kind of a cyclic operation for all dynamic parameter applications is the same as its inherent
     // compute kind.
@@ -291,8 +303,12 @@ fn create_operation_specialization_application_generator_set(
             Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
                 static_size: inherent_compute_kind,
                 dynamic_size: inherent_compute_kind,
+                constant_content: constant_compute_kind,
             }),
-            _ => ParamApplication::Element(inherent_compute_kind),
+            _ => ParamApplication::Element(ElemParamApplication {
+                constant: constant_compute_kind,
+                variable: inherent_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }

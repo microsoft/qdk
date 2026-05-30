@@ -52,6 +52,7 @@ impl<'a> Overrider<'a> {
                                 runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
                                 value_kind: ValueKind::Variable,
                             },
+                            constant_content: ComputeKind::Static,
                         },
                     )],
                 },

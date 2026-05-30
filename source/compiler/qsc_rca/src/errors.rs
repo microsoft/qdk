@@ -252,6 +252,14 @@ pub enum Error {
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-generic"))]
     #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicGeneric"))]
     UseOfDynamicGeneric(#[label] Span),
+
+    #[error("cannot use a Result literal as output from a dynamic scope")]
+    #[diagnostic(help(
+        "using the static Result values `One` and `Zero` as the output of a dynamic branch is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-static-result-in-variable"))]
+    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfStaticResultInVariable"))]
+    UseOfStaticResultInVariable(#[label] Span),
 }
 
 #[must_use]
@@ -355,6 +363,9 @@ pub fn generate_errors_from_runtime_features(
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
         errors.push(Error::UseOfDynamicGeneric(span));
+    }
+    if runtime_features.contains(RuntimeFeatureFlags::UseOfStaticResultInVariable) {
+        errors.push(Error::UseOfStaticResultInVariable(span));
     }
     errors
 }
