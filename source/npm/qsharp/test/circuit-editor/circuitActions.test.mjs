@@ -4676,3 +4676,343 @@ test("moveOperation: stamp persists for a control-leg move on a group (B10 + B11
     "control-leg move on a group must still stamp the prev-location for ViewState transfer",
   );
 });
+
+// ---------------------------------------------------------------
+// B6 regression — shift-extend "cross-over" cases.
+//
+// When a group is shift-extended onto a wire past an external
+// sibling sitting on an in-between wire, the cascade must split
+// the outer column so the in-between sibling slides one column to
+// the right of the now-widened group. The dragController suppresses
+// "direct collision" dropzones (drop wire IS occupied) via
+// `getOuterColumnSiblingWires`; everything else is the action
+// layer's job.
+//
+// Earlier extend tests (`extending across a column-sibling`,
+// `multiple column-siblings all survive the split`) cover the
+// simple-gate sibling case. These pin the case where the in-between
+// sibling is itself a multi-wire op (group / SWAP-like), to make
+// sure `_resolveOverlapAfterExtend` doesn't only handle 1-wire
+// siblings.
+// ---------------------------------------------------------------
+
+test("moveOperation extend (B6): cross-over a GROUP sibling splits the column, leaving both groups intact", () => {
+  // 5 qubits. Column 0 = [Foo(span 0-1 with H@0, X@1), Bar(span
+  // 3-4 with Y@3, Z@4)]. Both are groups, neither overlaps the
+  // other. User shift-drops H from inside Foo to Foo's trailing
+  // inner-column at wire 4 — Foo widens to enclose wire 4, which
+  // makes Foo's [1, 4] span overlap Bar's [3, 4] span. Expected:
+  // column splits, Foo alone at new col 0, Bar at col 1, both
+  // groups keep their children intact.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+          {
+            kind: "unitary",
+            gate: "Bar",
+            targets: [{ qubit: 3 }, { qubit: 4 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "Y", targets: [{ qubit: 3 }] },
+                  { kind: "unitary", gate: "Z", targets: [{ qubit: 4 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // H lives at "0,0-0,0". Shift-drop to Foo's trailing inner-col
+  // "0,0-1,0" at wire 4.
+  const moved = moveOperation(model, "0,0-0,0", "0,0-1,0", 0, 4, false, false);
+  assert.ok(moved);
+
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    `expected 2 top-level columns after split; got ${model.componentGrid.length}`,
+  );
+
+  const col0Gates = model.componentGrid[0].components.map(
+    (/** @type {any} */ op) => op.gate,
+  );
+  const col1Gates = model.componentGrid[1].components.map(
+    (/** @type {any} */ op) => op.gate,
+  );
+  assert.deepEqual(col0Gates, ["Foo"]);
+  assert.deepEqual(col1Gates, ["Bar"]);
+
+  // Foo's widened targets must include wire 4 (justifying the split).
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const fooWires = fooOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.ok(
+    fooWires.includes(4),
+    `Foo must enclose wire 4; got ${JSON.stringify(fooWires)}`,
+  );
+
+  // Bar must still have BOTH original children on their original wires.
+  const barOp = /** @type {any} */ (model.componentGrid[1].components[0]);
+  const barChildren = barOp.children[0].components.map(
+    (/** @type {any} */ c) => ({ gate: c.gate, qubit: c.targets[0].qubit }),
+  );
+  assert.deepEqual(
+    barChildren,
+    [
+      { gate: "Y", qubit: 3 },
+      { gate: "Z", qubit: 4 },
+    ],
+    `Bar's children must be preserved through the split; got ${JSON.stringify(barChildren)}`,
+  );
+});
+
+test("moveOperation extend (B6): cross-over a sibling on an IN-BETWEEN wire (drop wire is clear past it)", () => {
+  // 5 qubits. Column 0 = [Foo(span 0-1 with X@0 + H@1), Z@3 (in
+  // between)]. User shift-drops H from inside Foo to wire 4 — past
+  // Z, landing on a clear wire. X stays on wire 0 (anchoring Foo's
+  // low end), H moves to wire 4 → Foo's new span = [0, 4], which
+  // overlaps Z at wire 3. Even though the DROP wire itself (4) is
+  // clear, Z gets caught by the widened span and the column splits.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  // X anchors Foo's low end so moving H still leaves
+                  // a child on wire 0 — Foo widens (not just shifts)
+                  // to [0, 4] after the drop.
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+          { kind: "unitary", gate: "Z", targets: [{ qubit: 3 }] },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // H is at "0,0-0,1" (inner col 0, opIdx 1). Shift-drop to Foo's
+  // trailing inner-col "0,0-1,0" at wire 4.
+  const moved = moveOperation(model, "0,0-0,1", "0,0-1,0", 1, 4, false, false);
+  assert.ok(moved);
+
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    `expected 2 top-level columns after split; got ${model.componentGrid.length}`,
+  );
+
+  assert.deepEqual(
+    model.componentGrid[0].components.map((/** @type {any} */ op) => op.gate),
+    ["Foo"],
+  );
+  assert.deepEqual(
+    model.componentGrid[1].components.map((/** @type {any} */ op) => op.gate),
+    ["Z"],
+  );
+
+  // Z stayed on wire 3 — the resolver shifts COLUMNS, not WIRES.
+  const zOp = /** @type {any} */ (model.componentGrid[1].components[0]);
+  assert.equal(
+    zOp.targets[0].qubit,
+    3,
+    "Z must stay on its original wire; resolution is horizontal-only",
+  );
+
+  // Sanity: Foo's widened targets enclose wire 4 (the drop) and
+  // still wire 0 (the X anchor).
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const fooWires = fooOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.ok(
+    fooWires.includes(0) && fooWires.includes(4),
+    `Foo must enclose wires 0 and 4; got ${JSON.stringify(fooWires)}`,
+  );
+});
+
+test("moveOperation extend (B6): deeply-nested source past a multi-wire ancestor sibling splits at the top ancestor", () => {
+  // The regression that motivated the `refreshAncestorTargets`
+  // early-exit fix. With a deeply-nested source AND an in-between
+  // sibling at the TOP ancestor's column, the source-side cascade
+  // propagates the new wire span up through every shared ancestor
+  // BEFORE the dest-side cascade runs. The dest-side cascade sees
+  // `!changed` at its first rung and used to `return` immediately,
+  // never calling `_resolveOverlapAfterExtend` on the topmost
+  // ancestor where the actual collision lives. The widened Outer
+  // ended up sharing a top-level column with Sib, even though
+  // Outer's [0,5] span enclosed Sib's [3,4] — exactly the
+  // "expanded view appears to swallow the external gate" symptom
+  // the user reported.
+  //
+  // Topology: 3-deep nesting (Outer > Middle > Foo > leaves) with
+  // Sib a 2-wire GROUP sibling of Outer at the top level.
+  //   Top-level col 0:
+  //     - Outer
+  //         children = single column [Middle]
+  //           Middle.children = single column [Foo]
+  //             Foo.children = single column [X@0, H@1]
+  //     - Sib (group @ wires 3-4, children Y@3, Z@4)
+  //
+  // User shift-drops H (at "0,0-0,0-0,0-0,1") to wire 5 — past
+  // Sib's [3,4] span to a clear wire. Foo / Middle / Outer all
+  // widen to enclose wire 5; Outer's new span [0, 5] overlaps
+  // Sib's [3, 4]. Expected: top-level column splits, Outer alone
+  // at col 0, Sib alone at col 1.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }, { id: 5 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Middle",
+                    targets: [{ qubit: 0 }, { qubit: 1 }],
+                    children: [
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "Foo",
+                            targets: [{ qubit: 0 }, { qubit: 1 }],
+                            children: [
+                              {
+                                components: [
+                                  {
+                                    kind: "unitary",
+                                    gate: "X",
+                                    targets: [{ qubit: 0 }],
+                                  },
+                                  {
+                                    kind: "unitary",
+                                    gate: "H",
+                                    targets: [{ qubit: 1 }],
+                                  },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            kind: "unitary",
+            gate: "Sib",
+            targets: [{ qubit: 3 }, { qubit: 4 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "Y", targets: [{ qubit: 3 }] },
+                  { kind: "unitary", gate: "Z", targets: [{ qubit: 4 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // H lives at "0,0-0,0-0,0-0,1" (Outer > Middle > Foo > inner col
+  // 0, opIdx 1). Shift-drop to Foo's trailing inner-col
+  // "0,0-0,0-0,0-1,0" at wire 5.
+  const moved = moveOperation(
+    model,
+    "0,0-0,0-0,0-0,1",
+    "0,0-0,0-0,0-1,0",
+    1,
+    5,
+    false,
+    false,
+  );
+  assert.ok(moved);
+
+  // The split must have happened: top-level grid has 2 columns,
+  // Outer alone in the left, Sib alone in the right.
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    `expected 2 top-level columns after split; got ${model.componentGrid.length}`,
+  );
+  assert.deepEqual(
+    model.componentGrid[0].components.map((/** @type {any} */ op) => op.gate),
+    ["Outer"],
+  );
+  assert.deepEqual(
+    model.componentGrid[1].components.map((/** @type {any} */ op) => op.gate),
+    ["Sib"],
+  );
+
+  // Outer's targets must have propagated all the way up to {0, 5}
+  // — sanity check that the cascade refresh ran (not just the
+  // overlap resolver).
+  const outerOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const outerWires = outerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.ok(
+    outerWires.includes(0) && outerWires.includes(5),
+    `Outer must enclose wires 0 and 5 after the deep cascade; got ${JSON.stringify(outerWires)}`,
+  );
+
+  // Sib's children must survive the split intact — its wires
+  // didn't move (the resolver shifts COLUMNS, not WIRES).
+  const sibOp = /** @type {any} */ (model.componentGrid[1].components[0]);
+  const sibChildren = sibOp.children[0].components.map(
+    (/** @type {any} */ c) => ({ gate: c.gate, qubit: c.targets[0].qubit }),
+  );
+  assert.deepEqual(
+    sibChildren,
+    [
+      { gate: "Y", qubit: 3 },
+      { gate: "Z", qubit: 4 },
+    ],
+    `Sib's children must be preserved through the split; got ${JSON.stringify(sibChildren)}`,
+  );
+});

@@ -13,6 +13,8 @@ import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   getChildTargets,
+  getAncestorColumnSiblingWires,
+  getOuterColumnSiblingWires,
   parseWireYs,
   pickClosestWireIndex,
 } from "../../dist/ux/circuit-vis/utils.js";
@@ -298,4 +300,264 @@ test("getChildTargets: returns fresh register objects, not aliases of child regi
   // child's register is unchanged.
   out[0].qubit = 999;
   assert.equal(childTargets[0].qubit, 0, "child register must be untouched");
+});
+
+// ============================================================
+// getOuterColumnSiblingWires
+// ============================================================
+//
+// Used by the shift-extend dropzone filter (B6) to identify wires
+// that an op cannot directly extend onto because an external
+// sibling in the op's outer column already occupies them. The
+// "cross-over" case (extending past an in-between sibling) is
+// intentionally NOT covered here — that's a property of the
+// action-layer overlap resolver and is tested in
+// circuitActions.test.mjs.
+
+// Helper: build a single-component-grid from a component list.
+const grid = (componentLists) =>
+  componentLists.map((components) => ({ components }));
+
+test("getOuterColumnSiblingWires: null / empty location returns empty set", () => {
+  const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);
+  assert.equal(getOuterColumnSiblingWires(componentGrid, null).size, 0);
+  assert.equal(getOuterColumnSiblingWires(componentGrid, "").size, 0);
+});
+
+test("getOuterColumnSiblingWires: op with no co-resident siblings returns empty set", () => {
+  // Top-level op alone in its column — no siblings to enumerate.
+  const componentGrid = grid([[u("Foo", [{ qubit: 0 }, { qubit: 1 }])]]);
+  const blocked = getOuterColumnSiblingWires(componentGrid, "0,0");
+  assert.equal(blocked.size, 0);
+});
+
+test("getOuterColumnSiblingWires: returns every wire an external sibling occupies", () => {
+  // Column 0 holds Foo @ wires [0,1] alongside Z @ wire 3 and W @
+  // wire 4 — both Z and W are external siblings of Foo. From Foo's
+  // perspective, wires 3 and 4 are blocked. (Wires 0 and 1 — Foo's
+  // own — are not in the set; this helper is strictly about
+  // SIBLINGS, leaving the "in-span" filtering to the caller.)
+  const componentGrid = grid([
+    [
+      u("Foo", [{ qubit: 0 }, { qubit: 1 }]),
+      u("Z", [{ qubit: 3 }]),
+      u("W", [{ qubit: 4 }]),
+    ],
+  ]);
+  const blocked = getOuterColumnSiblingWires(componentGrid, "0,0");
+  assert.deepEqual(
+    [...blocked].sort((a, b) => a - b),
+    [3, 4],
+  );
+});
+
+test("getOuterColumnSiblingWires: sibling spans expand into a wire RANGE", () => {
+  // A multi-wire sibling (e.g. another group / SWAP) occupies
+  // every wire from min to max. Foo @ [0,1] + Bar @ [3,5] → wires
+  // 3, 4, 5 all blocked from Foo's perspective.
+  const componentGrid = grid([
+    [
+      u("Foo", [{ qubit: 0 }, { qubit: 1 }]),
+      u("Bar", [{ qubit: 3 }, { qubit: 5 }]),
+    ],
+  ]);
+  const blocked = getOuterColumnSiblingWires(componentGrid, "0,0");
+  assert.deepEqual(
+    [...blocked].sort((a, b) => a - b),
+    [3, 4, 5],
+  );
+});
+
+test("getOuterColumnSiblingWires: excludes classical-ref entries on siblings", () => {
+  // A classically-controlled sibling at q3 with a classical ref to
+  // a measurement on q0 contributes ONLY wire 3 — the classical
+  // ref paints as a thin indicator on q0, not a real visual wire
+  // occupant, so it doesn't represent a "drop here would overlap"
+  // situation. Mirrors the B5 pattern of filtering by
+  // `result === undefined`.
+  const componentGrid = grid([
+    [
+      u("Foo", [{ qubit: 1 }]),
+      u("Z", [{ qubit: 3 }], [{ qubit: 0, result: 0 }]),
+    ],
+  ]);
+  const blocked = getOuterColumnSiblingWires(componentGrid, "0,0");
+  // q0 is the classical-ref's wire — it must NOT be in the set
+  // (otherwise the shift-extend filter would over-block).
+  assert.equal(blocked.has(0), false, "classical-ref wire q0 must not block");
+  assert.equal(blocked.has(3), true, "sibling's quantum wire q3 must block");
+});
+
+test("getOuterColumnSiblingWires: ops in OTHER columns of the parent array do NOT block", () => {
+  // The helper is per-column. Foo lives in column 0; X is alone in
+  // column 1. From Foo's perspective, wire 3 is free (it's in a
+  // different column, not vertically adjacent).
+  const componentGrid = grid([
+    [u("Foo", [{ qubit: 0 }, { qubit: 1 }])],
+    [u("X", [{ qubit: 3 }])],
+  ]);
+  const blocked = getOuterColumnSiblingWires(componentGrid, "0,0");
+  assert.equal(blocked.size, 0);
+});
+
+test("getOuterColumnSiblingWires: nested op uses its OWN containing grid, not the top-level grid", () => {
+  // Foo (top-level, col 0) contains Inner (a group) at inner col
+  // 0; Inner has a sibling InnerSib at inner col 0 too on a
+  // different wire. From Inner's perspective, InnerSib's wire is
+  // blocked. The top-level X (col 0 of the outer grid, wire 5)
+  // is NOT counted — it's not Inner's co-resident sibling.
+  const inner = group("Inner", [{ qubit: 0 }], [u("H", [{ qubit: 0 }])]);
+  const innerSib = u("InnerSib", [{ qubit: 2 }]);
+  const foo = {
+    kind: "unitary",
+    gate: "Foo",
+    targets: [{ qubit: 0 }, { qubit: 2 }],
+    children: [{ components: [inner, innerSib] }],
+  };
+  const componentGrid = grid([[foo, u("X", [{ qubit: 5 }])]]);
+  // Inner's location is "0,0-0,0" → outer col 0, inner col 0, opIdx 0.
+  const blocked = getOuterColumnSiblingWires(componentGrid, "0,0-0,0");
+  assert.equal(
+    blocked.has(2),
+    true,
+    "InnerSib's wire (co-resident in Inner's inner column) must block",
+  );
+  assert.equal(
+    blocked.has(5),
+    false,
+    "X's wire (top-level, NOT in Inner's containing grid) must not block",
+  );
+});
+
+test("getOuterColumnSiblingWires: location resolving to no parent array returns empty set", () => {
+  // Defensive guard — a location addressing an op nested below a
+  // missing ancestor (e.g., "5,0-0,0" on a single-column grid)
+  // resolves to no parent array; helper returns empty rather than
+  // throwing.
+  const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);
+  assert.equal(getOuterColumnSiblingWires(componentGrid, "5,0-0,0").size, 0);
+});
+
+// ============================================================
+// getAncestorColumnSiblingWires
+// ============================================================
+//
+// Composes `getOuterColumnSiblingWires` across the location's full
+// ancestor chain. Used by the shift-extend dropzone filter (B6 follow-up)
+// because the cascade widens every ancestor whose span doesn't already
+// enclose the drop wire — collisions can show up at ANY level, not just
+// the immediate parent's.
+
+test("getAncestorColumnSiblingWires: null / empty location returns empty set", () => {
+  const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);
+  assert.equal(getAncestorColumnSiblingWires(componentGrid, null).size, 0);
+  assert.equal(getAncestorColumnSiblingWires(componentGrid, "").size, 0);
+});
+
+test("getAncestorColumnSiblingWires: top-level op matches getOuterColumnSiblingWires (chain of length 1)", () => {
+  // A top-level location has no ancestors — the chain walk reduces
+  // to a single call. Result must match the single-level helper.
+  const componentGrid = grid([
+    [
+      u("Foo", [{ qubit: 0 }, { qubit: 1 }]),
+      u("Z", [{ qubit: 3 }]),
+      u("W", [{ qubit: 4 }]),
+    ],
+  ]);
+  const single = getOuterColumnSiblingWires(componentGrid, "0,0");
+  const chained = getAncestorColumnSiblingWires(componentGrid, "0,0");
+  assert.deepEqual(
+    [...chained].sort((a, b) => a - b),
+    [...single].sort((a, b) => a - b),
+  );
+});
+
+test("getAncestorColumnSiblingWires: unions sibling wires from EVERY level of the chain", () => {
+  // Deeply-nested op `H` at "0,0-0,0-0,0":
+  //   - Its immediate parent `Middle` lives inside `Outer`'s
+  //     inner column 0 alongside sibling `MidSib` @ q2 → wire 2
+  //     blocked at the Middle level.
+  //   - `Outer` lives at top-level column 0 alongside `OuterSib`
+  //     @ q5 → wire 5 blocked at the Outer level.
+  //   - The chain walk must surface BOTH.
+  //
+  // This is the regression the immediate-parent-only filter
+  // misses: H's own outer-column siblings (none at Inner's level
+  // because Middle is the only child here) tell you nothing about
+  // wires Outer can extend onto.
+  const h = u("H", [{ qubit: 0 }]);
+  const middle = {
+    kind: "unitary",
+    gate: "Middle",
+    targets: [{ qubit: 0 }],
+    children: [{ components: [h] }],
+  };
+  const midSib = u("MidSib", [{ qubit: 2 }]);
+  const outer = {
+    kind: "unitary",
+    gate: "Outer",
+    targets: [{ qubit: 0 }, { qubit: 2 }],
+    children: [{ components: [middle, midSib] }],
+  };
+  const outerSib = u("OuterSib", [{ qubit: 5 }]);
+  const componentGrid = grid([[outer, outerSib]]);
+
+  // H's location: outer "0,0", middle "0,0-0,0", H "0,0-0,0-0,0".
+  const blocked = getAncestorColumnSiblingWires(componentGrid, "0,0-0,0-0,0");
+  assert.equal(
+    blocked.has(2),
+    true,
+    "MidSib's wire (sibling of Middle inside Outer) must block",
+  );
+  assert.equal(
+    blocked.has(5),
+    true,
+    "OuterSib's wire (sibling of Outer at top level) must block",
+  );
+  // H's own ancestor chain has no other co-resident siblings at
+  // H's own level — confirm the set is exactly {2, 5}.
+  assert.deepEqual(
+    [...blocked].sort((a, b) => a - b),
+    [2, 5],
+  );
+});
+
+test("getAncestorColumnSiblingWires: classical-ref entries on ancestor-level siblings are still excluded", () => {
+  // Same exclusion the single-level helper applies — propagated
+  // through the chain walk because each level just delegates.
+  // Outer-level sibling Z @ q3 with a classical ref to q0
+  // contributes ONLY wire 3, not wire 0.
+  const h = u("H", [{ qubit: 0 }]);
+  const middle = {
+    kind: "unitary",
+    gate: "Middle",
+    targets: [{ qubit: 0 }],
+    children: [{ components: [h] }],
+  };
+  const outer = {
+    kind: "unitary",
+    gate: "Outer",
+    targets: [{ qubit: 0 }],
+    children: [{ components: [middle] }],
+  };
+  const outerSib = u("Z", [{ qubit: 3 }], [{ qubit: 0, result: 0 }]);
+  const componentGrid = grid([[outer, outerSib]]);
+
+  const blocked = getAncestorColumnSiblingWires(componentGrid, "0,0-0,0-0,0");
+  assert.equal(
+    blocked.has(0),
+    false,
+    "classical-ref wire q0 must not block at any ancestor level",
+  );
+  assert.equal(
+    blocked.has(3),
+    true,
+    "ancestor sibling's quantum wire q3 must block",
+  );
+});
+
+test("getAncestorColumnSiblingWires: location resolving to no parent array returns empty set", () => {
+  // Defensive guard, mirroring the single-level helper.
+  const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);
+  assert.equal(getAncestorColumnSiblingWires(componentGrid, "5,0-0,0").size, 0);
 });

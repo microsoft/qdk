@@ -1076,7 +1076,18 @@ const refreshAncestorTargets = (
     // the "shared ancestor" note in the doc comment for why
     // this can't be gated on `changed`.
     options.onAfterRefresh?.(rung);
-    if (!changed) return;
+    // Early-exit the refresh walk once nothing higher up can
+    // change. EXCEPTION: when `onAfterRefresh` is provided, walk
+    // the FULL chain so the hook fires on every ancestor. The
+    // canonical case is `moveOperation`: its source-side cascade
+    // (no hook) propagates the new spans up through every shared
+    // ancestor, so the subsequent dest-side cascade (with hook)
+    // sees `!changed` at the very first rung and would otherwise
+    // skip the overlap-resolver on the higher ancestors where
+    // the actual collision lives. The doc-comment contract
+    // ("hook fires on every visited still-attached rung") is
+    // only meaningful if we keep walking past the no-change rung.
+    if (!changed && options.onAfterRefresh == null) return;
   }
 };
 

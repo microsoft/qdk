@@ -33,6 +33,7 @@ import {
   deepEqual,
   findOperation,
   findParentArray,
+  getAncestorColumnSiblingWires,
   getGateElems,
   getGateLocationString,
   getMinMaxRegIdx,
@@ -870,6 +871,32 @@ export class DragController {
     // +1 for the trailing-append column past the rightmost.
     const totalCols = realColCount + 1;
 
+    // B6: wires the parent group can't directly extend onto because
+    // a sibling at SOME level of the ancestor chain already
+    // occupies them in the outer column of that level. Dropping a
+    // child there would land the new op directly on top of an
+    // existing one — the general "you can't drop a gate onto
+    // another gate" rule applies to the implicit "extend the group"
+    // gesture too.
+    //
+    // We walk the full ancestor chain (not just the immediate
+    // parent) because shift-extend widens every ancestor whose span
+    // doesn't already enclose the drop wire. A sibling at any
+    // affected level can produce a direct collision, so the filter
+    // must mirror the cascade's scope.
+    //
+    // The CROSS-OVER case (extending PAST an in-between sibling to
+    // a clear wire) is intentionally NOT filtered. The action layer
+    // already handles it: `moveOperation`'s dest-side cascade calls
+    // `_resolveOverlapAfterExtend` on each widened ancestor, which
+    // splits the outer column so the in-between sibling slides one
+    // column to the right of the now-widened ancestor — the same
+    // horizontal-shift pattern as `commitAddControl`.
+    const blockedWires = getAncestorColumnSiblingWires(
+      this.ctx.model.componentGrid,
+      parentLoc,
+    );
+
     for (let colIndex = 0; colIndex < totalCols; colIndex++) {
       for (let wire = 0; wire < this.ctx.wireData.length; wire++) {
         // Only emit for wires OUTSIDE the parent group's current
@@ -878,6 +905,9 @@ export class DragController {
         // band), and a shift-extend dropzone there would be
         // semantically a no-op (wire is already enclosed).
         if (wire >= parentMinWire && wire <= parentMaxWire) continue;
+
+        // B6 direct-collision filter (see `blockedWires` above).
+        if (blockedWires.has(wire)) continue;
 
         // opIndex = 0: append at the head of (or into a fresh)
         // column. Wire is outside the parent's span so no existing

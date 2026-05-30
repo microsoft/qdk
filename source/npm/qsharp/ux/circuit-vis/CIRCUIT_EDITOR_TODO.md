@@ -2156,31 +2156,170 @@ the classical ref intact; remove on a wire that ONLY has a
 classical-ref returns false (no-op); add quantum control on the
 M-owner wire of a classically-controlled GROUP succeeds.
 
-### B6. Shift+expand-group downward doesn't move vertically adjacent groups
+### B6. Shift-extend onto / past an external sibling — ✅ Shipped (pending user-confirmation)
 
 **Symptom.** Shift-drag a group's expand chevron downward to
-extend the group's wire span. A vertically adjacent group below
-it should be pushed down to make room but stays put, causing the
-expanded group to overlap it.
+extend the group's wire span. Two related problems:
 
-**Likely cause.** D4 Stage B's `_resolveOverlapAfterExtend` only
-handles _sibling_ collisions within the same column — when
-extending a group's span widens its wire range and a different
-op now overlaps its rectangle, the splitter only checks the same
-column. Vertical extension into another group's territory in a
-_different_ column isn't checked.
+1. The user could drop on a wire ALREADY occupied by an
+   external sibling of the group in the same outer column —
+   violating the general "you can't drop a gate directly onto
+   another gate" rule that all other dropzones honor.
+2. When the extension crossed PAST an external sibling on an
+   in-between wire to a clear drop wire, the in-between sibling
+   was not always horizontally shifted out of the way — so the
+   widened group ended up visually overlapping it.
 
-**Fix direction.** Extend the overlap resolver to consider
-_every_ column the expanded group spans, not just the column its
-own root sits in. For each column in the expanded group's range,
-find any op whose wire range now intersects the extended span
-and split-and-shift it the same way sibling-column collisions
-are handled today.
+**Root cause #1 (no dropzone filter, AT ANY level).**
+[`spawnShiftExtendDropzones`](editor/controllers/dragController.ts)
+emitted a dropzone at every (inner column, outer-wire) pair
+outside the parent group's current span, regardless of whether
+that outer wire was already occupied by an external sibling in
+the parent's outer column — or, more subtly, in the outer column
+of ANY ancestor up the chain. No equivalent of the
+`isTarget`/`isControl` filter that
+[`startAddingControl`](editor/controllers/dragController.ts)
+already does for its own dropzone set. The first shipped pass
+filtered only the immediate parent's column; a user-reported
+follow-up revealed the chain-walk dimension and the helper was
+generalized to `getAncestorColumnSiblingWires`.
 
-**Open question.** Same-column siblings are split into a new
-column to the right; what's the right placement for cross-column
-displacements? Pushing every overlapped op rightward by one
-column may cascade into yet more collisions.
+**Root cause #2 (cascade SHALLOW case was fine; deep case had
+a silent early-exit bug).** Tracing the action layer initially
+suggested the cross-over case was already handled by the
+existing dest-side cascade: `moveOperation`'s
+[`refreshAncestorTargets(destAncestorChain, { onAfterRefresh: ... })`](actions/circuitActions.ts)
+runs `_resolveOverlapAfterExtend(parentOp, parentContainingArray)`
+on the widened parent group, which splits the outer column so
+the in-between sibling slides one column to the right of the
+parent — identical to the [`commitAddControl`](editor/controllers/dragController.ts)
+pattern for "add a control widens an op". For _shallow_
+shift-extends (immediate-child source), the dest ancestor
+chain has exactly one rung and `onAfterRefresh` fires before
+the early-exit check, so the resolver runs and the column
+splits as expected. **That's why the first round of B6 tests
+all passed.**
+
+A user-reported follow-up exposed the _deep_ case: when the
+shift-extend source is a grandchild (or deeper) of the parent
+group, the source-side cascade
+([`refreshAncestorTargets(survivedSourceChain)`](actions/circuitActions.ts),
+no hook) runs FIRST and propagates the new wire span up
+through every shared ancestor. By the time the dest-side
+cascade runs, `_refreshDerivedTargets` on the innermost rung
+returns `false` (targets already correct), and the original
+`if (!changed) return;` exited the whole walk — never firing
+`onAfterRefresh` on the _higher_ rungs where the collision
+actually lives. The widened top-level ancestor remained in the
+same column as its sibling; the rendered expanded view appeared
+to enclose the sibling even though the data model still treated
+it as external.
+
+The doc comment on
+[`refreshAncestorTargets`](actions/circuitActions.ts) already
+spelled out the intended contract — _"the hook fires on every
+visited still-attached rung, regardless of whether the refresh
+changed `.targets`"_ — but the implementation contradicted it.
+Doc and code were out of sync; the fix makes the code match
+the doc.
+
+**Fix.**
+
+1. New [`getOuterColumnSiblingWires`](utils.ts) helper computes
+   the set of quantum wires occupied by external siblings of an
+   op in its outer column. Classical-ref entries
+   (`result !== undefined`) are excluded via
+   [`getQuantumWireRange`](utils.ts) — they paint as thin
+   indicators, not real wire occupants. Mirrors B5's
+   `result === undefined` filter pattern.
+
+2. New [`getAncestorColumnSiblingWires`](utils.ts) composes the
+   single-level helper across the FULL ancestor chain via
+   [`Location.parent()`](data/location.ts). The shift-extend
+   gesture extends the immediately enclosing group, but the
+   action-layer cascade
+   ([`refreshAncestorTargets`](actions/circuitActions.ts) +
+   [`_resolveOverlapAfterExtend`](actions/circuitActions.ts))
+   widens EVERY ancestor whose span doesn't already enclose the
+   drop wire — and each widening can collide with siblings IN
+   THAT ANCESTOR'S column. Filtering only the immediate parent
+   under-blocks: a deeply nested source can be shift-dropped
+   onto a wire owned by a top-level sibling of an ancestor
+   several levels up, leaving the cascade to silently cope.
+
+   _Why over-blocking is impossible._ If ancestor A's span
+   already encloses the drop wire `w`, A doesn't widen and we
+   wouldn't need to consult A's siblings — but A's siblings
+   are by column invariant guaranteed not to be on `w` in that
+   case (they share A's column, so they're outside A's span).
+   Including them in the union is therefore redundant but never
+   produces a false positive.
+
+3. `spawnShiftExtendDropzones` consults
+   `getAncestorColumnSiblingWires` and skips any wire in the
+   blocked set. The CROSS-OVER case (extending PAST a sibling
+   to a clear wire) stays allowed — that's the whole point of
+   the cascade splitting the column when needed.
+
+4. [`refreshAncestorTargets`](actions/circuitActions.ts)
+   no longer early-exits when an `onAfterRefresh` hook is
+   provided. The early-exit condition is now
+   `if (!changed && options.onAfterRefresh == null) return;`
+   — the refresh-only optimization stays in place for hookless
+   callers (source-side cascade, `removeOperation`,
+   `removeControl`), but any caller registering a side-effect
+   hook walks the full chain. This makes the implementation
+   match the doc-comment contract and fixes the deeply-nested
+   cross-over case without affecting shallow scenarios. Cost
+   is bounded by ancestor depth (typically ≤4) and the per-rung
+   `_resolveOverlapAfterExtend` is a no-op when the rung's
+   column has no siblings or no overlap.
+
+**Tests.** Fourteen new cases:
+
+- Eight in [`utils.test.mjs`](../../test/circuit-editor/utils.test.mjs):
+  - Six for `getOuterColumnSiblingWires` directly: null/empty
+    location, no siblings, multi-sibling enumeration, multi-wire
+    siblings (groups / SWAP-shaped ops) expand to a wire RANGE,
+    classical-ref entries skipped, other-column ops not counted,
+    nested ops use their OWN containing grid.
+  - Two more for the same helper: location resolving to a
+    missing parent array returns empty.
+  - Five for `getAncestorColumnSiblingWires`: null/empty
+    location, top-level location reduces to the single-level
+    helper (chain of length 1), deeply-nested location unions
+    sibling wires from EVERY level, classical-ref exclusion
+    propagates through the chain, unresolved location returns
+    empty.
+- Three in [`circuitActions.test.mjs`](../../test/circuit-editor/circuitActions.test.mjs):
+  - Two pinning the cross-over cascade for shapes the earlier
+    D4-Stage-B test coverage didn't reach (shallow case): a
+    GROUP sibling (multi-wire, with children) splits the outer
+    column with both groups intact; an in-between-wire sibling
+    with a clear drop wire still triggers the split (resolver
+    shifts COLUMNS, not WIRES).
+  - One pinning the _deep_ case the early-exit fix unblocks:
+    3-level nesting (Outer > Middle > Foo > leaves) with a
+    multi-wire group sibling at the top level. Without the fix,
+    the dest-side cascade returns at the innermost rung and the
+    top-level column never splits; with the fix, the walk
+    reaches Outer and the resolver splits the column.
+
+**Out of scope.**
+
+- Vertical pushing (moving siblings to a different WIRE to make
+  room for the extension) is not implemented — the resolver
+  shifts horizontally, matching every other "drop widens an
+  op" path in the editor. The original B6 wording suggested
+  "pushed down" but the user clarification ("shifted
+  horizontally so they don't overlap vertically") confirms
+  horizontal is the right axis.
+- Cross-column displacements (extension into wires owned by
+  ops in DIFFERENT outer columns than the group): same axis —
+  different outer columns can never visually overlap, so no
+  resolution is needed. The original B6 "fix direction" note
+  about checking every column was based on a misreading of the
+  layout model.
 
 ### B7. Qubit rearrangement doesn't update group contents correctly — ✅ shipped
 
@@ -2557,7 +2696,7 @@ gains three cases pinning the stamp contract:
 | B3: qubit reorder around dependent M crashes                     | Crash            | ❌ Open                                                                                             |
 | B4: M removal leaves stale classical wire layout                 | Layout bug       | ❌ Open                                                                                             |
 | B5: add/remove control fails on classical groups _(M1)_          | Logic error      | ✅ Shipped (pending user-confirmation)                                                              |
-| B6: shift-extend doesn't push adjacent groups                    | Layout bug       | ❌ Open                                                                                             |
+| B6: shift-extend onto / past an external sibling                 | Layout bug       | ✅ Shipped (pending user-confirmation)                                                              |
 | B7: qubit reorder doesn't update group contents                  | Data consistency | ✅ Shipped (pending user-confirmation)                                                              |
 | B8: clone-move of a group rewrites `.targets` to single wire     | Data consistency | ✅ Shipped (pending user-confirmation)                                                              |
 | B9: quantum controls on a group are never drawn _(M2)_           | Display bug      | ✅ Shipped (pending user-confirmation)                                                              |

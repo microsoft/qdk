@@ -481,6 +481,107 @@ const findOperation = (
   return operationParent[col]?.components[op] ?? null;
 };
 
+/**
+ * Set of quantum wires occupied by EXTERNAL SIBLINGS of the op at
+ * `location` in that op's outer column. "External sibling" =
+ * another op sharing the same column in the op's containing array
+ * (i.e., NOT a descendant inside the op's own children grid).
+ *
+ * Use this to answer "what wires would directly collide if I
+ * widened this op's wire span?" — the building block for the
+ * shift-extend dropzone filter, which composes this with
+ * [`getAncestorColumnSiblingWires`](#) to walk the ancestor
+ * chain and accumulate every collision the cascade would need
+ * to resolve.
+ *
+ * Classical-ref entries (`{qubit, result}`) are excluded via
+ * [`getQuantumWireRange`](#) — they paint as a thin indicator on
+ * a wire the op doesn't actually occupy, so they don't represent a
+ * real visual overlap. Mirrors the pattern established by B5's
+ * `result === undefined` filter at the four addControl/removeControl
+ * sites.
+ *
+ * Returns an empty set when `location` is null, doesn't resolve,
+ * or addresses a top-level op with no siblings (no overlap possible).
+ *
+ * @param componentGrid The grid the op lives in.
+ * @param location The op's location string.
+ * @returns The wires occupied by every external sibling in the op's
+ *   outer column.
+ */
+const getOuterColumnSiblingWires = (
+  componentGrid: ComponentGrid,
+  location: string | null,
+): Set<number> => {
+  const blocked = new Set<number>();
+  if (!location) return blocked;
+  const last = Location.parse(location).last();
+  if (last == null) return blocked;
+  const [outerCol] = last;
+  const parentArray = findParentArray(componentGrid, location);
+  if (parentArray == null) return blocked;
+  const column = parentArray[outerCol];
+  if (column == null) return blocked;
+  const selfOp = findOperation(componentGrid, location);
+  for (const sibling of column.components) {
+    if (sibling === selfOp) continue;
+    const [sMin, sMax] = getQuantumWireRange(sibling);
+    // -1 sentinel = sibling has no quantum span (e.g., a hypothetical
+    // pure-classical op); skip it — it can't visually overlap a wire.
+    if (sMin < 0) continue;
+    for (let w = sMin; w <= sMax; w++) {
+      blocked.add(w);
+    }
+  }
+  return blocked;
+};
+
+/**
+ * Union of [`getOuterColumnSiblingWires`](#) across the op at
+ * `location` AND every ancestor of it, up to (but not including)
+ * the root grid.
+ *
+ * Why walk the chain. The shift-extend gesture extends an
+ * immediately-enclosing group, but the action layer's cascade
+ * (see [`refreshAncestorTargets`](actions/circuitActions.ts) +
+ * [`_resolveOverlapAfterExtend`](actions/circuitActions.ts))
+ * widens every ancestor whose span doesn't already enclose the
+ * drop wire — and each widening may collide with siblings IN
+ * THAT ANCESTOR'S column, not just the immediate parent's.
+ * Filtering only the immediate parent's siblings (the original
+ * B6 fix) under-blocks: a deeply nested source could be
+ * shift-dropped onto a wire owned by a top-level sibling of an
+ * ancestor several levels up, leaving the cascade to silently
+ * cope (or, in pathological cases, leave a visible overlap).
+ *
+ * Walks via location-string `parent()` rather than object
+ * identity so it can be called against the live model without
+ * needing the ancestor chain pre-collected.
+ *
+ * Returns an empty set when `location` is null or doesn't resolve.
+ *
+ * @param componentGrid The grid the op lives in.
+ * @param location The op's location string.
+ * @returns The union of every ancestor's outer-column sibling
+ *   wires, including the op's own outer column.
+ */
+const getAncestorColumnSiblingWires = (
+  componentGrid: ComponentGrid,
+  location: string | null,
+): Set<number> => {
+  const blocked = new Set<number>();
+  if (!location) return blocked;
+  let loc = Location.parse(location);
+  while (!loc.isRoot && loc.last() != null) {
+    const locStr = loc.toString();
+    for (const wire of getOuterColumnSiblingWires(componentGrid, locStr)) {
+      blocked.add(wire);
+    }
+    loc = loc.parent();
+  }
+  return blocked;
+};
+
 /**********************
  *  Getter Functions  *
  **********************/
@@ -664,6 +765,8 @@ export {
   findParentOperation,
   findParentArray,
   findOperation,
+  getOuterColumnSiblingWires,
+  getAncestorColumnSiblingWires,
   getWireData,
   getToolboxElems,
   getHostElems,
