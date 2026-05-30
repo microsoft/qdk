@@ -19,12 +19,20 @@ fn check_rca_for_function_in_core_package() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(0x0)
-                            value_kind: Variable
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Variable
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(LoopWithDynamicCondition)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -248,33 +256,49 @@ fn check_rca_for_unrestricted_h() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -292,33 +316,49 @@ fn check_rca_for_base_h() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -336,45 +376,77 @@ fn check_rca_for_unrestricted_r1() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(0x0)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble | UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(0x0)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble | UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -392,45 +464,77 @@ fn check_rca_for_base_r1() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(0x0)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble | UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(0x0)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble | UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -448,45 +552,77 @@ fn check_rca_for_unrestricted_rx() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -504,45 +640,77 @@ fn check_rca_for_base_rx() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -560,57 +728,105 @@ fn check_rca_for_unrestricted_rxx() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -628,57 +844,105 @@ fn check_rca_for_base_rxx() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -696,45 +960,77 @@ fn check_rca_for_unrestricted_ry() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -752,45 +1048,77 @@ fn check_rca_for_base_ry() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -808,57 +1136,105 @@ fn check_rca_for_unrestricted_ryy() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -876,57 +1252,105 @@ fn check_rca_for_base_ryy() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -944,45 +1368,77 @@ fn check_rca_for_unrestricted_rz() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1000,45 +1456,77 @@ fn check_rca_for_base_rz() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1056,57 +1544,105 @@ fn check_rca_for_unrestricted_rzz() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1124,57 +1660,105 @@ fn check_rca_for_base_rzz() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1192,33 +1776,49 @@ fn check_rca_for_unrestricted_s() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1236,33 +1836,49 @@ fn check_rca_for_base_s() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1280,33 +1896,49 @@ fn check_rca_for_unrestricted_t() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1324,33 +1956,49 @@ fn check_rca_for_base_t() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1368,33 +2016,49 @@ fn check_rca_for_unrestricted_x() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1412,33 +2076,49 @@ fn check_rca_for_base_x() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1456,33 +2136,49 @@ fn check_rca_for_unrestricted_y() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1500,33 +2196,49 @@ fn check_rca_for_base_y() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1544,33 +2256,49 @@ fn check_rca_for_unrestricted_z() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
 
@@ -1588,32 +2316,48 @@ fn check_rca_for_base_z() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 ctl-adj: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant"#]],
+                        [0]: [Parameter Type Element] ElemParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant"#]],
     );
 }
