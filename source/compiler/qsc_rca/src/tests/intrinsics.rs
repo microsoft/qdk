@@ -1287,7 +1287,7 @@ fn check_rca_for_account_for_estimates_internal() {
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
                                 value_kind: Constant
                             constant_content: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                                runtime_features: RuntimeFeatureFlags(0x0)
                                 value_kind: Constant
                         [1]: [Parameter Type Element] ElemParamApplication:
                             constant: Dynamic:
@@ -1304,7 +1304,7 @@ fn check_rca_for_account_for_estimates_internal() {
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | UseOfDynamicallySizedArray)
                                 value_kind: Constant
                             constant_content: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                runtime_features: RuntimeFeatureFlags(0x0)
                                 value_kind: Constant
                 adj: <none>
                 ctl: <none>

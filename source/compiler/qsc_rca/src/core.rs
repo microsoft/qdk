@@ -2311,7 +2311,7 @@ fn array_param_application_from_runtime_features(
             value_kind,
         },
         constant_content: ComputeKind::Dynamic {
-            runtime_features,
+            runtime_features: RuntimeFeatureFlags::empty(),
             value_kind: ValueKind::Constant,
         },
     })
