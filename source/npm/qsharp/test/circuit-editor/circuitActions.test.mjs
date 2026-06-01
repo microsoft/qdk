@@ -3597,6 +3597,313 @@ test("moveQubit: resolves nested-group overlaps introduced by widening", () => {
   assert.equal(fooOp.children[0].components.length, 2);
 });
 
+// ---------------------------------------------------------------
+// moveQubit + Ms-with-classical-consumers.
+//
+// `moveQubit` is a low-level wire-index remap: every register
+// reference (including classical refs in consumer ops AND the
+// `.results` arrays of measurement ops) gets its `qubit` field
+// rewritten by the same 1-to-1 wire-permutation function. It does
+// NOT renumber result indices (that's `_updateMeasurementLines`,
+// which only runs from `moveOperation`/`removeOperation` paths).
+//
+// The invariant these tests pin: after `moveQubit` finishes,
+// every classical-control consumer must still reference a real,
+// unique (qubit, result) key that some measurement produces. The
+// 1-to-1 remap preserves uniqueness as long as the pre-state was
+// well-formed.
+// ---------------------------------------------------------------
+
+test("moveQubit: classical-control consumer follows a moved M's qubit index", () => {
+  // M on wire 0 with a downstream classically-controlled X on
+  // wire 2 (controlled by the M's result). Swap wires 0 and 1.
+  // The M, its `.results` and the consumer's classical-control
+  // ref must all rewrite qubit 0 → 1.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      { components: [_ccx(2, 0, 0)] },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveQubit(model, 0, 1, false);
+
+  // Find the M and the consumer in the post-swap grid.
+  /** @type {any} */
+  let m;
+  /** @type {any} */
+  let consumer;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "measurement") m = op;
+      else if (op.kind === "unitary" && op.gate === "X") consumer = op;
+    }
+  }
+  assert.ok(m, "M must still exist");
+  assert.ok(consumer, "consumer must still exist");
+  assert.equal(m.qubits[0].qubit, 1, "M's qubit ref rewires 0 → 1");
+  assert.equal(m.results[0].qubit, 1, "M's results ref rewires 0 → 1");
+  const classicalRef = consumer.controls.find(
+    (/** @type {any} */ c) => c.result !== undefined,
+  );
+  assert.deepEqual(
+    { qubit: classicalRef.qubit, result: classicalRef.result },
+    { qubit: 1, result: 0 },
+    "consumer's classical-control ref rewires 0 → 1",
+  );
+});
+
+test("moveQubit: swap of two wires that both have Ms with consumers preserves per-wire uniqueness", () => {
+  // Wire 0 has M_a (r=0); wire 1 has M_b (r=0). Each has its own
+  // consumer on wire 2. The Ms hold the SAME pre-swap result
+  // index (0); the wire-permutation keeps them on different
+  // wires post-swap, so (qubit, result) keys stay unique without
+  // any renumbering pass.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      { components: [_mGate(1, 0)] },
+      { components: [_ccx(2, 0, 0)] }, // consumes M_a (wire 0, r=0)
+      { components: [_ccx(2, 1, 0)] }, // consumes M_b (wire 1, r=0)
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveQubit(model, 0, 1, false);
+
+  /** @type {any[]} */
+  const ms = [];
+  /** @type {any[]} */
+  const consumers = [];
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "measurement") ms.push(op);
+      else if (
+        op.kind === "unitary" &&
+        op.controls &&
+        op.controls.some((/** @type {any} */ c) => c.result !== undefined)
+      )
+        consumers.push(op);
+    }
+  }
+  assert.equal(ms.length, 2);
+  assert.equal(consumers.length, 2);
+
+  // Per-wire (qubit, result) keys must be unique.
+  /** @type {Set<string>} */
+  const keys = new Set();
+  for (const m of ms) {
+    const k = `${m.results[0].qubit}:${m.results[0].result}`;
+    assert.ok(!keys.has(k), `duplicate M.results key ${k}`);
+    keys.add(k);
+  }
+
+  // Every consumer must still resolve to a real M.
+  for (const c of consumers) {
+    const ref = c.controls.find(
+      (/** @type {any} */ x) => x.result !== undefined,
+    );
+    const k = `${ref.qubit}:${ref.result}`;
+    assert.ok(
+      keys.has(k),
+      `consumer references ${k}, but no M produces it (orphaned)`,
+    );
+  }
+});
+
+test("moveQubit: swap of a wire carrying multiple Ms keeps the consumer chain in sync", () => {
+  // Wire 0 has M_a (r=0) and M_b (r=1), each with its own
+  // consumer on wire 2. Wire 1 is empty. Swap wires 0 and 1.
+  // After the swap: both Ms (and both consumers' classical refs)
+  // get rewired 0 → 1, with their `.result` indices preserved
+  // (moveQubit does not renumber — and doesn't need to, because
+  // the wire on the other side of the swap had no Ms to collide
+  // with).
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      { components: [_mGate(0, 1)] },
+      { components: [_ccx(2, 0, 0)] }, // consumes M_a
+      { components: [_ccx(2, 0, 1)] }, // consumes M_b
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveQubit(model, 0, 1, false);
+
+  // All Ms should now live on wire 1 with their original result
+  // indices intact (0 and 1).
+  /** @type {any[]} */
+  const ms = [];
+  /** @type {any[]} */
+  const consumers = [];
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "measurement") ms.push(op);
+      else if (
+        op.kind === "unitary" &&
+        op.controls &&
+        op.controls.some((/** @type {any} */ c) => c.result !== undefined)
+      )
+        consumers.push(op);
+    }
+  }
+  assert.equal(ms.length, 2);
+  assert.equal(consumers.length, 2);
+
+  /** @type {Set<string>} */
+  const keys = new Set();
+  for (const m of ms) {
+    assert.equal(m.qubits[0].qubit, 1, "M now on wire 1");
+    const k = `${m.results[0].qubit}:${m.results[0].result}`;
+    assert.ok(!keys.has(k), `duplicate M.results key ${k}`);
+    keys.add(k);
+  }
+  // Specifically expect {1:0, 1:1}.
+  assert.deepEqual([...keys].sort(), ["1:0", "1:1"]);
+
+  for (const c of consumers) {
+    const ref = c.controls.find(
+      (/** @type {any} */ x) => x.result !== undefined,
+    );
+    assert.equal(ref.qubit, 1, "consumer classical-control ref rewires to 1");
+    assert.ok(
+      keys.has(`${ref.qubit}:${ref.result}`),
+      "consumer must still resolve to a real M",
+    );
+  }
+});
+
+test("moveQubit isBetween: moving a wire past one with Ms-with-consumers remaps every party in lockstep", () => {
+  // 4 wires. Wire 1 has M_a (r=0); wire 2 has M_b (r=0). Each
+  // has a consumer on wire 3. Move wire 0 to between wires 2 and
+  // 3 (isBetween=true, sourceWire=0, targetWire=3) — new wire
+  // order is [1, 2, 0, 3]. Remap: old 0→2, old 1→0, old 2→1,
+  // old 3→3. Every classical ref and every M.results.qubit must
+  // shift accordingly; consumers must still resolve.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      { components: [_mGate(1, 0)] },
+      { components: [_mGate(2, 0)] },
+      { components: [_ccx(3, 1, 0)] }, // consumes M_a
+      { components: [_ccx(3, 2, 0)] }, // consumes M_b
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveQubit(model, 0, 3, true);
+
+  /** @type {any[]} */
+  const ms = [];
+  /** @type {any[]} */
+  const consumers = [];
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "measurement") ms.push(op);
+      else if (
+        op.kind === "unitary" &&
+        op.controls &&
+        op.controls.some((/** @type {any} */ c) => c.result !== undefined)
+      )
+        consumers.push(op);
+    }
+  }
+  assert.equal(ms.length, 2);
+  assert.equal(consumers.length, 2);
+
+  // M_a (was wire 1 → new wire 0) and M_b (was wire 2 → new
+  // wire 1). Result indices unchanged.
+  const mByWire = new Map(ms.map((m) => [m.qubits[0].qubit, m]));
+  assert.ok(mByWire.has(0) && mByWire.has(1));
+  assert.equal(mByWire.get(0).results[0].result, 0);
+  assert.equal(mByWire.get(1).results[0].result, 0);
+
+  // Per-wire (qubit, result) keys still unique.
+  /** @type {Set<string>} */
+  const keys = new Set();
+  for (const m of ms) {
+    keys.add(`${m.results[0].qubit}:${m.results[0].result}`);
+  }
+  assert.equal(keys.size, 2);
+
+  for (const c of consumers) {
+    const ref = c.controls.find(
+      (/** @type {any} */ x) => x.result !== undefined,
+    );
+    assert.ok(
+      keys.has(`${ref.qubit}:${ref.result}`),
+      `consumer references ${ref.qubit}:${ref.result}, no M produces it`,
+    );
+  }
+});
+
+test("moveQubit: swap remaps a classical-control consumer buried inside a group", () => {
+  // M on wire 0; consumer is two levels deep inside a Foo group
+  // on wire 2. Swap wires 0 and 1 — the buried consumer's
+  // classical ref must still rewire 0 → 1.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 2 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Bar",
+                    targets: [{ qubit: 2 }],
+                    children: [{ components: [_ccx(2, 0, 0)] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveQubit(model, 0, 1, false);
+
+  // Locate the deeply-nested consumer.
+  /** @type {any} */
+  const fooOp = model.componentGrid[1].components[0];
+  /** @type {any} */
+  const barOp = fooOp.children[0].components[0];
+  /** @type {any} */
+  const innerConsumer = barOp.children[0].components[0];
+  const ref = innerConsumer.controls.find(
+    (/** @type {any} */ c) => c.result !== undefined,
+  );
+  assert.deepEqual(
+    { qubit: ref.qubit, result: ref.result },
+    { qubit: 1, result: 0 },
+    "nested consumer's classical ref must rewire to the M's new wire",
+  );
+  // M itself moved 0 → 1.
+  /** @type {any} */
+  const m = model.componentGrid[0].components[0];
+  assert.equal(m.qubits[0].qubit, 1);
+  assert.equal(m.results[0].qubit, 1);
+});
+
 test("findAndRemoveOperations: removing a deep child narrows the group's targets", () => {
   // Foo spans wires 0-1 with H on wire 0 and Y on wire 1. Predicate-
   // remove Y; Foo's cached targets must narrow to just [wire 0].
@@ -5513,6 +5820,135 @@ test("moveMeasurementWithDependents: M with no consumers behaves like a regular 
   assert.ok(moved);
   const m = /** @type {any} */ (model.componentGrid[0].components[0]);
   assert.equal(m.qubits[0].qubit, 1);
+});
+
+test("moveMeasurementWithDependents: moving an M onto a wire that already has multiple Ms-with-consumers does not double-remap M results", () => {
+  // Regression: `_applyClassicalRefRemap` used to walk
+  // `getOperationRegisters(op)`, which for measurements
+  // returns both `.qubits` and `.results`. After
+  // `_updateMeasurementLines` had already authoritatively
+  // assigned the post-move result indices to every M on the
+  // affected wire, walking those producer values back through
+  // the consumer remap caused a chain reaction: each M's new
+  // result index coincidentally matched another M's pre-move
+  // key, so the M's `.results` got remapped a second time —
+  // collapsing into duplicate result indices and orphaning any
+  // consumer whose target M had its `.results` clobbered.
+  //
+  // Setup: three Ms with consumers spread across two wires.
+  // Wire 0 already has M_a (r=0) and M_b (r=1), each with a
+  // downstream classically-controlled gate. Wire 1 has M_c
+  // (r=0) with its own consumer. We move M_c onto wire 0 in
+  // front of M_a, which forces _updateMeasurementLines to
+  // renumber wire 0 as: M_c=0, M_a=1, M_b=2.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] }, // col 0: M_a (wire 0, r=0)
+      { components: [_mGate(0, 1)] }, // col 1: M_b (wire 0, r=1)
+      { components: [_mGate(1, 0)] }, // col 2: M_c (wire 1, r=0)
+      { components: [_ccx(2, 0, 0)] }, // col 3: C_a → "0:0"
+      { components: [_ccx(2, 0, 1)] }, // col 4: C_b → "0:1"
+      { components: [_ccx(2, 1, 0)] }, // col 5: C_c → "1:0"
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move M_c (col 2, idx 0) to wire 0, inserting a fresh column
+  // at position 0. After the move, wire 0's doc order is
+  // M_c, M_a, M_b → _updateMeasurementLines assigns
+  // r=0, 1, 2 respectively. The keyRemap must rewrite every
+  // consumer:
+  //   C_a "0:0" → "0:1" (M_a moved down)
+  //   C_b "0:1" → "0:2" (M_b moved down)
+  //   C_c "1:0" → "0:0" (M_c switched wires)
+  const moved = moveMeasurementWithDependents(
+    model,
+    "2,0",
+    "0,0",
+    1,
+    0,
+    /* insertNewColumn */ true,
+    [],
+  );
+  assert.ok(moved);
+
+  // Collect every M and every classically-controlled consumer
+  // in the post-move grid.
+  /** @type {any[]} */
+  const ms = [];
+  /** @type {any[]} */
+  const consumers = [];
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "measurement") {
+        ms.push(op);
+      } else if (
+        op.kind === "unitary" &&
+        op.controls &&
+        op.controls.some((/** @type {any} */ c) => c.result !== undefined)
+      ) {
+        consumers.push(op);
+      }
+    }
+  }
+  assert.equal(ms.length, 3, "all three Ms must still be present");
+  assert.equal(
+    consumers.length,
+    3,
+    "all three consumers must still be present",
+  );
+
+  // INVARIANT 1: every M's `.results` entry has a unique
+  // (qubit, result) key. The bug previously caused two Ms to
+  // share the same `.results` value.
+  /** @type {Set<string>} */
+  const resultKeys = new Set();
+  for (const m of ms) {
+    for (const r of m.results) {
+      const key = `${r.qubit}:${r.result}`;
+      assert.ok(
+        !resultKeys.has(key),
+        `duplicate M.results key ${key} — at least two Ms claim the same classical register`,
+      );
+      resultKeys.add(key);
+    }
+  }
+
+  // INVARIANT 2: every consumer's classical ref points at a key
+  // that some M actually produces. The bug previously left
+  // consumers pointing at result indices no M owned (orphaned
+  // classical-control indicator).
+  for (const consumer of consumers) {
+    const classicalRef = consumer.controls.find(
+      (/** @type {any} */ c) => c.result !== undefined,
+    );
+    const key = `${classicalRef.qubit}:${classicalRef.result}`;
+    assert.ok(
+      resultKeys.has(key),
+      `consumer references ${key}, but no M produces it (orphaned indicator)`,
+    );
+  }
+
+  // INVARIANT 3: on wire 0, result indices are assigned in
+  // doc order starting at 0 (the contract of
+  // _updateMeasurementLines). Verifies the renumbering itself
+  // wasn't corrupted by the remap walk.
+  /** @type {number[]} */
+  const wire0ResultsInDocOrder = [];
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "measurement" && op.qubits[0].qubit === 0) {
+        wire0ResultsInDocOrder.push(op.results[0].result);
+      }
+    }
+  }
+  assert.deepEqual(
+    wire0ResultsInDocOrder,
+    [0, 1, 2],
+    "wire 0's three Ms must have result indices 0, 1, 2 in doc order",
+  );
 });
 
 // ---------------------------------------------------------------

@@ -1112,13 +1112,30 @@ const _applyClassicalRefRemap = (
   const walk = (g: ComponentGrid): void => {
     for (const col of g) {
       for (const op of col.components) {
-        // Walk the op's own register-bearing fields. The eager
-        // `.targets` cache on group ops holds fresh Register
-        // objects (not aliased to children), so it gets visited
-        // here independently — children's refs are visited via
-        // the recursive descent below.
-        for (const reg of getOperationRegisters(op)) {
-          remapRegister(reg);
+        // Walk the op's CONSUMER-side register fields only. A
+        // measurement's `.results` is the PRODUCER side: its
+        // (qubit, result) keys were authoritatively assigned by
+        // the `_updateMeasurementLines` sweep that ran inside
+        // `moveOperation`. Feeding those producer values back
+        // through the consumer remap would double-remap them —
+        // any M whose freshly-assigned result index happened to
+        // match another M's pre-move key would get rewritten a
+        // second time, collapsing two Ms onto the same key and
+        // orphaning the consumer that was supposed to reference
+        // the original M. So for measurements we only visit
+        // `.qubits` (no-op for the remap since they have
+        // `result === undefined`, but kept for symmetry); for
+        // unitaries and kets we visit all registers, because
+        // their `.targets` and `.controls` are all references
+        // to producers elsewhere — including group ops whose
+        // eager `.targets` cache holds classical refs aliased
+        // from descendant consumers.
+        if (op.kind === "measurement") {
+          for (const reg of op.qubits) remapRegister(reg);
+        } else {
+          for (const reg of getOperationRegisters(op)) {
+            remapRegister(reg);
+          }
         }
         if (op.children) walk(op.children);
       }
