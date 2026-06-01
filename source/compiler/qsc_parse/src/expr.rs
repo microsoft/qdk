@@ -788,13 +788,16 @@ fn call_op(s: &mut ParserContext, lhs: Box<Expr>) -> Result<Box<ExprKind>> {
     let lo = s.span(0).hi - 1;
     // If there's a nested object initializer, we want its recovery to know about rparen, so we add a barrier
     let (args, final_sep) = barrier(s, &[TokenKind::Close(Delim::Paren)], |s| seq(s, expr))?;
-    // If the rparen is missing, we report an error but keep the call node so the language service can offer signature help, etc
+    // If the rparen is missing, we report an error but keep the call node so the language service can offer signature help, etc.
+    // We also skip trivia so that the args span extends to the next token, ensuring the cursor
+    // position is inside the span for language service features like signature help.
     if token(s, TokenKind::Close(Delim::Paren)).is_err() {
         s.push_error(Error::new(ErrorKind::Token(
             TokenKind::Close(Delim::Paren),
             s.peek().kind,
             s.peek().span,
         )));
+        s.skip_trivia();
     }
     let rhs = Box::new(Expr {
         id: NodeId::default(),

@@ -787,12 +787,12 @@ fn recover_statements_before_and_after() {
                     Expr _id_ [22-27]: BinOp (Add):
                         Expr _id_ [22-23]: Lit: Int(2)
                         Expr _id_ [26-27]: Lit: Int(2)
-                Stmt _id_ [41-54]: Local (Immutable):
+                Stmt _id_ [41-67]: Local (Immutable):
                     Pat _id_ [45-46]: Bind:
                         Ident _id_ [45-46] "y"
-                    Expr _id_ [49-54]: Call:
+                    Expr _id_ [49-67]: Call:
                         Expr _id_ [49-52]: Path: Path _id_ [49-52] (Ident _id_ [49-52] "Foo")
-                        Expr _id_ [52-54]: Paren: Expr _id_ [53-54]: Path: Path _id_ [53-54] (Ident _id_ [53-54] "x")
+                        Expr _id_ [52-67]: Paren: Expr _id_ [53-54]: Path: Path _id_ [53-54] (Ident _id_ [53-54] "x")
                 Stmt _id_ [67-81]: Local (Immutable):
                     Pat _id_ [71-72]: Bind:
                         Ident _id_ [71-72] "z"
@@ -842,12 +842,12 @@ fn recover_let_after_unclosed_call() {
         }",
         &expect![[r#"
             Block _id_ [0-60]:
-                Stmt _id_ [14-27]: Local (Immutable):
+                Stmt _id_ [14-40]: Local (Immutable):
                     Pat _id_ [18-19]: Bind:
                         Ident _id_ [18-19] "y"
-                    Expr _id_ [22-27]: Call:
+                    Expr _id_ [22-40]: Call:
                         Expr _id_ [22-25]: Path: Path _id_ [22-25] (Ident _id_ [22-25] "Foo")
-                        Expr _id_ [25-27]: Paren: Expr _id_ [26-27]: Path: Path _id_ [26-27] (Ident _id_ [26-27] "x")
+                        Expr _id_ [25-40]: Paren: Expr _id_ [26-27]: Path: Path _id_ [26-27] (Ident _id_ [26-27] "x")
                 Stmt _id_ [40-50]: Local (Immutable):
                     Pat _id_ [44-45]: Bind:
                         Ident _id_ [44-45] "z"
@@ -940,9 +940,9 @@ fn recover_call_missing_close_paren_in_block() {
         "{ foo( }",
         &expect![[r#"
             Block _id_ [0-8]:
-                Stmt _id_ [2-6]: Expr: Expr _id_ [2-6]: Call:
+                Stmt _id_ [2-7]: Expr: Expr _id_ [2-7]: Call:
                     Expr _id_ [2-5]: Path: Path _id_ [2-5] (Ident _id_ [2-5] "foo")
-                    Expr _id_ [5-6]: Unit
+                    Expr _id_ [5-7]: Unit
 
             [
                 Error(
@@ -970,9 +970,9 @@ fn recover_call_with_arg_missing_close_paren_in_block() {
         "{ foo(x }",
         &expect![[r#"
             Block _id_ [0-9]:
-                Stmt _id_ [2-7]: Expr: Expr _id_ [2-7]: Call:
+                Stmt _id_ [2-8]: Expr: Expr _id_ [2-8]: Call:
                     Expr _id_ [2-5]: Path: Path _id_ [2-5] (Ident _id_ [2-5] "foo")
-                    Expr _id_ [5-7]: Paren: Expr _id_ [6-7]: Path: Path _id_ [6-7] (Ident _id_ [6-7] "x")
+                    Expr _id_ [5-8]: Paren: Expr _id_ [6-7]: Path: Path _id_ [6-7] (Ident _id_ [6-7] "x")
 
             [
                 Error(
