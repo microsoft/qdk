@@ -6,11 +6,17 @@
 """Lint: detect private-symbol leakage in the qdk public API surface.
 
 For every symbol listed in a module's ``__all__``, this script inspects
-function / method type annotations and class base classes.  If any
-annotation or base references an underscore-prefixed name (e.g.
-``_native.Circuit``) or a type whose ``__module__`` contains an
-underscore-prefixed segment (e.g. ``qdk._types.Config``), a violation
-is reported.
+function / method type annotations.  If any annotation references a type
+that is **only** reachable through an underscore-prefixed (private)
+module path, a violation is reported.
+
+Base classes are intentionally *not* checked — a private base (mixin,
+ABC, protocol) is an implementation detail that users never need to
+reference directly, so it does not constitute actionable leakage.
+
+Types that are defined in a private module but re-exported through a
+public module's ``__all__`` are **not** flagged — they are considered
+public.
 
 Exit code 0  – no violations found.
 Exit code 1  – one or more violations found (details printed to stderr).
@@ -66,9 +72,22 @@ SKIP_MODULES: set[str] = {
 OWNED_PREFIXES: tuple[str, ...] = ("qdk.",)
 
 # Symbols that are themselves known-OK despite having a private-looking
-# module path (e.g. the Rust extension types that we *intend* to re-export).
+# module path (e.g. TypeVar constraints that users never reference directly).
 # Format: frozenset of fully qualified "<module>.<qualname>" strings.
 KNOWN_EXCEPTIONS: frozenset[str] = frozenset()
+
+# Private types that are tolerated in the public API surface.  Unlike
+# KNOWN_EXCEPTIONS (which match by public-symbol FQN), these match by the
+# private type's own FQN.  Use this for typing-only artefacts that users
+# never import or reference directly.
+KNOWN_PRIVATE_TYPES: frozenset[str] = frozenset(
+    {
+        # DataclassProtocol is a TypeVar constraint on TraceParameters.  Users
+        # satisfy it implicitly by using @dataclass; they never import or
+        # reference the protocol itself.
+        "qdk.qre._application.DataclassProtocol",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -157,12 +176,44 @@ class Violation:
         )
 
 
+def _build_public_types(
+    modules: list[tuple[str, types.ModuleType]],
+) -> tuple[set[int], set[str]]:
+    """Build the set of types that are publicly re-exported.
+
+    Returns:
+        A tuple of (public_type_ids, public_type_names) where:
+        - public_type_ids is a set of ``id()`` values for type objects
+          found in any public module's ``__all__``.
+        - public_type_names is a set of unqualified names (e.g. "Config")
+          for resolving forward-reference strings.
+    """
+    public_type_ids: set[int] = set()
+    public_type_names: set[str] = set()
+
+    for mod_name, mod in modules:
+        all_symbols = getattr(mod, "__all__", None)
+        if all_symbols is None:
+            continue
+        for sym_name in all_symbols:
+            obj = getattr(mod, sym_name, None)
+            if obj is None:
+                continue
+            if isinstance(obj, type):
+                public_type_ids.add(id(obj))
+                public_type_names.add(sym_name)
+
+    return public_type_ids, public_type_names
+
+
 def _check_annotation(
     annotation,
     module_name: str,
     symbol_name: str,
     context: str,
     violations: list[Violation],
+    public_type_ids: set[int],
+    public_type_names: set[str],
 ) -> None:
     """Check a single annotation for private-symbol leakage."""
     for leaf in _extract_leaf_types(annotation):
@@ -179,12 +230,22 @@ def _check_annotation(
             if _is_private_name(ref_str) or any(
                 _is_private_name(p) for p in ref_str.split(".")
             ):
+                # Check if the bare name matches a publicly-exported type
+                bare_name = ref_str.rsplit(".", 1)[-1]
+                if bare_name in public_type_names:
+                    continue
+                # Check if this is a known-OK private type (by forward-ref string)
+                if ref_str in KNOWN_PRIVATE_TYPES:
+                    continue
                 fqn = f"{module_name}.{symbol_name}"
                 if fqn not in KNOWN_EXCEPTIONS:
                     violations.append(
                         Violation(module_name, symbol_name, context, ref_str)
                     )
         elif isinstance(leaf, type):
+            # Skip types that are publicly re-exported
+            if id(leaf) in public_type_ids:
+                continue
             leaf_mod = getattr(leaf, "__module__", "") or ""
             leaf_name = getattr(leaf, "__qualname__", "") or getattr(
                 leaf, "__name__", ""
@@ -194,6 +255,9 @@ def _check_annotation(
                 continue
             if _is_private_name(leaf_name) or _module_has_private_segment(leaf_mod):
                 ref = _type_fqn(leaf)
+                # Check if this is a known-OK private type (by FQN)
+                if ref in KNOWN_PRIVATE_TYPES:
+                    continue
                 fqn = f"{module_name}.{symbol_name}"
                 if fqn not in KNOWN_EXCEPTIONS:
                     violations.append(Violation(module_name, symbol_name, context, ref))
@@ -204,6 +268,8 @@ def _check_callable(
     module_name: str,
     symbol_name: str,
     violations: list[Violation],
+    public_type_ids: set[int],
+    public_type_names: set[str],
 ) -> None:
     """Inspect a function or method's annotations for private types."""
     try:
@@ -218,7 +284,15 @@ def _check_callable(
             context = "return type"
         else:
             context = f"parameter '{param_name}'"
-        _check_annotation(annotation, module_name, symbol_name, context, violations)
+        _check_annotation(
+            annotation,
+            module_name,
+            symbol_name,
+            context,
+            violations,
+            public_type_ids,
+            public_type_names,
+        )
 
 
 def _check_class(
@@ -226,21 +300,15 @@ def _check_class(
     module_name: str,
     symbol_name: str,
     violations: list[Violation],
+    public_type_ids: set[int],
+    public_type_names: set[str],
 ) -> None:
-    """Check a class's bases, and its public methods' annotations."""
-    # Check base classes
-    for base in cls.__mro__[1:]:  # skip the class itself
-        if base is object:
-            continue
-        base_mod = getattr(base, "__module__", "") or ""
-        base_name = getattr(base, "__qualname__", "") or ""
-        # Only flag types owned by this project
-        if not any(base_mod.startswith(p) for p in OWNED_PREFIXES):
-            continue
-        if _is_private_name(base_name) or _module_has_private_segment(base_mod):
-            ref = _type_fqn(base)
-            violations.append(Violation(module_name, symbol_name, "base class", ref))
+    """Check a class's public methods' annotations for private types.
 
+    Note: base classes are intentionally *not* checked.  A private base
+    (mixin, ABC, protocol) is an implementation detail that users never
+    reference directly, so it does not constitute actionable leakage.
+    """
     # Check public methods — only those defined in qdk-owned modules.
     for attr_name in dir(cls):
         if attr_name.startswith("_") and not attr_name.startswith("__"):
@@ -265,6 +333,8 @@ def _check_class(
             module_name,
             f"{symbol_name}.{attr_name}",
             violations,
+            public_type_ids,
+            public_type_names,
         )
 
 
@@ -298,7 +368,10 @@ def scan() -> list[Violation]:
     """Scan the qdk package and return all violations."""
     violations: list[Violation] = []
 
-    for mod_name, mod in _iter_qdk_modules():
+    modules = _iter_qdk_modules()
+    public_type_ids, public_type_names = _build_public_types(modules)
+
+    for mod_name, mod in modules:
         all_symbols = getattr(mod, "__all__", None)
         if all_symbols is None:
             continue  # only check modules that declare __all__
@@ -309,9 +382,23 @@ def scan() -> list[Violation]:
                 continue
 
             if isinstance(obj, type):
-                _check_class(obj, mod_name, sym_name, violations)
+                _check_class(
+                    obj,
+                    mod_name,
+                    sym_name,
+                    violations,
+                    public_type_ids,
+                    public_type_names,
+                )
             elif callable(obj):
-                _check_callable(obj, mod_name, sym_name, violations)
+                _check_callable(
+                    obj,
+                    mod_name,
+                    sym_name,
+                    violations,
+                    public_type_ids,
+                    public_type_names,
+                )
             # For non-callable, non-class objects (e.g. TypeVar, constants),
             # we skip — they don't have annotations to check.
 
@@ -350,22 +437,31 @@ def main() -> int:
             )
         )
     else:
+        # Compute unique private types for the summary line.
+        unique_types = {v.private_ref for v in violations}
+
         print(
             f"\n{'='*70}\n"
-            f" Private API leakage: {len(violations)} violation(s) found\n"
+            f" Private API leakage detected\n"
+            f"   {len(unique_types)} private type(s), "
+            f"{len(violations)} reference(s) across public API\n"
             f"{'='*70}\n",
             file=sys.stderr,
         )
-        # Group by module for readability
-        by_module: dict[str, list[Violation]] = {}
-        for v in violations:
-            by_module.setdefault(v.module, []).append(v)
 
-        for mod, vs in sorted(by_module.items()):
-            print(f"\n  {mod}:", file=sys.stderr)
+        # Primary grouping: by private type (the actionable unit).
+        by_type: dict[str, list[Violation]] = {}
+        for v in violations:
+            by_type.setdefault(v.private_ref, []).append(v)
+
+        for priv_type, vs in sorted(by_type.items()):
+            print(
+                f"\n  {priv_type}  ({len(vs)} reference(s))",
+                file=sys.stderr,
+            )
             for v in vs:
                 print(
-                    f"    - {v.public_symbol}: {v.context} -> {v.private_ref}",
+                    f"    - {v.module}.{v.public_symbol}: {v.context}",
                     file=sys.stderr,
                 )
 

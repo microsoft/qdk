@@ -9,7 +9,7 @@ from types import NoneType
 from typing import Any, Optional, Generator, Type, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ._application import _Context
+    from ._application import ApplicationContext
 from ._enumeration import _enumerate_instances
 from ._qre import PSSPC as _PSSPC, LatticeSurgery as _LatticeSurgery, Trace
 
@@ -113,7 +113,7 @@ class _Node(ABC):
     """Abstract base class for trace enumeration nodes."""
 
     @abstractmethod
-    def enumerate(self, ctx: _Context) -> Generator[Trace, None, None]: ...
+    def enumerate(self, ctx: ApplicationContext) -> Generator[Trace, None, None]: ...
 
 
 class TraceQuery(_Node):
@@ -131,12 +131,12 @@ class TraceQuery(_Node):
         self.sequence = [(t, kwargs)]
 
     def enumerate(
-        self, ctx: _Context, track_parameters: bool = False
+        self, ctx: ApplicationContext, track_parameters: bool = False
     ) -> Generator[Trace | tuple[Any, Trace], None, None]:
         """Enumerate transformed traces from the application context.
 
         Args:
-            ctx (_Context): The application enumeration context.
+            ctx (ApplicationContext): The application enumeration context.
             track_parameters (bool): If True, yield ``(parameters, trace)``
                 tuples instead of plain traces. Default is False.
 

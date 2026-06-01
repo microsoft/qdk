@@ -32,6 +32,20 @@ if TYPE_CHECKING:
     from ._instruction import ISATransform
 
     # ------------------------------------------------------------------
+    # ApplicationContext
+    #   (runtime: _application.ApplicationContext)
+    # ------------------------------------------------------------------
+    class ApplicationContext(Protocol):
+        """Enumeration context wrapping an application instance.
+
+        Obtained via :meth:`Application.context` and passed to
+        :meth:`TraceQuery.enumerate`.
+        """
+
+        @property
+        def application(self) -> "Application": ...
+
+    # ------------------------------------------------------------------
     # InstructionSourceNodeReference
     #   (runtime: _instruction._InstructionSourceNodeReference)
     # ------------------------------------------------------------------
@@ -62,12 +76,14 @@ if TYPE_CHECKING:
         def expect_error_rate(self, arity: Optional[int] = None) -> float: ...
 
 else:
+    from ._application import ApplicationContext
     from ._instruction import (
         _InstructionSourceNodeReference as InstructionSourceNodeReference,
     )
     from ._qre import Instruction
 
 __all__ = [
+    "ApplicationContext",
     "Instruction",
     "InstructionSourceNodeReference",
 ]

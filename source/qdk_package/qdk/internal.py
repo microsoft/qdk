@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from enum import Enum
     from typing import Any, Dict, Optional, Protocol, Union
 
     class StateDumpData(Protocol):
@@ -85,6 +86,23 @@ if TYPE_CHECKING:
         def _repr_qir_(self, **kwargs) -> bytes: ...
         def __str__(self) -> str: ...
 
+    class ZoneType(Enum):
+        """Type of zone in a neutral-atom device layout."""
+
+        REG = "register"
+        INTER = "interaction"
+        MEAS = "measurement"
+
+    class Zone(Protocol):
+        """A zone in a neutral-atom device layout."""
+
+        name: str
+        row_count: int
+        type: ZoneType
+        offset: int
+
+        def set_offset(self, offset: int) -> None: ...
+
 else:
     from ._native import (  # type: ignore
         Circuit,
@@ -97,6 +115,7 @@ else:
         Config,
         QirInputData,
     )
+    from ._device._device import Zone, ZoneType
 
 __all__ = [
     "Circuit",
@@ -106,4 +125,6 @@ __all__ = [
     "Output",
     "QirInputData",
     "StateDumpData",
+    "Zone",
+    "ZoneType",
 ]
