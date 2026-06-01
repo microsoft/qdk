@@ -458,6 +458,14 @@ if build_qdk:
         build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
     step_end()
 
+    if args.check:
+        step_start("Checking qdk public API surface for private type leakage")
+        run(
+            [python_bin, os.path.join(qdk_python_src, "check_api_surface.py")],
+            cwd=qdk_python_src,
+        )
+        step_end()
+
     if run_tests:
         step_start("Running tests for the qdk python package")
         # Install per-package test requirements (pytest, etc.)
