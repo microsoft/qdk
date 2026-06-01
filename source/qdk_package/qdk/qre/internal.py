@@ -34,13 +34,25 @@ from ._isa_enumeration import (
 from ._qre import Instruction
 from ._trace import _Node as TraceNode
 
+try:
+    from .interop._cirq import (
+        _CirqTraceBuilder as CirqTraceBuilder,
+        _QidToTraceId as QidToTraceId,
+    )
+except ImportError:
+    # cirq is an optional dependency; these re-exports are only available
+    # when the cirq extra is installed.
+    pass
+
 __all__ = [
     "ApplicationContext",
     "BindingNode",
+    "CirqTraceBuilder",
     "ISAProductNode",
     "ISASumNode",
     "Instruction",
     "InstructionSourceNode",
     "InstructionSourceNodeReference",
+    "QidToTraceId",
     "TraceNode",
 ]

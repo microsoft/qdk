@@ -17,7 +17,16 @@ from .qec import (
 )
 from .qubits import GateBased, Majorana, NeutralAtom
 
+# Re-export types from qdk.qre that appear in signatures of classes
+# defined in this submodule (e.g. Architecture.provided_isa) so that
+# doc-gen tools can resolve cross-references within this namespace.
+from .._qre import ISA, ISARequirements  # noqa: F401
+from .._architecture import ISAContext  # noqa: F401
+
 __all__ = [
+    "ISA",
+    "ISAContext",
+    "ISARequirements",
     "GateBased",
     "GSJ24Factory",
     "GSJ24CCXFactory",
