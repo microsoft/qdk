@@ -4,7 +4,7 @@
 """Internal types that appear in the public API surface.
 
 .. warning::
-    The types re-exported here are **not** part of the supported public API
+    The types exposed here are **not** part of the supported public API
     and may change in any release without notice.  They are made reachable
     from this module solely so that:
 
@@ -21,17 +21,82 @@
     directly, use the corresponding public API instead.
 """
 
-from ._native import (  # type: ignore
-    Circuit,
-    Closure,
-    GlobalCallable,
-    Output,
-    StateDumpData,
-)
-from ._types import (
-    Config,
-    QirInputData,
-)
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Any, Dict, Optional, Protocol, Union
+
+    class StateDumpData(Protocol):
+        """A state dump returned from the Q# interpreter."""
+
+        def __repr__(self) -> str: ...
+        def __str__(self) -> str: ...
+        def _repr_markdown_(self) -> str: ...
+        def _repr_latex_(self) -> Optional[str]: ...
+
+    class Circuit(Protocol):
+        """A quantum circuit diagram generated from a Q# or OpenQASM program."""
+
+        def json(self) -> str: ...
+        def __repr__(self) -> str: ...
+        def __str__(self) -> str: ...
+
+    class Closure(Protocol):
+        """An opaque closure reference that can be passed back into Q#."""
+
+        ...
+
+    class GlobalCallable(Protocol):
+        """An opaque callable reference that can be passed back into Q#."""
+
+        ...
+
+    class Output(Protocol):
+        """An output returned from the Q# interpreter.
+
+        Outputs can be state dumps, matrices, or messages.
+        """
+
+        def __repr__(self) -> str: ...
+        def __str__(self) -> str: ...
+        def _repr_markdown_(self) -> Optional[str]: ...
+
+    class Config(Protocol):
+        """Configuration hints for the language service."""
+
+        def __repr__(self) -> str: ...
+        def _repr_mimebundle_(
+            self,
+            include: Union[Any, None] = None,
+            exclude: Union[Any, None] = None,
+        ) -> Dict[str, Dict[str, Any]]: ...
+
+    class QirInputData(Protocol):
+        """Wraps a compiled QIR program for submission to a quantum target.
+
+        Implements the ``QirRepresentable`` protocol expected by the
+        ``azure-quantum`` package.
+        """
+
+        _name: str
+
+        def _repr_qir_(self, **kwargs) -> bytes: ...
+        def __str__(self) -> str: ...
+
+else:
+    from ._native import (  # type: ignore
+        Circuit,
+        Closure,
+        GlobalCallable,
+        Output,
+        StateDumpData,
+    )
+    from ._types import (
+        Config,
+        QirInputData,
+    )
 
 __all__ = [
     "Circuit",

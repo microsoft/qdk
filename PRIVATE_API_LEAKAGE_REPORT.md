@@ -220,30 +220,26 @@ Public surface (no internal namespace needed):
 After Tier 1, every type appearing in a public function signature has a
 reachable, doc-linkable home.
 
-#### Opacity — required before merge
+#### Opacity — implemented
 
-The initial Tier 1 implementation uses bare re-exports (the `internal`
-module exposes the same class objects as the private modules). This means
-users importing from `qdk.internal` get full access to every method and
-attribute on these types, which undermines the intent of keeping them
-internal.
+Both `qdk.internal` and `qdk.qre.internal` now use a
+`typing.TYPE_CHECKING` guard to implement the opacity model:
 
-Before merging this feature, replace the bare re-exports with **Protocol
-types that expose only the stable method subset**. For each type:
+- **Type-checking time:** Each exported name resolves to a
+  `typing.Protocol` that exposes only the stable method subset (e.g.
+  `Circuit` exposes `.json()`, `__repr__`, `__str__`; `QirInputData`
+  exposes `._repr_qir_()`, `._name`, `__str__()` only; `Instruction`
+  exposes read-only properties and query methods but not mutation
+  methods like `set_source` / `set_property`).
+- **Runtime:** The `else` branch re-exports the real class, so existing
+  code continues to work unchanged.
+- **No `isinstance` checks** are performed on these types anywhere in
+  the public surface (verified).
 
-- Define a `typing.Protocol` in the `internal` module that describes only
-  the methods we commit to supporting (e.g. `Circuit` exposes `.json()`
-  only; `QirInputData` exposes `._repr_qir_()` and `__str__()` only).
-- Use `typing.TYPE_CHECKING` guards so the Protocol is what type checkers
-  and doc generators see, while at runtime the real class is still
-  returned by the public API functions.
-- Verify that `isinstance` checks are not performed on these types
-  anywhere in the public surface (they aren't today).
-
-This approach gives users autocomplete and doc links for the stable
-surface, while making it clear that other methods are implementation
-details. Internal code continues to import directly from `_native` /
-`_types` and is unaffected.
+This means users get autocomplete and doc links for the stable surface
+only, while other methods are clearly implementation details. Internal
+code continues to import directly from `_native` / `_types` / private
+submodules and is unaffected.
 
 #### Jupyter / notebook integration — testing notes
 
