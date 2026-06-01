@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._application import Application
+from ._application import Application, TraceParameters
 from ._architecture import Architecture, ISAContext
 from ._estimation import estimate
 from ._instruction import (
@@ -79,6 +79,7 @@ __all__ = [
     "property_name",
     "property_name_to_key",
     "Trace",
+    "TraceParameters",
     "TraceQuery",
     "TraceTransform",
     "LOGICAL",
