@@ -100,7 +100,19 @@ fn compile_and_defunctionalize(source: &str) -> (fir::PackageStore, fir::Package
 /// defunctionalization, so the visual effect of the pass on the user package
 /// can be reviewed directly in the test snapshot.
 fn check_rewrite(source: &str, expect: &Expect) {
-    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    check_rewrite_with_capabilities(source, TargetCapabilityFlags::empty(), expect);
+}
+
+/// Like [`check_rewrite`] but compiles with the given target capabilities so
+/// before/after snapshots can be captured for sources that require non-default
+/// capabilities (e.g. adaptive QIR generation).
+fn check_rewrite_with_capabilities(
+    source: &str,
+    capabilities: TargetCapabilityFlags,
+    expect: &Expect,
+) {
+    let (mut fir_store, fir_pkg_id) =
+        compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let before = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
@@ -376,6 +388,59 @@ fn check_pipeline(source: &str) {
     crate::test_utils::assert_no_pipeline_errors("run_pipeline", &result.errors);
 }
 
+/// Returns `true` if the body block of `callable_name` contains a `let`
+/// binding for a local named `binding_name`.
+fn body_binds_local(package: &fir::Package, callable_name: &str, binding_name: &str) -> bool {
+    let decl = callable_decl(package, callable_name);
+    let fir::CallableImpl::Spec(spec) = &decl.implementation else {
+        return false;
+    };
+    let block = package.get_block(spec.body.block);
+    block.stmts.iter().any(|&stmt_id| {
+        let stmt = package.get_stmt(stmt_id);
+        if let fir::StmtKind::Local(_, pat_id, _) = &stmt.kind {
+            let pat = package.get_pat(*pat_id);
+            matches!(&pat.kind, fir::PatKind::Bind(ident) if ident.name.as_ref() == binding_name)
+        } else {
+            false
+        }
+    })
+}
+
+/// Regression test: a callable-typed local used only inside a
+/// live struct field was wrongly pruned by defunctionalize because the
+/// use-collectors skipped recursing into `Struct` expressions. The `let f`
+/// binding in `Pick` must survive defunctionalization.
+#[test]
+fn callable_local_used_only_in_struct_field_survives_defunc() {
+    let source = "
+namespace Test {
+    struct Holder { Cb : (Int => Int) }
+    function Pick(arr : (Int => Int)[]) : Holder {
+        let f = arr[0];
+        new Holder { Cb = f }
+    }
+    @EntryPoint()
+    operation Main() : Unit {
+        let ops : (Int => Int)[] = [x => x + 1];
+        let h = Pick(ops);
+        let _ = h.Cb(3);
+    }
+}
+";
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
+    // The callable stored in the field originates from a dynamic array index,
+    // so defunctionalize cannot fully resolve it (non-convergence is expected
+    // and orthogonal to this regression). We only assert binding survival.
+    let _ = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    let package = fir_store.get(fir_pkg_id);
+    assert!(
+        body_binds_local(package, "Pick", "f"),
+        "the `let f` binding in `Pick` must survive defunctionalization"
+    );
+}
+
 #[test]
 fn compose_functors_identity() {
     let a = FunctorApp::default();
@@ -574,10 +639,27 @@ fn error_recursive_specialization() {
 
 #[test]
 fn empty_entrypoint_remains_unchanged() {
+    let source = "operation Main() : Unit { }";
     check(
-        "operation Main() : Unit { }",
+        source,
         &expect![[r#"
             Main: input_ty=Unit"#]],
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation Main() : Unit {}
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation Main() : Unit {}
+        // entry
+        Main()
+    "#]],
     );
 }
 
@@ -695,4 +777,79 @@ fn unreachable_closure_structure_preserved() {
         matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "DeadFn")
     });
     assert!(dead_exists, "DeadFn should still exist pre-DCE");
+}
+
+/// The `StmtKind::Semi(Return(_))` arm in defunctionalize analysis
+/// (`resolve_same_package_callable_return`) is genuinely live for bodies that
+/// originate cross-package. `check_no_returns` skips cross-package items and
+/// return-unification runs local-package-only, so a generic library callable
+/// that returns a callable via an explicit `return` keeps its `Semi(Return)`
+/// tail. Monomorphization clones that generic body into the user package, where
+/// defunctionalize then analyzes it through the same-package arm. If the arm
+/// were dead or broken, the HOF argument could not be resolved statically and
+/// defunctionalization would surface an error; asserting no errors proves the
+/// arm is reached and resolves the returned callable.
+#[test]
+fn cross_package_return_stmt_is_analyzed() {
+    let lib_source = r#"
+        namespace TestLib {
+            function MakeIdentity<'T>() : ('T -> 'T) {
+                return x -> x;
+            }
+            export MakeIdentity;
+        }
+    "#;
+    let user_source = r#"
+        import TestLib.*;
+
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        @EntryPoint()
+        operation Main() : Int {
+            Apply(MakeIdentity(), 5)
+        }
+    "#;
+    let (mut fir_store, fir_pkg_id) =
+        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
+
+    // Monomorphization clones `MakeIdentity<Int>` into the user package; its
+    // body still ends in `return x -> x;` (`Semi(Return)`), since return
+    // unification has not run on the freshly cloned cross-package body.
+    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigner);
+
+    // Precondition: a user-package callable now ends in `Semi(Return)` of a
+    // callable-typed value — exactly the shape the analysis arm consumes.
+    let semi_return_callable_present = {
+        let package = fir_store.get(fir_pkg_id);
+        package.items.values().any(|item| {
+            let ItemKind::Callable(decl) = &item.kind else {
+                return false;
+            };
+            let fir::CallableImpl::Spec(spec) = &decl.implementation else {
+                return false;
+            };
+            if !matches!(decl.output, qsc_fir::ty::Ty::Arrow(_)) {
+                return false;
+            }
+            let block = package.get_block(spec.body.block);
+            block.stmts.last().is_some_and(|&stmt_id| {
+                let stmt = package.get_stmt(stmt_id);
+                matches!(
+                    &stmt.kind,
+                    fir::StmtKind::Semi(expr_id)
+                        if matches!(package.get_expr(*expr_id).kind, fir::ExprKind::Return(_))
+                )
+            })
+        })
+    };
+    assert!(
+        semi_return_callable_present,
+        "monomorphized cross-package body returning a callable must retain its \
+         `Semi(Return)` tail for the analysis arm to consume"
+    );
+
+    // Defunctionalize analysis traverses the `Semi(Return)` arm to resolve the
+    // returned callable; success (no errors) proves the arm is live.
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    assert_no_defunctionalization_errors("cross_package_return_stmt_is_analyzed", &errors);
 }

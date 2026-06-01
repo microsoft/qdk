@@ -109,6 +109,11 @@ fn intrinsic_returning_udt() {
 
 #[test]
 fn simulatable_intrinsic_with_tuple_param() {
+    // The FIR-transform precheck validates `@SimulatableIntrinsic` callables in
+    // addition to `body intrinsic` ones (see the
+    // `Intrinsic | SimulatableIntrinsic(_)` gate in intrinsic_precheck.rs). A
+    // `@SimulatableIntrinsic` operation with a tuple parameter type is therefore
+    // rejected here as an unsupported parameter type.
     check_precheck_errors(
         indoc! {r#"
                 namespace Test {
@@ -124,6 +129,11 @@ fn simulatable_intrinsic_with_tuple_param() {
 
 #[test]
 fn simulatable_intrinsic_with_udt_param() {
+    // The FIR-transform precheck validates `@SimulatableIntrinsic` callables in
+    // addition to `body intrinsic` ones (see the
+    // `Intrinsic | SimulatableIntrinsic(_)` gate in intrinsic_precheck.rs). A
+    // `@SimulatableIntrinsic` operation with a UDT parameter type is therefore
+    // rejected here as an unsupported parameter type.
     check_precheck_errors(
         indoc! {r#"
                 namespace Test {
@@ -142,6 +152,11 @@ fn simulatable_intrinsic_with_udt_param() {
 
 #[test]
 fn simulatable_intrinsic_returning_tuple() {
+    // The FIR-transform precheck validates `@SimulatableIntrinsic` callables in
+    // addition to `body intrinsic` ones (see the
+    // `Intrinsic | SimulatableIntrinsic(_)` gate in intrinsic_precheck.rs). A
+    // `@SimulatableIntrinsic` operation with a tuple return type is therefore
+    // rejected here as an unsupported return type.
     check_precheck_errors(
         indoc! {r#"
                 namespace Test {
@@ -157,6 +172,11 @@ fn simulatable_intrinsic_returning_tuple() {
 
 #[test]
 fn simulatable_intrinsic_returning_udt() {
+    // The FIR-transform precheck validates `@SimulatableIntrinsic` callables in
+    // addition to `body intrinsic` ones (see the
+    // `Intrinsic | SimulatableIntrinsic(_)` gate in intrinsic_precheck.rs). A
+    // `@SimulatableIntrinsic` operation with a UDT return type is therefore
+    // rejected here as an unsupported return type.
     check_precheck_errors(
         indoc! {r#"
                 namespace Test {

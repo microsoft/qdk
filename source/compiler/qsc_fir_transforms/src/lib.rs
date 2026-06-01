@@ -16,7 +16,7 @@
 //! For example, defunctionalization produces FIR that violates invariants
 //! expected by later passes, but the subsequent UDT erasure and tuple
 //! comparison lowering restore those invariants before the next major
-//! stage (SROA).
+//! stage (tuple-decompose).
 //!
 //! At the end of the pipeline, the FIR should be in a form that is
 //! semantically equivalent to the input but more amenable to partial
@@ -38,7 +38,7 @@
 //! - **Single [`Assigner`] continuity.** The pipeline constructs one
 //!   [`Assigner`] from the input package and threads it through every pass
 //!   that synthesizes new FIR nodes (`monomorphize`, `return_unify`,
-//!   `defunctionalize`, `udt_erase`, `tuple_compare_lower`, `sroa`,
+//!   `defunctionalize`, `udt_erase`, `tuple_compare_lower`, `tuple_decompose`,
 //!   `arg_promote`). Each pass allocates fresh IDs against that shared
 //!   counter so synthesized nodes from earlier stages stay disjoint from
 //!   IDs allocated later. Passes must not construct a fresh [`Assigner`]
@@ -72,8 +72,8 @@ pub(crate) mod intrinsic_precheck;
 pub(crate) mod item_dce;
 pub(crate) mod monomorphize;
 pub(crate) mod return_unify;
-pub(crate) mod sroa;
 pub(crate) mod tuple_compare_lower;
+pub(crate) mod tuple_decompose;
 pub(crate) mod udt_erase;
 
 #[cfg(any(test, feature = "testutil"))]
@@ -125,6 +125,15 @@ pub(crate) const EMPTY_EXEC_RANGE: std::ops::Range<ExecGraphIdx> = std::ops::Ran
     end: ExecGraphIdx::ZERO,
 };
 
+/// Hard-cap on the number of tuple-decompose <-> argument-promotion fixed-point rounds in
+/// [`run_pipeline_to_impl`]. Convergence is mathematically guaranteed by a
+/// strictly-decreasing measure, so realistic Q# converges in only a few rounds
+/// (linear in tuple nesting depth and copy-alias chain length). This cap is a
+/// divergence backstop for adversarial or machine-generated input: on
+/// exhaustion the loop stops with residual tuples (suboptimal codegen, never a
+/// miscompile) and emits [`PipelineError::TupleDecomposeArgPromoteFixpointNotReached`].
+const TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP: usize = 64;
+
 /// Diagnostics produced by the FIR transform pipeline.
 ///
 /// Wraps pass-specific diagnostic types so callers handle a single diagnostic
@@ -156,6 +165,16 @@ pub enum PipelineError {
     #[error("pinned item {0} is not a callable")]
     #[diagnostic(code("Qsc.FirTransform.PinnedItemNotCallable"))]
     PinnedItemNotCallable(StoreItemId),
+
+    /// The tuple-decompose <-> argument-promotion fixed-point loop did not converge within
+    /// its hard cap. Residual tuple locals may remain (suboptimal codegen), but
+    /// the emitted FIR is still correct.
+    #[error(
+        "tuple-decompose/argument-promotion fixed-point loop did not converge within {0} rounds"
+    )]
+    #[diagnostic(code("Qsc.FirTransform.TupleDecomposeArgPromoteFixpointNotReached"))]
+    #[diagnostic(severity(Warning))]
+    TupleDecomposeArgPromoteFixpointNotReached(usize),
 }
 
 /// Warning-aware result for the FIR transform pipeline.
@@ -201,10 +220,13 @@ pub enum PipelineStage {
     UdtErase,
     /// Run through tuple comparison lowering.
     TupleCompLower,
-    /// Run through SROA.
-    Sroa,
+    /// Run through tuple-decompose.
+    TupleDecompose,
     /// Run through argument promotion.
     ArgPromote,
+    /// Run through the second tuple-decompose pass (scalar-replaces caller-side tuple
+    /// locals left field-only by argument promotion).
+    TupleDecompose2,
     /// Run through unreachable-node garbage collection.
     Gc,
     /// Run through item-level dead code elimination.
@@ -322,9 +344,13 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    sroa::sroa(store, package_id, &mut assigner);
-    invariants::check(store, package_id, invariants::InvariantLevel::PostSroa);
-    if matches!(stage, PipelineStage::Sroa) {
+    tuple_decompose::tuple_decompose(store, package_id, &mut assigner);
+    invariants::check(
+        store,
+        package_id,
+        invariants::InvariantLevel::PostTupleDecompose,
+    );
+    if matches!(stage, PipelineStage::TupleDecompose) {
         return result;
     }
 
@@ -335,6 +361,22 @@ fn run_pipeline_to_impl(
         invariants::InvariantLevel::PostArgPromote,
     );
     if matches!(stage, PipelineStage::ArgPromote) {
+        return result;
+    }
+
+    tuple_decompose_arg_promote_fixed_point(store, package_id, &mut result, &mut assigner);
+
+    // Call-argument-type normalization is idempotent and candidate-neutral, so
+    // it is hoisted to run exactly once after the loop converges rather than
+    // per round (per-round runs cause `(T,)` wrapping churn that pollutes
+    // change detection).
+    arg_promote::normalize_reachable_call_arg_types(store, package_id, &mut assigner);
+    invariants::check(
+        store,
+        package_id,
+        invariants::InvariantLevel::PostArgPromote,
+    );
+    if matches!(stage, PipelineStage::TupleDecompose2) {
         return result;
     }
 
@@ -377,6 +419,58 @@ fn run_pipeline_to_impl(
     // for fir_to_qir_from_callable) retain pre-transform types and are not checked.
     invariants::check(store, package_id, invariants::InvariantLevel::PostAll);
     result
+}
+
+/// Fixed-point loop over tuple-decompose <-> argument promotion. `arg_promote` can
+/// leave caller-side tuple locals field-only (tuple-decompose's eligible shape), and
+/// tuple-decompose can in turn expose fresh tuple-copy/destructure normalize
+/// candidates for `promote_to_fixed_point`. Iterating both until neither
+/// changes the FIR fully flattens arbitrarily nested `let`-destructures and
+/// tuple-copy aliases: destructure normalization emits direct multi-index
+/// leaf projections (no whole-value temporary), and tuple-decompose scalar-replaces the
+/// projected locals, leaving no residual inner bindings. Each pass
+/// decomposes only local `Bind` patterns / promotes parameters and never
+/// violates `PostArgPromote`, so the invariants hold every round.
+///
+/// Convergence is guaranteed by a strictly-decreasing measure (total tuple
+/// nesting mass plus unresolved copy-alias hops), so the loop terminates in
+/// O(nesting-depth + copy-alias-chain-length) rounds. The hard cap is a
+/// divergence backstop for adversarial / machine-generated input only: on
+/// exhaustion the loop stops with residual tuples (suboptimal codegen, never
+/// a miscompile) and surfaces a non-fatal warning.
+fn tuple_decompose_arg_promote_fixed_point(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    result: &mut PipelineResult,
+    assigner: &mut Assigner,
+) {
+    let mut rounds = 0;
+    loop {
+        let tuple_decompose_changed = tuple_decompose::tuple_decompose(store, package_id, assigner);
+        invariants::check(
+            store,
+            package_id,
+            invariants::InvariantLevel::PostArgPromote,
+        );
+        let promote_changed = arg_promote::promote_to_fixed_point(store, package_id, assigner);
+        invariants::check(
+            store,
+            package_id,
+            invariants::InvariantLevel::PostArgPromote,
+        );
+        if !tuple_decompose_changed && !promote_changed {
+            break;
+        }
+        rounds += 1;
+        if rounds >= TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP {
+            result
+                .warnings
+                .push(PipelineError::TupleDecomposeArgPromoteFixpointNotReached(
+                    TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP,
+                ));
+            break;
+        }
+    }
 }
 
 /// Pre-pass: reject intrinsic callables with tuple or UDT parameter/return types.
@@ -486,7 +580,7 @@ pub fn run_pipeline_to_with_diagnostics(
 /// - UDT erasure: replaces `Ty::Udt` with pure tuple or scalar types
 /// - Tuple comparison lowering: rewrites `BinOp(Eq/Neq)` on non-empty tuple
 ///   operands into element-wise scalar comparisons
-/// - SROA (iterative): decomposes tuple-typed locals into scalars
+/// - tuple-decompose (iterative): decomposes tuple-typed locals into scalars
 /// - Argument promotion (iterative): decomposes tuple-typed callable
 ///   parameters into scalars
 /// - GC unreachable: tombstones orphaned arena nodes

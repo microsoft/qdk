@@ -217,9 +217,10 @@ fn invariant_post_all_passes_after_full_pipeline() {
 #[test]
 #[should_panic(expected = "Assignment type invariant violation")]
 fn invariant_rejects_non_unit_assignment_expression() {
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(SIMPLE_ASSIGNMENT, PipelineStage::Sroa);
+    let (mut store, pkg_id) =
+        compile_and_run_pipeline_to(SIMPLE_ASSIGNMENT, PipelineStage::TupleDecompose);
     inject_non_unit_assignment_expression_type(&mut store, pkg_id, "Main");
-    check(&store, pkg_id, InvariantLevel::PostSroa);
+    check(&store, pkg_id, InvariantLevel::PostTupleDecompose);
 }
 
 #[test]
@@ -334,7 +335,7 @@ fn invariant_catches_functor_set_param_post_mono() {
 }
 
 #[test]
-#[should_panic(expected = "Closure")]
+#[should_panic(expected = "is a Closure after defunctionalization")]
 fn invariant_post_defunc_catches_closure() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::Defunc);
     inject_closure_expr(&mut store, pkg_id);
@@ -342,7 +343,7 @@ fn invariant_post_defunc_catches_closure() {
 }
 
 #[test]
-#[should_panic(expected = "Arrow")]
+#[should_panic(expected = "Arrow-typed parameter remains in callable input")]
 fn invariant_post_defunc_catches_arrow_param() {
     // Need a callable with a named parameter (PatKind::Bind) so the
     // arrow-type injection is caught by check_pat_for_arrow.
@@ -360,7 +361,7 @@ fn invariant_post_defunc_catches_arrow_param() {
 
 #[test]
 #[should_panic(expected = "tuple-bound local retains an arrow-typed field")]
-fn post_sroa_catches_nested_tuple_bound_arrow() {
+fn post_tuple_decompose_catches_nested_tuple_bound_arrow() {
     let source = r#"
         namespace Test {
             @EntryPoint()
@@ -370,9 +371,9 @@ fn post_sroa_catches_nested_tuple_bound_arrow() {
             }
         }
     "#;
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Sroa);
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     inject_nested_tuple_bound_arrow_local(&mut store, pkg_id);
-    check(&store, pkg_id, InvariantLevel::PostSroa);
+    check(&store, pkg_id, InvariantLevel::PostTupleDecompose);
 }
 
 #[test]
@@ -390,17 +391,19 @@ fn post_all_field_path_on_tuple_passes() {
 }
 
 #[test]
-fn post_sroa_tuple_local_pattern_passes() {
-    let (store, pkg_id) = compile_and_run_pipeline_to(STRUCT_FIELD_ACCESS, PipelineStage::Sroa);
-    check(&store, pkg_id, InvariantLevel::PostSroa);
+fn post_tuple_decompose_tuple_local_pattern_passes() {
+    let (store, pkg_id) =
+        compile_and_run_pipeline_to(STRUCT_FIELD_ACCESS, PipelineStage::TupleDecompose);
+    check(&store, pkg_id, InvariantLevel::PostTupleDecompose);
 }
 
 #[test]
 #[should_panic(expected = "Tuple pattern/type invariant violation")]
-fn post_sroa_catches_tuple_local_pattern_arity_mismatch() {
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(STRUCT_FIELD_ACCESS, PipelineStage::Sroa);
+fn post_tuple_decompose_catches_tuple_local_pattern_arity_mismatch() {
+    let (mut store, pkg_id) =
+        compile_and_run_pipeline_to(STRUCT_FIELD_ACCESS, PipelineStage::TupleDecompose);
     inject_local_tuple_pattern_arity_mismatch(&mut store, pkg_id);
-    check(&store, pkg_id, InvariantLevel::PostSroa);
+    check(&store, pkg_id, InvariantLevel::PostTupleDecompose);
 }
 
 #[test]

@@ -952,17 +952,19 @@ fn resolve_callee_projection(
                 CalleeLattice::Dynamic
             }
         }
-        ExprKind::Return(inner_expr_id) => resolve_callee_projection(
-            pkg,
-            store,
-            locals,
-            *inner_expr_id,
-            path,
-            depth + 1,
-            allow_scoped_capture_exprs,
-            scoped_capture_vars,
-            package_id,
-        ),
+        ExprKind::Return(inner_expr_id) | ExprKind::UnOp(UnOp::Unwrap, inner_expr_id) => {
+            resolve_callee_projection(
+                pkg,
+                store,
+                locals,
+                *inner_expr_id,
+                path,
+                depth + 1,
+                allow_scoped_capture_exprs,
+                scoped_capture_vars,
+                package_id,
+            )
+        }
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
             let mut block_state = LocalState {
@@ -1085,17 +1087,6 @@ fn resolve_callee_projection(
                 _ => CalleeLattice::Dynamic,
             }
         }
-        ExprKind::UnOp(UnOp::Unwrap, inner_expr_id) => resolve_callee_projection(
-            pkg,
-            store,
-            locals,
-            *inner_expr_id,
-            path,
-            depth + 1,
-            allow_scoped_capture_exprs,
-            scoped_capture_vars,
-            package_id,
-        ),
         ExprKind::Struct(_, _, fields) => {
             let Some((&field_index, rest)) = path.split_first() else {
                 return CalleeLattice::Dynamic;

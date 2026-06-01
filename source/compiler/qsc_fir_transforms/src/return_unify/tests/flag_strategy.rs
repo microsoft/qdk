@@ -25,30 +25,32 @@ fn return_inside_while_loop() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 10 {
-                        if i == 5 {
-                            {
-                                __ret_val = i;
-                                __has_returned = true;
-                            };
-                        }
-
-                        if not __has_returned {
-                            i += 1;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 10 {
+                    if i == 5 {
+                        {
+                            __ret_val = i;
+                            __has_returned = true;
                         };
                     }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-            -1
-                        } else __ret_val
-                    }
-
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+            -1
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -78,30 +80,32 @@ fn while_return_tuple_value_uses_flag_fallback() {
         &expect![[r#"
             // namespace Test
             function Main() : (Int, Bool) {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : (Int, Bool) = (0, false);
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 3 {
-                        if i == 1 {
-                            {
-                                __ret_val = (i, true);
-                                __has_returned = true;
-                            };
-                        }
-
-                        if not __has_returned {
-                            i += 1;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : (Int, Bool) = (0, false);
+                mutable i : Int = 0;
+                while not __has_returned and i < 3 {
+                    if i == 1 {
+                        {
+                            __ret_val = (i, true);
+                            __has_returned = true;
                         };
                     }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            (-1, false)
-                        } else __ret_val
-                    }
-
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        (-1, false)
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -207,30 +211,32 @@ fn while_return_array_value_uses_flag_fallback() {
         &expect![[r#"
             // namespace Test
             function Main() : Int[] {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int[] = [];
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 3 {
-                        if i == 1 {
-                            {
-                                __ret_val = [i, i + 1];
-                                __has_returned = true;
-                            };
-                        }
-
-                        if not __has_returned {
-                            i += 1;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int[] = [];
+                mutable i : Int = 0;
+                while not __has_returned and i < 3 {
+                    if i == 1 {
+                        {
+                            __ret_val = [i, i + 1];
+                            __has_returned = true;
                         };
                     }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            []
-                        } else __ret_val
-                    }
-
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        []
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -1321,30 +1327,32 @@ fn recursive_while_body_qubit_suffix_uses_lazy_continuation() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 1 {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                        if not __has_returned {
-                            let q : Qubit = __quantum__rt__qubit_allocate();
-                            Reset(q);
-                            i += 1;
-                            __quantum__rt__qubit_release(q);
-                        };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            0
-                        } else __ret_val
-                    }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 1 {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                    if not __has_returned {
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        Reset(q);
+                        i += 1;
+                        __quantum__rt__qubit_release(q);
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        0
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -1374,34 +1382,36 @@ fn recursive_nested_block_qubit_suffix_uses_lazy_continuation() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 1 {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 1 {
+                    {
                         {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                            if not __has_returned {
-                                let q : Qubit = __quantum__rt__qubit_allocate();
-                                Reset(q);
-                                __quantum__rt__qubit_release(q);
-                            };
+                            __ret_val = 1;
+                            __has_returned = true;
                         };
                         if not __has_returned {
-                            i += 1;
+                            let q : Qubit = __quantum__rt__qubit_allocate();
+                            Reset(q);
+                            __quantum__rt__qubit_release(q);
                         };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            0
-                        } else __ret_val
-                    }
-
+                    };
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        0
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -1430,31 +1440,33 @@ fn recursive_qubit_suffix_after_defaultable_local_uses_single_lazy_continuation(
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 1 {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                        if not __has_returned {
-                            let fallback : Int = i + 1;
-                            let q : Qubit = __quantum__rt__qubit_allocate();
-                            Reset(q);
-                            i = fallback;
-                            __quantum__rt__qubit_release(q);
-                        };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            0
-                        } else __ret_val
-                    }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 1 {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                    if not __has_returned {
+                        let fallback : Int = i + 1;
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        Reset(q);
+                        i = fallback;
+                        __quantum__rt__qubit_release(q);
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        0
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -1530,30 +1542,30 @@ fn final_trailing_side_effect_after_flag_return_shape() {
         &expect![[r#"
             // namespace Test
             operation MustNotRun() : Int {
-                body {
-                    fail $"final trailing expression executed";
-                    0
-                }
+                fail $"final trailing expression executed";
+                0
             }
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 1 {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            MustNotRun()
-                        } else __ret_val
-                    }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 1 {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        MustNotRun()
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -1792,33 +1804,35 @@ fn tuple_return_in_while_with_nested_if() {
         &expect![[r#"
             // namespace Test
             function Main() : (Int, Bool) {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : (Int, Bool) = (0, false);
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 10 {
-                        if i > 5 {
-                            if i == 7 {
-                                {
-                                    __ret_val = (i, true);
-                                    __has_returned = true;
-                                };
-                            }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : (Int, Bool) = (0, false);
+                mutable i : Int = 0;
+                while not __has_returned and i < 10 {
+                    if i > 5 {
+                        if i == 7 {
+                            {
+                                __ret_val = (i, true);
+                                __has_returned = true;
+                            };
                         }
 
-                        if not __has_returned {
-                            i += 1;
-                        };
                     }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            (-1, false)
-                        } else __ret_val
-                    }
-
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        (-1, false)
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -1883,7 +1897,7 @@ fn all_four_specializations_with_return_in_loop() {
         &expect![[r#"
             // namespace Test
             operation Op(q : Qubit) : Unit is Adj + Ctl {
-                body {
+                body ... {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable i : Int = 0;
@@ -1900,14 +1914,18 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    if __has_returned __ret_val else {
+                    if __has_returned {
+                        __ret_val
+                    } else {
                         if not __has_returned {
                             ()
-                        } else __ret_val
+                        } else {
+                            __ret_val
+                        }
                     }
 
                 }
-                adjoint {
+                adjoint ... {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable j : Int = 0;
@@ -1924,14 +1942,18 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    if __has_returned __ret_val else {
+                    if __has_returned {
+                        __ret_val
+                    } else {
                         if not __has_returned {
                             ()
-                        } else __ret_val
+                        } else {
+                            __ret_val
+                        }
                     }
 
                 }
-                controlled {
+                controlled (cs, ...) {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable k : Int = 0;
@@ -1948,14 +1970,18 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    if __has_returned __ret_val else {
+                    if __has_returned {
+                        __ret_val
+                    } else {
                         if not __has_returned {
                             ()
-                        } else __ret_val
+                        } else {
+                            __ret_val
+                        }
                     }
 
                 }
-                controlled adjoint {
+                controlled adjoint (cs, ...) {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable m : Int = 0;
@@ -1972,22 +1998,23 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    if __has_returned __ret_val else {
+                    if __has_returned {
+                        __ret_val
+                    } else {
                         if not __has_returned {
                             ()
-                        } else __ret_val
+                        } else {
+                            __ret_val
+                        }
                     }
 
                 }
             }
             operation Main() : Unit {
-                body {
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    let
-                    @generated_ident_142 : Unit = Op(q);
-                    __quantum__rt__qubit_release(q);
-                    @generated_ident_142
-                }
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_142 : Unit = Op(q);
+                __quantum__rt__qubit_release(q);
+                _generated_ident_142
             }
             // entry
             Main()
@@ -2018,40 +2045,40 @@ fn qubit_alloc_scope_with_flag_lowering() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 5 {
-                        let q : Qubit = __quantum__rt__qubit_allocate();
-                        if i == 3 {
-                            {
-                                let
-                                @generated_ident_45 : Int = i;
-                                __quantum__rt__qubit_release(q);
-                                {
-                                    __ret_val =
-                                    @generated_ident_45;
-                                    __has_returned = true;
-                                };
-                            };
-                        }
-
-                        if not __has_returned {
-                            i += 1;
-                        };
-                        if not __has_returned {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 5 {
+                    let q : Qubit = __quantum__rt__qubit_allocate();
+                    if i == 3 {
+                        {
+                            let _generated_ident_45 : Int = i;
                             __quantum__rt__qubit_release(q);
+                            {
+                                __ret_val = _generated_ident_45;
+                                __has_returned = true;
+                            };
                         };
                     }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-            -1
-                        } else __ret_val
-                    }
-
+                    if not __has_returned {
+                        i += 1;
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+            -1
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -2081,42 +2108,42 @@ fn repeat_until_with_return() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable result : Int = 0;
-                    mutable attempt : Int = 0;
-                    {
-                        mutable
-                        @continue_cond_46 : Bool = true;
-                        while not __has_returned and
-                        @continue_cond_46 {
-                            if attempt > 3 {
-                                {
-                                    __ret_val = -1;
-                                    __has_returned = true;
-                                };
-                            }
-
-                            if not __has_returned {
-                                attempt += 1;
-                            };
-                            if not __has_returned {
-                                result = attempt * 2;
-                            };
-                            if not __has_returned {
-                                @continue_cond_46 = not result > 5;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable result : Int = 0;
+                mutable attempt : Int = 0;
+                {
+                    mutable _continue_cond_46 : Bool = true;
+                    while not __has_returned and _continue_cond_46 {
+                        if attempt > 3 {
+                            {
+                                __ret_val = -1;
+                                __has_returned = true;
                             };
                         }
 
-                    };
-                    if __has_returned __ret_val else {
                         if not __has_returned {
-                            result
-                        } else __ret_val
+                            attempt += 1;
+                        };
+                        if not __has_returned {
+                            result = attempt * 2;
+                        };
+                        if not __has_returned {
+                            _continue_cond_46 = not result > 5;
+                        };
                     }
 
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        result
+                    } else {
+                        __ret_val
+                    }
                 }
+
             }
             // entry
             Main()
@@ -2147,34 +2174,36 @@ fn while_body_side_effect_guarded_after_return() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable sum : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 10 {
-                        if i == 3 {
-                            {
-                                __ret_val = sum;
-                                __has_returned = true;
-                            };
-                        }
-
-                        if not __has_returned {
-                            sum += i;
-                        };
-                        if not __has_returned {
-                            i += 1;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable sum : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 10 {
+                    if i == 3 {
+                        {
+                            __ret_val = sum;
+                            __has_returned = true;
                         };
                     }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            sum
-                        } else __ret_val
-                    }
-
+                    if not __has_returned {
+                        sum += i;
+                    };
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        sum
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -2207,35 +2236,37 @@ fn if_expr_init_with_while_return_uses_flag_lowering() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let x : Int = if true {
-                        mutable i : Int = 0;
-                        while not __has_returned and i < 5 {
-                            if i == 3 {
-                                {
-                                    __ret_val = 42;
-                                    __has_returned = true;
-                                };
-                            }
-
-                            if not __has_returned {
-                                i += 1;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let x : Int = if true {
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 5 {
+                        if i == 3 {
+                            {
+                                __ret_val = 42;
+                                __has_returned = true;
                             };
                         }
 
-                        0
-                    } else {
-                        1
-                    };
-                    if __has_returned __ret_val else {
                         if not __has_returned {
-                            x
-                        } else __ret_val
+                            i += 1;
+                        };
                     }
 
+                    0
+                } else {
+                    1
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        x
+                    } else {
+                        __ret_val
+                    }
                 }
+
             }
             // entry
             Main()
@@ -2266,35 +2297,37 @@ fn flag_lowering_guards_local_after_return() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 5 {
-                        if i == 3 {
-                            {
-                                __ret_val = i;
-                                __has_returned = true;
-                            };
-                        }
-
-                        let y : Int = if not __has_returned {
-                            i * 2
-                        } else {
-                            0
-                        };
-                        if not __has_returned {
-                            i += 1;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 5 {
+                    if i == 3 {
+                        {
+                            __ret_val = i;
+                            __has_returned = true;
                         };
                     }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-            -1
-                        } else __ret_val
-                    }
-
+                    let y : Int = if not __has_returned {
+                        i * 2
+                    } else {
+                        0
+                    };
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+            -1
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -2321,29 +2354,30 @@ fn split_suffix_includes_defaultable_local_before_qubit_local() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 1 {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            let y : Int = i + 2;
-                            let q : Qubit = __quantum__rt__qubit_allocate();
-                            let
-                            @generated_ident_39 : Int = y;
-                            __quantum__rt__qubit_release(q);
-                            @generated_ident_39
-                        } else __ret_val
-                    }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 1 {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        let y : Int = i + 2;
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        let _generated_ident_39 : Int = y;
+                        __quantum__rt__qubit_release(q);
+                        _generated_ident_39
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -2376,41 +2410,46 @@ fn split_suffix_return_rewrites_through_shared_flag_pair() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable flag : Bool = false;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 1 {
-                        if flag {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        }
-
-                        if not __has_returned {
-                            i += 1;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable flag : Bool = false;
+                mutable i : Int = 0;
+                while not __has_returned and i < 1 {
+                    if flag {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
                         };
                     }
 
-                    let __trailing_result : Int = if not __has_returned {
-                        if flag {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
+                    if not __has_returned {
+                        i += 1;
+                    };
+                }
 
-                        if not __has_returned {
-                            let q : Qubit = __quantum__rt__qubit_allocate();
-                            let
-                            @generated_ident_54 : Int = 3;
-                            __quantum__rt__qubit_release(q);
-                            @generated_ident_54
-                        } else __ret_val
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                let __trailing_result : Int = if not __has_returned {
+                    if flag {
+                        {
+                            __ret_val = 2;
+                            __has_returned = true;
+                        };
+                    }
+
+                    if not __has_returned {
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        let _generated_ident_54 : Int = 3;
+                        __quantum__rt__qubit_release(q);
+                        _generated_ident_54
+                    } else {
+                        __ret_val
+                    }
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry

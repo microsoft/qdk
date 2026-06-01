@@ -49,15 +49,20 @@ use crate::fir_builder::{
     alloc_if_expr, alloc_local_var, alloc_local_var_expr, alloc_not_expr, alloc_semi_stmt,
 };
 use crate::return_unify::simplify;
-use crate::return_unify::tests::check_simplify_rule_q;
+use crate::return_unify::tests::{check_simplify_rule_q, synth_slots_for_block};
 
 /// Adapt [`simplify::run_to_fixpoint`] (which returns `()`) to the
-/// `FnOnce(_, _, _) -> bool` contract that
+/// `FnOnce(_, _, _, _) -> bool` contract that
 /// [`check_simplify_rule_q`] requires. The driver always advances to a
 /// fixpoint, so the shim unconditionally returns `true`.
-fn run_to_fixpoint_bool(pkg: &mut Package, asgn: &mut Assigner, bid: BlockId) -> bool {
+fn run_to_fixpoint_bool(
+    pkg: &mut Package,
+    asgn: &mut Assigner,
+    bid: BlockId,
+    slots: &crate::return_unify::lower::SynthSlots,
+) -> bool {
     let mut errors = Vec::new();
-    simplify::run_to_fixpoint(pkg, asgn, bid, &mut errors);
+    simplify::run_to_fixpoint(pkg, asgn, bid, &mut errors, slots);
     assert!(errors.is_empty(), "unexpected fixpoint errors: {errors:?}");
     true
 }
@@ -290,20 +295,24 @@ fn guard_clause_via_run_to_fixpoint() {
             // before run_to_fixpoint (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
 
-                    let __trailing_result : Int = if not __has_returned {
-                        2
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                let __trailing_result : Int = if not __has_returned {
+                    2
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -312,14 +321,12 @@ fn guard_clause_via_run_to_fixpoint() {
             // after run_to_fixpoint
             // namespace Test
             function Main() : Int {
-                body {
-                    if true {
-                        1
-                    } else {
-                        2
-                    }
-
+                if true {
+                    1
+                } else {
+                    2
                 }
+
             }
             // entry
             Main()
@@ -353,22 +360,24 @@ fn both_branches_via_run_to_fixpoint() {
             // before run_to_fixpoint (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    } else {
-                        {
-                            __ret_val = 2;
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                } else {
+                    {
+                        __ret_val = 2;
+                        __has_returned = true;
+                    };
+                }
 
-                    if __has_returned __ret_val else __ret_val
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -377,14 +386,12 @@ fn both_branches_via_run_to_fixpoint() {
             // after run_to_fixpoint
             // namespace Test
             function Main() : Int {
-                body {
-                    if true {
-                        1
-                    } else {
-                        2
-                    }
-
+                if true {
+                    1
+                } else {
+                    2
                 }
+
             }
             // entry
             Main()
@@ -414,14 +421,16 @@ fn bare_return_via_run_to_fixpoint() {
             // before run_to_fixpoint (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    {
-                        __ret_val = 42;
-                        __has_returned = true;
-                    };
-                    if __has_returned __ret_val else __ret_val
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                {
+                    __ret_val = 42;
+                    __has_returned = true;
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -430,9 +439,7 @@ fn bare_return_via_run_to_fixpoint() {
             // after run_to_fixpoint
             // namespace Test
             function Main() : Int {
-                body {
-                    42
-                }
+                42
             }
             // entry
             Main()
@@ -559,7 +566,14 @@ fn guard_clause_plus_dead_flag_via_run_to_fixpoint() {
         Span::default(),
     );
 
-    simplify::run_to_fixpoint(&mut package, &mut assigner, block_id, &mut Vec::new());
+    let synth_slots = synth_slots_for_block(&package, block_id);
+    simplify::run_to_fixpoint(
+        &mut package,
+        &mut assigner,
+        block_id,
+        &mut Vec::new(),
+        &synth_slots,
+    );
 
     let stmts = package.get_block(block_id).stmts.clone();
     assert_eq!(
@@ -645,14 +659,16 @@ fn single_body_emit_shape_collapses_to_value() {
             // before run_to_fixpoint (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    {
-                        __ret_val = 17;
-                        __has_returned = true;
-                    };
-                    if __has_returned __ret_val else __ret_val
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                {
+                    __ret_val = 17;
+                    __has_returned = true;
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -661,9 +677,7 @@ fn single_body_emit_shape_collapses_to_value() {
             // after run_to_fixpoint
             // namespace Test
             function Main() : Int {
-                body {
-                    17
-                }
+                17
             }
             // entry
             Main()

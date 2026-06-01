@@ -33,9 +33,9 @@ use crate::EMPTY_EXEC_RANGE;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Ident, ItemId,
-    ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore,
-    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
+    BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Ident, ItemKind,
+    LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, Pat, PatId, PatKind,
+    Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
 };
 use rustc_hash::FxHashSet;
 
@@ -350,21 +350,6 @@ pub(crate) fn alloc_local_var(
     (local_id, stmt_id)
 }
 
-/// Resolves a `Ty::Udt(Res::Item(item_id))` to its constituent field types
-/// via `get_pure_ty()`. Returns `None` for single-field UDTs or non-UDT items.
-pub(crate) fn resolve_udt_element_types(store: &PackageStore, item_id: &ItemId) -> Option<Vec<Ty>> {
-    let package = store.get(item_id.package);
-    let item = package.get_item(item_id.item);
-    if let ItemKind::Ty(_, udt) = &item.kind {
-        match udt.get_pure_ty() {
-            Ty::Tuple(elems) if !elems.is_empty() => Some(elems),
-            _ => None,
-        }
-    } else {
-        None
-    }
-}
-
 /// Decomposes a `PatKind::Bind` pattern into a `PatKind::Tuple` of per-element
 /// bindings.
 ///
@@ -412,6 +397,104 @@ pub(crate) fn decompose_binding(
     pat.kind = PatKind::Tuple(new_pat_ids);
 
     new_locals
+}
+
+/// Fully decomposes a `PatKind::Bind` pattern of (possibly deeply nested)
+/// tuple type into a single FLAT `PatKind::Tuple` of scalar-leaf bindings.
+///
+/// Unlike [`decompose_binding`], which peels a single tuple level into a
+/// tuple of per-element `Bind`s (leaving nested elements as further tuple
+/// binds for a subsequent pass), this walks `ty` to its non-tuple leaves and
+/// produces one `Bind` per leaf in a single flat tuple. For example, a
+/// parameter `x : (Int, (Int, (Int, Int)))` becomes the flat pattern
+/// `(x_0, x_1_0, x_1_1_0, x_1_1_1)` with flat type `(Int, Int, Int, Int)`.
+/// The rewritten pattern satisfies the `PostArgPromote` shape invariant
+/// trivially because both the pattern and the pattern's `ty` are set to the
+/// same flat tuple.
+///
+/// Each leaf is named cumulatively from `name` and its positional path in the
+/// ORIGINAL nested type, e.g. a leaf at original path `[1, 1, 0]` of parameter
+/// `x` is named `x_1_1_0`. Every type leaf — read or unread in the body —
+/// receives a placeholder `Bind`, so the flat pattern arity equals the leaf
+/// count.
+///
+/// Returns one `(index_path, leaf_local, leaf_ty)` entry per leaf, where
+/// `index_path` is the positional path of the leaf in the ORIGINAL nested
+/// type relative to the decomposed parameter (used to project the leaf from
+/// the original argument value at call sites and to remap field reads in the
+/// body).
+pub(crate) fn decompose_binding_to_leaves(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    pat_id: PatId,
+    name: &str,
+    ty: &Ty,
+) -> Vec<(Vec<usize>, LocalVarId, Ty)> {
+    let mut leaves: Vec<(Vec<usize>, LocalVarId, Ty)> = Vec::new();
+    let mut leaf_pat_ids: Vec<PatId> = Vec::new();
+    let mut path: Vec<usize> = Vec::new();
+    collect_leaf_binds(
+        package,
+        assigner,
+        name,
+        ty,
+        &mut path,
+        &mut leaves,
+        &mut leaf_pat_ids,
+    );
+
+    let flat_tys: Vec<Ty> = leaves
+        .iter()
+        .map(|(_, _, leaf_ty)| leaf_ty.clone())
+        .collect();
+    let pat = package
+        .pats
+        .get_mut(pat_id)
+        .expect("candidate pat should exist");
+    pat.kind = PatKind::Tuple(leaf_pat_ids);
+    pat.ty = Ty::Tuple(flat_tys);
+
+    leaves
+}
+
+/// Recursively walks `ty` collecting one scalar-leaf `Bind` pattern per
+/// non-tuple leaf for [`decompose_binding_to_leaves`].
+///
+/// For a `Ty::Tuple`, recurses into each element with the element index
+/// pushed onto `path`; for any other (leaf) type, allocates a `Bind` named
+/// from the cumulative `path` and records both the leaf metadata (in
+/// `leaves`) and its `PatId` (in `leaf_pat_ids`, in flat left-to-right
+/// order). `path` is pushed/popped around each child so callers see it
+/// unchanged on return.
+fn collect_leaf_binds(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    name: &str,
+    ty: &Ty,
+    path: &mut Vec<usize>,
+    leaves: &mut Vec<(Vec<usize>, LocalVarId, Ty)>,
+    leaf_pat_ids: &mut Vec<PatId>,
+) {
+    match ty {
+        Ty::Tuple(elems) if !elems.is_empty() => {
+            for (i, elem_ty) in elems.iter().enumerate() {
+                path.push(i);
+                collect_leaf_binds(package, assigner, name, elem_ty, path, leaves, leaf_pat_ids);
+                path.pop();
+            }
+        }
+        _ => {
+            let mut leaf_name = name.to_string();
+            for index in path.iter() {
+                leaf_name.push('_');
+                leaf_name.push_str(&index.to_string());
+            }
+            let (local_id, leaf_pat_id) =
+                alloc_bind_pat(package, assigner, &leaf_name, ty.clone(), Span::default());
+            leaves.push((path.clone(), local_id, ty.clone()));
+            leaf_pat_ids.push(leaf_pat_id);
+        }
+    }
 }
 
 /// Returns an iterator-like collection of `(LocalItemId, &CallableDecl)` for

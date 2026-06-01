@@ -4,7 +4,7 @@
 //! Pre-pass validation for intrinsic callable signatures.
 //!
 //! Rejects intrinsic callables whose parameter or return types contain tuples
-//! or user-defined types, which are not supported after UDT erasure and SROA.
+//! or user-defined types, which are not supported after UDT erasure and tuple-decompose.
 
 #[cfg(test)]
 mod tests;

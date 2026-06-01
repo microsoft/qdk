@@ -79,7 +79,7 @@ use qsc_fir::{
 use crate::fir_builder::{alloc_block, alloc_block_expr, alloc_expr_stmt};
 
 use super::{extract_root_local, local_use_count, push_children};
-use crate::return_unify::symbols::TRAILING_RESULT as TRAILING_RESULT_NAME;
+use crate::return_unify::lower::SynthSlots;
 
 /// Apply the let-folding rule to `block_id`.
 ///
@@ -88,16 +88,26 @@ use crate::return_unify::symbols::TRAILING_RESULT as TRAILING_RESULT_NAME;
 /// per-block loop typically completes after one iteration; the loop
 /// exists to mirror the other catalogue rules' shape and to remain
 /// correct if a future code path emits multiple bindings per block.
-pub(super) fn apply(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+pub(super) fn apply(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let mut changed = false;
-    while try_apply_once(package, assigner, block_id) {
+    while try_apply_once(package, assigner, block_id, slots) {
         changed = true;
     }
     changed
 }
 
 /// Performs at most one rewrite. Returns `true` when the pattern matched.
-fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+fn try_apply_once(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let stmt_ids = package.get_block(block_id).stmts.clone();
     if stmt_ids.len() < 2 {
         return false;
@@ -113,7 +123,10 @@ fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: Bloc
     let PatKind::Bind(ident) = &pat.kind else {
         return false;
     };
-    if ident.name.as_ref() != TRAILING_RESULT_NAME {
+    let Some(trailing) = slots.trailing_result else {
+        return false;
+    };
+    if ident.id != trailing {
         return false;
     }
     let trailing_local = ident.id;

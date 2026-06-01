@@ -1363,3 +1363,24 @@ fn call_to_intrinsic_operation_that_takes_qubit_array_should_fail() {
         }
     "});
 }
+
+#[test]
+#[should_panic(
+    expected = "partial evaluation failed: UnsupportedCustomIntrinsicType(\"(Int, Int)\", PackageSpan { package: PackageId(2), span: Span { lo: 64, hi: 81 } })"
+)]
+fn call_to_simulatable_intrinsic_with_tuple_param_should_fail() {
+    // A `@SimulatableIntrinsic` callable is valid in simulation, but when it is
+    // reachable from a codegen entry point its unsupported tuple parameter is
+    // rejected by partial evaluation (the codegen deferral point), not by the
+    // FIR-transform precheck or RCA.
+    let _ = get_rir_program(indoc! {"
+        namespace Test {
+            @SimulatableIntrinsic()
+            operation Op1(pair : (Int, Int)) : Unit {}
+            @EntryPoint()
+            operation Main() : Unit {
+                Op1((1, 2));
+            }
+        }
+    "});
+}

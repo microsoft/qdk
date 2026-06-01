@@ -380,29 +380,16 @@ pub(crate) fn compile_and_run_pipeline_to_with_errors(
 }
 
 /// Compiles Q# source and runs the FIR optimization pipeline up to the given
-/// stage, asserting via [`assert_no_pipeline_errors`] that any
-/// `PipelineError` variant is fatal once the schedule reaches or passes that
-/// stage.
+/// stage, asserting via [`assert_no_pipeline_errors`] that the run produced no
+/// pipeline errors at any stage. Tests that need to inspect errors should use
+/// [`compile_and_run_pipeline_to_with_errors`] instead.
 #[allow(dead_code)]
 pub(crate) fn compile_and_run_pipeline_to(
     source: &str,
     stage: PipelineStage,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (store, pkg_id, result) = compile_and_run_pipeline_to_with_errors(source, stage);
-    if matches!(
-        stage,
-        PipelineStage::Defunc
-            | PipelineStage::UdtErase
-            | PipelineStage::TupleCompLower
-            | PipelineStage::Sroa
-            | PipelineStage::ArgPromote
-            | PipelineStage::Gc
-            | PipelineStage::ItemDce
-            | PipelineStage::ExecGraphRebuild
-            | PipelineStage::Full
-    ) {
-        assert_no_pipeline_errors("compile_and_run_pipeline_to", &result.errors);
-    }
+    assert_no_pipeline_errors("compile_and_run_pipeline_to", &result.errors);
 
     (store, pkg_id)
 }
@@ -420,12 +407,12 @@ pub(crate) fn compile_and_run_pipeline_to_with_library_and_errors(
 }
 
 /// Compiles library + user Q# source and runs the FIR optimization pipeline
-/// up to the given stage.
+/// up to the given stage, asserting that the run produced no pipeline errors
+/// at any stage.
 ///
 /// # Panics
 ///
-/// Panics if compilation fails, or if the requested stage reaches
-/// defunctionalization and the shared pipeline runner returns any errors.
+/// Panics if compilation fails or if the pipeline runner returns any errors.
 #[allow(dead_code)]
 pub(crate) fn compile_and_run_pipeline_to_with_library(
     lib_source: &str,
@@ -434,20 +421,7 @@ pub(crate) fn compile_and_run_pipeline_to_with_library(
 ) -> (fir::PackageStore, fir::PackageId) {
     let (store, pkg_id, result) =
         compile_and_run_pipeline_to_with_library_and_errors(lib_source, user_source, stage);
-    if matches!(
-        stage,
-        PipelineStage::Defunc
-            | PipelineStage::UdtErase
-            | PipelineStage::TupleCompLower
-            | PipelineStage::Sroa
-            | PipelineStage::ArgPromote
-            | PipelineStage::Gc
-            | PipelineStage::ItemDce
-            | PipelineStage::ExecGraphRebuild
-            | PipelineStage::Full
-    ) {
-        assert_no_pipeline_errors("compile_and_run_pipeline_to_with_library", &result.errors);
-    }
+    assert_no_pipeline_errors("compile_and_run_pipeline_to_with_library", &result.errors);
     (store, pkg_id)
 }
 

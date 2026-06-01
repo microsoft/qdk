@@ -107,6 +107,21 @@ fn resync_expr_ty_from_children(package: &mut Package, expr_id: ExprId) {
     }
 }
 
+/// Synthesized `LocalVarId`s minted by [`transform_block_with_flags`]
+/// that the simplify catalogue needs to recover by identity rather than
+/// by synthesized name.
+///
+/// The `__has_returned` flag id is not part of [`ReturnSlot`] (it lives
+/// in [`FlagContext::has_returned_var_id`]), so it is carried separately.
+/// `trailing_result` is `Some` only when a `__trailing_result` binding
+/// was emitted (i.e. the block had a trailing value to merge with).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct SynthSlots {
+    pub(super) has_returned: LocalVarId,
+    pub(super) return_slot: ReturnSlot,
+    pub(super) trailing_result: Option<LocalVarId>,
+}
+
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn transform_block_with_flags(
@@ -118,7 +133,7 @@ pub(super) fn transform_block_with_flags(
     udt_pure_tys: &UdtPureTyCache,
     arrow_default_cache: &mut ArrowDefaultCache,
     return_slot_strategy: ReturnSlotStrategy,
-) {
+) -> SynthSlots {
     let (has_returned_var_id, has_returned_decl_stmt) =
         create_mutable_bool_var(package, assigner, symbols::HAS_RETURNED, false);
 
@@ -155,7 +170,7 @@ pub(super) fn transform_block_with_flags(
         },
     ));
 
-    let trailing =
+    let (trailing, trailing_result) =
         create_flag_trailing_expr_for_slot(package, assigner, &mut new_stmts, &flag_context);
 
     if let Some(trailing_stmt) = trailing {
@@ -165,6 +180,12 @@ pub(super) fn transform_block_with_flags(
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts = new_stmts;
     block.ty = return_ty.clone();
+
+    SynthSlots {
+        has_returned: has_returned_var_id,
+        return_slot,
+        trailing_result,
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1079,7 +1100,7 @@ pub(super) fn create_flag_trailing_expr(
         return_ty,
         udt_pure_tys: &udt_pure_tys,
     };
-    create_flag_trailing_expr_for_slot(package, assigner, stmts, &flag_context)
+    create_flag_trailing_expr_for_slot(package, assigner, stmts, &flag_context).0
 }
 
 fn create_flag_trailing_expr_for_slot(
@@ -1087,7 +1108,7 @@ fn create_flag_trailing_expr_for_slot(
     assigner: &mut Assigner,
     stmts: &mut Vec<StmtId>,
     flag_context: &FlagContext<'_>,
-) -> Option<StmtId> {
+) -> (Option<StmtId>, Option<LocalVarId>) {
     let trailing_expr = stmts.last().and_then(|&stmt_id| {
         if let StmtKind::Expr(expr_id) = package.get_stmt(stmt_id).kind
             && package.get_expr(expr_id).ty == *flag_context.return_ty
@@ -1141,7 +1162,10 @@ fn create_flag_trailing_expr_for_slot(
             flag_context.return_ty.clone(),
             Span::default(),
         );
-        Some(alloc_expr_stmt(package, assigner, if_expr, Span::default()))
+        (
+            Some(alloc_expr_stmt(package, assigner, if_expr, Span::default())),
+            Some(trailing_var_id),
+        )
     } else {
         let fallback_expr = if flag_context.return_ty == &Ty::UNIT {
             alloc_unit_expr(package, assigner, Span::default())
@@ -1162,7 +1186,10 @@ fn create_flag_trailing_expr_for_slot(
             flag_context.return_ty.clone(),
             Span::default(),
         );
-        Some(alloc_expr_stmt(package, assigner, if_expr, Span::default()))
+        (
+            Some(alloc_expr_stmt(package, assigner, if_expr, Span::default())),
+            None,
+        )
     }
 }
 

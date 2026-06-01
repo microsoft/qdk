@@ -19,7 +19,7 @@ use qsc_fir::assigner::Assigner;
 /// rewriting shape is itself under test.
 fn check_before_after(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
-    let before = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     let mut assigner = Assigner::from_package(store.get(pkg_id));
     let errors = unify_returns(&mut store, pkg_id, &mut assigner);
     assert!(
@@ -27,7 +27,7 @@ fn check_before_after(source: &str, expect: &Expect) {
         "return_unify shape test produced errors: {errors:?}"
     );
     assert_no_reachable_returns(&store, pkg_id);
-    let after = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     let combined = format!("BEFORE:\n{before}\nAFTER:\n{after}");
     expect.assert_eq(&combined);
 }
@@ -52,15 +52,11 @@ fn hoist_return_in_call_argument_shape_snapshot() {
             BEFORE:
             // namespace Test
             function Add(a : Int, b : Int) : Int {
-                body {
-                    a + b
-                }
+                a + b
             }
             function Main() : Int {
-                body {
-                    let x : Int = Add(return 1, 2);
-                    x
-                }
+                let x : Int = Add(return 1, 2);
+                x
             }
             // entry
             Main()
@@ -68,15 +64,11 @@ fn hoist_return_in_call_argument_shape_snapshot() {
             AFTER:
             // namespace Test
             function Add(a : Int, b : Int) : Int {
-                body {
-                    a + b
-                }
+                a + b
             }
             function Main() : Int {
-                body {
-                    let _ : ((Int, Int) -> Int) = Add;
-                    1
-                }
+                let _ : ((Int, Int) -> Int) = Add;
+                1
             }
             // entry
             Main()
@@ -110,23 +102,21 @@ fn while_condition_return_shape_snapshot() {
             BEFORE:
             // namespace Test
             function Main() : Int {
-                body {
-                    while if true {
-                        if true {
-                            return 31;
-                        } else {
-                            false
-                        }
-
+                while if true {
+                    if true {
+                        return 31;
                     } else {
                         false
                     }
-                    {
-                        let _ : Int = 0;
-                    }
 
-                    0
+                } else {
+                    false
                 }
+                {
+                    let _ : Int = 0;
+                }
+
+                0
             }
             // entry
             Main()
@@ -134,33 +124,35 @@ fn while_condition_return_shape_snapshot() {
             AFTER:
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    while not __has_returned and if true {
-                        if true {
-                            {
-                                __ret_val = 31;
-                                __has_returned = true;
-                            };
-                        } else {
-                            false
-                        }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                while not __has_returned and if true {
+                    if true {
+                        {
+                            __ret_val = 31;
+                            __has_returned = true;
+                        };
                     } else {
                         false
                     }
-                    {
-                        let _ : Int = 0;
-                    }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            0
-                        } else __ret_val
-                    }
-
+                } else {
+                    false
                 }
+                {
+                    let _ : Int = 0;
+                }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        0
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -192,22 +184,18 @@ fn while_local_initializer_return_shape_snapshot() {
             BEFORE:
             // namespace Test
             function Add(a : Int, b : Int) : Int {
-                body {
-                    a + b
-                }
+                a + b
             }
             function Main() : Int {
-                body {
-                    mutable i : Int = 0;
-                    while i < 3 {
-                        let _ : Unit = if i == 1 {
-                            Add(return 42, i)
-                        };
-                        i += 1;
-                    }
-
-                    i + 5
+                mutable i : Int = 0;
+                while i < 3 {
+                    let _ : Unit = if i == 1 {
+                        Add(return 42, i)
+                    };
+                    i += 1;
                 }
+
+                i + 5
             }
             // entry
             Main()
@@ -215,35 +203,35 @@ fn while_local_initializer_return_shape_snapshot() {
             AFTER:
             // namespace Test
             function Add(a : Int, b : Int) : Int {
-                body {
-                    a + b
-                }
+                a + b
             }
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 3 {
-                        let _ : Unit = if i == 1 {
-                            let _ : ((Int, Int) -> Int) = Add;
-                            {
-                                __ret_val = 42;
-                                __has_returned = true;
-                            };
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 3 {
+                    let _ : Unit = if i == 1 {
+                        let _ : ((Int, Int) -> Int) = Add;
+                        {
+                            __ret_val = 42;
+                            __has_returned = true;
                         };
-                        if not __has_returned {
-                            i += 1;
-                        };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            i + 5
-                        } else __ret_val
-                    }
-
+                    };
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        i + 5
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()

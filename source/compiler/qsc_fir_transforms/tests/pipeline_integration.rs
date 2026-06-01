@@ -192,7 +192,7 @@ fn expr_targets_callable(
 }
 
 #[test]
-fn post_arg_promote_cut_matches_full_pipeline_bodies() {
+fn post_tuple_decompose2_cut_matches_full_pipeline_bodies() {
     let source = r#"
         operation Identity<'T>(x : 'T) : 'T { x }
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
@@ -210,19 +210,24 @@ fn post_arg_promote_cut_matches_full_pipeline_bodies() {
         }
     "#;
 
-    let (mut post_arg_store, post_arg_pkg_id, _) = compile_and_lower(source);
+    let (mut post_tuple_decompose2_store, post_tuple_decompose2_pkg_id, _) =
+        compile_and_lower(source);
     let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
 
+    // `TupleDecompose2` is the final optimization stage (it runs after `arg_promote`);
+    // the trailing `Gc`/`ItemDce`/`ExecGraphRebuild` stages do not alter
+    // reachable callable bodies, so the post-`TupleDecompose2` cut must match the full
+    // pipeline.
     run_pipeline_to_successfully(
-        &mut post_arg_store,
-        post_arg_pkg_id,
-        PipelineStage::ArgPromote,
+        &mut post_tuple_decompose2_store,
+        post_tuple_decompose2_pkg_id,
+        PipelineStage::TupleDecompose2,
     );
     run_pipeline_successfully(&mut full_store, full_pkg_id);
 
     invariants::check(
-        &post_arg_store,
-        post_arg_pkg_id,
+        &post_tuple_decompose2_store,
+        post_tuple_decompose2_pkg_id,
         invariants::InvariantLevel::PostArgPromote,
     );
 
@@ -230,20 +235,28 @@ fn post_arg_promote_cut_matches_full_pipeline_bodies() {
     validate(full_package, &full_store);
 
     assert_eq!(
-        format_reachable_callable_summary(&post_arg_store, post_arg_pkg_id),
+        format_reachable_callable_summary(
+            &post_tuple_decompose2_store,
+            post_tuple_decompose2_pkg_id
+        ),
         format_reachable_callable_summary(&full_store, full_pkg_id),
-        "PostArgPromote reachable callable summary should match the full pipeline"
+        "post-TupleDecompose2 reachable callable summary should match the full pipeline"
     );
 
-    let post_arg_callables = reachable_callable_names(&post_arg_store, post_arg_pkg_id);
+    let post_tuple_decompose2_callables =
+        reachable_callable_names(&post_tuple_decompose2_store, post_tuple_decompose2_pkg_id);
     let full_callables = reachable_callable_names(&full_store, full_pkg_id);
-    assert_eq!(post_arg_callables, full_callables);
+    assert_eq!(post_tuple_decompose2_callables, full_callables);
 
     for callable_name in &full_callables {
         assert_eq!(
-            format_callable_body_summary(&post_arg_store, post_arg_pkg_id, callable_name),
+            format_callable_body_summary(
+                &post_tuple_decompose2_store,
+                post_tuple_decompose2_pkg_id,
+                callable_name
+            ),
             format_callable_body_summary(&full_store, full_pkg_id, callable_name),
-            "callable '{callable_name}' body drift between PostArgPromote and full pipeline"
+            "callable '{callable_name}' body drift between post-TupleDecompose2 and full pipeline"
         );
     }
 }
@@ -416,7 +429,7 @@ fn callable_argument_defunctionalized_to_direct_call() {
 }
 
 #[test]
-fn tuple_return_scalars_promoted_by_sroa() {
+fn tuple_return_scalars_promoted_by_tuple_decompose() {
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
         r#"
         operation Pair() : (Int, Bool) { (1, true) }
@@ -1184,7 +1197,7 @@ fn cross_package_udt_constructor_resolution() {
 
 /// Local multi-field UDT with a callable field that is never invoked.
 /// UDT erasure exposes the arrow type inside the tuple; the invariant
-/// must tolerate this between UDT erasure and SROA.
+/// must tolerate this between UDT erasure and tuple-decompose.
 #[test]
 fn local_multi_field_udt_callable_never_invoked() {
     let source = r#"
@@ -1253,7 +1266,7 @@ fn local_multi_field_udt_callable_passed_to_hof() {
 /// The library defines the UDT and a factory function that constructs it
 /// with a closure capturing the factory's arguments. User code calls the
 /// factory cross-package, exercises the callable field, and returns the
-/// integer field. This exercises defunctionalization, UDT erasure, and SROA
+/// integer field. This exercises defunctionalization, UDT erasure, and tuple-decompose
 /// on a callable value flowing through a cross-package struct boundary.
 #[test]
 fn cross_package_multi_field_udt_with_callable_field() {
@@ -1451,7 +1464,7 @@ fn stage_parity_tuple_comp_lower_lowers_tuple_equality() {
 }
 
 #[test]
-fn stage_parity_sroa_body_shape_matches_full_pipeline() {
+fn stage_parity_tuple_decompose_body_shape_matches_full_pipeline() {
     let source = r#"
         function Pair() : (Int, Bool) { (1, true) }
         @EntryPoint()
@@ -1463,15 +1476,15 @@ fn stage_parity_sroa_body_shape_matches_full_pipeline() {
 
     let (staged, staged_pkg, full, full_pkg) = assert_stage_parity(
         source,
-        PipelineStage::Sroa,
-        invariants::InvariantLevel::PostSroa,
+        PipelineStage::TupleDecompose,
+        invariants::InvariantLevel::PostTupleDecompose,
     );
 
     for name in &reachable_callable_names(&full, full_pkg) {
         assert_eq!(
             format_callable_body_summary(&staged, staged_pkg, name),
             format_callable_body_summary(&full, full_pkg, name),
-            "callable '{name}' body must match after SROA and full pipeline"
+            "callable '{name}' body must match after tuple-decompose and full pipeline"
         );
     }
 }

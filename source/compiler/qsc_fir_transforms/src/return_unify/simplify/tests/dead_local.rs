@@ -101,15 +101,13 @@ fn given_immutable_unused_let_with_literal_init_dead_local_drops_binding() {
         "#},
         "Main",
         "dead_local",
-        dead_local::apply,
+        |p, a, b, _| dead_local::apply(p, a, b),
         &expect![[r#"
             // before dead_local (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    let _x : Int = 7;
-                    42
-                }
+                let _x : Int = 7;
+                42
             }
             // entry
             Main()
@@ -117,9 +115,7 @@ fn given_immutable_unused_let_with_literal_init_dead_local_drops_binding() {
             // after dead_local
             // namespace Test
             function Main() : Int {
-                body {
-                    42
-                }
+                42
             }
             // entry
             Main()
@@ -143,15 +139,13 @@ fn given_mutable_unused_let_with_literal_init_dead_local_drops_binding() {
         "#},
         "Main",
         "dead_local",
-        dead_local::apply,
+        |p, a, b, _| dead_local::apply(p, a, b),
         &expect![[r#"
             // before dead_local (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable _x : Int = 7;
-                    42
-                }
+                mutable _x : Int = 7;
+                42
             }
             // entry
             Main()
@@ -159,9 +153,7 @@ fn given_mutable_unused_let_with_literal_init_dead_local_drops_binding() {
             // after dead_local
             // namespace Test
             function Main() : Int {
-                body {
-                    42
-                }
+                42
             }
             // entry
             Main()
@@ -235,15 +227,13 @@ fn given_tuple_bind_dead_local_does_not_drop() {
         "#},
         "Main",
         "dead_local",
-        dead_local::apply,
+        |p, a, b, _| dead_local::apply(p, a, b),
         &expect![[r#"
             // before dead_local (fired=false)
             // namespace Test
             function Main() : Int {
-                body {
-                    let (_a : Int, _b : Int) = (1, 2);
-                    42
-                }
+                let (_a : Int, _b : Int) = (1, 2);
+                42
             }
             // entry
             Main()
@@ -251,10 +241,8 @@ fn given_tuple_bind_dead_local_does_not_drop() {
             // after dead_local
             // namespace Test
             function Main() : Int {
-                body {
-                    let (_a : Int, _b : Int) = (1, 2);
-                    42
-                }
+                let (_a : Int, _b : Int) = (1, 2);
+                42
             }
             // entry
             Main()
@@ -282,20 +270,16 @@ fn given_call_init_dead_local_does_not_drop() {
         "#},
         "Main",
         "dead_local",
-        dead_local::apply,
+        |p, a, b, _| dead_local::apply(p, a, b),
         &expect![[r#"
             // before dead_local (fired=false)
             // namespace Test
             function Helper() : Int {
-                body {
-                    0
-                }
+                0
             }
             function Main() : Int {
-                body {
-                    let _x : Int = Helper();
-                    42
-                }
+                let _x : Int = Helper();
+                42
             }
             // entry
             Main()
@@ -303,15 +287,11 @@ fn given_call_init_dead_local_does_not_drop() {
             // after dead_local
             // namespace Test
             function Helper() : Int {
-                body {
-                    0
-                }
+                0
             }
             function Main() : Int {
-                body {
-                    let _x : Int = Helper();
-                    42
-                }
+                let _x : Int = Helper();
+                42
             }
             // entry
             Main()

@@ -53,12 +53,12 @@ fn mutable_tuple_update_split_preserves_semantics() {
 }
 
 #[cfg(feature = "slow-proptest-tests")]
-fn sroa_tuple_local_pattern() -> impl Strategy<Value = String> {
+fn tuple_decompose_tuple_local_pattern() -> impl Strategy<Value = String> {
     (2..=5usize, 1..=3usize).prop_map(|(width, depth)| {
-        let type_defs = sroa_struct_defs(width, depth);
-        let initial_value = sroa_struct_value(width, depth, 0);
-        let first_access = sroa_field_path(0, depth);
-        let last_access = sroa_field_path(width - 1, depth);
+        let type_defs = tuple_decompose_struct_defs(width, depth);
+        let initial_value = tuple_decompose_struct_value(width, depth, 0);
+        let first_access = tuple_decompose_field_path(0, depth);
+        let last_access = tuple_decompose_field_path(width - 1, depth);
 
         formatdoc! {r#"
             namespace Test {{
@@ -75,7 +75,7 @@ fn sroa_tuple_local_pattern() -> impl Strategy<Value = String> {
 }
 
 #[cfg(feature = "slow-proptest-tests")]
-fn sroa_struct_defs(width: usize, depth: usize) -> String {
+fn tuple_decompose_struct_defs(width: usize, depth: usize) -> String {
     (1..=depth)
         .map(|level| {
             let field_ty = if level == 1 {
@@ -94,7 +94,7 @@ fn sroa_struct_defs(width: usize, depth: usize) -> String {
 }
 
 #[cfg(feature = "slow-proptest-tests")]
-fn sroa_struct_value(width: usize, level: usize, offset: usize) -> String {
+fn tuple_decompose_struct_value(width: usize, level: usize, offset: usize) -> String {
     let assignments = (0..width)
         .map(|field_index| {
             let value = if level == 1 {
@@ -104,7 +104,7 @@ fn sroa_struct_value(width: usize, level: usize, offset: usize) -> String {
                     u32::try_from(level - 1)
                         .expect("Depth should be small enough to avoid overflow"),
                 );
-                sroa_struct_value(width, level - 1, offset + field_index * stride)
+                tuple_decompose_struct_value(width, level - 1, offset + field_index * stride)
             };
             format!("F{field_index} = {value}")
         })
@@ -115,7 +115,7 @@ fn sroa_struct_value(width: usize, level: usize, offset: usize) -> String {
 }
 
 #[cfg(feature = "slow-proptest-tests")]
-fn sroa_field_path(field_index: usize, depth: usize) -> String {
+fn tuple_decompose_field_path(field_index: usize, depth: usize) -> String {
     (0..depth)
         .map(|_| format!("F{field_index}"))
         .collect::<Vec<_>>()
@@ -127,7 +127,7 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 
     #[test]
-    fn sroa_preserves_semantics(source in sroa_tuple_local_pattern()) {
+    fn tuple_decompose_preserves_semantics(source in tuple_decompose_tuple_local_pattern()) {
         crate::test_utils::check_semantic_equivalence(&source);
     }
 }

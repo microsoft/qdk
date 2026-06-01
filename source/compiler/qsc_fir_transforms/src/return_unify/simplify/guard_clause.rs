@@ -54,22 +54,33 @@ use crate::fir_builder::{
 };
 
 use super::{extract_local_read, identify_merge_or_trailing_slot, match_slot_set_arm};
+use crate::return_unify::lower::SynthSlots;
 
 /// Apply the guard-clause collapse rule to `block_id`.
 ///
 /// Iterates the rewrite to fixpoint within `block_id`. Each successful
 /// rewrite shortens the block by exactly two statements, so termination
 /// is guaranteed without an explicit bound.
-pub(super) fn apply(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+pub(super) fn apply(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let mut changed = false;
-    while try_apply_once(package, assigner, block_id) {
+    while try_apply_once(package, assigner, block_id, slots) {
         changed = true;
     }
     changed
 }
 
 /// Performs at most one rewrite. Returns `true` when the pattern matched.
-fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+fn try_apply_once(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let stmt_ids = package.get_block(block_id).stmts.clone();
     if stmt_ids.len() < 3 {
         return false;
@@ -81,7 +92,7 @@ fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: Bloc
     let block_ty = package.get_block(block_id).ty.clone();
 
     let Some((has_returned, return_slot)) =
-        identify_merge_or_trailing_slot(package, block_id, stmt_ids[merge_idx], &block_ty)
+        identify_merge_or_trailing_slot(package, block_id, stmt_ids[merge_idx], &block_ty, slots)
     else {
         return false;
     };

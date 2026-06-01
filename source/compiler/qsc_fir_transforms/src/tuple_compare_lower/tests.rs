@@ -21,6 +21,18 @@ fn check_callable_expr_summary(source: &str, expect: &Expect) {
     expect.assert_eq(&result);
 }
 
+/// Renders the pretty-printed FIR before (`UdtErase`, the stage preceding this
+/// pass) and after (`TupleCompLower`) tuple comparison lowering, so the visual
+/// effect of the pass on the user package can be reviewed in the snapshot.
+fn check_before_after(source: &str, expect: &Expect) {
+    let (store_before, pkg_before) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
+    let before = crate::pretty::write_package_qsharp_parseable(&store_before, pkg_before);
+    let (store_after, pkg_after) =
+        compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
+    let after = crate::pretty::write_package_qsharp_parseable(&store_after, pkg_after);
+    expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
+}
+
 /// Extracts a summary of expression kinds in the entry callable's body,
 /// focusing on `BinOp` expressions to verify lowering.
 fn extract_expr_summary(
@@ -176,12 +188,13 @@ fn generate_qir(source: &str) -> String {
 #[test]
 fn dynamic_tuple_eq_decomposed() {
     // Tuple comparison with Result values decomposes into element-wise AndL.
-    check(
-        "operation Main() : Bool {
+    let source = "operation Main() : Bool {
             use (q0, q1) = (Qubit(), Qubit());
             let (r0, r1) = (M(q0), M(q1));
             (r0, r1) == (Zero, Zero)
-        }",
+        }";
+    check(
+        source,
         &expect![[r#"
             Call(27, 28, ty=Unit)
             Call(30, 31, ty=Unit)
@@ -198,17 +211,64 @@ fn dynamic_tuple_eq_decomposed() {
             local init: Tuple([10, 11], ty=(Qubit, Qubit))
             local init: Tuple([13, 16], ty=(Result, Result))"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Main() : Bool {
+                let _generated_ident_39 : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_41 : Qubit = __quantum__rt__qubit_allocate();
+                let (q0 : Qubit, q1 : Qubit) = (_generated_ident_39, _generated_ident_41);
+                let (r0 : Result, r1 : Result) = (M(q0), M(q1));
+                let _generated_ident_55 : Bool = (r0, r1) == (Zero, Zero);
+                __quantum__rt__qubit_release(_generated_ident_41);
+                __quantum__rt__qubit_release(_generated_ident_39);
+                _generated_ident_55
+            }
+            function Length(a : Pauli[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Main() : Bool {
+                let _generated_ident_39 : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_41 : Qubit = __quantum__rt__qubit_allocate();
+                let (q0 : Qubit, q1 : Qubit) = (_generated_ident_39, _generated_ident_41);
+                let (r0 : Result, r1 : Result) = (M(q0), M(q1));
+                let _generated_ident_55 : Bool = r0 == Zero and r1 == Zero;
+                __quantum__rt__qubit_release(_generated_ident_41);
+                __quantum__rt__qubit_release(_generated_ident_39);
+                _generated_ident_55
+            }
+            function Length(a : Pauli[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn dynamic_tuple_neq_decomposed() {
     // Tuple inequality with Result values decomposes into element-wise OrL.
-    check(
-        "operation Main() : Bool {
+    let source = "operation Main() : Bool {
             use (q0, q1) = (Qubit(), Qubit());
             let (r0, r1) = (M(q0), M(q1));
             (r0, r1) != (Zero, Zero)
-        }",
+        }";
+    check(
+        source,
         &expect![[r#"
             Call(27, 28, ty=Unit)
             Call(30, 31, ty=Unit)
@@ -225,15 +285,62 @@ fn dynamic_tuple_neq_decomposed() {
             local init: Tuple([10, 11], ty=(Qubit, Qubit))
             local init: Tuple([13, 16], ty=(Result, Result))"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Main() : Bool {
+                let _generated_ident_39 : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_41 : Qubit = __quantum__rt__qubit_allocate();
+                let (q0 : Qubit, q1 : Qubit) = (_generated_ident_39, _generated_ident_41);
+                let (r0 : Result, r1 : Result) = (M(q0), M(q1));
+                let _generated_ident_55 : Bool = (r0, r1) != (Zero, Zero);
+                __quantum__rt__qubit_release(_generated_ident_41);
+                __quantum__rt__qubit_release(_generated_ident_39);
+                _generated_ident_55
+            }
+            function Length(a : Pauli[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Main() : Bool {
+                let _generated_ident_39 : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_41 : Qubit = __quantum__rt__qubit_allocate();
+                let (q0 : Qubit, q1 : Qubit) = (_generated_ident_39, _generated_ident_41);
+                let (r0 : Result, r1 : Result) = (M(q0), M(q1));
+                let _generated_ident_55 : Bool = r0 != Zero or r1 != Zero;
+                __quantum__rt__qubit_release(_generated_ident_41);
+                __quantum__rt__qubit_release(_generated_ident_39);
+                _generated_ident_55
+            }
+            function Length(a : Pauli[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn classical_tuple_eq_decomposed() {
     // Purely classical tuple comparison IS now decomposed into element-wise AndL.
-    check(
-        "function Main() : Bool {
+    let source = "function Main() : Bool {
             (1, 2) == (3, 4)
-        }",
+        }";
+    check(
+        source,
         &expect![[r#"
             BinOp(AndL, ty=Bool):
               BinOp(Eq, ty=Bool):
@@ -243,18 +350,39 @@ fn classical_tuple_eq_decomposed() {
                 Lit(Int(2), ty=Int)
                 Lit(Int(4), ty=Int)"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            function Main() : Bool {
+                (1, 2) == (3, 4)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            function Main() : Bool {
+                1 == 3 and 2 == 4
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mixed_classical_dynamic_tuple_decomposed() {
     // Tuple containing both classical and dynamic types IS decomposed
     // because it contains Result.
-    check(
-        "operation Main() : Bool {
+    let source = "operation Main() : Bool {
             use q = Qubit();
             let r = M(q);
             (1, r) == (0, Zero)
-        }",
+        }";
+    check(
+        source,
         &expect![[r#"
             Call(17, 18, ty=Unit)
             Var(Local 3, ty=Bool)
@@ -267,6 +395,46 @@ fn mixed_classical_dynamic_tuple_decomposed() {
                 Lit(Result(Zero), ty=Result)
             local init: Call(4, 5, ty=Qubit)
             local init: Call(7, 8, ty=Result)"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Main() : Bool {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let r : Result = M(q);
+                let _generated_ident_32 : Bool = (1, r) == (0, Zero);
+                __quantum__rt__qubit_release(q);
+                _generated_ident_32
+            }
+            function Length(a : Pauli[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Main() : Bool {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let r : Result = M(q);
+                let _generated_ident_32 : Bool = 1 == 0 and r == Zero;
+                __quantum__rt__qubit_release(q);
+                _generated_ident_32
+            }
+            function Length(a : Pauli[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -297,8 +465,7 @@ fn dynamic_tuple_eq_qir_succeeds() {
 
 #[test]
 fn nested_tuple_eq_recursively_decomposes_inner_elements() {
-    check(
-        indoc! {"
+    let source = indoc! {"
             operation Main() : Bool {
                 use q1 = Qubit();
                 use q2 = Qubit();
@@ -306,7 +473,9 @@ fn nested_tuple_eq_recursively_decomposes_inner_elements() {
                 let b = (M(q1), M(q2));
                 (a, a) == (b, b)
             }
-        "},
+        "};
+    check(
+        source,
         &expect![[r#"
             Call(31, 32, ty=Unit)
             Call(34, 35, ty=Unit)
@@ -331,16 +500,63 @@ fn nested_tuple_eq_recursively_decomposes_inner_elements() {
             local init: Tuple([10, 13], ty=(Result, Result))
             local init: Tuple([17, 20], ty=(Result, Result))"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Main() : Bool {
+                let q1 : Qubit = __quantum__rt__qubit_allocate();
+                let q2 : Qubit = __quantum__rt__qubit_allocate();
+                let a : (Result, Result) = (M(q1), M(q2));
+                let b : (Result, Result) = (M(q1), M(q2));
+                let _generated_ident_55 : Bool = (a, a) == (b, b);
+                __quantum__rt__qubit_release(q2);
+                __quantum__rt__qubit_release(q1);
+                _generated_ident_55
+            }
+            function Length(a : Pauli[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Main() : Bool {
+                let q1 : Qubit = __quantum__rt__qubit_allocate();
+                let q2 : Qubit = __quantum__rt__qubit_allocate();
+                let a : (Result, Result) = (M(q1), M(q2));
+                let b : (Result, Result) = (M(q1), M(q2));
+                let _generated_ident_55 : Bool = a::Item < 0 > == b::Item < 0 > and a::Item < 1 > == b::Item < 1 > and a::Item < 0 > == b::Item < 0 > and a::Item < 1 > == b::Item < 1 >;
+                __quantum__rt__qubit_release(q2);
+                __quantum__rt__qubit_release(q1);
+                _generated_ident_55
+            }
+            function Length(a : Pauli[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn nested_tuple_neq_recursively_decomposes_inner_elements() {
-    check(
-        indoc! {"
+    let source = indoc! {"
             function Main() : Bool {
                 ((1, 2), (3, 4)) != ((1, 5), (3, 4))
             }
-        "},
+        "};
+    check(
+        source,
         &expect![[r#"BinOp(OrL, ty=Bool):
   BinOp(OrL, ty=Bool):
     BinOp(Neq, ty=Bool):
@@ -356,6 +572,26 @@ fn nested_tuple_neq_recursively_decomposes_inner_elements() {
     BinOp(Neq, ty=Bool):
       Lit(Int(4), ty=Int)
       Lit(Int(4), ty=Int)"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            function Main() : Bool {
+                ((1, 2), (3, 4)) != ((1, 5), (3, 4))
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            function Main() : Bool {
+                1 != 1 or 2 != 5 or 3 != 3 or 4 != 4
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -388,16 +624,37 @@ callable Main:
 
 #[test]
 fn empty_tuple_eq_unchanged_no_decomposition() {
-    check(
-        indoc! {"
+    let source = indoc! {"
             function Main() : Bool {
                 () == ()
             }
-        "},
+        "};
+    check(
+        source,
         &expect![[r#"
             BinOp(Eq, ty=Bool):
               Tuple([], ty=Unit)
               Tuple([], ty=Unit)"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            function Main() : Bool {
+                () == ()
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            function Main() : Bool {
+                () == ()
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -425,15 +682,16 @@ fn tuple_compare_lower_is_idempotent() {
 fn entry_expression_tuple_comparison_is_lowered() {
     // Tuple comparison in an @EntryPoint callable is lowered correctly.
     // Documents that the entry expression path is covered by tuple_compare_lower.
-    check(
-        indoc! {"
+    let source = indoc! {"
             namespace Test {
                 @EntryPoint()
                 operation Main() : Bool {
                     (1, 2) == (1, 2)
                 }
             }
-        "},
+        "};
+    check(
+        source,
         &expect![[r#"
             BinOp(AndL, ty=Bool):
               BinOp(Eq, ty=Bool):
@@ -442,5 +700,25 @@ fn entry_expression_tuple_comparison_is_lowered() {
               BinOp(Eq, ty=Bool):
                 Lit(Int(2), ty=Int)
                 Lit(Int(2), ty=Int)"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace Test
+            operation Main() : Bool {
+                (1, 2) == (1, 2)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace Test
+            operation Main() : Bool {
+                1 == 1 and 2 == 2
+            }
+            // entry
+            Main()
+        "#]],
     );
 }

@@ -30,42 +30,41 @@ fn if_if_return_then_trailing() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    if M(q) == One {
-                        if M(q) == Zero {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                if M(q) == One {
+                    if M(q) == Zero {
+                        {
+                            let _generated_ident_41 : Int = 1;
+                            __quantum__rt__qubit_release(q);
                             {
-                                let
-                                @generated_ident_41 : Int = 1;
-                                __quantum__rt__qubit_release(q);
-                                {
-                                    __ret_val =
-                                    @generated_ident_41;
-                                    __has_returned = true;
-                                };
+                                __ret_val = _generated_ident_41;
+                                __has_returned = true;
                             };
-                        }
-
-                    }
-
-                    let
-                    @generated_ident_53 : Int = if not __has_returned {
-                        2
-                    } else {
-                        0
-                    };
-                    if not __has_returned {
-                        __quantum__rt__qubit_release(q);
-                    };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            @generated_ident_53
-                        } else __ret_val
+                        };
                     }
 
                 }
+
+                let _generated_ident_53 : Int = if not __has_returned {
+                    2
+                } else {
+                    0
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_53
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
@@ -100,36 +99,35 @@ fn if_if_return_no_trailing_unit() {
         &expect![[r#"
             // namespace Test
             operation Main() : Unit {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Unit = ();
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    let
-                    @generated_ident_51 : Unit = if M(q) == One {
-                        if M(q) == Zero {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Unit = ();
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_51 : Unit = if M(q) == One {
+                    if M(q) == Zero {
+                        {
+                            let _generated_ident_39 : Unit = ();
+                            __quantum__rt__qubit_release(q);
                             {
-                                let
-                                @generated_ident_39 : Unit = ();
-                                __quantum__rt__qubit_release(q);
-                                {
-                                    __ret_val =
-                                    @generated_ident_39;
-                                    __has_returned = true;
-                                };
+                                __ret_val = _generated_ident_39;
+                                __has_returned = true;
                             };
-                        }
-
-                    };
-                    if not __has_returned {
-                        __quantum__rt__qubit_release(q);
-                    };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            @generated_ident_51
-                        } else __ret_val
+                        };
                     }
 
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_51
+                    } else {
+                        __ret_val
+                    }
                 }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
@@ -168,44 +166,43 @@ fn if_if_return_sibling_stmt_before_if() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    mutable acc : Int = 0;
-                    acc += 10;
-                    if M(q) == One {
-                        if M(q) == Zero {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                mutable acc : Int = 0;
+                acc += 10;
+                if M(q) == One {
+                    if M(q) == Zero {
+                        {
+                            let _generated_ident_51 : Int = acc;
+                            __quantum__rt__qubit_release(q);
                             {
-                                let
-                                @generated_ident_51 : Int = acc;
-                                __quantum__rt__qubit_release(q);
-                                {
-                                    __ret_val =
-                                    @generated_ident_51;
-                                    __has_returned = true;
-                                };
+                                __ret_val = _generated_ident_51;
+                                __has_returned = true;
                             };
-                        }
-
-                    }
-
-                    let
-                    @generated_ident_63 : Int = if not __has_returned {
-                        acc + 1
-                    } else {
-                        0
-                    };
-                    if not __has_returned {
-                        __quantum__rt__qubit_release(q);
-                    };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            @generated_ident_63
-                        } else __ret_val
+                        };
                     }
 
                 }
+
+                let _generated_ident_63 : Int = if not __has_returned {
+                    acc + 1
+                } else {
+                    0
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_63
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
@@ -243,44 +240,43 @@ fn if_if_return_inside_block_wrapper() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    {
-                        if M(q) == One {
-                            if M(q) == Zero {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                {
+                    if M(q) == One {
+                        if M(q) == Zero {
+                            {
+                                let _generated_ident_44 : Int = 1;
+                                __quantum__rt__qubit_release(q);
                                 {
-                                    let
-                                    @generated_ident_44 : Int = 1;
-                                    __quantum__rt__qubit_release(q);
-                                    {
-                                        __ret_val =
-                                        @generated_ident_44;
-                                        __has_returned = true;
-                                    };
+                                    __ret_val = _generated_ident_44;
+                                    __has_returned = true;
                                 };
-                            }
-
+                            };
                         }
 
-                    };
-                    let
-                    @generated_ident_56 : Int = if not __has_returned {
-                        2
-                    } else {
-                        0
-                    };
-                    if not __has_returned {
-                        __quantum__rt__qubit_release(q);
-                    };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            @generated_ident_56
-                        } else __ret_val
                     }
 
+                };
+                let _generated_ident_56 : Int = if not __has_returned {
+                    2
+                } else {
+                    0
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_56
+                    } else {
+                        __ret_val
+                    }
                 }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
@@ -320,41 +316,40 @@ fn if_elseif_if_return_deep() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    let
-                    @generated_ident_67 : Int = if M(q) == One {
-                        1
-                    } elif M(q) == Zero {
-                        if M(q) == One {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_67 : Int = if M(q) == One {
+                    1
+                } else if M(q) == Zero {
+                    if M(q) == One {
+                        {
+                            let _generated_ident_55 : Int = 2;
+                            __quantum__rt__qubit_release(q);
                             {
-                                let
-                                @generated_ident_55 : Int = 2;
-                                __quantum__rt__qubit_release(q);
-                                {
-                                    __ret_val =
-                                    @generated_ident_55;
-                                    __has_returned = true;
-                                };
+                                __ret_val = _generated_ident_55;
+                                __has_returned = true;
                             };
-                        }
-
-                        3
-                    } else {
-                        4
-                    };
-                    if not __has_returned {
-                        __quantum__rt__qubit_release(q);
-                    };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            @generated_ident_67
-                        } else __ret_val
+                        };
                     }
 
+                    3
+                } else {
+                    4
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_67
+                    } else {
+                        __ret_val
+                    }
                 }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
@@ -398,51 +393,50 @@ fn while_while_return_deep() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    mutable j : Int = 0;
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    while not __has_returned and i < 2 {
-                        while not __has_returned and j < 2 {
-                            if M(q) == One {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                mutable j : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                while not __has_returned and i < 2 {
+                    while not __has_returned and j < 2 {
+                        if M(q) == One {
+                            {
+                                let _generated_ident_60 : Int = 7;
+                                __quantum__rt__qubit_release(q);
                                 {
-                                    let
-                                    @generated_ident_60 : Int = 7;
-                                    __quantum__rt__qubit_release(q);
-                                    {
-                                        __ret_val =
-                                        @generated_ident_60;
-                                        __has_returned = true;
-                                    };
+                                    __ret_val = _generated_ident_60;
+                                    __has_returned = true;
                                 };
-                            }
-
-                            if not __has_returned {
-                                j += 1;
                             };
                         }
 
                         if not __has_returned {
-                            i += 1;
+                            j += 1;
                         };
                     }
 
-                    let
-                    @generated_ident_72 : Int = {
-                        0
-                    };
                     if not __has_returned {
-                        __quantum__rt__qubit_release(q);
+                        i += 1;
                     };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            @generated_ident_72
-                        } else __ret_val
-                    }
-
                 }
+
+                let _generated_ident_72 : Int = {
+                    0
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_72
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
@@ -482,75 +476,59 @@ fn while_for_if_return_deep() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    while not __has_returned and i < 3 {
-                        {
-                            let
-                            @range_id_54 : Range = 0..2;
-                            mutable
-                            @index_id_57 : Int =
-                            @range_id_54::Start;
-                            let
-                            @step_id_62 : Int =
-                            @range_id_54::Step;
-                            let
-                            @end_id_67 : Int =
-                            @range_id_54::End;
-                            while not __has_returned and
-                            @step_id_62 > 0 and
-                            @index_id_57 <=
-                            @end_id_67 or
-                            @step_id_62 < 0 and
-                            @index_id_57 >=
-                            @end_id_67 {
-                                let j : Int =
-                                @index_id_57;
-                                if M(q) == One {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                while not __has_returned and i < 3 {
+                    {
+                        let _range_id_54 : Range = 0..2;
+                        mutable _index_id_57 : Int = _range_id_54::Start;
+                        let _step_id_62 : Int = _range_id_54::Step;
+                        let _end_id_67 : Int = _range_id_54::End;
+                        while not __has_returned and _step_id_62 > 0 and _index_id_57 <= _end_id_67 or _step_id_62 < 0 and _index_id_57 >= _end_id_67 {
+                            let j : Int = _index_id_57;
+                            if M(q) == One {
+                                {
+                                    let _generated_ident_102 : Int = i * 10 + j;
+                                    __quantum__rt__qubit_release(q);
                                     {
-                                        let
-                                        @generated_ident_102 : Int = i * 10 + j;
-                                        __quantum__rt__qubit_release(q);
-                                        {
-                                            __ret_val =
-                                            @generated_ident_102;
-                                            __has_returned = true;
-                                        };
+                                        __ret_val = _generated_ident_102;
+                                        __has_returned = true;
                                     };
-                                }
-
-                                if not __has_returned {
-                                    @index_id_57 +=
-                                    @step_id_62;
                                 };
                             }
 
+                            if not __has_returned {
+                                _index_id_57 += _step_id_62;
+                            };
                         }
 
-                        if not __has_returned {
-                            i += 1;
-                        };
                     }
 
-                    let
-                    @generated_ident_114 : Int = if not __has_returned {
-            -1
-                    } else {
-                        0
-                    };
                     if not __has_returned {
-                        __quantum__rt__qubit_release(q);
+                        i += 1;
                     };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            @generated_ident_114
-                        } else __ret_val
-                    }
-
                 }
+
+                let _generated_ident_114 : Int = if not __has_returned {
+            -1
+                } else {
+                    0
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_114
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
@@ -590,49 +568,48 @@ fn while_inside_if_without_else_return() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    if M(q) == One {
-                        while not __has_returned and i < 3 {
-                            if M(q) == Zero {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                if M(q) == One {
+                    while not __has_returned and i < 3 {
+                        if M(q) == Zero {
+                            {
+                                let _generated_ident_56 : Int = i;
+                                __quantum__rt__qubit_release(q);
                                 {
-                                    let
-                                    @generated_ident_56 : Int = i;
-                                    __quantum__rt__qubit_release(q);
-                                    {
-                                        __ret_val =
-                                        @generated_ident_56;
-                                        __has_returned = true;
-                                    };
+                                    __ret_val = _generated_ident_56;
+                                    __has_returned = true;
                                 };
-                            }
-
-                            if not __has_returned {
-                                i += 1;
                             };
                         }
 
-                    }
-
-                    let
-                    @generated_ident_68 : Int = if not __has_returned {
-            -1
-                    } else {
-                        0
-                    };
-                    if not __has_returned {
-                        __quantum__rt__qubit_release(q);
-                    };
-                    if __has_returned __ret_val else {
                         if not __has_returned {
-                            @generated_ident_68
-                        } else __ret_val
+                            i += 1;
+                        };
                     }
 
                 }
+
+                let _generated_ident_68 : Int = if not __has_returned {
+            -1
+                } else {
+                    0
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_68
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
@@ -670,71 +647,55 @@ fn for_inside_if_without_else_return() {
         &expect![[r#"
             // namespace Test
             operation Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    if M(q) == One {
-                        {
-                            let
-                            @range_id_45 : Range = 0..2;
-                            mutable
-                            @index_id_48 : Int =
-                            @range_id_45::Start;
-                            let
-                            @step_id_53 : Int =
-                            @range_id_45::Step;
-                            let
-                            @end_id_58 : Int =
-                            @range_id_45::End;
-                            while not __has_returned and
-                            @step_id_53 > 0 and
-                            @index_id_48 <=
-                            @end_id_58 or
-                            @step_id_53 < 0 and
-                            @index_id_48 >=
-                            @end_id_58 {
-                                let j : Int =
-                                @index_id_48;
-                                if M(q) == Zero {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                if M(q) == One {
+                    {
+                        let _range_id_45 : Range = 0..2;
+                        mutable _index_id_48 : Int = _range_id_45::Start;
+                        let _step_id_53 : Int = _range_id_45::Step;
+                        let _end_id_58 : Int = _range_id_45::End;
+                        while not __has_returned and _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
+                            let j : Int = _index_id_48;
+                            if M(q) == Zero {
+                                {
+                                    let _generated_ident_93 : Int = j;
+                                    __quantum__rt__qubit_release(q);
                                     {
-                                        let
-                                        @generated_ident_93 : Int = j;
-                                        __quantum__rt__qubit_release(q);
-                                        {
-                                            __ret_val =
-                                            @generated_ident_93;
-                                            __has_returned = true;
-                                        };
+                                        __ret_val = _generated_ident_93;
+                                        __has_returned = true;
                                     };
-                                }
-
-                                if not __has_returned {
-                                    @index_id_48 +=
-                                    @step_id_53;
                                 };
                             }
 
+                            if not __has_returned {
+                                _index_id_48 += _step_id_53;
+                            };
                         }
 
                     }
 
-                    let
-                    @generated_ident_105 : Int = if not __has_returned {
-            -1
-                    } else {
-                        0
-                    };
-                    if not __has_returned {
-                        __quantum__rt__qubit_release(q);
-                    };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            @generated_ident_105
-                        } else __ret_val
-                    }
-
                 }
+
+                let _generated_ident_105 : Int = if not __has_returned {
+            -1
+                } else {
+                    0
+                };
+                if not __has_returned {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        _generated_ident_105
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             function Length(a : Pauli[]) : Int {
                 body intrinsic;

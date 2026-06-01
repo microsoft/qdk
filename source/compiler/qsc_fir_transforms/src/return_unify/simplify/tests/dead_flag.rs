@@ -166,7 +166,8 @@ fn single_dead_setter_is_dropped() {
         Span::default(),
     );
 
-    let fired = dead_flag::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = dead_flag::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         fired,
         "dead_flag must drop the lone unread `__has_returned = true;` setter",
@@ -219,7 +220,8 @@ fn multiple_dead_setters_are_all_dropped() {
         Span::default(),
     );
 
-    let fired = dead_flag::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = dead_flag::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         fired,
         "dead_flag must drop every unread `__has_returned = true;` setter in one pass",
@@ -317,7 +319,8 @@ fn dead_setter_with_nested_block_downstream_is_dropped() {
         Span::default(),
     );
 
-    let fired = dead_flag::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = dead_flag::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         fired,
         "dead_flag must drop the setter when the nested block downstream contains no flag read",
@@ -430,7 +433,8 @@ fn surviving_trailing_merge_blocks_the_drop() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = dead_flag::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = dead_flag::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "dead_flag must refuse when the trailing merge reads `__has_returned`",
@@ -517,7 +521,8 @@ fn downstream_closure_does_not_block_drop() {
         Span::default(),
     );
 
-    let fired = dead_flag::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = dead_flag::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         fired,
         "dead_flag must drop the setter -- a downstream closure cannot capture a slot synthesized after HIR -> FIR lowering",
@@ -574,20 +579,24 @@ mod q_driven {
                 // before dead_flag (fired=false)
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        }
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
 
-                        let __trailing_result : Int = if not __has_returned {
-                            0
-                        } else __ret_val;
-                        if __has_returned __ret_val else __trailing_result
+                    let __trailing_result : Int = if not __has_returned {
+                        0
+                    } else {
+                        __ret_val
+                    };
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __trailing_result
                     }
                 }
                 // entry
@@ -596,20 +605,24 @@ mod q_driven {
                 // after dead_flag
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        }
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
 
-                        let __trailing_result : Int = if not __has_returned {
-                            0
-                        } else __ret_val;
-                        if __has_returned __ret_val else __trailing_result
+                    let __trailing_result : Int = if not __has_returned {
+                        0
+                    } else {
+                        __ret_val
+                    };
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __trailing_result
                     }
                 }
                 // entry
@@ -643,22 +656,24 @@ mod q_driven {
                 // before dead_flag (fired=false)
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        } else {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    } else {
+                        {
+                            __ret_val = 2;
+                            __has_returned = true;
+                        };
+                    }
 
-                        if __has_returned __ret_val else __ret_val
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __ret_val
                     }
                 }
                 // entry
@@ -667,22 +682,24 @@ mod q_driven {
                 // after dead_flag
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        } else {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    } else {
+                        {
+                            __ret_val = 2;
+                            __has_returned = true;
+                        };
+                    }
 
-                        if __has_returned __ret_val else __ret_val
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __ret_val
                     }
                 }
                 // entry
@@ -712,14 +729,16 @@ mod q_driven {
                 // before dead_flag (fired=false)
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        {
-                            __ret_val = 42;
-                            __has_returned = true;
-                        };
-                        if __has_returned __ret_val else __ret_val
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    {
+                        __ret_val = 42;
+                        __has_returned = true;
+                    };
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __ret_val
                     }
                 }
                 // entry
@@ -728,14 +747,16 @@ mod q_driven {
                 // after dead_flag
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        {
-                            __ret_val = 42;
-                            __has_returned = true;
-                        };
-                        if __has_returned __ret_val else __ret_val
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    {
+                        __ret_val = 42;
+                        __has_returned = true;
+                    };
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __ret_val
                     }
                 }
                 // entry

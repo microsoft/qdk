@@ -127,11 +127,14 @@ fn count_compound_returns_in_expr(package: &Package, expr_id: ExprId) -> usize {
         // Statement-carrying constructs: the hoist pass does NOT descend
         // into these (except for If-condition hoisting). For the purpose
         // of this measure, only count If-condition Returns.
-        ExprKind::Block(_) => 0,
-        ExprKind::If(cond, _, _) => count_compound_returns_in_expr(package, *cond),
-        ExprKind::While(cond, _) => count_compound_returns_in_expr(package, *cond),
-        // Leaves
-        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => 0,
+        ExprKind::If(cond, _, _) | ExprKind::While(cond, _) => {
+            count_compound_returns_in_expr(package, *cond)
+        }
+        ExprKind::Block(_)
+        | ExprKind::Closure(_, _)
+        | ExprKind::Hole
+        | ExprKind::Lit(_)
+        | ExprKind::Var(_, _) => 0,
         // Unary
         ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::UnOp(_, e) => {
             count_compound_returns_in_expr(package, *e)

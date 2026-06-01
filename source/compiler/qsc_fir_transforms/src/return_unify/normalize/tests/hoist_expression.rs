@@ -239,15 +239,11 @@ fn hoist_return_in_call_argument() {
         &expect![[r#"
             // namespace Test
             function Add(a : Int, b : Int) : Int {
-                body {
-                    a + b
-                }
+                a + b
             }
             function Main() : Int {
-                body {
-                    let _ : ((Int, Int) -> Int) = Add;
-                    1
-                }
+                let _ : ((Int, Int) -> Int) = Add;
+                1
             }
             // entry
             Main()
@@ -270,11 +266,9 @@ fn hoist_return_in_tuple_middle() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    let _ : Int = 1;
-                    let (a : Int, _ : Unit, _ : Int) = (0, (), 0);
-                    2
-                }
+                let _ : Int = 1;
+                let (a : Int, _ : Unit, _ : Int) = (0, (), 0);
+                2
             }
             // entry
             Main()
@@ -297,9 +291,7 @@ fn hoist_return_in_array_first() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    1
-                }
+                1
             }
             // entry
             Main()
@@ -323,10 +315,8 @@ fn hoist_return_in_array_repeat() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    let _ : Int = 0;
-                    3
-                }
+                let _ : Int = 0;
+                3
             }
             // entry
             Main()
@@ -350,11 +340,9 @@ fn hoist_return_in_binop_rhs_arithmetic() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    let a : Int = 1;
-                    let _ : Int = a;
-                    1
-                }
+                let a : Int = 1;
+                let _ : Int = a;
+                1
             }
             // entry
             Main()
@@ -376,10 +364,10 @@ fn hoist_return_in_short_circuit_and_rhs() {
         &expect![[r#"
             // namespace Test
             function Main() : Bool {
-                body {
-                    if true {
-                        true
-                    } else false
+                if true {
+                    true
+                } else {
+                    false
                 }
             }
             // entry
@@ -402,9 +390,7 @@ fn hoist_return_in_short_circuit_or_rhs() {
         &expect![[r#"
             // namespace Test
             function Main() : Bool {
-                body {
-                    true
-                }
+                true
             }
             // entry
             Main()
@@ -427,9 +413,7 @@ fn hoist_return_in_unop() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    1
-                }
+                1
             }
             // entry
             Main()
@@ -453,9 +437,7 @@ fn hoist_return_in_index_expr() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    0
-                }
+                0
             }
             // entry
             Main()
@@ -479,12 +461,10 @@ fn hoist_return_in_update_index_value() {
         &expect![[r#"
             // namespace Test
             function Main() : Int[] {
-                body {
-                    let arr : Int[] = [0, 0, 0];
-                    let _ : Int[] = arr;
-                    let _ : Int = 0;
-                    []
-                }
+                let arr : Int[] = [0, 0, 0];
+                let _ : Int[] = arr;
+                let _ : Int = 0;
+                []
             }
             // entry
             Main()
@@ -509,9 +489,7 @@ fn hoist_return_in_struct_field() {
             // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
-                body {
-                    1
-                }
+                1
             }
             // entry
             Main()
@@ -539,61 +517,51 @@ fn hoist_return_in_range_endpoint() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable sum : Int = 0;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable sum : Int = 0;
+                {
+                    let _ : Int = 0;
+                    let _range_id_28 : Range = ...;
                     {
-                        let _ : Int = 0;
-                        let
-                        @range_id_28 : Range = ...;
-                        {
-                            __ret_val = 5;
-                            __has_returned = true;
-                        };
-                        mutable
-                        @index_id_31 : Int = if not __has_returned {
-                            @range_id_28::Start
-                        } else {
-                            0
-                        };
-                        let
-                        @step_id_36 : Int = if not __has_returned {
-                            @range_id_28::Step
-                        } else {
-                            0
-                        };
-                        let
-                        @end_id_41 : Int = if not __has_returned {
-                            @range_id_28::End
-                        } else {
-                            0
-                        };
-                        if not __has_returned {
-                            while
-                            @step_id_36 > 0 and
-                            @index_id_31 <=
-                            @end_id_41 or
-                            @step_id_36 < 0 and
-                            @index_id_31 >=
-                            @end_id_41 {
-                                let i : Int =
-                                @index_id_31;
-                                sum += i;
-                                @index_id_31 +=
-                                @step_id_36;
-                            }
+                        __ret_val = 5;
+                        __has_returned = true;
+                    };
+                    mutable _index_id_31 : Int = if not __has_returned {
+                        _range_id_28::Start
+                    } else {
+                        0
+                    };
+                    let _step_id_36 : Int = if not __has_returned {
+                        _range_id_28::Step
+                    } else {
+                        0
+                    };
+                    let _end_id_41 : Int = if not __has_returned {
+                        _range_id_28::End
+                    } else {
+                        0
+                    };
+                    if not __has_returned {
+                        while _step_id_36 > 0 and _index_id_31 <= _end_id_41 or _step_id_36 < 0 and _index_id_31 >= _end_id_41 {
+                            let i : Int = _index_id_31;
+                            sum += i;
+                            _index_id_31 += _step_id_36;
+                        }
 
-                        };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            sum
-                        } else __ret_val
-                    }
-
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        sum
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -656,89 +624,69 @@ fn hoist_return_in_local_init_preserves_binding() {
         &expect![[r#"
             // namespace Test
             function Identity(x : Int) : Int {
-                body {
-                    x
-                }
+                x
             }
             function Compute() : Int {
-                body {
-                    1
-                }
+                1
             }
             function RangeShape() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable sum : Int = 0;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable sum : Int = 0;
+                {
+                    let _ : Int = 0;
+                    let _range_id_92 : Range = ...;
                     {
-                        let _ : Int = 0;
-                        let
-                        @range_id_92 : Range = ...;
-                        {
-                            __ret_val = 5;
-                            __has_returned = true;
-                        };
-                        mutable
-                        @index_id_95 : Int = if not __has_returned {
-                            @range_id_92::Start
-                        } else {
-                            0
-                        };
-                        let
-                        @step_id_100 : Int = if not __has_returned {
-                            @range_id_92::Step
-                        } else {
-                            0
-                        };
-                        let
-                        @end_id_105 : Int = if not __has_returned {
-                            @range_id_92::End
-                        } else {
-                            0
-                        };
-                        if not __has_returned {
-                            while
-                            @step_id_100 > 0 and
-                            @index_id_95 <=
-                            @end_id_105 or
-                            @step_id_100 < 0 and
-                            @index_id_95 >=
-                            @end_id_105 {
-                                let i : Int =
-                                @index_id_95;
-                                sum += i;
-                                @index_id_95 +=
-                                @step_id_100;
-                            }
+                        __ret_val = 5;
+                        __has_returned = true;
+                    };
+                    mutable _index_id_95 : Int = if not __has_returned {
+                        _range_id_92::Start
+                    } else {
+                        0
+                    };
+                    let _step_id_100 : Int = if not __has_returned {
+                        _range_id_92::Step
+                    } else {
+                        0
+                    };
+                    let _end_id_105 : Int = if not __has_returned {
+                        _range_id_92::End
+                    } else {
+                        0
+                    };
+                    if not __has_returned {
+                        while _step_id_100 > 0 and _index_id_95 <= _end_id_105 or _step_id_100 < 0 and _index_id_95 >= _end_id_105 {
+                            let i : Int = _index_id_95;
+                            sum += i;
+                            _index_id_95 += _step_id_100;
+                        }
 
-                        };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            sum
-                        } else __ret_val
-                    }
-
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        sum
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             function TupleShape() : Int {
-                body {
-                    let _ : Int = Compute();
-                    let (first : Int, _ : Unit) = (0, ());
-                    11
-                }
+                let _ : Int = Compute();
+                let (first : Int, _ : Unit) = (0, ());
+                11
             }
             function CallShape() : Int {
-                body {
-                    let _ : (Int -> Int) = Identity;
-                    7
-                }
+                let _ : (Int -> Int) = Identity;
+                7
             }
             function Main() : Int {
-                body {
-                    RangeShape() + TupleShape() + CallShape()
-                }
+                RangeShape() + TupleShape() + CallShape()
             }
             // entry
             Main()
@@ -760,9 +708,7 @@ fn hoist_return_in_fail_payload() {
         &expect![[r#"
             // namespace Test
             function Main() : String {
-                body {
-                    $"done"
-                }
+                $"done"
             }
             // entry
             Main()
@@ -785,9 +731,7 @@ fn hoist_return_in_string_interp() {
         &expect![[r#"
             // namespace Test
             function Main() : String {
-                body {
-                    $"early"
-                }
+                $"early"
             }
             // entry
             Main()
@@ -815,17 +759,19 @@ fn hoist_return_in_if_condition() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let __trailing_result : Int = {
-                        {
-                            __ret_val = 7;
-                            __has_returned = true;
-                        };
-                        0
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = {
+                    {
+                        __ret_val = 7;
+                        __has_returned = true;
                     };
-                    if __has_returned __ret_val else __trailing_result
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -853,9 +799,7 @@ fn hoist_return_in_while_condition() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    9
-                }
+                9
             }
             // entry
             Main()
@@ -890,9 +834,7 @@ fn hoist_return_in_while_condition_nested_if_unconditional_path() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    13
-                }
+                13
             }
             // entry
             Main()
@@ -920,9 +862,7 @@ fn hoist_return_in_while_condition_short_circuit_and_or_unconditional_path() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    17
-                }
+                17
             }
             // entry
             Main()
@@ -984,9 +924,7 @@ fn hoist_return_return_x() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    1
-                }
+                1
             }
             // entry
             Main()
@@ -1013,16 +951,12 @@ fn hoist_return_chained() {
         &expect![[r#"
             // namespace Test
             function Add(a : Int, b : Int) : Int {
-                body {
-                    a + b
-                }
+                a + b
             }
             function Main() : Int {
-                body {
-                    let _ : ((Int, Int) -> Int) = Add;
-                    let _ : ((Int, Int) -> Int) = Add;
-                    1
-                }
+                let _ : ((Int, Int) -> Int) = Add;
+                let _ : ((Int, Int) -> Int) = Add;
+                1
             }
             // entry
             Main()

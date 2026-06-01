@@ -23,6 +23,18 @@ fn callable_count(package: &qsc_fir::fir::Package) -> usize {
         .count()
 }
 
+/// Collects the names of all `Ty` (newtype) items in the user package.
+fn ty_item_names(package: &qsc_fir::fir::Package) -> Vec<String> {
+    package
+        .items
+        .iter()
+        .filter_map(|(_, item)| match &item.kind {
+            ItemKind::Ty(ident, _) => Some(ident.name.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn callable_id_by_name(package: &qsc_fir::fir::Package, name: &str) -> qsc_fir::fir::LocalItemId {
     package
         .items
@@ -231,6 +243,11 @@ fn dce_removes_unreachable_type_declarations() {
     "};
     let (store_before, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Gc);
     let items_before = item_count(store_before.get(pkg_id));
+    // Before DCE the `Pair` newtype is present as a Ty item.
+    assert!(
+        ty_item_names(store_before.get(pkg_id)).contains(&"Pair".to_string()),
+        "Pair newtype should exist before DCE"
+    );
 
     let (store_after, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ItemDce);
     let items_after = item_count(store_after.get(pkg_id));
@@ -239,6 +256,14 @@ fn dce_removes_unreachable_type_declarations() {
         items_after < items_before,
         "DCE should remove type items: before={items_before}, after={items_after}"
     );
+    // The specific `Pair` Ty item is the one removed: after lowering, its field
+    // accesses became tuple index ops, leaving the newtype declaration orphaned.
+    assert!(
+        !ty_item_names(store_after.get(pkg_id)).contains(&"Pair".to_string()),
+        "the unreachable Pair newtype should be the removed Ty item"
+    );
+    // The reachable Main callable must survive.
+    let _ = callable_id_by_name(store_after.get(pkg_id), "Main");
 }
 
 #[test]

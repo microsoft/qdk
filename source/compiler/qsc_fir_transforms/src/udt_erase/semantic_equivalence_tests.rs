@@ -59,6 +59,49 @@ fn nested_udt_preserves_semantics() {
 }
 
 #[test]
+fn array_of_udt_preserves_semantics() {
+    // UDT values stored in an array: erasure must recurse through the array
+    // element type (`resolve_ty` array arm) so that element construction and
+    // field access remain semantically equivalent after the struct is erased
+    // to a tuple.
+    crate::test_utils::check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            struct Point { X : Int, Y : Int }
+
+            @EntryPoint()
+            function Main() : Int {
+                let points = [
+                    new Point { X = 1, Y = 2 },
+                    new Point { X = 3, Y = 4 },
+                    new Point { X = 5, Y = 6 }
+                ];
+                points[0].X + points[1].Y + points[2].X
+            }
+        }
+    "#});
+}
+
+#[test]
+fn nested_udt_copy_update_preserves_semantics() {
+    // A UDT field holding another UDT, updated via nested copy-update. Erasure
+    // must recurse through the inner UDT type and preserve copy-update of the
+    // nested field, so the original and erased programs agree.
+    crate::test_utils::check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            struct Core { A : Int, B : Int }
+            struct Outer { Inner : Core, Tag : Int }
+
+            @EntryPoint()
+            function Main() : Int {
+                let outer = new Outer { Inner = new Core { A = 1, B = 2 }, Tag = 3 };
+                let bumped = new Outer { ...outer, Inner = new Core { ...outer.Inner, B = 20 } };
+                bumped.Inner.A + bumped.Inner.B + bumped.Tag
+            }
+        }
+    "#});
+}
+
+#[test]
 fn pretty_print_after_udt_erase_is_non_empty() {
     let source = indoc! {r#"
         namespace Test {

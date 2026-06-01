@@ -21,7 +21,7 @@ The authoritative pass order is:
 3. `defunctionalize`
 4. `udt_erase`
 5. `tuple_compare_lower`
-6. `sroa`
+6. `tuple_decompose`
 7. `arg_promote`
 8. `gc_unreachable`
 9. `item_dce`
@@ -40,7 +40,7 @@ The passes have the following responsibilities:
    reachable package closure with their pure tuple or scalar representation.
 5. `tuple_compare_lower` lowers equality and inequality on non-empty tuples to
    element-wise scalar comparisons.
-6. `sroa` iteratively decomposes tuple-valued locals when every use is a field
+6. `tuple_decompose` iteratively decomposes tuple-valued locals when every use is a field
    access or another decomposable aggregate update.
 7. `arg_promote` iteratively decomposes tuple-valued callable parameters and
    updates reachable call sites.
@@ -53,7 +53,7 @@ The passes have the following responsibilities:
    UDT erasure structurally mutated.
 
 Invariant checks run after `monomorphize`, `return_unify`, `defunctionalize`,
-`udt_erase`, `tuple_compare_lower`, `sroa`, `arg_promote`, and
+`udt_erase`, `tuple_compare_lower`, `tuple_decompose`, `arg_promote`, and
 `gc_unreachable`, then after `item_dce` at the `PostItemDce` cut point. After
 exec graph rebuild, the pipeline checks mutated external specs with an
 exec-graph-only validator and runs `PostAll` for the full pipeline.
@@ -63,7 +63,7 @@ exec-graph-only validator and runs `PostAll` for the full pipeline.
 * `src/lib.rs` defines the production schedule, the stage cut points used by
   crate tests, and the shared pipeline contract.
 * `src/monomorphize.rs`, `src/return_unify.rs`, `src/defunctionalize.rs`,
-  `src/udt_erase.rs`, `src/tuple_compare_lower.rs`, `src/sroa.rs`,
+  `src/udt_erase.rs`, `src/tuple_compare_lower.rs`, `src/tuple_decompose.rs`,
   `src/arg_promote.rs`, `src/gc_unreachable.rs`, `src/item_dce.rs`, and
   `src/exec_graph_rebuild.rs` implement the ordered transform stages.
 * `src/invariants.rs` defines the staged structural checks that validate
@@ -89,7 +89,7 @@ exec-graph-only validator and runs `PostAll` for the full pipeline.
 | `defunctionalize` | Arrow-typed parameters, closures, indirect callable dispatch | Direct dispatch only; no `ExprKind::Closure` or arrow-typed params in reachable code |
 | `udt_erase` | `Ty::Udt` values, `ExprKind::Struct`, `Field::Path` in update/assign | Pure tuple or scalar representations; no UDT surface in reachable package closure, with `Field::Path` allowed only for tuple-field reads |
 | `tuple_compare_lower` | `BinOp(Eq/Neq)` on non-empty tuple-typed operands | Element-wise scalar `AndL`/`OrL` chains with `Field` extractions |
-| `sroa` | Tuple-valued locals used only via field access | Decomposed scalar bindings; tuple binding replaced by per-field `PatKind::Bind` |
+| `tuple_decompose` | Tuple-valued locals used only via field access | Decomposed scalar bindings; tuple binding replaced by per-field `PatKind::Bind` |
 | `arg_promote` | Tuple-valued callable parameters | Flattened scalar parameters; call sites pass individual fields |
 | `gc_unreachable` | Orphaned arena nodes (blocks, stmts, exprs, pats) from earlier rewrites | Tombstoned entries; only nodes reachable from package items or the entry expression survive |
 | `item_dce` | Unreachable callable/type items (original generics, dead closure items) | Items removed from `Package::items`; `gc_unreachable` re-runs if items were deleted |

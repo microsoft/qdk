@@ -63,23 +63,33 @@ use super::{
     expr_tree_contains_qubit_type, extract_root_local, identify_merge_or_trailing_slot,
     match_slot_set_arm, push_children,
 };
-use crate::return_unify::symbols::TRAILING_RESULT as TRAILING_RESULT_NAME;
+use crate::return_unify::lower::SynthSlots;
 
 /// Apply the single-branch-return collapse rule to `block_id`.
 ///
 /// Iterates the rewrite to fixpoint within `block_id`. Each successful
 /// rewrite shortens the block by exactly one statement, so termination
 /// is guaranteed without an explicit bound.
-pub(super) fn apply(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+pub(super) fn apply(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let mut changed = false;
-    while try_apply_once(package, assigner, block_id) {
+    while try_apply_once(package, assigner, block_id, slots) {
         changed = true;
     }
     changed
 }
 
 /// Performs at most one rewrite. Returns `true` when the pattern matched.
-fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+fn try_apply_once(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let stmt_ids = package.get_block(block_id).stmts.clone();
     if stmt_ids.len() < 2 {
         return false;
@@ -91,7 +101,7 @@ fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: Bloc
 
     // Identify the merge expression and recover slot locals.
     let Some((has_returned, return_slot)) =
-        identify_merge_or_trailing_slot(package, block_id, stmt_ids[merge_idx], &block_ty)
+        identify_merge_or_trailing_slot(package, block_id, stmt_ids[merge_idx], &block_ty, slots)
     else {
         return false;
     };
@@ -104,7 +114,10 @@ fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: Bloc
     let PatKind::Bind(ident) = &pat.kind else {
         return false;
     };
-    if ident.name.as_ref() != TRAILING_RESULT_NAME {
+    let Some(trailing) = slots.trailing_result else {
+        return false;
+    };
+    if ident.id != trailing {
         return false;
     }
 

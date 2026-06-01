@@ -166,7 +166,8 @@ fn canonical_literal_init_folds_into_merge_else() {
         "__trailing_result",
     );
 
-    let fired = let_folding::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = let_folding::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(fired, "let_folding must fold the canonical pattern");
 
     // The block should now have exactly one statement: the merge.
@@ -260,7 +261,8 @@ fn block_init_with_side_effect_folds() {
         "__trailing_result",
     );
 
-    let fired = let_folding::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = let_folding::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(fired, "let_folding must fold block-typed initializers");
 
     let stmts = &package.get_block(block_id).stmts;
@@ -320,7 +322,8 @@ fn call_init_folds() {
         "__trailing_result",
     );
 
-    let fired = let_folding::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = let_folding::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(fired, "let_folding must fold call-typed initializers");
 
     let stmts = &package.get_block(block_id).stmts;
@@ -362,7 +365,8 @@ fn wrong_name_refuses_to_fold() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = let_folding::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = let_folding::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "let_folding must refuse non-canonical binding names"
@@ -446,7 +450,8 @@ fn multiple_uses_in_merge_refuse_to_fold() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = let_folding::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = let_folding::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "let_folding must refuse when the trailing local is used more than once"
@@ -532,7 +537,8 @@ fn init_that_writes_merge_slot_refuses_to_fold() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = let_folding::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = let_folding::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "let_folding must refuse when the init writes a merge slot"
@@ -581,20 +587,24 @@ mod q_driven {
                 // before let_folding (fired=true)
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        }
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
 
-                        let __trailing_result : Int = if not __has_returned {
-                            0
-                        } else __ret_val;
-                        if __has_returned __ret_val else __trailing_result
+                    let __trailing_result : Int = if not __has_returned {
+                        0
+                    } else {
+                        __ret_val
+                    };
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __trailing_result
                     }
                 }
                 // entry
@@ -603,23 +613,25 @@ mod q_driven {
                 // after let_folding
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        }
-
-                        if __has_returned __ret_val else {
-                            if not __has_returned {
-                                0
-                            } else __ret_val
-                        }
-
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
                     }
+
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        if not __has_returned {
+                            0
+                        } else {
+                            __ret_val
+                        }
+                    }
+
                 }
                 // entry
                 Main()
@@ -653,22 +665,24 @@ mod q_driven {
                 // before let_folding (fired=false)
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        } else {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    } else {
+                        {
+                            __ret_val = 2;
+                            __has_returned = true;
+                        };
+                    }
 
-                        if __has_returned __ret_val else __ret_val
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __ret_val
                     }
                 }
                 // entry
@@ -677,22 +691,24 @@ mod q_driven {
                 // after let_folding
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        } else {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    } else {
+                        {
+                            __ret_val = 2;
+                            __has_returned = true;
+                        };
+                    }
 
-                        if __has_returned __ret_val else __ret_val
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __ret_val
                     }
                 }
                 // entry
@@ -722,14 +738,16 @@ mod q_driven {
                 // before let_folding (fired=false)
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        {
-                            __ret_val = 42;
-                            __has_returned = true;
-                        };
-                        if __has_returned __ret_val else __ret_val
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    {
+                        __ret_val = 42;
+                        __has_returned = true;
+                    };
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __ret_val
                     }
                 }
                 // entry
@@ -738,14 +756,16 @@ mod q_driven {
                 // after let_folding
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        {
-                            __ret_val = 42;
-                            __has_returned = true;
-                        };
-                        if __has_returned __ret_val else __ret_val
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    {
+                        __ret_val = 42;
+                        __has_returned = true;
+                    };
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __ret_val
                     }
                 }
                 // entry

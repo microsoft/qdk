@@ -152,59 +152,180 @@ fn mono_explicit_entry_expression_rewritten() {
 
 #[test]
 fn mono_identity_int() {
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Identity<'T>(x : 'T) : 'T { x }
                 operation Main() : Int { Identity(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Identity: generics=1, input=Param<0>, output=Param<0>
             Identity<Int>: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Main() : Int {
+                Identity < Int > (42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Main() : Int {
+                Identity_Int_(42)
+            }
+            operation Identity_Int_(x : Int) : Int {
+                x
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_identity_qubit() {
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Identity<'T>(x : 'T) : 'T { x }
                 operation Main() : Unit {
                     use q = Qubit();
                     let _ = Identity(q);
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Identity: generics=1, input=Param<0>, output=Param<0>
             Identity<Qubit>: generics=0, input=Qubit, output=Qubit
             Main: generics=0, input=Unit, output=Unit"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _ : Qubit = Identity < Qubit > (q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _ : Qubit = Identity_Qubit_(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Identity_Qubit_(x : Qubit) : Qubit {
+                x
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_two_instantiations() {
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Identity<'T>(x : 'T) : 'T { x }
                 operation Main() : Unit {
                     let _ = Identity(42);
                     use q = Qubit();
                     let _ = Identity(q);
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Identity: generics=1, input=Param<0>, output=Param<0>
             Identity<Int>: generics=0, input=Int, output=Int
             Identity<Qubit>: generics=0, input=Qubit, output=Qubit
             Main: generics=0, input=Unit, output=Unit"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Main() : Unit {
+                let _ : Int = Identity < Int > (42);
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _ : Qubit = Identity < Qubit > (q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Main() : Unit {
+                let _ : Int = Identity_Int_(42);
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _ : Qubit = Identity_Qubit_(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Identity_Int_(x : Int) : Int {
+                x
+            }
+            operation Identity_Qubit_(x : Qubit) : Qubit {
+                x
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_no_generic_args() {
-    check(
-        "operation Main() : Int { 42 }",
-        &expect!["Main: generics=0, input=Unit, output=Int"],
+    let source = "operation Main() : Int { 42 }";
+    check(source, &expect!["Main: generics=0, input=Unit, output=Int"]);
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Main() : Int {
+                42
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Main() : Int {
+                42
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -212,18 +333,50 @@ fn mono_no_generic_args() {
 fn mono_multiple_call_sites_same_args() {
     // Two call sites with Identity<Int> should produce only one
     // specialization.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Identity<'T>(x : 'T) : 'T { x }
                 operation Main() : Unit {
                     let _ = Identity(1);
                     let _ = Identity(2);
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Identity: generics=1, input=Param<0>, output=Param<0>
             Identity<Int>: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Unit"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Main() : Unit {
+                let _ : Int = Identity < Int > (1);
+                let _ : Int = Identity < Int > (2);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Main() : Unit {
+                let _ : Int = Identity_Int_(1);
+                let _ : Int = Identity_Int_(2);
+            }
+            operation Identity_Int_(x : Int) : Int {
+                x
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -242,18 +395,57 @@ fn mono_generic_args_cleared_after_mono() {
 #[test]
 fn mono_nested_generic_call() {
     // Outer<'T> calls Identity<'T> — both should be specialized.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Identity<'T>(x : 'T) : 'T { x }
                 operation Outer<'T>(x : 'T) : 'T { Identity(x) }
                 operation Main() : Int { Outer(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Identity: generics=1, input=Param<0>, output=Param<0>
             Identity<Int>: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Int
             Outer: generics=1, input=Param<0>, output=Param<0>
             Outer<Int>: generics=0, input=Int, output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Outer(x : 'T0) : 'T0 {
+                Identity < 'T0 > (x)
+            }
+            operation Main() : Int {
+                Outer < Int > (42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Identity(x : 'T0) : 'T0 {
+                x
+            }
+            operation Outer(x : 'T0) : 'T0 {
+                Identity(x)
+            }
+            operation Main() : Int {
+                Outer_Int_(42)
+            }
+            operation Outer_Int_(x : Int) : Int {
+                Identity_Int_(x)
+            }
+            operation Identity_Int_(x : Int) : Int {
+                x
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -361,13 +553,14 @@ fn mono_partial_application_skips_non_concrete_stdlib_generics() {
 #[test]
 fn mono_nested_depth_2() {
     // A→B→C chain of generic calls.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation C<'T>(x : 'T) : 'T { x }
                 operation B<'T>(x : 'T) : 'T { C(x) }
                 operation A<'T>(x : 'T) : 'T { B(x) }
                 operation Main() : Int { A(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             A: generics=1, input=Param<0>, output=Param<0>
             A<Int>: generics=0, input=Int, output=Int
@@ -377,14 +570,61 @@ fn mono_nested_depth_2() {
             C<Int>: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation C(x : 'T0) : 'T0 {
+                x
+            }
+            operation B(x : 'T0) : 'T0 {
+                C < 'T0 > (x)
+            }
+            operation A(x : 'T0) : 'T0 {
+                B < 'T0 > (x)
+            }
+            operation Main() : Int {
+                A < Int > (42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation C(x : 'T0) : 'T0 {
+                x
+            }
+            operation B(x : 'T0) : 'T0 {
+                C(x)
+            }
+            operation A(x : 'T0) : 'T0 {
+                B(x)
+            }
+            operation Main() : Int {
+                A_Int_(42)
+            }
+            operation A_Int_(x : Int) : Int {
+                B_Int_(x)
+            }
+            operation B_Int_(x : Int) : Int {
+                C_Int_(x)
+            }
+            operation C_Int_(x : Int) : Int {
+                x
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn mono_nested_diamond() {
     // Diamond: A calls B and C, both call D.
     // D should be specialized only once.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation D<'T>(x : 'T) : 'T { x }
                 operation B<'T>(x : 'T) : 'T { D(x) }
                 operation C<'T>(x : 'T) : 'T { D(x) }
@@ -393,7 +633,9 @@ fn mono_nested_diamond() {
                     C(x)
                 }
                 operation Main() : Int { A(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             A: generics=1, input=Param<0>, output=Param<0>
             A<Int>: generics=0, input=Int, output=Int
@@ -405,47 +647,175 @@ fn mono_nested_diamond() {
             D<Int>: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation D(x : 'T0) : 'T0 {
+                x
+            }
+            operation B(x : 'T0) : 'T0 {
+                D < 'T0 > (x)
+            }
+            operation C(x : 'T0) : 'T0 {
+                D < 'T0 > (x)
+            }
+            operation A(x : 'T0) : 'T0 {
+                let _ : 'T0 = B < 'T0 > (x);
+                C < 'T0 > (x)
+            }
+            operation Main() : Int {
+                A < Int > (42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation D(x : 'T0) : 'T0 {
+                x
+            }
+            operation B(x : 'T0) : 'T0 {
+                D(x)
+            }
+            operation C(x : 'T0) : 'T0 {
+                D(x)
+            }
+            operation A(x : 'T0) : 'T0 {
+                let _ : 'T0 = B(x);
+                C(x)
+            }
+            operation Main() : Int {
+                A_Int_(42)
+            }
+            operation A_Int_(x : Int) : Int {
+                let _ : Int = B_Int_(x);
+                C_Int_(x)
+            }
+            operation B_Int_(x : Int) : Int {
+                D_Int_(x)
+            }
+            operation C_Int_(x : Int) : Int {
+                D_Int_(x)
+            }
+            operation D_Int_(x : Int) : Int {
+                x
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_arrow_param() {
     // Generic callable with arrow-typed parameter.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation ApplyOp<'T>(f : 'T => 'T, x : 'T) : 'T { f(x) }
                 operation DoubleInt(x : Int) : Int { x * 2 }
                 operation Main() : Int { ApplyOp(DoubleInt, 5) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             ApplyOp: generics=2, input=((Param<0> => Param<0> is 1), Param<0>), output=Param<0>
             ApplyOp<Int, Empty>: generics=0, input=((Int => Int), Int), output=Int
             DoubleInt: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation ApplyOp(f : ('T0 => 'T0), x : 'T0) : 'T0 {
+                f(x)
+            }
+            operation DoubleInt(x : Int) : Int {
+                x * 2
+            }
+            operation Main() : Int {
+                ApplyOp < Int,
+                () > (DoubleInt, 5)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation ApplyOp(f : ('T0 => 'T0), x : 'T0) : 'T0 {
+                f(x)
+            }
+            operation DoubleInt(x : Int) : Int {
+                x * 2
+            }
+            operation Main() : Int {
+                ApplyOp_Int__Empty_(DoubleInt, 5)
+            }
+            operation ApplyOp_Int__Empty_(f : (Int => Int), x : Int) : Int {
+                f(x)
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_generic_with_body_locals() {
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Transform<'T>(x : 'T) : 'T {
                     let tmp = x;
                     tmp
                 }
                 operation Main() : Int { Transform(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=Int
             Transform: generics=1, input=Param<0>, output=Param<0>
             Transform<Int>: generics=0, input=Int, output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Transform(x : 'T0) : 'T0 {
+                let tmp : 'T0 = x;
+                tmp
+            }
+            operation Main() : Int {
+                Transform < Int > (42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Transform(x : 'T0) : 'T0 {
+                let tmp : 'T0 = x;
+                tmp
+            }
+            operation Main() : Int {
+                Transform_Int_(42)
+            }
+            operation Transform_Int_(x : Int) : Int {
+                let tmp : Int = x;
+                tmp
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
 #[test]
 fn mono_generic_preserves_local_chain() {
     // Multiple local bindings chained together.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Chain<'T>(x : 'T) : 'T {
                     let a = x;
                     let b = a;
@@ -454,18 +824,60 @@ fn mono_generic_preserves_local_chain() {
                     d
                 }
                 operation Main() : Int { Chain(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Chain: generics=1, input=Param<0>, output=Param<0>
             Chain<Int>: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Chain(x : 'T0) : 'T0 {
+                let a : 'T0 = x;
+                let b : 'T0 = a;
+                let c : 'T0 = b;
+                let d : 'T0 = c;
+                d
+            }
+            operation Main() : Int {
+                Chain < Int > (42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Chain(x : 'T0) : 'T0 {
+                let a : 'T0 = x;
+                let b : 'T0 = a;
+                let c : 'T0 = b;
+                let d : 'T0 = c;
+                d
+            }
+            operation Main() : Int {
+                Chain_Int_(42)
+            }
+            operation Chain_Int_(x : Int) : Int {
+                let a : Int = x;
+                let b : Int = a;
+                let c : Int = b;
+                let d : Int = c;
+                d
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_generic_with_ctl_spec() {
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation ApplyCtl<'T>(x : 'T) : Unit is Ctl {
                     body ... { }
                     controlled (ctls, ...) { }
@@ -474,24 +886,63 @@ fn mono_generic_with_ctl_spec() {
                     use q = Qubit();
                     ApplyCtl(42);
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             ApplyCtl: generics=1, input=Param<0>, output=Unit
             ApplyCtl<Int>: generics=0, input=Int, output=Unit
             Main: generics=0, input=Unit, output=Unit"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation ApplyCtl(x : 'T0) : Unit is Ctl {
+                body ... {}
+                controlled (ctls, ...) {}
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                ApplyCtl < Int > (42);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation ApplyCtl(x : 'T0) : Unit is Ctl {
+                body ... {}
+                controlled (ctls, ...) {}
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                ApplyCtl_Int_(42);
+                __quantum__rt__qubit_release(q);
+            }
+            operation ApplyCtl_Int_(x : Int) : Unit is Ctl {
+                body ... {}
+                controlled (ctls, ...) {}
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_closure_in_generic() {
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation WithClosure<'T>(x : 'T) : 'T {
                     let f = (y) -> y;
                     f(x)
                 }
                 operation Main() : Int { WithClosure(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             <lambda>: generics=0, input=(Int,), output=Int
             <lambda>: generics=0, input=(Param<0>,), output=Param<0>
@@ -499,45 +950,137 @@ fn mono_closure_in_generic() {
             WithClosure: generics=1, input=Param<0>, output=Param<0>
             WithClosure<Int>: generics=0, input=Int, output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation WithClosure(x : 'T0) : 'T0 {
+                let f : ('T0 -> 'T0) = / * closure item = 3 captures = [] * / _lambda_;
+                f(x)
+            }
+            operation Main() : Int {
+                WithClosure < Int > (42)
+            }
+            function _lambda_(y : 'T0, ) : 'T0 {
+                y
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation WithClosure(x : 'T0) : 'T0 {
+                let f : ('T0 -> 'T0) = / * closure item = 3 captures = [] * / _lambda_;
+                f(x)
+            }
+            operation Main() : Int {
+                WithClosure_Int_(42)
+            }
+            function _lambda_(y : 'T0, ) : 'T0 {
+                y
+            }
+            operation WithClosure_Int_(x : Int) : Int {
+                let f : (Int -> Int) = / * closure item = 5 captures = [] * / _lambda_;
+                f(x)
+            }
+            function _lambda_(y : Int, ) : Int {
+                y
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_cross_package_length() {
     // Length is a cross-package intrinsic generic callable in std.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Main() : Int {
                     let arr = [1, 2, 3];
                     Length(arr)
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
                 Length: generics=0, input=(Int)[], output=Int
                 Main: generics=0, input=Unit, output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Main() : Int {
+                let arr : Int[] = [1, 2, 3];
+                Length < Int > (arr)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Main() : Int {
+                let arr : Int[] = [1, 2, 3];
+                Length(arr)
+            }
+            function Length(a : Int[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
 #[test]
 fn mono_cross_package_reversed() {
     // Reversed is a cross-package generic callable.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Main() : Int[] {
                     let arr = [1, 2, 3];
                     Microsoft.Quantum.Arrays.Reversed(arr)
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=(Int)[]
             Reversed<Int>: generics=0, input=(Int)[], output=(Int)[]"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Main() : Int[] {
+                let arr : Int[] = [1, 2, 3];
+                Reversed < Int > (arr)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Main() : Int[] {
+                let arr : Int[] = [1, 2, 3];
+                Reversed_Int_(arr)
+            }
+            function Reversed_Int_(array : Int[]) : Int[] {
+                array[...-1...]
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
 #[test]
 fn mono_cross_package_with_same_name() {
     // Generic function uses same name as a cross-package generic callable.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 function Reversed<'T>(array : 'T[]) : 'T[] {
                     Microsoft.Quantum.Arrays.Reversed(array)
                 }
@@ -545,12 +1088,48 @@ fn mono_cross_package_with_same_name() {
                     let arr = [1, 2, 3];
                     Reversed(arr)
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=(Int)[]
             Reversed: generics=1, input=(Param<0>)[], output=(Param<0>)[]
             Reversed<Int>: generics=0, input=(Int)[], output=(Int)[]
             Reversed<Int>: generics=0, input=(Int)[], output=(Int)[]"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            function Reversed(array : 'T0[]) : 'T0[] {
+                Reversed < 'T0 > (array)
+            }
+            operation Main() : Int[] {
+                let arr : Int[] = [1, 2, 3];
+                Reversed < Int > (arr)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            function Reversed(array : 'T0[]) : 'T0[] {
+                Reversed(array)
+            }
+            operation Main() : Int[] {
+                let arr : Int[] = [1, 2, 3];
+                Reversed_Int_(arr)
+            }
+            function Reversed_Int_(array : Int[]) : Int[] {
+                Reversed_Int_(array)
+            }
+            function Reversed_Int_(array : Int[]) : Int[] {
+                array[...-1...]
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -559,12 +1138,13 @@ fn mono_identity_instantiation_not_duplicated() {
     // When Outer<'T> calls Inner<'T>, the Inner<Param(0)> reference is
     // an identity instantiation. Only concrete instantiations (from the
     // entry) should produce specializations.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Inner<'T>(x : 'T) : 'T { x }
                 operation Outer<'T>(x : 'T) : 'T { Inner(x) }
                 operation Main() : Int { Outer(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Inner: generics=1, input=Param<0>, output=Param<0>
             Inner<Int>: generics=0, input=Int, output=Int
@@ -572,22 +1152,97 @@ fn mono_identity_instantiation_not_duplicated() {
             Outer: generics=1, input=Param<0>, output=Param<0>
             Outer<Int>: generics=0, input=Int, output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Inner(x : 'T0) : 'T0 {
+                x
+            }
+            operation Outer(x : 'T0) : 'T0 {
+                Inner < 'T0 > (x)
+            }
+            operation Main() : Int {
+                Outer < Int > (42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Inner(x : 'T0) : 'T0 {
+                x
+            }
+            operation Outer(x : 'T0) : 'T0 {
+                Inner(x)
+            }
+            operation Main() : Int {
+                Outer_Int_(42)
+            }
+            operation Outer_Int_(x : Int) : Int {
+                Inner_Int_(x)
+            }
+            operation Inner_Int_(x : Int) : Int {
+                x
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_two_type_params() {
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Pair<'A, 'B>(a : 'A, b : 'B) : 'A { a }
                 operation Main() : Int {
                     use q = Qubit();
                     Pair(42, q)
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=Int
             Pair: generics=2, input=(Param<0>, Param<1>), output=Param<0>
             Pair<Int, Qubit>: generics=0, input=(Int, Qubit), output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Pair(a : 'T0, b : 'T1) : 'T0 {
+                a
+            }
+            operation Main() : Int {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_35 : Int = Pair < Int,
+                Qubit > (42, q);
+                __quantum__rt__qubit_release(q);
+                _generated_ident_35
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Pair(a : 'T0, b : 'T1) : 'T0 {
+                a
+            }
+            operation Main() : Int {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_35 : Int = Pair_Int__Qubit_(42, q);
+                __quantum__rt__qubit_release(q);
+                _generated_ident_35
+            }
+            operation Pair_Int__Qubit_(a : Int, b : Qubit) : Int {
+                a
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -652,8 +1307,7 @@ fn assert_node_id_is_unique(node_id: NodeId, seen: &mut FxHashSet<u32>) {
 fn mono_recursive_generic() {
     // Recursive generic callable — self-references should be rewritten
     // to point at the specialized clone.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Repeat<'T>(x : 'T, n : Int) : 'T {
                     if n <= 0 {
                         x
@@ -662,11 +1316,57 @@ fn mono_recursive_generic() {
                     }
                 }
                 operation Main() : Int { Repeat(42, 3) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=Int
             Repeat: generics=1, input=(Param<0>, Int), output=Param<0>
             Repeat<Int>: generics=0, input=(Int, Int), output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Repeat(x : 'T0, n : Int) : 'T0 {
+                if n <= 0 {
+                    x
+                } else {
+                    Repeat < 'T0 > (x, n - 1)
+                }
+
+            }
+            operation Main() : Int {
+                Repeat < Int > (42, 3)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Repeat(x : 'T0, n : Int) : 'T0 {
+                if n <= 0 {
+                    x
+                } else {
+                    Repeat(x, n - 1)
+                }
+
+            }
+            operation Main() : Int {
+                Repeat_Int_(42, 3)
+            }
+            operation Repeat_Int_(x : Int, n : Int) : Int {
+                if n <= 0 {
+                    x
+                } else {
+                    Repeat_Int_(x, n - 1)
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -689,35 +1389,101 @@ fn mono_invariants_hold_post_pass() {
 fn mono_generic_with_simulatable_intrinsic() {
     // A generic function used via a simulatable intrinsic path.
     // Length is a cross-package intrinsic: verify it's specialized.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Wrap<'T>(arr : 'T[]) : Int { Length(arr) }
                 operation Main() : Int {
                     Wrap([1, 2, 3])
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Length: generics=0, input=(Int)[], output=Int
             Main: generics=0, input=Unit, output=Int
             Wrap: generics=1, input=(Param<0>)[], output=Int
             Wrap<Int>: generics=0, input=(Int)[], output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Wrap(arr : 'T0[]) : Int {
+                Length < 'T0 > (arr)
+            }
+            operation Main() : Int {
+                Wrap < Int > ([1, 2, 3])
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Wrap(arr : 'T0[]) : Int {
+                Length(arr)
+            }
+            operation Main() : Int {
+                Wrap_Int_([1, 2, 3])
+            }
+            operation Wrap_Int_(arr : Int[]) : Int {
+                Length(arr)
+            }
+            function Length(a : Int[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_generic_with_functor_param() {
     // Generic callable with a functor-parameterized operation parameter.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation RunOp<'T>(op : 'T => Unit, x : 'T) : Unit { op(x) }
                 operation NoOp(x : Int) : Unit {}
                 operation Main() : Unit { RunOp(NoOp, 42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=Unit
             NoOp: generics=0, input=Int, output=Unit
             RunOp: generics=2, input=((Param<0> => Unit is 1), Param<0>), output=Unit
             RunOp<Int, Empty>: generics=0, input=((Int => Unit), Int), output=Unit"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation RunOp(op : ('T0 => Unit), x : 'T0) : Unit {
+                op(x)
+            }
+            operation NoOp(x : Int) : Unit {}
+            operation Main() : Unit {
+                RunOp < Int,
+                () > (NoOp, 42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation RunOp(op : ('T0 => Unit), x : 'T0) : Unit {
+                op(x)
+            }
+            operation NoOp(x : Int) : Unit {}
+            operation Main() : Unit {
+                RunOp_Int__Empty_(NoOp, 42)
+            }
+            operation RunOp_Int__Empty_(op : (Int => Unit), x : Int) : Unit {
+                op(x)
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -757,8 +1523,7 @@ fn mono_functor_specialized_clone_preserves_explicit_specs() {
 #[test]
 fn mono_generic_with_adj_ctl_specs_in_body() {
     // Generic operation with adjoint + controlled specs.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation DoIt<'T>(x : 'T) : Unit is Adj + Ctl {
                     body ... { }
                     adjoint self;
@@ -768,11 +1533,51 @@ fn mono_generic_with_adj_ctl_specs_in_body() {
                 operation Main() : Unit {
                     DoIt(42);
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             DoIt: generics=1, input=Param<0>, output=Unit
             DoIt<Int>: generics=0, input=Int, output=Unit
             Main: generics=0, input=Unit, output=Unit"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation DoIt(x : 'T0) : Unit is Adj + Ctl {
+                body ... {}
+                adjoint ... {}
+                controlled (ctls, ...) {}
+                controlled adjoint (ctls, ...) {}
+            }
+            operation Main() : Unit {
+                DoIt < Int > (42);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation DoIt(x : 'T0) : Unit is Adj + Ctl {
+                body ... {}
+                adjoint ... {}
+                controlled (ctls, ...) {}
+                controlled adjoint (ctls, ...) {}
+            }
+            operation Main() : Unit {
+                DoIt_Int_(42);
+            }
+            operation DoIt_Int_(x : Int) : Unit is Adj + Ctl {
+                body ... {}
+                adjoint ... {}
+                controlled (ctls, ...) {}
+                controlled adjoint (ctls, ...) {}
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -780,15 +1585,16 @@ fn mono_generic_with_adj_ctl_specs_in_body() {
 fn mono_generic_captures_variable() {
     // A closure inside a generic callable captures a variable typed with
     // the generic parameter.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation WithCapture<'T>(x : 'T) : 'T {
                     let captured = x;
                     let f = () -> captured;
                     f()
                 }
                 operation Main() : Int { WithCapture(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             <lambda>: generics=0, input=(Int, Unit), output=Int
             <lambda>: generics=0, input=(Param<0>, Unit), output=Param<0>
@@ -796,43 +1602,146 @@ fn mono_generic_captures_variable() {
             WithCapture: generics=1, input=Param<0>, output=Param<0>
             WithCapture<Int>: generics=0, input=Int, output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation WithCapture(x : 'T0) : 'T0 {
+                let captured : 'T0 = x;
+                let f : (Unit -> 'T0) = / * closure item = 3 captures = [captured] * / _lambda_;
+                f()
+            }
+            operation Main() : Int {
+                WithCapture < Int > (42)
+            }
+            function _lambda_(captured : 'T0, ()) : 'T0 {
+                captured
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation WithCapture(x : 'T0) : 'T0 {
+                let captured : 'T0 = x;
+                let f : (Unit -> 'T0) = / * closure item = 3 captures = [captured] * / _lambda_;
+                f()
+            }
+            operation Main() : Int {
+                WithCapture_Int_(42)
+            }
+            function _lambda_(captured : 'T0, ()) : 'T0 {
+                captured
+            }
+            operation WithCapture_Int_(x : Int) : Int {
+                let captured : Int = x;
+                let f : (Unit -> Int) = / * closure item = 5 captures = [captured] * / _lambda_;
+                f()
+            }
+            function _lambda_(captured : Int, ()) : Int {
+                captured
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_generic_array_of_type_param() {
     // Generic callable taking an array of the type parameter.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation First<'T>(arr : 'T[]) : 'T { arr[0] }
                 operation Main() : Int { First([10, 20, 30]) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             First: generics=1, input=(Param<0>)[], output=Param<0>
             First<Int>: generics=0, input=(Int)[], output=Int
             Main: generics=0, input=Unit, output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation First(arr : 'T0[]) : 'T0 {
+                arr[0]
+            }
+            operation Main() : Int {
+                First < Int > ([10, 20, 30])
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation First(arr : 'T0[]) : 'T0 {
+                arr[0]
+            }
+            operation Main() : Int {
+                First_Int_([10, 20, 30])
+            }
+            operation First_Int_(arr : Int[]) : Int {
+                arr[0]
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
 #[test]
 fn mono_generic_nested_tuple_types() {
     // Generic callable returning a nested tuple containing the type param.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Nest<'T>(x : 'T) : (('T, Int), Bool) { ((x, 0), true) }
                 operation Main() : ((Int, Int), Bool) { Nest(42) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=((Int, Int), Bool)
             Nest: generics=1, input=Param<0>, output=((Param<0>, Int), Bool)
             Nest<Int>: generics=0, input=Int, output=((Int, Int), Bool)"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Nest(x : 'T0) : (('T0, Int), Bool) {
+                ((x, 0), true)
+            }
+            operation Main() : ((Int, Int), Bool) {
+                Nest < Int > (42)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Nest(x : 'T0) : (('T0, Int), Bool) {
+                ((x, 0), true)
+            }
+            operation Main() : ((Int, Int), Bool) {
+                Nest_Int_(42)
+            }
+            operation Nest_Int_(x : Int) : ((Int, Int), Bool) {
+                ((x, 0), true)
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
 #[test]
 fn mono_mutual_recursion_different_types() {
     // Two mutually recursive generic callables with the same type parameter.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation Ping<'T>(x : 'T, n : Int) : 'T {
                     if n <= 0 { x } else { Pong(x, n - 1) }
                 }
@@ -840,7 +1749,9 @@ fn mono_mutual_recursion_different_types() {
                     Ping(x, n)
                 }
                 operation Main() : Int { Ping(42, 2) }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=Int
             Ping: generics=1, input=(Param<0>, Int), output=Param<0>
@@ -848,13 +1759,65 @@ fn mono_mutual_recursion_different_types() {
             Pong: generics=1, input=(Param<0>, Int), output=Param<0>
             Pong<Int>: generics=0, input=(Int, Int), output=Int"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Ping(x : 'T0, n : Int) : 'T0 {
+                if n <= 0 {
+                    x
+                } else {
+                    Pong < 'T0 > (x, n - 1)
+                }
+
+            }
+            operation Pong(x : 'T0, n : Int) : 'T0 {
+                Ping < 'T0 > (x, n)
+            }
+            operation Main() : Int {
+                Ping < Int > (42, 2)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Ping(x : 'T0, n : Int) : 'T0 {
+                if n <= 0 {
+                    x
+                } else {
+                    Pong(x, n - 1)
+                }
+
+            }
+            operation Pong(x : 'T0, n : Int) : 'T0 {
+                Ping(x, n)
+            }
+            operation Main() : Int {
+                Ping_Int_(42, 2)
+            }
+            operation Ping_Int_(x : Int, n : Int) : Int {
+                if n <= 0 {
+                    x
+                } else {
+                    Pong_Int_(x, n - 1)
+                }
+
+            }
+            operation Pong_Int_(x : Int, n : Int) : Int {
+                Ping_Int_(x, n)
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
 fn mono_generic_with_adj_spec_only() {
     // Generic operation with adjoint-only functor specification.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 operation MyAdj<'T>(x : 'T) : Unit is Adj {
                     body ... { }
                     adjoint self;
@@ -863,11 +1826,47 @@ fn mono_generic_with_adj_spec_only() {
                     MyAdj(42);
                     Adjoint MyAdj(42);
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=Unit
             MyAdj: generics=1, input=Param<0>, output=Unit
             MyAdj<Int>: generics=0, input=Int, output=Unit"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation MyAdj(x : 'T0) : Unit is Adj {
+                body ... {}
+                adjoint ... {}
+            }
+            operation Main() : Unit {
+                MyAdj < Int > (42);
+                Adjoint MyAdj < Int > (42);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation MyAdj(x : 'T0) : Unit is Adj {
+                body ... {}
+                adjoint ... {}
+            }
+            operation Main() : Unit {
+                MyAdj_Int_(42);
+                Adjoint MyAdj_Int_(42);
+            }
+            operation MyAdj_Int_(x : Int) : Unit is Adj {
+                body ... {}
+                adjoint ... {}
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -897,6 +1896,74 @@ fn mutual_recursion_between_generics_specializes_both() {
             IsOdd<Int>: generics=0, input=(Int, Int), output=Bool
             Main: generics=0, input=Unit, output=Bool"#]],
     );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            function IsEven(n : Int, val : 'T0) : Bool {
+                if n == 0 {
+                    true
+                } else {
+                    IsOdd < 'T0 > (n - 1, val)
+                }
+
+            }
+            function IsOdd(n : Int, val : 'T0) : Bool {
+                if n == 0 {
+                    false
+                } else {
+                    IsEven < 'T0 > (n - 1, val)
+                }
+
+            }
+            function Main() : Bool {
+                IsEven < Int > (4, 0)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            function IsEven(n : Int, val : 'T0) : Bool {
+                if n == 0 {
+                    true
+                } else {
+                    IsOdd(n - 1, val)
+                }
+
+            }
+            function IsOdd(n : Int, val : 'T0) : Bool {
+                if n == 0 {
+                    false
+                } else {
+                    IsEven(n - 1, val)
+                }
+
+            }
+            function Main() : Bool {
+                IsEven_Int_(4, 0)
+            }
+            function IsEven_Int_(n : Int, val : Int) : Bool {
+                if n == 0 {
+                    true
+                } else {
+                    IsOdd_Int_(n - 1, val)
+                }
+
+            }
+            function IsOdd_Int_(n : Int, val : Int) : Bool {
+                if n == 0 {
+                    false
+                } else {
+                    IsEven_Int_(n - 1, val)
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
     // Verify PostMono invariants hold (no Ty::Param remaining).
     let _ = crate::test_utils::compile_and_run_pipeline_to(
         source,
@@ -908,8 +1975,7 @@ fn mutual_recursion_between_generics_specializes_both() {
 fn deeply_nested_generic_args_specialize_correctly() {
     // Generic callable instantiated with a complex nested type arg:
     // (Int, Double) as the type parameter.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 function Wrap<'T>(val : 'T) : 'T[] {
                     [val]
                 }
@@ -917,11 +1983,42 @@ fn deeply_nested_generic_args_specialize_correctly() {
                 function Main() : (Int, Double)[] {
                     Wrap((1, 2.0))
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             Main: generics=0, input=Unit, output=((Int, Double))[]
             Wrap: generics=1, input=Param<0>, output=(Param<0>)[]
             Wrap<(Int, Double)>: generics=0, input=(Int, Double), output=((Int, Double))[]"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            function Wrap(val : 'T0) : 'T0[] {
+                [val]
+            }
+            function Main() : (Int, Double)[] {
+                Wrap < (Int, Double) > (1, 2.)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            function Wrap(val : 'T0) : 'T0[] {
+                [val]
+            }
+            function Main() : (Int, Double)[] {
+                Wrap__Int__Double__(1, 2.)
+            }
+            function Wrap__Int__Double__(val : (Int, Double)) : (Int, Double)[] {
+                [val]
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -930,18 +2027,65 @@ fn cross_package_non_intrinsic_generic_specializes() {
     // Enumerated is a non-intrinsic cross-package generic that returns
     // (Int, 'TElement)[] — structurally different output type from
     // Reversed, and internally chains through MappedByIndex.
-    check(
-        indoc! {r#"
+    let source = indoc! {r#"
                 function Main() : (Int, Int)[] {
                     Microsoft.Quantum.Arrays.Enumerated([10, 20, 30])
                 }
-            "#},
+            "#};
+    check(
+        source,
         &expect![[r#"
             <lambda>: generics=0, input=((Int, Int),), output=(Int, Int)
             Enumerated<Int>: generics=0, input=(Int)[], output=((Int, Int))[]
             Length: generics=0, input=(Int)[], output=Int
             Main: generics=0, input=Unit, output=((Int, Int))[]
             MappedByIndex<Int, (Int, Int)>: generics=0, input=(((Int, Int) -> (Int, Int)), (Int)[]), output=((Int, Int))[]"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            function Main() : (Int, Int)[] {
+                Enumerated < Int > ([10, 20, 30])
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            function Main() : (Int, Int)[] {
+                Enumerated_Int_([10, 20, 30])
+            }
+            function Enumerated_Int_(array : Int[]) : (Int, Int)[] {
+                MappedByIndex_Int___Int__Int__(/ * closure item = 3 captures = [] * / _lambda_, array)
+            }
+            function _lambda_((index : Int, element : Int), ) : (Int, Int) {
+                (index, element)
+            }
+            function MappedByIndex_Int___Int__Int__(mapper : ((Int, Int) -> (Int, Int)), array : Int[]) : (Int, Int)[] {
+                mutable mapped : (Int, Int)[] = [];
+                {
+                    let _range_id_45729 : Range = 0..Length(array) - 1;
+                    mutable _index_id_45732 : Int = _range_id_45729::Start;
+                    let _step_id_45737 : Int = _range_id_45729::Step;
+                    let _end_id_45742 : Int = _range_id_45729::End;
+                    while _step_id_45737 > 0 and _index_id_45732 <= _end_id_45742 or _step_id_45737 < 0 and _index_id_45732 >= _end_id_45742 {
+                        let index : Int = _index_id_45732;
+                        mapped += [mapper(index, array[index])];
+                        _index_id_45732 += _step_id_45737;
+                    }
+
+                }
+
+                mapped
+            }
+            function Length(a : Int[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -1048,10 +2192,10 @@ fn monomorphize_is_idempotent() {
 
 fn render_before_after_mono(source: &str) -> (String, String) {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
-    let before = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     let mut assigner = Assigner::from_package(store.get(pkg_id));
     monomorphize(&mut store, pkg_id, &mut assigner);
-    let after = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
 
@@ -1070,35 +2214,25 @@ fn before_after_generic_specialization() {
         &expect![[r#"
             BEFORE:
             // namespace test
-            operation Identity<''T > (x : 'T0) : 'T0 {
-                body {
-                    x
-                }
+            operation Identity(x : 'T0) : 'T0 {
+                x
             }
             operation Main() : Int {
-                body {
-                    Identity < Int > (42)
-                }
+                Identity < Int > (42)
             }
             // entry
             Main()
 
             AFTER:
             // namespace test
-            operation Identity<''T > (x : 'T0) : 'T0 {
-                body {
-                    x
-                }
+            operation Identity(x : 'T0) : 'T0 {
+                x
             }
             operation Main() : Int {
-                body {
-                    Identity < Int > (42)
-                }
+                Identity_Int_(42)
             }
-            operation Identity<Int>(x : Int) : Int {
-                body {
-                    x
-                }
+            operation Identity_Int_(x : Int) : Int {
+                x
             }
             // entry
             Main()
@@ -1124,56 +2258,42 @@ fn shared_input_and_arrow_generic_param_specializes() {
         &expect![[r#"
             BEFORE:
             // namespace test
-            function double<''T > (x : 'T0) : 'T0 {
-                body {
-                    x + x
-                }
+            function double(x : 'T0) : 'T0 {
+                x + x
             }
-            function doDouble<''T > (a : 'T0, doubler : ('T0 -> 'T0)) : 'T0 {
-                body {
-                    doubler(a)
-                }
+            function doDouble(a : 'T0, doubler : ('T0 -> 'T0)) : 'T0 {
+                doubler(a)
             }
             operation Main() : Unit {
-                body {
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    let
-                    @generated_ident_64 : Unit = if M(q) == One {
-                        doDouble < Int > (3, double < Int >);
-                    } else {
-                        doDouble < Double > (3., double < Double >);
-                    };
-                    __quantum__rt__qubit_release(q);
-                    @generated_ident_64
-                }
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_64 : Unit = if M(q) == One {
+                    doDouble < Int > (3, double < Int >);
+                } else {
+                    doDouble < Double > (3., double < Double >);
+                };
+                __quantum__rt__qubit_release(q);
+                _generated_ident_64
             }
             // entry
             Main()
 
             AFTER:
             // namespace test
-            function double<''T > (x : 'T0) : 'T0 {
-                body {
-                    x + x
-                }
+            function double(x : 'T0) : 'T0 {
+                x + x
             }
-            function doDouble<''T > (a : 'T0, doubler : ('T0 -> 'T0)) : 'T0 {
-                body {
-                    doubler(a)
-                }
+            function doDouble(a : 'T0, doubler : ('T0 -> 'T0)) : 'T0 {
+                doubler(a)
             }
             operation Main() : Unit {
-                body {
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    let
-                    @generated_ident_64 : Unit = if M(q) == One {
-                        doDouble < Int > (3, double < Int >);
-                    } else {
-                        doDouble < Double > (3., double < Double >);
-                    };
-                    __quantum__rt__qubit_release(q);
-                    @generated_ident_64
-                }
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_64 : Unit = if M(q) == One {
+                    doDouble_Int_(3, double_Int_);
+                } else {
+                    doDouble_Double_(3., double_Double_);
+                };
+                __quantum__rt__qubit_release(q);
+                _generated_ident_64
             }
             function Length(a : Qubit[]) : Int {
                 body intrinsic;
@@ -1181,25 +2301,17 @@ fn shared_input_and_arrow_generic_param_specializes() {
             function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function doDouble<Int>(a : Int, doubler : (Int -> Int)) : Int {
-                body {
-                    doubler(a)
-                }
+            function doDouble_Int_(a : Int, doubler : (Int -> Int)) : Int {
+                doubler(a)
             }
-            function double<Int>(x : Int) : Int {
-                body {
-                    x + x
-                }
+            function double_Int_(x : Int) : Int {
+                x + x
             }
-            function doDouble<Double>(a : Double, doubler : (Double -> Double)) : Double {
-                body {
-                    doubler(a)
-                }
+            function doDouble_Double_(a : Double, doubler : (Double -> Double)) : Double {
+                doubler(a)
             }
-            function double<Double>(x : Double) : Double {
-                body {
-                    x + x
-                }
+            function double_Double_(x : Double) : Double {
+                x + x
             }
             // entry
             Main()
@@ -1213,8 +2325,7 @@ fn unreachable_generic_call_site_not_specialized() {
     // The dead callable's generic call with a different type arg
     // never generates a specialization. Verify that only the reachable
     // Int specialization is produced.
-    check(
-        indoc! {"
+    let source = indoc! {"
             namespace Test {
                 @EntryPoint()
                 function Main() : Int {
@@ -1222,11 +2333,42 @@ fn unreachable_generic_call_site_not_specialized() {
                 }
                 function Identity<'T>(x : 'T) : 'T { x }
             }
-        "},
+        "};
+    check(
+        source,
         &expect![[r#"
             Identity: generics=1, input=Param<0>, output=Param<0>
             Identity<Int>: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace Test
+            function Main() : Int {
+                Identity < Int > (42)
+            }
+            function Identity(x : 'T0) : 'T0 {
+                x
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace Test
+            function Main() : Int {
+                Identity_Int_(42)
+            }
+            function Identity(x : 'T0) : 'T0 {
+                x
+            }
+            function Identity_Int_(x : Int) : Int {
+                x
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

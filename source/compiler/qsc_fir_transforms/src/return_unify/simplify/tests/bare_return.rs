@@ -215,14 +215,16 @@ fn canonical_literal_bare_return_collapses() {
             // before bare_return (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    {
-                        __ret_val = 42;
-                        __has_returned = true;
-                    };
-                    if __has_returned __ret_val else __ret_val
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                {
+                    __ret_val = 42;
+                    __has_returned = true;
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -231,11 +233,9 @@ fn canonical_literal_bare_return_collapses() {
             // after bare_return
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    42
-                }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                42
             }
             // entry
             Main()
@@ -265,19 +265,19 @@ fn bare_return_with_call_value_collapses() {
             // before bare_return (fired=true)
             // namespace Test
             function Helper() : Int {
-                body {
-                    0
-                }
+                0
             }
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    {
-                        __ret_val = Helper();
-                        __has_returned = true;
-                    };
-                    if __has_returned __ret_val else __ret_val
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                {
+                    __ret_val = Helper();
+                    __has_returned = true;
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -286,16 +286,12 @@ fn bare_return_with_call_value_collapses() {
             // after bare_return
             // namespace Test
             function Helper() : Int {
-                body {
-                    0
-                }
+                0
             }
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    Helper()
-                }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                Helper()
             }
             // entry
             Main()
@@ -341,7 +337,8 @@ fn flat_two_semi_pair_collapses() {
         Span::default(),
     );
 
-    let fired = bare_return::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = bare_return::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(fired, "bare_return must collapse the flat 2-semi shape");
 
     let stmts = &package.get_block(block_id).stmts;
@@ -401,7 +398,8 @@ fn pre_stmt_reads_flag_refuses_to_fold() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = bare_return::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = bare_return::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "bare_return must refuse when a pre-stmt reads the flag"
@@ -464,7 +462,8 @@ fn missing_flag_set_refuses_to_fold() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = bare_return::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = bare_return::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "bare_return must refuse when the flag set is missing"
@@ -583,14 +582,16 @@ fn given_single_return_body_bare_return_collapses_to_value() {
             // before bare_return (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    {
-                        __ret_val = 17;
-                        __has_returned = true;
-                    };
-                    if __has_returned __ret_val else __ret_val
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                {
+                    __ret_val = 17;
+                    __has_returned = true;
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -599,11 +600,9 @@ fn given_single_return_body_bare_return_collapses_to_value() {
             // after bare_return
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    17
-                }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                17
             }
             // entry
             Main()
@@ -633,15 +632,17 @@ fn given_single_return_body_with_user_prefix_bare_return_collapses() {
             // before bare_return (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let _x : Int = 0;
-                    {
-                        __ret_val = 17;
-                        __has_returned = true;
-                    };
-                    if __has_returned __ret_val else __ret_val
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let _x : Int = 0;
+                {
+                    __ret_val = 17;
+                    __has_returned = true;
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -650,12 +651,10 @@ fn given_single_return_body_with_user_prefix_bare_return_collapses() {
             // after bare_return
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let _x : Int = 0;
-                    17
-                }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let _x : Int = 0;
+                17
             }
             // entry
             Main()
@@ -724,7 +723,8 @@ fn given_else_arm_writes_slot_with_aliased_lhs_bare_return_does_not_collapse() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = bare_return::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = bare_return::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "bare_return must refuse when a pre-stmt writes the slot"
@@ -798,7 +798,8 @@ fn given_else_arm_lacks_set_pair_bare_return_does_not_collapse() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = bare_return::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = bare_return::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "bare_return must refuse when the terminal pair stmt does not match the 2-Semi shape"
@@ -895,7 +896,8 @@ fn given_then_arm_not_var_ret_val_bare_return_does_not_collapse() {
     );
 
     let before = package.get_block(block_id).stmts.clone();
-    let fired = bare_return::apply(&mut package, &mut assigner, block_id);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+    let fired = bare_return::apply(&mut package, &mut assigner, block_id, &synth_slots);
     assert!(
         !fired,
         "bare_return must refuse when the merge then-arm reads a local other than the pair's slot"

@@ -8,12 +8,12 @@
 //! empty ranges, the exec graphs on `SpecDecl` and
 //! `Package.entry_exec_graph` are stale. In practice this includes return
 //! unification, defunctionalization, UDT erasure, tuple-compare lowering,
-//! SROA, and argument promotion. This pass reconstructs every graph from
+//! tuple-decompose, and argument promotion. This pass reconstructs every graph from
 //! scratch by walking the FIR and emitting the same node sequences that the
 //! original lowerer would have produced.
 //!
 //! This pass must run after UDT erasure, defunctionalization, tuple comparison
-//! lowering, SROA, and argument promotion have removed expression forms that the
+//! lowering, tuple-decompose, and argument promotion have removed expression forms that the
 //! exec graph builder treats as eliminated at this stage.
 //!
 //! ## External Specs

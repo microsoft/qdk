@@ -58,20 +58,24 @@ fn simple_guard_clause_collapses_to_if_else() {
             // before guard_clause (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
 
-                    let __trailing_result : Int = if not __has_returned {
-                        0
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                let __trailing_result : Int = if not __has_returned {
+                    0
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -80,16 +84,14 @@ fn simple_guard_clause_collapses_to_if_else() {
             // after guard_clause
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        1
-                    } else {
-                        0
-                    }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    1
+                } else {
+                    0
                 }
+
             }
             // entry
             Main()
@@ -128,25 +130,29 @@ fn guard_clause_with_let_in_rest_block() {
             // before guard_clause (fired=false)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    }
-
-                    let y : Int = if not __has_returned {
-                        2
-                    } else {
-                        0
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
                     };
-                    let __trailing_result : Int = if not __has_returned {
-                        y
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                }
+
+                let y : Int = if not __has_returned {
+                    2
+                } else {
+                    0
+                };
+                let __trailing_result : Int = if not __has_returned {
+                    y
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -155,25 +161,29 @@ fn guard_clause_with_let_in_rest_block() {
             // after guard_clause
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    }
-
-                    let y : Int = if not __has_returned {
-                        2
-                    } else {
-                        0
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
                     };
-                    let __trailing_result : Int = if not __has_returned {
-                        y
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                }
+
+                let y : Int = if not __has_returned {
+                    2
+                } else {
+                    0
+                };
+                let __trailing_result : Int = if not __has_returned {
+                    y
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -214,29 +224,33 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
             // before guard_clause (fired=false)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                if not __has_returned {
+                    if false {
                         {
-                            __ret_val = 1;
+                            __ret_val = 2;
                             __has_returned = true;
                         };
                     }
 
-                    if not __has_returned {
-                        if false {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
-
-                    };
-                    let __trailing_result : Int = if not __has_returned {
-                        0
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                };
+                let __trailing_result : Int = if not __has_returned {
+                    0
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -245,29 +259,33 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
             // after guard_clause
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
+
+                if not __has_returned {
+                    if false {
                         {
-                            __ret_val = 1;
+                            __ret_val = 2;
                             __has_returned = true;
                         };
                     }
 
-                    if not __has_returned {
-                        if false {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
-
-                    };
-                    let __trailing_result : Int = if not __has_returned {
-                        0
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                };
+                let __trailing_result : Int = if not __has_returned {
+                    0
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -297,10 +315,8 @@ fn no_returns_block_has_no_merge_so_rule_does_not_fire() {
             // before guard_clause (fired=false)
             // namespace Test
             function Main() : Int {
-                body {
-                    let x : Int = 1;
-                    x + 2
-                }
+                let x : Int = 1;
+                x + 2
             }
             // entry
             Main()
@@ -308,10 +324,8 @@ fn no_returns_block_has_no_merge_so_rule_does_not_fire() {
             // after guard_clause
             // namespace Test
             function Main() : Int {
-                body {
-                    let x : Int = 1;
-                    x + 2
-                }
+                let x : Int = 1;
+                x + 2
             }
             // entry
             Main()
@@ -345,22 +359,24 @@ fn both_branches_return_shape_not_collapsed_by_guard_clause_rule() {
             // before guard_clause (fired=false)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    } else {
-                        {
-                            __ret_val = 2;
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                } else {
+                    {
+                        __ret_val = 2;
+                        __has_returned = true;
+                    };
+                }
 
-                    if __has_returned __ret_val else __ret_val
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -369,22 +385,24 @@ fn both_branches_return_shape_not_collapsed_by_guard_clause_rule() {
             // after guard_clause
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    } else {
-                        {
-                            __ret_val = 2;
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                } else {
+                    {
+                        __ret_val = 2;
+                        __has_returned = true;
+                    };
+                }
 
-                    if __has_returned __ret_val else __ret_val
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -790,20 +808,24 @@ mod inverted_orientation {
                 // before guard_clause (fired=true)
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if true {} else {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        }
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if true {} else {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
 
-                        let __trailing_result : Int = if not __has_returned {
-                            2
-                        } else __ret_val;
-                        if __has_returned __ret_val else __trailing_result
+                    let __trailing_result : Int = if not __has_returned {
+                        2
+                    } else {
+                        __ret_val
+                    };
+                    if __has_returned {
+                        __ret_val
+                    } else {
+                        __trailing_result
                     }
                 }
                 // entry
@@ -812,16 +834,14 @@ mod inverted_orientation {
                 // after guard_clause
                 // namespace Test
                 function Main() : Int {
-                    body {
-                        mutable __has_returned : Bool = false;
-                        mutable __ret_val : Int = 0;
-                        if not true {
-                            1
-                        } else {
-                            2
-                        }
-
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    if not true {
+                        1
+                    } else {
+                        2
                     }
+
                 }
                 // entry
                 Main()
@@ -880,7 +900,9 @@ mod inverted_orientation {
             Span::default(),
         );
 
-        let fired = guard_clause::apply(&mut package, &mut assigner, inner_block_id);
+        let synth_slots =
+            crate::return_unify::tests::synth_slots_for_block(&package, inner_block_id);
+        let fired = guard_clause::apply(&mut package, &mut assigner, inner_block_id, &synth_slots);
         assert!(
             fired,
             "guard_clause must fire on the inverted shape inside a Local init"
@@ -926,7 +948,9 @@ mod inverted_orientation {
             Span::default(),
         );
 
-        let fired = guard_clause::apply(&mut package, &mut assigner, inner_block_id);
+        let synth_slots =
+            crate::return_unify::tests::synth_slots_for_block(&package, inner_block_id);
+        let fired = guard_clause::apply(&mut package, &mut assigner, inner_block_id, &synth_slots);
         assert!(
             fired,
             "guard_clause must fire on the inverted shape inside a nested block"
@@ -1011,7 +1035,8 @@ mod inverted_orientation {
         );
 
         let pre_stmts = package.get_block(block_id).stmts.clone();
-        let fired = guard_clause::apply(&mut package, &mut assigner, block_id);
+        let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+        let fired = guard_clause::apply(&mut package, &mut assigner, block_id, &synth_slots);
         assert!(
             !fired,
             "guard_clause must reject an else-arm missing the flag set"
@@ -1113,7 +1138,8 @@ mod inverted_orientation {
         );
 
         let pre_stmts = package.get_block(block_id).stmts.clone();
-        let fired = guard_clause::apply(&mut package, &mut assigner, block_id);
+        let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, block_id);
+        let fired = guard_clause::apply(&mut package, &mut assigner, block_id, &synth_slots);
         assert!(
             !fired,
             "guard_clause must reject an else-arm with a foreign stmt between sets"

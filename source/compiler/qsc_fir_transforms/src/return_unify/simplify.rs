@@ -96,7 +96,7 @@ use qsc_fir::{
     ty::{Prim, Ty},
 };
 
-use super::symbols::{HAS_RETURNED as HAS_RETURNED_NAME, RET_VAL as RET_VAL_NAME};
+use super::lower::SynthSlots;
 use crate::walk_utils;
 
 /// Run the simplifier catalogue to fixpoint on `block_id`.
@@ -114,6 +114,7 @@ pub(super) fn run_to_fixpoint(
     assigner: &mut Assigner,
     block_id: BlockId,
     errors: &mut Vec<super::Error>,
+    slots: &SynthSlots,
 ) {
     let hard_cap = {
         let block = package.get_block(block_id);
@@ -121,7 +122,7 @@ pub(super) fn run_to_fixpoint(
     };
     let mut prev_measure: Option<(usize, usize)> = None;
     for _ in 0..hard_cap {
-        let changed = apply_all_rules(package, assigner, block_id);
+        let changed = apply_all_rules(package, assigner, block_id, slots);
         if !changed {
             return;
         }
@@ -147,15 +148,20 @@ pub(super) fn run_to_fixpoint(
 }
 
 /// Run all simplifier rules once and return whether any rule fired.
-fn apply_all_rules(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+fn apply_all_rules(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let mut changed = false;
-    changed |= guard_clause::apply(package, assigner, block_id);
+    changed |= guard_clause::apply(package, assigner, block_id, slots);
     changed |= run_identical_branches(package, block_id);
-    changed |= both_branches::apply(package, assigner, block_id);
-    changed |= single_branch::apply(package, assigner, block_id);
-    changed |= bare_return::apply(package, assigner, block_id);
-    changed |= let_folding::apply(package, assigner, block_id);
-    changed |= dead_flag::apply(package, assigner, block_id);
+    changed |= both_branches::apply(package, assigner, block_id, slots);
+    changed |= single_branch::apply(package, assigner, block_id, slots);
+    changed |= bare_return::apply(package, assigner, block_id, slots);
+    changed |= let_folding::apply(package, assigner, block_id, slots);
+    changed |= dead_flag::apply(package, assigner, block_id, slots);
     changed |= dead_local::apply(package, assigner, block_id);
     changed
 }
@@ -412,11 +418,12 @@ pub(super) fn identify_merge_or_trailing_slot(
     block_id: BlockId,
     tail_stmt: StmtId,
     block_ty: &Ty,
+    slots: &SynthSlots,
 ) -> Option<(LocalVarId, LocalVarId)> {
     if let Some(merge) = identify_merge(package, tail_stmt, block_ty) {
         return Some((merge.has_returned, merge.return_slot));
     }
-    identify_trailing_slot_read(package, block_id, tail_stmt)
+    identify_trailing_slot_read(package, block_id, tail_stmt, slots)
 }
 
 /// Recognizes a bare trailing `Expr(Var(__ret_val))` final statement and
@@ -430,6 +437,7 @@ pub(super) fn identify_trailing_slot_read(
     package: &Package,
     block_id: BlockId,
     tail_stmt: StmtId,
+    slots: &SynthSlots,
 ) -> Option<(LocalVarId, LocalVarId)> {
     let StmtKind::Expr(expr_id) = package.get_stmt(tail_stmt).kind else {
         return None;
@@ -449,10 +457,9 @@ pub(super) fn identify_trailing_slot_read(
         let PatKind::Bind(ident) = &pat.kind else {
             continue;
         };
-        let name = ident.name.as_ref();
-        if ident.id == slot_id && name == RET_VAL_NAME {
+        if ident.id == slot_id && ident.id == slots.return_slot.var_id {
             slot_matches = true;
-        } else if pat.ty == Ty::Prim(Prim::Bool) && name == HAS_RETURNED_NAME {
+        } else if pat.ty == Ty::Prim(Prim::Bool) && ident.id == slots.has_returned {
             flag_id = Some(ident.id);
         }
     }

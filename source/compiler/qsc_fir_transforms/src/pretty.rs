@@ -1157,7 +1157,7 @@ fn sanitize_ty_for_parseable(ty: &str) -> String {
                     .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
                     .collect();
                 let tag = prefix.trim_end_matches('<');
-                out.push_str(&format!("__{tag}_{sanitized}"));
+                write!(out, "__{tag}_{sanitized}").expect("write failed");
                 rest = &stripped[end + 1..];
                 matched = true;
                 break;

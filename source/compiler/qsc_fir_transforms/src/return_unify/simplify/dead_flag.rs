@@ -84,7 +84,7 @@ use qsc_fir::{
 };
 
 use super::{extract_local_read, extract_root_local, push_children};
-use crate::return_unify::symbols::HAS_RETURNED as HAS_RETURNED_NAME;
+use crate::return_unify::lower::SynthSlots;
 
 /// Apply the dead-flag elimination rule to `block_id`.
 ///
@@ -93,8 +93,13 @@ use crate::return_unify::symbols::HAS_RETURNED as HAS_RETURNED_NAME;
 /// the driver does not need to re-invoke the rule for fixpoint on this
 /// rule alone, but the driver's outer loop guarantees a re-scan after
 /// any other rule that may have reshaped the block.
-pub(super) fn apply(package: &mut Package, _assigner: &mut Assigner, block_id: BlockId) -> bool {
-    let Some(flag_id) = identify_has_returned_local(package, block_id) else {
+pub(super) fn apply(
+    package: &mut Package,
+    _assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
+    let Some(flag_id) = identify_has_returned_local(package, block_id, slots) else {
         return false;
     };
 
@@ -131,7 +136,11 @@ pub(super) fn apply(package: &mut Package, _assigner: &mut Assigner, block_id: B
 /// See the module-level docs for the two-tier strategy. Returns `None`
 /// when neither signal is available — in that case the rule cannot
 /// safely identify the flag and refuses to fire.
-fn identify_has_returned_local(package: &Package, block_id: BlockId) -> Option<LocalVarId> {
+fn identify_has_returned_local(
+    package: &Package,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> Option<LocalVarId> {
     let stmts = &package.get_block(block_id).stmts;
 
     // Primary: trailing merge `Expr(If(cond, _, Some(_)))` where `cond`
@@ -157,7 +166,7 @@ fn identify_has_returned_local(package: &Package, block_id: BlockId) -> Option<L
             continue;
         }
         if let PatKind::Bind(ident) = &pat.kind
-            && ident.name.as_ref() == HAS_RETURNED_NAME
+            && ident.id == slots.has_returned
         {
             return Some(ident.id);
         }

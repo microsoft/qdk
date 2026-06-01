@@ -35,6 +35,10 @@ use qsc_fir::fir::{
 };
 use qsc_fir::ty::{Prim, Ty};
 
+use super::lower::SynthSlots;
+use super::slot::{ReturnSlot, ReturnSlotStrategy};
+use super::symbols;
+
 pub(crate) type ReleaseCallableSet = FxHashSet<StoreItemId>;
 
 /// Collects the set of callables that release qubit allocations.
@@ -122,7 +126,7 @@ pub(crate) fn assert_no_reachable_returns(store: &PackageStore, pkg_id: PackageI
 
 fn compile_no_hoist_return_unified(source: &str) -> NoHoistReturnUnifyResult {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
-    let before = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
 
     let mut assigner = Assigner::from_package(store.get(pkg_id));
     let errors = super::unify_returns(&mut store, pkg_id, &mut assigner);
@@ -132,7 +136,7 @@ fn compile_no_hoist_return_unified(source: &str) -> NoHoistReturnUnifyResult {
     );
     assert_no_reachable_returns(&store, pkg_id);
 
-    let after = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     NoHoistReturnUnifyResult {
         store,
         pkg_id,
@@ -411,7 +415,7 @@ pub(crate) fn check_structure(source: &str, callable_names: &[&str], expect: &Ex
 /// [`crate::pretty::write_package_qsharp`].
 pub(crate) fn check_no_returns_q(source: &str, expect: &Expect) {
     let (store, pkg_id) = compile_return_unified(source);
-    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     expect.assert_eq(&rendered);
 }
 
@@ -433,7 +437,7 @@ pub(crate) fn check_simplify_rule_q(
     source: &str,
     callable_name: &str,
     rule_name: &str,
-    apply_rule: impl FnOnce(&mut Package, &mut Assigner, BlockId) -> bool,
+    apply_rule: impl FnOnce(&mut Package, &mut Assigner, BlockId, &SynthSlots) -> bool,
     expect: &Expect,
 ) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
@@ -444,22 +448,64 @@ pub(crate) fn check_simplify_rule_q(
         "unify_returns_without_simplify produced errors: {errors:?}"
     );
 
-    let before = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     let block_id = find_body_block_id(store.get(pkg_id), callable_name);
-    let fired = apply_rule(store.get_mut(pkg_id), &mut assigner, block_id);
-    let after = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let slots = synth_slots_for_block(store.get(pkg_id), block_id);
+    let fired = apply_rule(store.get_mut(pkg_id), &mut assigner, block_id, &slots);
+    let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
 
     expect.assert_eq(&format!(
         "// before {rule_name} (fired={fired})\n{before}\n// after {rule_name}\n{after}"
     ));
 }
 
+/// Reconstruct the [`SynthSlots`] id record for `block_id` by scanning the
+/// block's synthesized `__has_returned` / `__ret_val` / `__trailing_result`
+/// declarations by their (still-emitted) names.
+///
+/// Production code threads `SynthSlots` from the transform phase into
+/// [`super::simplify::run_to_fixpoint`]; per-rule tests that invoke a single
+/// simplify rule in isolation use this to rebuild the record the driver would
+/// otherwise supply. Ids that are absent from `block_id` fall back to
+/// [`LocalVarId::default`]; this is harmless for rules that recover the slots
+/// structurally (via `identify_merge`) and never consult the fallback.
+pub(crate) fn synth_slots_for_block(package: &Package, block_id: BlockId) -> SynthSlots {
+    let mut has_returned = None;
+    let mut ret_val = None;
+    let mut trailing_result = None;
+    for &sid in &package.get_block(block_id).stmts {
+        let StmtKind::Local(_, pat_id, _) = package.get_stmt(sid).kind else {
+            continue;
+        };
+        let pat = package.get_pat(pat_id);
+        let PatKind::Bind(ident) = &pat.kind else {
+            continue;
+        };
+        let name = ident.name.as_ref();
+        if name == symbols::HAS_RETURNED && pat.ty == Ty::Prim(Prim::Bool) {
+            has_returned = Some(ident.id);
+        } else if name == symbols::RET_VAL {
+            ret_val = Some(ident.id);
+        } else if name == symbols::TRAILING_RESULT {
+            trailing_result = Some(ident.id);
+        }
+    }
+    SynthSlots {
+        has_returned: has_returned.unwrap_or_default(),
+        return_slot: ReturnSlot {
+            var_id: ret_val.unwrap_or_default(),
+            strategy: ReturnSlotStrategy::Direct,
+        },
+        trailing_result,
+    }
+}
+
 fn check_pre_fir_transforms_to_return_unify_q(source: &str, expect: &Expect) {
     let (before_store, before_pkg_id) = compile_to_fir(source);
-    let before = crate::pretty::write_package_qsharp(&before_store, before_pkg_id);
+    let before = crate::pretty::write_package_qsharp_parseable(&before_store, before_pkg_id);
 
     let (after_store, after_pkg_id) = compile_return_unified(source);
-    let after = crate::pretty::write_package_qsharp(&after_store, after_pkg_id);
+    let after = crate::pretty::write_package_qsharp_parseable(&after_store, after_pkg_id);
 
     expect.assert_eq(&format!(
         "// before fir transforms\n{before}\n// post return_unify\n{after}"

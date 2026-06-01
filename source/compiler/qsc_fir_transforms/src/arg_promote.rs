@@ -14,13 +14,6 @@
 //! For each entry-reachable callable, the pass:
 //! - Identifies parameters bound via `PatKind::Bind(p)` with `Ty::Tuple(...)`
 //!   where every use in every specialization body is a field access.
-//!
-//!   `Ty::Udt(Res::Item(_))` is also matched, but only as a defensive path
-//!   retained for resilience to upstream changes. In the production pipeline
-//!   [`crate::udt_erase`] runs before `arg_promote` and is expected to
-//!   eliminate every `Ty::Udt` parameter, so the UDT branch is exercised
-//!   only when the pipeline ordering changes or when `arg_promote` is run
-//!   in isolation (for example, in unit tests that bypass `udt_erase`).
 //! - Verifies the callable is not used as a first-class value, referenced
 //!   as a closure target, or otherwise left indirectly dispatched.
 //!   First-class detection and closure-target detection together cover
@@ -36,11 +29,11 @@
 //! must remain stable for indirect invocation.
 //!
 //! The pass iterates to a fixed point, peeling one level of tuple nesting
-//! per iteration (identical to SROA's iterative strategy).
+//! per iteration (identical to tuple-decompose's iterative strategy).
 //!
 //! # Pipeline position
 //!
-//! This pass runs after SROA and before unreachable-node GC. At this point,
+//! This pass runs after tuple-decompose and before unreachable-node GC. At this point,
 //! tuple-heavy parameter shapes are already simplified by earlier passes, and
 //! argument promotion can rewrite callable signatures and direct call sites
 //! without fighting major later structural rewrites.
@@ -57,7 +50,7 @@
 //! 3. **Safety filters** ([`collect_first_class_callables`],
 //!    [`collect_closure_targets`]):
 //!    Exclude callables used as first-class values or closure targets.
-//! 4. **Signature/body rewrite** ([`promote_candidate`]):
+//! 4. **Signature/body rewrite** ([`promote_callable`]):
 //!    Replace promoted bind patterns with tuple patterns over fresh scalar
 //!    locals and rewrite body uses to read those locals.
 //! 5. **Call-site rewrite** ([`rewrite_call_sites`]):
@@ -136,8 +129,7 @@
 //!   `UnOp(Functor::Ctl)` wrappers (counting controlled depth) to find the
 //!   underlying item callee, and [`rewrite_controlled_call_site`] rewrites
 //!   the payload while preserving the surrounding control-tuple layers and
-//!   their evaluation order. The "defensive paths" framing above refers
-//!   specifically to the `Ty::Udt` parameter shape, not to functor wrappers.
+//!   their evaluation order.
 //!
 //! # References
 //!
@@ -154,13 +146,12 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::EMPTY_EXEC_RANGE;
-use crate::fir_builder::{
-    decompose_binding, functored_specs, reachable_local_callables, resolve_udt_element_types,
-};
+use crate::fir_builder::{decompose_binding_to_leaves, functored_specs, reachable_local_callables};
 use crate::reachability::collect_reachable_from_entry;
+use crate::tuple_decompose::collect_all_block_ids_in_callable;
 use crate::walk_utils::{
-    collect_expr_ids_in_entry_and_local_callables, collect_expr_ids_in_local_callables,
-    collect_uses_in_block, for_each_expr, for_each_expr_in_callable_impl,
+    ParamUse, classify_uses_in_block, collect_expr_ids_in_entry_and_local_callables,
+    collect_expr_ids_in_local_callables, for_each_expr, for_each_expr_in_callable_impl,
 };
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
@@ -173,6 +164,11 @@ use qsc_fir::fir::{
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::rc::Rc;
+
+/// Name given to the synthesized local that holds a materialized call
+/// argument before it is projected into a promoted callable's scalar inputs
+/// (see [`create_projection_temp_binding`]).
+const ARG_PROMOTE_TMP_NAME: &str = "__arg_promote_tmp";
 
 /// Runs argument promotion on the entry-reachable portion of a package.
 ///
@@ -209,9 +205,14 @@ use std::rc::Rc;
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
-pub fn arg_promote(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
-    promote_to_fixed_point(store, package_id, assigner);
+pub fn arg_promote(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+) -> bool {
+    let changed = promote_to_fixed_point(store, package_id, assigner);
     normalize_reachable_call_arg_types(store, package_id, assigner);
+    changed
 }
 
 /// Iterates promotion rounds until no more candidates are found.
@@ -219,18 +220,312 @@ pub fn arg_promote(store: &mut PackageStore, package_id: PackageId, assigner: &m
 /// Each iteration peels one level of tuple nesting from eligible parameters,
 /// rewrites their bodies and call sites, then recomputes reachability for
 /// the next round.
-fn promote_to_fixed_point(
+///
+/// # Returns
+///
+/// `true` if any promotion or normalize rewrite was applied; `false` otherwise.
+pub(crate) fn promote_to_fixed_point(
     store: &mut PackageStore,
     package_id: PackageId,
     assigner: &mut Assigner,
-) {
+) -> bool {
+    let mut changed = false;
     loop {
+        changed |= normalize_param_destructuring(store, package_id, assigner);
         let candidates = find_promotion_candidates(store, package_id);
         if candidates.is_empty() {
             break;
         }
+        changed = true;
         apply_promotions(store, package_id, assigner, &candidates);
     }
+    changed
+}
+
+/// A pending rewrite of a tuple-destructuring `let` into positional
+/// field projections, collected under a shared borrow before mutation.
+struct DestructureRewrite {
+    /// The block containing the destructuring statement.
+    block_id: BlockId,
+    /// The destructuring `let` statement to rewrite in place.
+    stmt_id: StmtId,
+    /// Mutability of the original `let`.
+    mutability: Mutability,
+    /// The source local read as a whole value on the right-hand side.
+    source_local: LocalVarId,
+    /// The full tuple type of the source local.
+    tuple_ty: Ty,
+    /// The element sub-patterns of the destructuring tuple pattern.
+    element_pat_ids: Vec<PatId>,
+}
+
+/// Normalizes tuple-destructuring `let`s into positional field projections
+/// so the destructured source local's only uses become field accesses.
+///
+/// For a statement `let (a, b, ...) = src;` where `src` is read as a bare
+/// whole-value `Var(Local)` (an input-bound parameter *or* any other local),
+/// this rewrites it into `let a = src::0; let b = src::1; ...`, emitting one
+/// projection per non-discard element. After this rewrite the source local's
+/// only uses are field projections, which:
+/// - lets [`find_promotion_candidates`] treat an input parameter as a
+///   promotion candidate (the original parameter case), and
+/// - makes a non-parameter source local field-only, so the subsequent tuple-decompose
+///   pass can scalar-replace it.
+///
+/// Only a bare `Var(Local)` right-hand side is rewritten; a `Call`, `Tuple`
+/// literal, or any other RHS is left untouched (tuple-decompose already handles those
+/// once the destructured local is field-only).
+///
+/// Runs at the top of each [`promote_to_fixed_point`] iteration, scoped to
+/// reachable local callable bodies.
+///
+/// # Returns
+///
+/// `true` if any destructuring rewrite was applied; `false` otherwise.
+///
+/// # Element handling
+///
+/// Each destructuring element is recursively descended to its `Bind` leaves,
+/// threading a cumulative positional index path. Every leaf emits a single
+/// direct multi-index projection — no intermediate whole-value temporary is
+/// created for nested elements:
+/// - `PatKind::Discard`: emits no binding (the projection is a pure read of
+///   an already-evaluated local).
+/// - `PatKind::Bind`: emits `let <bind> = src::Path[i, ...];`, reusing the
+///   existing sub-binding's `PatId` so its `LocalVarId` is preserved.
+/// - `PatKind::Tuple` (nested): recurses into each child, so `(y, z)` at
+///   index `i` flattens directly to `let y = src::Path[i, 0]; let z =
+///   src::Path[i, 1];`.
+///
+/// # Mutations
+/// - Rewrites the original destructuring statement in place to the first
+///   emitted projection (or removes it from its block when every element is
+///   a discard).
+/// - Allocates fresh `Expr`/`Pat`/`Stmt` nodes (with `EMPTY_EXEC_RANGE`)
+///   for the remaining projections and splices them into the block.
+fn normalize_param_destructuring(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+) -> bool {
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let package = store.get(package_id);
+    let local_item_ids: Vec<LocalItemId> =
+        reachable_local_callables(package, package_id, &reachable)
+            .map(|(id, _)| id)
+            .collect();
+
+    // Note: the entry callable is intentionally *not* excluded here. This pass
+    // only rewrites body-local `let (a, b) = local;` destructures into positional
+    // projections; it never reshapes `decl.input`. The entry input ABI is
+    // protected solely by the exclusion in `find_promotion_candidates`, which is
+    // the only place `decl.input` is flattened.
+    let mut rewrites: Vec<DestructureRewrite> = Vec::new();
+    for item_id in local_item_ids {
+        let item = package.get_item(item_id);
+        let ItemKind::Callable(_) = &item.kind else {
+            continue;
+        };
+
+        for block_id in collect_all_block_ids_in_callable(package, item_id) {
+            let block = package.get_block(block_id);
+            for &stmt_id in &block.stmts {
+                let stmt = package.get_stmt(stmt_id);
+                let StmtKind::Local(mutability, pat_id, rhs_id) = &stmt.kind else {
+                    continue;
+                };
+                let pat = package.get_pat(*pat_id);
+                let PatKind::Tuple(element_pat_ids) = &pat.kind else {
+                    continue;
+                };
+                let rhs = package.get_expr(*rhs_id);
+                // Only normalize a bare whole-value `Var(Local)` RHS. Any other
+                // RHS (call, tuple literal, ...) is handled by tuple-decompose directly.
+                let ExprKind::Var(Res::Local(source_local), _) = &rhs.kind else {
+                    continue;
+                };
+                // Only normalize when the RHS tuple arity matches the
+                // destructuring pattern arity; per-leaf element types are
+                // read directly from each leaf sub-pattern's `Pat.ty`.
+                match &rhs.ty {
+                    Ty::Tuple(elems) if elems.len() == element_pat_ids.len() => {}
+                    _ => continue,
+                }
+                rewrites.push(DestructureRewrite {
+                    block_id,
+                    stmt_id,
+                    mutability: *mutability,
+                    source_local: *source_local,
+                    tuple_ty: rhs.ty.clone(),
+                    element_pat_ids: element_pat_ids.clone(),
+                });
+            }
+        }
+    }
+
+    if rewrites.is_empty() {
+        return false;
+    }
+
+    let package = store.get_mut(package_id);
+    for rewrite in rewrites {
+        apply_destructure_rewrite(package, assigner, &rewrite);
+    }
+    true
+}
+
+/// Rewrites a single parameter-destructuring statement into positional field
+/// projections (see [`normalize_param_destructuring`]).
+fn apply_destructure_rewrite(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    rewrite: &DestructureRewrite,
+) {
+    // Recursively descend each element pattern to its `Bind` leaves under a
+    // shared borrow, collecting `(leaf_pat_id, index_path, leaf_ty)`. This
+    // avoids holding the shared borrow across the mutating projection
+    // helpers below.
+    let mut leaves: Vec<(PatId, Vec<usize>, Ty)> = Vec::new();
+    {
+        let mut indices: Vec<usize> = Vec::new();
+        for (i, &elem_pat_id) in rewrite.element_pat_ids.iter().enumerate() {
+            indices.push(i);
+            collect_leaf_projections(package, elem_pat_id, &mut indices, &mut leaves);
+            indices.pop();
+        }
+    }
+
+    // Build one `(mutability, pat, rhs)` projection descriptor per leaf bind.
+    let mut descriptors: Vec<(Mutability, PatId, ExprId)> = Vec::with_capacity(leaves.len());
+    for (leaf_pat_id, indices, leaf_ty) in leaves {
+        let proj = create_local_projection_path(
+            package,
+            assigner,
+            rewrite.source_local,
+            &rewrite.tuple_ty,
+            &leaf_ty,
+            &indices,
+        );
+        descriptors.push((rewrite.mutability, leaf_pat_id, proj));
+    }
+
+    if descriptors.is_empty() {
+        // Every element is a discard: drop the now-dead destructuring use of
+        // the source local so it no longer blocks promotion or tuple-decompose.
+        let block = package
+            .blocks
+            .get_mut(rewrite.block_id)
+            .expect("block should exist");
+        if let Some(pos) = block.stmts.iter().position(|&s| s == rewrite.stmt_id) {
+            block.stmts.remove(pos);
+        }
+        return;
+    }
+
+    // Reuse the original statement for the first projection.
+    {
+        let (mutability, pat_id, rhs_id) = descriptors[0];
+        let stmt = package
+            .stmts
+            .get_mut(rewrite.stmt_id)
+            .expect("stmt should exist");
+        stmt.kind = StmtKind::Local(mutability, pat_id, rhs_id);
+    }
+
+    // Allocate fresh statements for the remaining projections.
+    let mut new_stmt_ids: Vec<StmtId> = Vec::with_capacity(descriptors.len() - 1);
+    for &(mutability, pat_id, rhs_id) in &descriptors[1..] {
+        let stmt_id = assigner.next_stmt();
+        package.stmts.insert(
+            stmt_id,
+            Stmt {
+                id: stmt_id,
+                span: Span::default(),
+                kind: StmtKind::Local(mutability, pat_id, rhs_id),
+                exec_graph_range: EMPTY_EXEC_RANGE,
+            },
+        );
+        new_stmt_ids.push(stmt_id);
+    }
+
+    // Splice the new statements into the block after the original.
+    let block = package
+        .blocks
+        .get_mut(rewrite.block_id)
+        .expect("block should exist");
+    if let Some(pos) = block.stmts.iter().position(|&s| s == rewrite.stmt_id) {
+        for (offset, new_id) in new_stmt_ids.into_iter().enumerate() {
+            block.stmts.insert(pos + 1 + offset, new_id);
+        }
+    }
+}
+
+/// Recursively descends a destructuring element pattern to its `Bind`
+/// leaves, collecting `(leaf_pat_id, index_path, leaf_ty)` for each.
+///
+/// `indices` carries the cumulative positional path from the source tuple to
+/// the current pattern; it is pushed/popped around each child so callers see
+/// it unchanged on return. `Discard` leaves contribute nothing. Each leaf's
+/// type is read directly from its `Pat.ty` (set by frontend lowering and
+/// preserved through earlier passes).
+fn collect_leaf_projections(
+    package: &Package,
+    pat_id: PatId,
+    indices: &mut Vec<usize>,
+    leaves: &mut Vec<(PatId, Vec<usize>, Ty)>,
+) {
+    let pat = package.get_pat(pat_id);
+    match &pat.kind {
+        PatKind::Discard => {}
+        PatKind::Bind(_) => {
+            leaves.push((pat_id, indices.clone(), pat.ty.clone()));
+        }
+        PatKind::Tuple(sub_pats) => {
+            for (i, &sub_pat_id) in sub_pats.iter().enumerate() {
+                indices.push(i);
+                collect_leaf_projections(package, sub_pat_id, indices, leaves);
+                indices.pop();
+            }
+        }
+    }
+}
+
+/// Allocates a `src::Path[indices...]` field projection expression over a
+/// fresh `Var(Res::Local(src))` base carrying the full tuple type.
+///
+/// The multi-index `Field::Path` projects directly to a (possibly nested)
+/// leaf in a single expression; downstream tuple-decompose / arg-promote field rewrites
+/// decompose arbitrary-depth paths via their `remaining`-slice recursion.
+///
+/// # Mutations
+/// - Inserts a fresh base `Var` `Expr` and a `Field` `Expr` (with
+///   `EMPTY_EXEC_RANGE`) through `assigner`.
+fn create_local_projection_path(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    source_local: LocalVarId,
+    tuple_ty: &Ty,
+    leaf_ty: &Ty,
+    indices: &[usize],
+) -> ExprId {
+    let base_id = create_local_var_expr(package, assigner, source_local, tuple_ty);
+    let field_expr_id = assigner.next_expr();
+    package.exprs.insert(
+        field_expr_id,
+        Expr {
+            id: field_expr_id,
+            span: Span::default(),
+            ty: leaf_ty.clone(),
+            kind: ExprKind::Field(
+                base_id,
+                Field::Path(FieldPath {
+                    indices: indices.to_vec(),
+                }),
+            ),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    field_expr_id
 }
 
 /// Finds all eligible promotion candidates in the current reachable set,
@@ -242,15 +537,31 @@ fn find_promotion_candidates(
     let reachable = collect_reachable_from_entry(store, package_id);
     let package = store.get(package_id);
 
+    let entry_item = resolve_entry_callable_item(package, package_id);
     let first_class = collect_first_class_callables(package, package_id, &reachable);
     let closure_targets = collect_closure_targets(package, package_id, &reachable);
 
     let mut candidates: Vec<ArgPromoCandidate> = Vec::new();
     for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
+        // The entry-point callable's input is the program's externally-visible
+        // ABI and must never be flattened, regardless of its input shape.
+        // This is a forward looking check as all inputs are currently `Unit`
+        if Some(item_id) == entry_item {
+            continue;
+        }
         if first_class.contains(&item_id) || closure_targets.contains(&item_id) {
             continue;
         }
-        candidates.extend(check_candidates(store, package, package_id, item_id, decl));
+        // Skip intrinsics entirely: their signatures must stay tuple-shaped and
+        // simulatable bodies are never analyzed or rewritten. Any invalid types will
+        // fail later in code generation
+        if matches!(
+            decl.implementation,
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_)
+        ) {
+            continue;
+        }
+        candidates.extend(check_candidates(package, package_id, item_id, decl));
     }
     candidates
 }
@@ -272,9 +583,23 @@ fn apply_promotions(
         collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
 
     let package = store.get_mut(package_id);
-    let mut promotions: Vec<PromotionResult> = Vec::new();
+
+    // Group candidates by their declaring callable so each callable's entire
+    // input is flattened exactly once (dissolving all inter-parameter
+    // grouping), preserving first-seen order for deterministic ID allocation.
+    let mut order: Vec<LocalItemId> = Vec::new();
+    let mut groups: FxHashMap<LocalItemId, Vec<&ArgPromoCandidate>> = FxHashMap::default();
     for candidate in candidates {
-        if let Some(result) = promote_candidate(package, assigner, candidate) {
+        if !groups.contains_key(&candidate.item_id) {
+            order.push(candidate.item_id);
+        }
+        groups.entry(candidate.item_id).or_default().push(candidate);
+    }
+
+    let mut promotions: Vec<PromotionResult> = Vec::new();
+    for item_id in order {
+        let cands = &groups[&item_id];
+        if let Some(result) = promote_callable(package, assigner, item_id, cands) {
             promotions.push(result);
         }
     }
@@ -292,7 +617,7 @@ fn apply_promotions(
 
 /// Normalizes call-argument types across all reachable call sites after
 /// promotion has converged.
-fn normalize_reachable_call_arg_types(
+pub(crate) fn normalize_reachable_call_arg_types(
     store: &mut PackageStore,
     package_id: PackageId,
     assigner: &mut Assigner,
@@ -314,138 +639,151 @@ struct ArgPromoCandidate {
     item_id: LocalItemId,
     /// The `LocalVarId` bound by the parameter.
     local_id: LocalVarId,
-    /// The `PatId` of the input binding pattern.
-    pat_id: PatId,
-    /// Element types from the tuple.
-    elem_types: Vec<Ty>,
-    /// The name of the original parameter.
-    name: Rc<str>,
-    /// Whether this is a top-level promotion (`pat_id == decl.input`).
-    /// Top-level promotions require call-site rewriting; sub-parameter
-    /// promotions (inside a `PatKind::Tuple`) do not.
-    is_top_level: bool,
+    /// Expression ids of the parameter's standalone whole-value reads. These
+    /// sites are reconstructed from the parameter's scalar leaves during the
+    /// body rewrite so they keep observing the original tuple value.
+    whole_value_reads: Vec<ExprId>,
 }
 
-/// Result of promoting a candidate — tracks the callable and its element types
-/// so that call sites can be rewritten.
+/// Result of promoting a callable — tracks the callable and the flat scalar
+/// leaves of its fully-decomposed input so that call sites can be
+/// rewritten to pass the flattened arguments.
 #[derive(Clone)]
 struct PromotionResult {
     /// The callable's `LocalItemId`.
     item_id: LocalItemId,
-    /// Element types.
-    elem_types: Vec<Ty>,
+    /// One entry per scalar leaf of the callable's flattened input: the
+    /// positional path of the leaf in the original (nested) input type and
+    /// the leaf's type. The path projects the leaf from the original
+    /// argument value at each call site. Promotable parameters contribute one
+    /// entry per scalar leaf; kept (non-promotable) parameters contribute a
+    /// single entry projecting their whole value.
+    leaves: Vec<(Vec<usize>, Ty)>,
 }
 
-/// Checks whether a callable's input parameter is a single tuple-typed or
-/// UDT-typed binding whose only uses in all specialization bodies are field
+/// Checks whether a callable's input parameter is a single tuple-typed
+/// binding whose only uses in all specialization bodies are field
 /// accesses. Also recurses into `PatKind::Tuple` sub-patterns to find
 /// inner bindings eligible for promotion after a previous pass.
 fn check_candidates(
-    store: &PackageStore,
     package: &Package,
     _package_id: PackageId,
     item_id: LocalItemId,
     decl: &CallableDecl,
 ) -> Vec<ArgPromoCandidate> {
     let mut candidates = Vec::new();
-    find_param_binds_in_pat(
-        store,
-        package,
-        item_id,
-        decl,
-        decl.input,
-        true,
-        &mut candidates,
-    );
+    find_param_binds_in_pat(package, item_id, decl, decl.input, &mut candidates);
     candidates
 }
 
 /// Recursively walks a callable's input pattern to find `PatKind::Bind` nodes
 /// with tuple types whose uses are all field accesses.
-///
-/// Also matches `Ty::Udt(Res::Item(_))` as a defensive path; see the module
-/// doc for the pipeline ordering with [`crate::udt_erase`] that normally
-/// eliminates UDT parameters before this pass runs.
 fn find_param_binds_in_pat(
-    store: &PackageStore,
     package: &Package,
     item_id: LocalItemId,
     decl: &CallableDecl,
     pat_id: PatId,
-    is_top_level: bool,
     candidates: &mut Vec<ArgPromoCandidate>,
 ) {
     let pat = package.get_pat(pat_id);
     match &pat.kind {
         PatKind::Bind(ident) => {
-            let elem_types = match &pat.ty {
-                Ty::Tuple(elems) if !elems.is_empty() => Some(elems.clone()),
-                Ty::Udt(Res::Item(udt_item_id)) => resolve_udt_element_types(store, udt_item_id),
-                _ => None,
-            };
-            if let Some(elem_types) = elem_types {
+            let is_tuple = matches!(&pat.ty, Ty::Tuple(elems) if !elems.is_empty());
+            if is_tuple {
                 let local_id = ident.id;
-                if all_param_uses_are_field_access(package, decl, local_id) {
+                let uses = classify_param_uses(package, decl, local_id);
+                if let Some(whole_value_reads) = param_is_promotable(&uses) {
                     candidates.push(ArgPromoCandidate {
                         item_id,
                         local_id,
-                        pat_id,
-                        elem_types,
-                        name: ident.name.clone(),
-                        is_top_level,
+                        whole_value_reads,
                     });
                 }
             }
         }
         PatKind::Tuple(sub_pats) => {
             for &sub_pat_id in sub_pats {
-                find_param_binds_in_pat(
-                    store, package, item_id, decl, sub_pat_id, false, candidates,
-                );
+                find_param_binds_in_pat(package, item_id, decl, sub_pat_id, candidates);
             }
         }
         PatKind::Discard => {}
     }
 }
 
-/// Returns `true` if every use of `local_id` across all specialization bodies
-/// of the callable is a field access.
+/// Classifies every use of `local_id` across all specialization bodies of the
+/// callable, returning the flat list of [`ParamUse`] classifications.
 ///
-/// Intrinsic callables short-circuit to `true`: they have no user body to
-/// analyze for field-projection eligibility, so the callable parameter
-/// layout for an intrinsic is considered trivially field-only.
-fn all_param_uses_are_field_access(
+/// Only `CallableImpl::Spec` callables ever reach this function: the intrinsic
+/// gate in `find_promotion_candidates` skips both `Intrinsic` and
+/// `SimulatableIntrinsic` callables before any candidate is constructed, so the
+/// non-`Spec` arms are unreachable.
+fn classify_param_uses(
     package: &Package,
     decl: &CallableDecl,
     local_id: LocalVarId,
-) -> bool {
+) -> Vec<ParamUse> {
     match &decl.implementation {
-        CallableImpl::Intrinsic => true,
-        CallableImpl::Spec(spec_impl) => all_uses_in_spec_impl(package, spec_impl, local_id),
-        CallableImpl::SimulatableIntrinsic(spec) => all_uses_in_spec(package, spec, local_id),
+        CallableImpl::Spec(spec_impl) => classify_uses_in_spec_impl(package, spec_impl, local_id),
+        // Dead arm: gated by the intrinsic skip in `find_promotion_candidates`
+        CallableImpl::Intrinsic => unreachable!(
+            "intrinsic callables are skipped by the intrinsic gate in \
+             find_promotion_candidates before any candidate reaches \
+             classify_param_uses"
+        ),
+        // Dead arm: same intrinsic gate as the `Intrinsic` arm above.
+        CallableImpl::SimulatableIntrinsic(_) => unreachable!(
+            "simulatable-intrinsic callables are skipped by the intrinsic gate in \
+             find_promotion_candidates before any candidate reaches \
+             classify_param_uses"
+        ),
     }
 }
 
-/// Returns `true` when every specialization (body, adjoint, controlled,
-/// controlled-adjoint) uses `local_id` exclusively via field access.
-fn all_uses_in_spec_impl(package: &Package, spec_impl: &SpecImpl, local_id: LocalVarId) -> bool {
-    if !all_uses_in_spec(package, &spec_impl.body, local_id) {
-        return false;
-    }
+/// Classifies every use of `local_id` across the body and all functored
+/// specializations (adjoint, controlled, controlled-adjoint).
+fn classify_uses_in_spec_impl(
+    package: &Package,
+    spec_impl: &SpecImpl,
+    local_id: LocalVarId,
+) -> Vec<ParamUse> {
+    let mut uses = Vec::new();
+    classify_uses_in_spec(package, &spec_impl.body, local_id, &mut uses);
     for spec in functored_specs(spec_impl) {
-        if !all_uses_in_spec(package, spec, local_id) {
-            return false;
+        classify_uses_in_spec(package, spec, local_id, &mut uses);
+    }
+    uses
+}
+
+/// Appends the classified uses of `local_id` in a single `SpecDecl` body to
+/// `out` (per the classifier in [`classify_uses_in_block`]).
+fn classify_uses_in_spec(
+    package: &Package,
+    spec: &SpecDecl,
+    local_id: LocalVarId,
+    out: &mut Vec<ParamUse>,
+) {
+    classify_uses_in_block(package, spec.block, local_id, out);
+}
+
+/// Decides whether a parameter is promotable from its classified uses and, when
+/// it is, returns the expression ids of its standalone whole-value reads.
+///
+/// Promotion is blocked when any use hard-blocks it. Otherwise the parameter is
+/// promotable when it has at least one field-access or decomposable use, which
+/// skips pure pass-through parameters (zero field uses) that gain nothing from
+/// flattening. The returned whole-value read sites are reconstructed during the
+/// body rewrite so they keep observing the original tuple value.
+fn param_is_promotable(uses: &[ParamUse]) -> Option<Vec<ExprId>> {
+    let mut field = 0_usize;
+    let mut whole_value_reads = Vec::new();
+    for use_kind in uses {
+        match use_kind {
+            ParamUse::HardBlock => return None,
+            ParamUse::FieldAccess | ParamUse::Decomposable => field += 1,
+            ParamUse::WholeValueRead(expr_id) => whole_value_reads.push(*expr_id),
         }
     }
-    true
-}
-
-/// Returns `true` when every use of `local_id` in a single `SpecDecl` body
-/// is a field access (per the classifier in [`collect_uses_in_block`]).
-fn all_uses_in_spec(package: &Package, spec: &SpecDecl, local_id: LocalVarId) -> bool {
-    let mut uses = Vec::new();
-    collect_uses_in_block(package, spec.block, local_id, &mut uses);
-    uses.iter().all(|u| *u)
+    (field >= 1).then_some(whole_value_reads)
 }
 
 /// Collects all `LocalItemId`s of callables in this package that appear as
@@ -597,14 +935,6 @@ fn scan_first_class_in_expr(
                 scan_first_class_in_expr(package, package_id, *x, first_class);
             }
         }
-        ExprKind::Struct(_, copy, fields) => {
-            if let Some(c) = copy {
-                scan_first_class_in_expr(package, package_id, *c, first_class);
-            }
-            for fa in fields {
-                scan_first_class_in_expr(package, package_id, fa.value, first_class);
-            }
-        }
         ExprKind::String(components) => {
             for c in components {
                 if let qsc_fir::fir::StringComponent::Expr(e) = c {
@@ -616,7 +946,12 @@ fn scan_first_class_in_expr(
             scan_first_class_in_expr(package, package_id, *cond, first_class);
             scan_first_class_in_block(package, package_id, *block_id, first_class);
         }
-        ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) | ExprKind::Closure(_, _) => {}
+        ExprKind::Hole
+        | ExprKind::Lit(_)
+        | ExprKind::Var(_, _)
+        | ExprKind::Closure(_, _)
+        // `Struct` is dead PostUdtErase: `udt_erase` lowers `Struct` to `Tuple`,
+        | ExprKind::Struct(_, _, _) => {}
     }
 }
 
@@ -655,206 +990,444 @@ fn collect_closure_targets(
     targets
 }
 
-/// Promotes a single candidate in-place: decomposes the input pattern and
-/// rewrites field accesses in all specialization bodies. Returns a
-/// `PromotionResult` only for top-level promotions (which require call-site
-/// rewriting).
+/// Flattens an entire callable input into one flat tuple of scalar leaves,
+/// dissolving all inter-parameter grouping, then remaps every promotable
+/// parameter's body field reads to its scalar leaves.
+///
+/// Every promotable parameter (those in `candidates`) is decomposed to its
+/// scalar leaves; every other parameter (non-tuple, or a tuple read as a
+/// whole value) is kept as a single leaf. The leaves of all parameters are
+/// concatenated into one flat input tuple, so a multi-parameter callable such
+/// as `Add(a : (Int, Int), b : (Int, Int))` flattens to
+/// `Add(a_0 : Int, a_1 : Int, b_0 : Int, b_1 : Int)`, and a mixed callable
+/// `UsePair(p : (Int, Int), q : Qubit)` flattens to
+/// `UsePair(p_0 : Int, p_1 : Int, q : Qubit)` (keeping `q` as a singleton).
 ///
 /// # Before
 /// ```text
-/// input pat = Bind(p : (A, B))
-/// body:  Field(Var(Local(p)), Path([0])); Field(Var(Local(p)), Path([1]))
+/// decl.input = Tuple([Bind(a : (Int, Int)), Bind(b : (Int, Int))])
+/// body:  Field(Var(Local(a)), Path([0])); Field(Var(Local(b)), Path([1]))
 /// ```
 /// # After
 /// ```text
-/// input pat = Tuple([Bind(p_0 : A), Bind(p_1 : B)])
-/// body:  Var(Local(p_0)); Var(Local(p_1))
+/// decl.input = Tuple([Bind(a_0 : Int), Bind(a_1 : Int),
+///                     Bind(b_0 : Int), Bind(b_1 : Int)])
+/// body:  Var(Local(a_0)); Var(Local(b_1))
 /// ```
 ///
 /// # Mutations
-/// - Rewrites the input `Pat` from `Bind` to `Tuple` of per-element `Bind`s.
-/// - Allocates new `LocalVarId`, `PatId` nodes through `assigner`.
-/// - Delegates to [`rewrite_field_accesses`] to rewrite body expressions.
-fn promote_candidate(
+/// - Rewrites `decl.input`'s `Pat` node (kind + `ty`) in place to the flat
+///   tuple, and refreshes every specialization input `ty` to match.
+/// - Allocates new `LocalVarId`/`PatId` leaf nodes through `assigner`.
+/// - Remaps body expressions of every promoted parameter to read the
+///   decomposed leaf locals.
+///
+/// # Returns
+///
+/// A `PromotionResult` whose `leaves` lists every flat input leaf with its
+/// absolute positional path in the original (nested) input type, used to
+/// rewrite call sites. Returns `None` only if the item is not a callable.
+fn promote_callable(
     package: &mut Package,
     assigner: &mut Assigner,
-    candidate: &ArgPromoCandidate,
+    item_id: LocalItemId,
+    candidates: &[&ArgPromoCandidate],
 ) -> Option<PromotionResult> {
-    let new_locals = decompose_binding(
+    let input_pat_id = {
+        let item = package.get_item(item_id);
+        let ItemKind::Callable(decl) = &item.kind else {
+            return None;
+        };
+        decl.input
+    };
+
+    // The set of parameter locals to expand to scalar leaves. Every other
+    // parameter is kept as a single leaf.
+    let promotable: FxHashSet<LocalVarId> = candidates.iter().map(|c| c.local_id).collect();
+
+    // Recursively rebuild the input pattern into a flat list of leaf binds,
+    // recording each leaf's absolute path/type and, per promoted parameter,
+    // the leaf-relative map used to remap its body field reads.
+    let mut leaf_pat_ids: Vec<PatId> = Vec::new();
+    let mut leaf_entries: Vec<(Vec<usize>, Ty)> = Vec::new();
+    let mut remaps: Vec<(LocalVarId, Ty, FxHashMap<Vec<usize>, (LocalVarId, Ty)>)> = Vec::new();
+    let mut index_path: Vec<usize> = Vec::new();
+    rebuild_input_leaves(
         package,
         assigner,
-        candidate.pat_id,
-        &candidate.name,
-        &candidate.elem_types,
+        input_pat_id,
+        &mut index_path,
+        &promotable,
+        &mut leaf_pat_ids,
+        &mut leaf_entries,
+        &mut remaps,
     );
 
-    // Rewrite field accesses scoped to the promoted callable's body.
-    rewrite_field_accesses(
-        package,
-        assigner,
-        candidate.item_id,
-        candidate.local_id,
-        &new_locals,
-        &candidate.elem_types,
-    );
+    // Set the callable input pattern to the flat tuple of leaf binds, in
+    // lockstep with its flat tuple type. Controlled/adjoint specs share this
+    // payload pattern node, so the in-place mutation is visible to them.
+    let leaf_tys: Vec<Ty> = leaf_entries.iter().map(|(_, ty)| ty.clone()).collect();
+    let pat = package
+        .pats
+        .get_mut(input_pat_id)
+        .expect("input pat should exist");
+    pat.kind = PatKind::Tuple(leaf_pat_ids);
+    pat.ty = Ty::Tuple(leaf_tys);
 
-    if candidate.is_top_level {
-        Some(PromotionResult {
-            item_id: candidate.item_id,
-            elem_types: candidate.elem_types.clone(),
-        })
-    } else {
-        None
+    // Refresh every specialization input pattern's tuple type so the wrapper
+    // control layers (e.g. `(ctls, payload)`) pick up the flattened payload.
+    refresh_spec_input_types(package, item_id);
+
+    // Remap each promoted parameter's body field reads to its scalar leaves
+    // (interior whole-tuple reads are reconstructed as nested leaf tuples).
+    // Each parameter's recorded whole-value read sites are carried alongside
+    // so the body rewrite can reconstruct those standalone reads.
+    let reads_by_local: FxHashMap<LocalVarId, &[ExprId]> = candidates
+        .iter()
+        .map(|c| (c.local_id, c.whole_value_reads.as_slice()))
+        .collect();
+    for (old_local, param_ty, leaf_map) in &remaps {
+        let whole_value_reads = reads_by_local.get(old_local).copied().unwrap_or(&[]);
+        rewrite_leaf_field_accesses(
+            package,
+            assigner,
+            item_id,
+            *old_local,
+            param_ty,
+            leaf_map,
+            whole_value_reads,
+        );
+    }
+
+    Some(PromotionResult {
+        item_id,
+        leaves: leaf_entries,
+    })
+}
+
+/// Recursively rebuilds a callable input subtree into a flat list of leaf
+/// binds, dissolving tuple grouping.
+///
+/// `index_path` carries the cumulative positional path from `decl.input` to
+/// the current pattern; it is pushed/popped around each tuple element so
+/// callers observe it unchanged on return.
+///
+/// - A `Bind` of a promotable parameter is decomposed (via
+///   [`decompose_binding_to_leaves`]) into scalar-leaf binds, which are
+///   hoisted directly into the flat leaf list (not left nested). The
+///   parameter's leaf-relative `(path -> (local, ty))` map and full type are
+///   recorded in `remaps` for body remapping.
+/// - Any other `Bind` (non-tuple, or a tuple read as a whole value) and any
+///   `Discard` is kept as a single leaf, reusing the existing pattern node.
+/// - A `Tuple` recurses into each element and concatenates the children's
+///   leaves, which is what flattens nested grouping.
+fn rebuild_input_leaves(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    pat_id: PatId,
+    index_path: &mut Vec<usize>,
+    promotable: &FxHashSet<LocalVarId>,
+    leaf_pat_ids: &mut Vec<PatId>,
+    leaf_entries: &mut Vec<(Vec<usize>, Ty)>,
+    remaps: &mut Vec<(LocalVarId, Ty, FxHashMap<Vec<usize>, (LocalVarId, Ty)>)>,
+) {
+    let pat = package.get_pat(pat_id);
+    let pat_ty = pat.ty.clone();
+    let kind = pat.kind.clone();
+    match kind {
+        PatKind::Bind(ident) if promotable.contains(&ident.id) => {
+            // Decompose this promotable parameter to a flat tuple of scalar
+            // leaves in place, then hoist those leaf pat ids up into the
+            // enclosing flat list (dissolving the per-parameter grouping).
+            let rel_leaves =
+                decompose_binding_to_leaves(package, assigner, pat_id, &ident.name, &pat_ty);
+            let child_pat_ids = match &package.get_pat(pat_id).kind {
+                PatKind::Tuple(children) => children.clone(),
+                _ => unreachable!("decompose_binding_to_leaves sets a Tuple pattern"),
+            };
+            leaf_pat_ids.extend(child_pat_ids);
+
+            let mut leaf_map: FxHashMap<Vec<usize>, (LocalVarId, Ty)> = FxHashMap::default();
+            for (rel_path, leaf_local, leaf_ty) in &rel_leaves {
+                let mut full_path = index_path.clone();
+                full_path.extend_from_slice(rel_path);
+                leaf_entries.push((full_path, leaf_ty.clone()));
+                leaf_map.insert(rel_path.clone(), (*leaf_local, leaf_ty.clone()));
+            }
+            remaps.push((ident.id, pat_ty, leaf_map));
+        }
+        PatKind::Bind(_) | PatKind::Discard => {
+            // Kept parameter: a single leaf projecting the whole value.
+            leaf_pat_ids.push(pat_id);
+            leaf_entries.push((index_path.clone(), pat_ty));
+        }
+        PatKind::Tuple(sub_pats) => {
+            for (i, sub_pat_id) in sub_pats.into_iter().enumerate() {
+                index_path.push(i);
+                rebuild_input_leaves(
+                    package,
+                    assigner,
+                    sub_pat_id,
+                    index_path,
+                    promotable,
+                    leaf_pat_ids,
+                    leaf_entries,
+                    remaps,
+                );
+                index_path.pop();
+            }
+        }
     }
 }
 
-/// Rewrites field accesses on the old local to use the new decomposed locals.
+/// Recomputes the tuple types of every specialization input pattern of a
+/// callable bottom-up from their child pattern types.
 ///
-/// Scoped to the promoted callable's body expressions only, since `old_local`
-/// is a parameter binding that can only appear in the declaring callable.
+/// After a top-level parameter is flattened, the controlled/adjoint
+/// specialization input patterns (which wrap the shared payload pattern in
+/// control layers, e.g. `(ctls, payload)`) must have their tuple types
+/// refreshed so the pattern shape continues to match the type shape, as
+/// required by the `PostArgPromote` tuple-pattern invariant.
+fn refresh_spec_input_types(package: &mut Package, item_id: LocalItemId) {
+    let spec_input_pats: Vec<PatId> = {
+        let item = package.get_item(item_id);
+        let ItemKind::Callable(decl) = &item.kind else {
+            return;
+        };
+        match &decl.implementation {
+            CallableImpl::Spec(spec_impl) => functored_specs(spec_impl)
+                .filter_map(|spec| spec.input)
+                .chain(spec_impl.body.input)
+                .collect(),
+            CallableImpl::SimulatableIntrinsic(spec) => spec.input.into_iter().collect(),
+            CallableImpl::Intrinsic => Vec::new(),
+        }
+    };
+    for pat_id in spec_input_pats {
+        refresh_pat_tuple_ty(package, pat_id);
+    }
+}
+
+/// Recomputes a pattern's tuple type from its children, recursively. Leaf
+/// (`Bind`/`Discard`) pattern types are authoritative and left unchanged.
+fn refresh_pat_tuple_ty(package: &mut Package, pat_id: PatId) {
+    let sub_pat_ids = match &package.get_pat(pat_id).kind {
+        PatKind::Tuple(sub_pats) => sub_pats.clone(),
+        PatKind::Bind(_) | PatKind::Discard => return,
+    };
+    let mut elem_tys = Vec::with_capacity(sub_pat_ids.len());
+    for &sub_pat_id in &sub_pat_ids {
+        refresh_pat_tuple_ty(package, sub_pat_id);
+        elem_tys.push(package.get_pat(sub_pat_id).ty.clone());
+    }
+    package.pats.get_mut(pat_id).expect("pat should exist").ty = Ty::Tuple(elem_tys);
+}
+
+/// Remaps every body field read of a fully-flattened parameter to the
+/// matching scalar leaf local, scoped to the promoted callable's bodies.
 ///
-/// # Before
-/// ```text
-/// Field(Var(Local(old)), Path([i]))   // param.i
-/// ```
-/// # After
-/// ```text
-/// Var(Local(old_i))   // direct scalar reference
-/// ```
-///
-/// # Mutations
-/// - Rewrites `Expr.kind` in place for matching `Field` and `AssignField`
-///   expressions via [`rewrite_single_field_expr`].
-fn rewrite_field_accesses(
+/// `whole_value_reads` carries the parameter's standalone whole-value read
+/// sites so they can be reconstructed from the scalar leaves; it is consumed by
+/// the standalone-read rewrite.
+fn rewrite_leaf_field_accesses(
     package: &mut Package,
     assigner: &mut Assigner,
     item_id: LocalItemId,
     old_local: LocalVarId,
-    new_locals: &[LocalVarId],
-    elem_types: &[Ty],
+    param_ty: &Ty,
+    leaf_map: &FxHashMap<Vec<usize>, (LocalVarId, Ty)>,
+    whole_value_reads: &[ExprId],
 ) {
     let expr_ids = collect_expr_ids_in_local_callables(&*package, &[item_id]);
     for expr_id in expr_ids {
-        rewrite_single_field_expr(
-            package, assigner, expr_id, old_local, new_locals, elem_types,
-        );
+        rewrite_single_leaf_field_expr(package, assigner, expr_id, old_local, param_ty, leaf_map);
+    }
+
+    // Reconstruct each standalone whole-value read of the now-flattened
+    // parameter. These are the exact `Var(old_local)` sites that are not the
+    // base of a field projection (field bases are consumed when their parent
+    // `Field` node is rewritten above), so reconstructing them in place is
+    // safe and never clobbers a `Field(Var(old_local), Path)` base.
+    for &expr_id in whole_value_reads {
+        reconstruct_whole_value_read(package, assigner, expr_id, old_local, param_ty, leaf_map);
     }
 }
 
-/// Rewrites a single expression that projects a field of the now-promoted
-/// parameter so it references the corresponding new scalar parameter
-/// binding directly.
-///
-/// Handles two expression shapes:
-///
-/// # Before (`Field` read)
-/// ```text
-/// Field(Var(Local(old_param)), Path([i]))      // single-index
-/// Field(Var(Local(old_param)), Path([i, j]))   // nested
-/// ```
-/// # After (`Field` read)
-/// ```text
-/// Var(Local(param_i))                          // single-index: direct
-/// Field(Var(Local(param_i)), Path([j]))         // nested: re-rooted
-/// ```
-///
-/// # Before (`AssignField`)
-/// ```text
-/// AssignField(Var(Local(old_param)), Path([i]), value)
-/// ```
-/// # After (`AssignField`)
-/// ```text
-/// Assign(Var(Local(param_i)), value)
-/// ```
-///
-/// # Mutations
-/// - Rewrites `Expr.kind` and `Expr.ty` in place for the matched expression.
-/// - Allocates new `Var` `Expr` nodes through `assigner` for nested and
-///   assign-field paths.
-fn rewrite_single_field_expr(
+/// Reconstructs a single standalone whole-value `Var(old_local)` read of a
+/// fully-flattened parameter into a (possibly nested) tuple of its scalar leaf
+/// `Var`s, overwriting the node's kind and type in place so the reconstructed
+/// value has the same shape and type as the original parameter.
+fn reconstruct_whole_value_read(
     package: &mut Package,
     assigner: &mut Assigner,
     expr_id: ExprId,
     old_local: LocalVarId,
-    new_locals: &[LocalVarId],
-    elem_types: &[Ty],
+    param_ty: &Ty,
+    leaf_map: &FxHashMap<Vec<usize>, (LocalVarId, Ty)>,
 ) {
     let expr = package.exprs.get(expr_id).expect("expr should exist");
-    match expr.kind.clone() {
-        ExprKind::Field(inner_id, Field::Path(path)) => {
-            let inner = package
-                .exprs
-                .get(inner_id)
-                .expect("inner expr should exist");
-            if let ExprKind::Var(Res::Local(var_id), _) = &inner.kind
-                && *var_id == old_local
-                && !path.indices.is_empty()
-            {
-                let idx = path.indices[0];
-                if idx < new_locals.len() {
-                    if path.indices.len() == 1 {
-                        let new_local = new_locals[idx];
-                        let new_ty = elem_types[idx].clone();
-                        let expr_mut = package.exprs.get_mut(expr_id).expect("expr exists");
-                        expr_mut.kind = ExprKind::Var(Res::Local(new_local), vec![]);
-                        expr_mut.ty = new_ty;
-                    } else {
-                        let new_local = new_locals[idx];
-                        let remaining: Vec<usize> = path.indices[1..].to_vec();
-
-                        let new_inner_id = assigner.next_expr();
-                        package.exprs.insert(
-                            new_inner_id,
-                            Expr {
-                                id: new_inner_id,
-                                span: Span::default(),
-                                ty: elem_types[idx].clone(),
-                                kind: ExprKind::Var(Res::Local(new_local), vec![]),
-                                exec_graph_range: EMPTY_EXEC_RANGE,
-                            },
-                        );
-
-                        let expr_mut = package.exprs.get_mut(expr_id).expect("expr exists");
-                        expr_mut.kind = ExprKind::Field(
-                            new_inner_id,
-                            Field::Path(FieldPath { indices: remaining }),
-                        );
-                    }
-                }
-            }
-        }
-        ExprKind::AssignField(record_id, Field::Path(path), value_id) => {
-            let record = package
-                .exprs
-                .get(record_id)
-                .expect("record expr should exist");
-            if let ExprKind::Var(Res::Local(var_id), _) = &record.kind
-                && *var_id == old_local
-                && !path.indices.is_empty()
-            {
-                let idx = path.indices[0];
-                if idx < new_locals.len() && path.indices.len() == 1 {
-                    let new_local = new_locals[idx];
-
-                    let new_record_id = assigner.next_expr();
-                    package.exprs.insert(
-                        new_record_id,
-                        Expr {
-                            id: new_record_id,
-                            span: Span::default(),
-                            ty: elem_types[idx].clone(),
-                            kind: ExprKind::Var(Res::Local(new_local), vec![]),
-                            exec_graph_range: EMPTY_EXEC_RANGE,
-                        },
-                    );
-
-                    let expr_mut = package.exprs.get_mut(expr_id).expect("expr exists");
-                    expr_mut.kind = ExprKind::Assign(new_record_id, value_id);
-                }
-            }
-        }
-        _ => {}
+    let ExprKind::Var(Res::Local(var_id), _) = &expr.kind else {
+        return;
+    };
+    if *var_id != old_local {
+        return;
     }
+
+    let new_id = build_leaf_tuple(package, assigner, param_ty, &[], leaf_map);
+    let kind = package
+        .exprs
+        .get(new_id)
+        .expect("rebuilt expr exists")
+        .kind
+        .clone();
+    let ty = package
+        .exprs
+        .get(new_id)
+        .expect("rebuilt expr exists")
+        .ty
+        .clone();
+    let expr_mut = package.exprs.get_mut(expr_id).expect("expr exists");
+    expr_mut.kind = kind;
+    expr_mut.ty = ty;
+}
+
+/// Rewrites a single body expression that projects a field of the fully
+/// flattened parameter.
+///
+/// An exact-path read (`Field(Var(old), Path(p))` where `p` is a leaf path)
+/// becomes a direct `Var(leaf)`. An interior whole-tuple read (`p` is a strict
+/// prefix of one or more leaf paths) is reconstructed as a nested
+/// `Tuple([Var(leaf), ...])` of all leaves under `p`, so callers that read a
+/// sub-tuple of the parameter whole still observe the same value.
+fn rewrite_single_leaf_field_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    expr_id: ExprId,
+    old_local: LocalVarId,
+    param_ty: &Ty,
+    leaf_map: &FxHashMap<Vec<usize>, (LocalVarId, Ty)>,
+) {
+    let expr = package.exprs.get(expr_id).expect("expr should exist");
+    let ExprKind::Field(inner_id, Field::Path(path)) = expr.kind.clone() else {
+        return;
+    };
+    let inner = package
+        .exprs
+        .get(inner_id)
+        .expect("inner expr should exist");
+    let ExprKind::Var(Res::Local(var_id), _) = &inner.kind else {
+        return;
+    };
+    if *var_id != old_local || path.indices.is_empty() {
+        return;
+    }
+
+    if let Some((leaf_local, leaf_ty)) = leaf_map.get(&path.indices) {
+        let leaf_local = *leaf_local;
+        let leaf_ty = leaf_ty.clone();
+        let expr_mut = package.exprs.get_mut(expr_id).expect("expr exists");
+        expr_mut.kind = ExprKind::Var(Res::Local(leaf_local), vec![]);
+        expr_mut.ty = leaf_ty;
+    } else {
+        // Interior whole-tuple read: reconstruct a nested tuple of the leaf
+        // locals under this prefix path.
+        let new_id = build_leaf_tuple(package, assigner, param_ty, &path.indices, leaf_map);
+        let kind = package
+            .exprs
+            .get(new_id)
+            .expect("rebuilt expr exists")
+            .kind
+            .clone();
+        let ty = package
+            .exprs
+            .get(new_id)
+            .expect("rebuilt expr exists")
+            .ty
+            .clone();
+        let expr_mut = package.exprs.get_mut(expr_id).expect("expr exists");
+        expr_mut.kind = kind;
+        expr_mut.ty = ty;
+    }
+}
+
+/// Reconstructs a (possibly nested) tuple of leaf-local `Var`s for the
+/// sub-tree of `param_ty` rooted at `prefix`, used for interior whole-tuple
+/// reads of a flattened parameter.
+fn build_leaf_tuple(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    param_ty: &Ty,
+    prefix: &[usize],
+    leaf_map: &FxHashMap<Vec<usize>, (LocalVarId, Ty)>,
+) -> ExprId {
+    if let Some((leaf_local, leaf_ty)) = leaf_map.get(prefix) {
+        return create_local_var_expr(package, assigner, *leaf_local, leaf_ty);
+    }
+
+    let sub_ty = navigate_tuple_ty(param_ty, prefix);
+    let Ty::Tuple(elems) = sub_ty else {
+        // Defensive totality: every non-tuple leaf path is present in `leaf_map`
+        // (handled by the early return above), so this fallback is unreachable for
+        // well-formed flattened inputs. Fall back to a unit tuple to keep the
+        // rewrite total.
+        let expr_id = assigner.next_expr();
+        package.exprs.insert(
+            expr_id,
+            Expr {
+                id: expr_id,
+                span: Span::default(),
+                ty: sub_ty.clone(),
+                kind: ExprKind::Tuple(vec![]),
+                exec_graph_range: EMPTY_EXEC_RANGE,
+            },
+        );
+        return expr_id;
+    };
+
+    let mut child_ids = Vec::with_capacity(elems.len());
+    let mut child_path = prefix.to_vec();
+    for i in 0..elems.len() {
+        child_path.push(i);
+        child_ids.push(build_leaf_tuple(
+            package,
+            assigner,
+            param_ty,
+            &child_path,
+            leaf_map,
+        ));
+        child_path.pop();
+    }
+
+    let expr_id = assigner.next_expr();
+    package.exprs.insert(
+        expr_id,
+        Expr {
+            id: expr_id,
+            span: Span::default(),
+            ty: sub_ty.clone(),
+            kind: ExprKind::Tuple(child_ids),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    expr_id
+}
+
+/// Navigates a (possibly nested) tuple type by a positional `path`, returning
+/// the type at that path.
+fn navigate_tuple_ty<'a>(ty: &'a Ty, path: &[usize]) -> &'a Ty {
+    let mut current = ty;
+    for &index in path {
+        match current {
+            Ty::Tuple(elems) => {
+                current = elems.get(index).expect("path index within tuple arity");
+            }
+            // Dead arm: `build_leaf_tuple` recurses only on `Ty::Tuple` and
+            // intercepts leaves via `leaf_map` before recursing, so a non-tuple
+            // type never reaches here for well-formed flattened inputs.
+            _ => panic!("path navigates into non-tuple type"),
+        }
+    }
+    current
 }
 
 /// Rewrites all call sites for promoted callables. At each direct item call,
@@ -971,6 +1544,23 @@ fn resolve_direct_item_callee(
     }
 }
 
+/// Resolves the entry-point callable's [`LocalItemId`] from `package.entry`.
+///
+/// The entry callable's input is the program's externally-visible ABI and must
+/// never be flattened by argument promotion. The entry expression is a direct
+/// `Call(callee, _)`; its callee is resolved via [`resolve_direct_item_callee`]
+/// so adjoint/controlled functor wrappers are unwrapped. Returns `None` when
+/// there is no entry expression or it is not a direct call, leaving behavior
+/// unchanged in those cases.
+fn resolve_entry_callable_item(package: &Package, package_id: PackageId) -> Option<LocalItemId> {
+    let entry_id = package.entry?;
+    if let ExprKind::Call(callee_id, _) = &package.get_expr(entry_id).kind {
+        resolve_direct_item_callee(package, package_id, *callee_id).map(|c| c.item_id)
+    } else {
+        None
+    }
+}
+
 /// Returns `true` when an argument expression can be projected repeatedly
 /// without side effects (e.g. literals, plain `Var` references), letting
 /// the caller inline each projected field without introducing a
@@ -1018,7 +1608,7 @@ fn create_projection_temp_binding(
             kind: PatKind::Bind(Ident {
                 id: local_id,
                 span: Span::default(),
-                name: Rc::from("__arg_promote_tmp"),
+                name: Rc::from(ARG_PROMOTE_TMP_NAME),
             }),
         },
     );
@@ -1035,6 +1625,152 @@ fn create_projection_temp_binding(
     );
 
     (local_id, stmt_id)
+}
+
+/// Returns `true` when the promotion leaf at `path` can be projected out of the
+/// tuple-literal argument `arg_id` by reusing existing sub-expressions, without
+/// introducing a temporary.
+///
+/// Navigation descends through nested tuple literals. Once a non-literal
+/// sub-expression is reached with path remaining, the remainder is a field
+/// projection that is only duplication-safe when that sub-expression is itself
+/// safe to project repeatedly. A leaf whose path is fully consumed by tuple
+/// literals lands on a sub-expression that is referenced exactly once, so it is
+/// always safe to reuse in place.
+fn leaf_projects_through_tuple_literal(package: &Package, arg_id: ExprId, path: &[usize]) -> bool {
+    let mut current = arg_id;
+    let mut rest = path;
+    while !rest.is_empty() {
+        let ExprKind::Tuple(elems) = &package.get_expr(current).kind else {
+            return expr_is_safe_to_project_repeatedly(package, current);
+        };
+        let Some(&next) = elems.get(rest[0]) else {
+            return false;
+        };
+        current = next;
+        rest = &rest[1..];
+    }
+    true
+}
+
+/// Projects the promotion leaf at `path` out of the tuple-literal argument
+/// `arg_id`, reusing existing sub-expressions in place. Descends through nested
+/// tuple literals; if a non-literal sub-expression is reached with path
+/// remaining, a `Field` projection of that sub-expression is allocated.
+///
+/// Callers must first confirm the leaf is projectable via
+/// [`leaf_projects_through_tuple_literal`].
+fn project_leaf_through_tuple_literal(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    arg_id: ExprId,
+    path: &[usize],
+    leaf_ty: &Ty,
+) -> ExprId {
+    let mut current = arg_id;
+    let mut rest = path;
+    while !rest.is_empty() {
+        let next = {
+            let ExprKind::Tuple(elems) = &package.get_expr(current).kind else {
+                break;
+            };
+            elems[rest[0]]
+        };
+        current = next;
+        rest = &rest[1..];
+    }
+
+    if rest.is_empty() {
+        return current;
+    }
+
+    let field_expr_id = assigner.next_expr();
+    package.exprs.insert(
+        field_expr_id,
+        Expr {
+            id: field_expr_id,
+            span: Span::default(),
+            ty: leaf_ty.clone(),
+            kind: ExprKind::Field(
+                current,
+                Field::Path(FieldPath {
+                    indices: rest.to_vec(),
+                }),
+            ),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    field_expr_id
+}
+
+/// Attempts to build the flat projected tuple argument directly from a
+/// tuple-literal argument by reusing each leaf sub-expression in place, instead
+/// of binding the whole argument to a temporary and projecting from it.
+///
+/// Returns `None` when the argument is not a tuple literal, or when some leaf
+/// would require duplicating a sub-expression that is not safe to project
+/// repeatedly, in which case the caller falls back to a temporary binding.
+///
+/// # Before
+/// ```text
+/// Foo(((a, b), c - 1))   // nested tuple literal argument
+/// ```
+/// # After
+/// ```text
+/// Foo((a, b, c - 1))     // flat leaf projection, no temporary
+/// ```
+///
+/// This keeps a promoted multi-leaf call site in clean flat form with no
+/// surviving projection temporary, the common shape for promoted self-calls and
+/// tuple-literal arguments.
+///
+/// # Mutations
+/// - Allocates per-leaf `Field` `Expr` nodes (only for residual sub-paths) and
+///   the outer `Tuple` `Expr` through `assigner`.
+fn try_inline_tuple_literal_projection(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    promotion: &PromotionResult,
+    arg_id: ExprId,
+) -> Option<ExprId> {
+    if !matches!(package.get_expr(arg_id).kind, ExprKind::Tuple(_)) {
+        return None;
+    }
+    if !promotion
+        .leaves
+        .iter()
+        .all(|(path, _)| leaf_projects_through_tuple_literal(package, arg_id, path))
+    {
+        return None;
+    }
+
+    let field_expr_ids: Vec<ExprId> = promotion
+        .leaves
+        .iter()
+        .map(|(path, leaf_ty)| {
+            project_leaf_through_tuple_literal(package, assigner, arg_id, path, leaf_ty)
+        })
+        .collect();
+
+    let tuple_ty = Ty::Tuple(
+        promotion
+            .leaves
+            .iter()
+            .map(|(_, leaf_ty)| leaf_ty.clone())
+            .collect(),
+    );
+    let new_arg_id = assigner.next_expr();
+    package.exprs.insert(
+        new_arg_id,
+        Expr {
+            id: new_arg_id,
+            span: Span::default(),
+            ty: tuple_ty,
+            kind: ExprKind::Tuple(field_expr_ids),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    Some(new_arg_id)
 }
 
 /// Allocates a fresh `ExprKind::Var(Res::Local(var))` expression with the
@@ -1064,8 +1800,8 @@ fn create_local_var_expr(
 }
 
 /// Builds the projected tuple that replaces the original tuple argument at
-/// a call site, pairing each projected sub-expression with the type slot
-/// expected by the promoted callable signature.
+/// a call site, projecting each flat scalar leaf of the promoted callable's
+/// (fully decomposed) parameter from the original argument value.
 ///
 /// # Before
 /// ```text
@@ -1073,11 +1809,13 @@ fn create_local_var_expr(
 /// ```
 /// # After
 /// ```text
-/// Tuple([Field(arg, Path([0])), ..., Field(arg, Path([n-1]))])
+/// Tuple([Field(arg, Path(p_0)), ..., Field(arg, Path(p_{n-1}))])
 /// ```
+/// where each `p_i` is the positional path of a leaf in the original
+/// (possibly nested) parameter type.
 ///
 /// # Mutations
-/// - Allocates per-element `Field` `Expr` nodes and the outer `Tuple`
+/// - Allocates per-leaf `Field` `Expr` nodes and the outer `Tuple`
 ///   `Expr` through `assigner`.
 fn create_projected_tuple_arg(
     package: &mut Package,
@@ -1087,10 +1825,9 @@ fn create_projected_tuple_arg(
     arg_ty: &Ty,
     temp_local: Option<LocalVarId>,
 ) -> ExprId {
-    let n = promotion.elem_types.len();
-    let mut field_expr_ids: Vec<ExprId> = Vec::with_capacity(n);
+    let mut field_expr_ids: Vec<ExprId> = Vec::with_capacity(promotion.leaves.len());
 
-    for i in 0..n {
+    for (path, leaf_ty) in &promotion.leaves {
         let field_base_id = if let Some(temp_local) = temp_local {
             create_local_var_expr(package, assigner, temp_local, arg_ty)
         } else {
@@ -1100,8 +1837,13 @@ fn create_projected_tuple_arg(
         let field_expr = qsc_fir::fir::Expr {
             id: field_expr_id,
             span: Span::default(),
-            ty: promotion.elem_types[i].clone(),
-            kind: ExprKind::Field(field_base_id, Field::Path(FieldPath { indices: vec![i] })),
+            ty: leaf_ty.clone(),
+            kind: ExprKind::Field(
+                field_base_id,
+                Field::Path(FieldPath {
+                    indices: path.clone(),
+                }),
+            ),
             exec_graph_range: EMPTY_EXEC_RANGE,
         };
         package.exprs.insert(field_expr_id, field_expr);
@@ -1109,7 +1851,13 @@ fn create_projected_tuple_arg(
     }
 
     let new_arg_id = assigner.next_expr();
-    let tuple_ty = Ty::Tuple(promotion.elem_types.clone());
+    let tuple_ty = Ty::Tuple(
+        promotion
+            .leaves
+            .iter()
+            .map(|(_, leaf_ty)| leaf_ty.clone())
+            .collect(),
+    );
     let new_arg = qsc_fir::fir::Expr {
         id: new_arg_id,
         span: Span::default(),
@@ -1186,6 +1934,30 @@ fn create_payload_block(
     block_expr_id
 }
 
+/// Returns `true` when `elems` is already the fully-flattened argument list:
+/// one element per promotion leaf, each carrying the leaf's scalar type. A
+/// top-level arity match alone is insufficient, because an element may itself
+/// be a nested tuple (for example a single-field struct erased to a 1-tuple)
+/// that still needs projection into the flat leaf list.
+fn arg_tuple_matches_flat_leaves(
+    package: &Package,
+    elems: &[ExprId],
+    promotion: &PromotionResult,
+) -> bool {
+    elems.len() == promotion.leaves.len()
+        && elems
+            .iter()
+            .zip(&promotion.leaves)
+            .all(|(elem_id, (_, leaf_ty))| {
+                package
+                    .exprs
+                    .get(*elem_id)
+                    .expect("arg element expr exists")
+                    .ty
+                    == *leaf_ty
+            })
+}
+
 /// Creates a promoted payload argument, returning `None` when the existing
 /// payload already has the expected tuple shape.
 fn create_rewritten_payload_arg(
@@ -1196,20 +1968,28 @@ fn create_rewritten_payload_arg(
 ) -> Option<ExprId> {
     let arg_expr = package.exprs.get(arg_id).expect("arg expr exists");
     let arg_ty = arg_expr.ty.clone();
+    let arg_tuple_elems = match &arg_expr.kind {
+        ExprKind::Tuple(elems) => Some(elems.clone()),
+        _ => None,
+    };
 
-    if let ExprKind::Tuple(elems) = &arg_expr.kind
-        && elems.len() == promotion.elem_types.len()
+    if let Some(elems) = &arg_tuple_elems
+        && arg_tuple_matches_flat_leaves(package, elems, promotion)
     {
         return None;
     }
 
-    if promotion.elem_types.len() == 1 {
+    if promotion.leaves.len() == 1 {
+        let leaf_tys: Vec<Ty> = promotion.leaves.iter().map(|(_, ty)| ty.clone()).collect();
         return Some(create_single_tuple_arg(
-            package,
-            assigner,
-            arg_id,
-            &promotion.elem_types,
+            package, assigner, arg_id, &leaf_tys,
         ));
+    }
+
+    if let Some(new_arg_id) =
+        try_inline_tuple_literal_projection(package, assigner, promotion, arg_id)
+    {
+        return Some(new_arg_id);
     }
 
     let temp_binding = if expr_is_safe_to_project_repeatedly(package, arg_id) {
@@ -1337,18 +2117,34 @@ fn rewrite_single_call_site(
 
     let arg_expr = package.exprs.get(arg_id).expect("arg expr exists");
     let arg_ty = arg_expr.ty.clone();
+    let arg_tuple_elems = match &arg_expr.kind {
+        ExprKind::Tuple(elems) => Some(elems.clone()),
+        _ => None,
+    };
 
-    // If the argument is already a tuple literal with matching arity,
-    // the call site is already structured correctly.
-    if let ExprKind::Tuple(elems) = &arg_expr.kind
-        && elems.len() == promotion.elem_types.len()
+    // If the argument is already a flat tuple literal whose elements match the
+    // promotion leaf types, the call site is already structured correctly.
+    if let Some(elems) = &arg_tuple_elems
+        && arg_tuple_matches_flat_leaves(package, elems, promotion)
     {
         return;
     }
 
-    if promotion.elem_types.len() == 1 {
-        let new_arg_id = create_single_tuple_arg(package, assigner, arg_id, &promotion.elem_types);
+    if promotion.leaves.len() == 1 {
+        let leaf_tys: Vec<Ty> = promotion.leaves.iter().map(|(_, ty)| ty.clone()).collect();
+        let new_arg_id = create_single_tuple_arg(package, assigner, arg_id, &leaf_tys);
 
+        let call_mut = package
+            .exprs
+            .get_mut(call_expr_id)
+            .expect("call expr exists");
+        call_mut.kind = ExprKind::Call(callee_id, new_arg_id);
+        return;
+    }
+
+    if let Some(new_arg_id) =
+        try_inline_tuple_literal_projection(package, assigner, promotion, arg_id)
+    {
         let call_mut = package
             .exprs
             .get_mut(call_expr_id)

@@ -28,7 +28,7 @@
 //!
 //! **Before:** Package arenas contain orphaned blocks, stmts, exprs, and pats
 //! left behind by earlier rewrite passes (return unify, defunctionalize, UDT
-//! erase, SROA, argument promote).
+//! erase, tuple-decompose, argument promote).
 //!
 //! **After:** Only nodes reachable from callable bodies and the entry
 //! expression survive. Orphaned entries are tombstoned in the `IndexMap`.

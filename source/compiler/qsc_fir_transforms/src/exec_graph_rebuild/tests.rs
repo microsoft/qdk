@@ -1004,3 +1004,42 @@ fn pinned_item_rebuilt_in_exec_graph() {
         1: Ret"#]]
     .assert_eq(&graph);
 }
+
+#[test]
+#[should_panic(
+    expected = "Closure and hole expressions should have been eliminated by post_defunc"
+)]
+fn residual_hole_in_rebuilt_body_panics() {
+    // exec_graph_rebuild defensively panics on `ExprKind::Closure`/`Hole`, which
+    // the `PostDefunc` invariant guarantees are gone by this stage. Inject a
+    // residual `Hole` into the reachable `Main` body to pin that defensive arm.
+    use crate::test_utils::compile_to_fir;
+
+    let (mut store, pkg_id) = compile_to_fir("function Main() : Int { 42 }");
+
+    // Locate the tail expression of `Main`'s body and overwrite it with a
+    // forbidden `Hole`, simulating a defunctionalization defect that left a
+    // residual variant behind.
+    let tail_expr_id = {
+        let package = store.get(pkg_id);
+        let main = find_callable(package, "Main");
+        let CallableImpl::Spec(spec) = &main.implementation else {
+            panic!("Main should have a spec body");
+        };
+        let block = package.get_block(spec.body.block);
+        let &tail_stmt_id = block.stmts.last().expect("Main body has a statement");
+        match &package.get_stmt(tail_stmt_id).kind {
+            qsc_fir::fir::StmtKind::Expr(e) | qsc_fir::fir::StmtKind::Semi(e) => *e,
+            other => panic!("expected a tail expression statement, found {other:?}"),
+        }
+    };
+    store
+        .get_mut(pkg_id)
+        .exprs
+        .get_mut(tail_expr_id)
+        .expect("tail expr should exist")
+        .kind = qsc_fir::fir::ExprKind::Hole;
+
+    // Rebuilding the reachable `Main` body must hit the defensive panic.
+    super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
+}

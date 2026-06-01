@@ -57,22 +57,24 @@ fn simple_both_branches_collapses_to_if_else() {
             // before both_branches (fired=true)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    } else {
-                        {
-                            __ret_val = 2;
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                } else {
+                    {
+                        __ret_val = 2;
+                        __has_returned = true;
+                    };
+                }
 
-                    if __has_returned __ret_val else __ret_val
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -81,16 +83,14 @@ fn simple_both_branches_collapses_to_if_else() {
             // after both_branches
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        1
-                    } else {
-                        2
-                    }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    1
+                } else {
+                    2
                 }
+
             }
             // entry
             Main()
@@ -132,30 +132,32 @@ fn nested_both_branches_collapses_recursively() {
             // before both_branches (fired=false)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        if false {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        } else {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    if false {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
                     } else {
                         {
-                            __ret_val = 3;
+                            __ret_val = 2;
                             __has_returned = true;
                         };
                     }
 
-                    if __has_returned __ret_val else __ret_val
+                } else {
+                    {
+                        __ret_val = 3;
+                        __has_returned = true;
+                    };
+                }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -164,30 +166,32 @@ fn nested_both_branches_collapses_recursively() {
             // after both_branches
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        if false {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        } else {
-                            {
-                                __ret_val = 2;
-                                __has_returned = true;
-                            };
-                        }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    if false {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
                     } else {
                         {
-                            __ret_val = 3;
+                            __ret_val = 2;
                             __has_returned = true;
                         };
                     }
 
-                    if __has_returned __ret_val else __ret_val
+                } else {
+                    {
+                        __ret_val = 3;
+                        __has_returned = true;
+                    };
+                }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -224,34 +228,32 @@ fn both_branches_with_complex_arm_expressions() {
             // before both_branches (fired=true)
             // namespace Test
             function F(x : Int) : Int {
-                body {
-                    x + 1
-                }
+                x + 1
             }
             function G(y : Int) : Int {
-                body {
-                    y * 2
-                }
+                y * 2
             }
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let x : Int = 3;
-                    let y : Int = 4;
-                    if true {
-                        {
-                            __ret_val = F(x);
-                            __has_returned = true;
-                        };
-                    } else {
-                        {
-                            __ret_val = G(y);
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let x : Int = 3;
+                let y : Int = 4;
+                if true {
+                    {
+                        __ret_val = F(x);
+                        __has_returned = true;
+                    };
+                } else {
+                    {
+                        __ret_val = G(y);
+                        __has_returned = true;
+                    };
+                }
 
-                    if __has_returned __ret_val else __ret_val
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __ret_val
                 }
             }
             // entry
@@ -260,28 +262,22 @@ fn both_branches_with_complex_arm_expressions() {
             // after both_branches
             // namespace Test
             function F(x : Int) : Int {
-                body {
-                    x + 1
-                }
+                x + 1
             }
             function G(y : Int) : Int {
-                body {
-                    y * 2
-                }
+                y * 2
             }
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let x : Int = 3;
-                    let y : Int = 4;
-                    if true {
-                        F(x)
-                    } else {
-                        G(y)
-                    }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let x : Int = 3;
+                let y : Int = 4;
+                if true {
+                    F(x)
+                } else {
+                    G(y)
                 }
+
             }
             // entry
             Main()
@@ -314,20 +310,24 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
             // before both_branches (fired=false)
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
 
-                    let __trailing_result : Int = if not __has_returned {
-                        0
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                let __trailing_result : Int = if not __has_returned {
+                    0
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -336,20 +336,24 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
             // after both_branches
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    if true {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        };
-                    }
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                }
 
-                    let __trailing_result : Int = if not __has_returned {
-                        0
-                    } else __ret_val;
-                    if __has_returned __ret_val else __trailing_result
+                let __trailing_result : Int = if not __has_returned {
+                    0
+                } else {
+                    __ret_val
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
                 }
             }
             // entry
@@ -523,7 +527,8 @@ fn qubit_typed_rhs_refuses_to_collapse() {
 
     // Sanity: without the qubit-typed RHS, the rule would fold; with it,
     // the bailout must fire and `apply` must report no change.
-    let changed = both_branches::apply(&mut package, &mut assigner, outer_bid);
+    let synth_slots = crate::return_unify::tests::synth_slots_for_block(&package, outer_bid);
+    let changed = both_branches::apply(&mut package, &mut assigner, outer_bid, &synth_slots);
     assert!(
         !changed,
         "both_branches rule must refuse to collapse a qubit-typed slot RHS"

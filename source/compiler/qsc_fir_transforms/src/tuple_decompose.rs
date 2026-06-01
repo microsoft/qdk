@@ -1,18 +1,23 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Scalar Replacement of Aggregates (SROA) pass.
+//! Tuple decomposition pass.
 //!
 //! Replaces local variables of tuple type with individual scalar variables,
 //! eliminating intermediate tuple allocations and field-access overhead.
 //!
-//! Establishes [`crate::invariants::InvariantLevel::PostSroa`]:
+//! This is the local-variable counterpart to the `arg_promote` pass, which
+//! performs the analogous flattening at callable parameter boundaries. (This
+//! pass was historically modeled on LLVM's "scalar replacement of aggregates",
+//! but it operates exclusively on Q# tuples, not arrays or memory.)
+//!
+//! Establishes [`crate::invariants::InvariantLevel::PostTupleDecompose`]:
 //! synthesized local tuple patterns agree with the tuple types they
 //! decompose.
 //!
 //! ## Prerequisites
 //!
-//! The `tuple_compare_lower` pass must run before SROA. It rewrites
+//! The `tuple_compare_lower` pass must run before tuple-decompose. It rewrites
 //! equality and inequality on non-empty tuples into element-wise scalar
 //! comparisons, which eliminates whole-value uses that would otherwise
 //! prevent decomposition.
@@ -20,9 +25,8 @@
 //! ## Decomposition
 //!
 //! For each entry-reachable callable, the pass:
-//! - Identifies local bindings whose type is `Ty::Tuple(...)` or
-//!   `Ty::Udt(Res::Item(_))` (resolving to a multi-field UDT) and whose
-//!   every use is `ExprKind::Field`, `ExprKind::AssignField`, or
+//! - Identifies local bindings whose type is a non-empty `Ty::Tuple(...)`
+//!   and whose every use is `ExprKind::Field`, `ExprKind::AssignField`, or
 //!   `ExprKind::Assign(Var, Tuple)` (whole-tuple reassignment with a
 //!   tuple-literal RHS).
 //! - Decomposes those bindings in-place: `PatKind::Bind(t)` becomes
@@ -100,7 +104,6 @@ mod semantic_equivalence_tests;
 
 use crate::fir_builder::{
     alloc_local_var_expr, decompose_binding, functored_specs, reachable_local_callables,
-    resolve_udt_element_types,
 };
 use crate::reachability::collect_reachable_from_entry;
 use crate::walk_utils::{collect_expr_ids_in_local_callables, collect_uses_in_block};
@@ -117,10 +120,10 @@ use std::rc::Rc;
 
 use crate::EMPTY_EXEC_RANGE;
 
-/// Runs the SROA pass on the entry-reachable portion of a package.
+/// Runs the tuple-decompose pass on the entry-reachable portion of a package.
 ///
-/// For each local binding whose type resolves to a multi-field tuple or
-/// UDT, the pass decomposes the binding into one scalar local per
+/// For each local binding whose type resolves to a multi-field tuple,
+/// the pass decomposes the binding into one scalar local per
 /// element when **every** use of the binding falls into one of the
 /// shapes the in-pass classifier accepts (see
 /// [`crate::walk_utils::collect_uses_in_expr`]):
@@ -148,18 +151,28 @@ use crate::EMPTY_EXEC_RANGE;
 /// - [`crate::tuple_compare_lower`] has already run, so no `BinOp(Eq |
 ///   Neq)` on tuple-typed operands remains in reachable code.
 ///
+/// # Returns
+///
+/// `true` if at least one decomposition round was applied; `false` when
+/// no candidates existed.
+///
 /// # Panics
 ///
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
-pub fn sroa(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
+pub fn tuple_decompose(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+) -> bool {
+    let mut changed = false;
     loop {
         let reachable = collect_reachable_from_entry(store, package_id);
         let package = store.get(package_id);
 
         // Collect candidates across all reachable callables.
-        let mut all_candidates: Vec<SroaCandidate> = Vec::new();
+        let mut all_candidates: Vec<TupleDecomposeCandidate> = Vec::new();
 
         for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
             collect_candidates_in_callable(store, package_id, item_id, decl, &mut all_candidates);
@@ -168,6 +181,7 @@ pub fn sroa(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assi
         if all_candidates.is_empty() {
             break;
         }
+        changed = true;
 
         // Apply decomposition.
         let package = store.get_mut(package_id);
@@ -175,10 +189,11 @@ pub fn sroa(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assi
             decompose_candidate(package, assigner, candidate);
         }
     }
+    changed
 }
 
-/// A candidate for SROA decomposition.
-struct SroaCandidate {
+/// A candidate for tuple-decompose decomposition.
+struct TupleDecomposeCandidate {
     /// The `LocalVarId` bound by the original `PatKind::Bind`.
     local_id: LocalVarId,
     /// The `PatId` of the binding pattern.
@@ -191,13 +206,13 @@ struct SroaCandidate {
     owner_item: LocalItemId,
 }
 
-/// Scans a callable's body for SROA candidates.
+/// Scans a callable's body for tuple-decompose candidates.
 fn collect_candidates_in_callable(
     store: &PackageStore,
     package_id: PackageId,
     owner_item: LocalItemId,
     decl: &CallableDecl,
-    candidates: &mut Vec<SroaCandidate>,
+    candidates: &mut Vec<TupleDecomposeCandidate>,
 ) {
     match &decl.implementation {
         CallableImpl::Intrinsic => {}
@@ -210,14 +225,14 @@ fn collect_candidates_in_callable(
     }
 }
 
-/// Recurses into every specialization of a `SpecImpl` to collect SROA
+/// Recurses into every specialization of a `SpecImpl` to collect tuple-decompose
 /// candidates.
 fn collect_candidates_in_spec_impl(
     store: &PackageStore,
     package_id: PackageId,
     owner_item: LocalItemId,
     spec_impl: &SpecImpl,
-    candidates: &mut Vec<SroaCandidate>,
+    candidates: &mut Vec<TupleDecomposeCandidate>,
 ) {
     collect_candidates_in_spec(store, package_id, owner_item, &spec_impl.body, candidates);
     for spec in functored_specs(spec_impl) {
@@ -225,7 +240,7 @@ fn collect_candidates_in_spec_impl(
     }
 }
 
-/// Collects SROA candidates within a single `SpecDecl` body by walking
+/// Collects tuple-decompose candidates within a single `SpecDecl` body by walking
 /// tuple-typed bindings and checking every use for field-only or
 /// decomposable-tuple-assignment eligibility.
 fn collect_candidates_in_spec(
@@ -233,16 +248,16 @@ fn collect_candidates_in_spec(
     package_id: PackageId,
     owner_item: LocalItemId,
     spec: &SpecDecl,
-    candidates: &mut Vec<SroaCandidate>,
+    candidates: &mut Vec<TupleDecomposeCandidate>,
 ) {
     let package = store.get(package_id);
-    // Collect all local bindings with composite (tuple or UDT) type.
+    // Collect all local bindings with a multi-field tuple type.
     let bindings = find_tuple_bindings_in_block(store, package_id, spec.block);
 
     for binding in bindings {
         // Verify ALL uses are field-only.
         if all_uses_are_field_access(package, spec.block, binding.local_id) {
-            candidates.push(SroaCandidate {
+            candidates.push(TupleDecomposeCandidate {
                 local_id: binding.local_id,
                 pat_id: binding.pat_id,
                 elem_types: binding.elem_types,
@@ -261,8 +276,8 @@ struct TupleBinding {
     name: Rc<str>,
 }
 
-/// Recursively walks a pattern to find `PatKind::Bind` nodes with tuple or
-/// UDT types. This handles patterns produced by a previous SROA pass that
+/// Recursively walks a pattern to find `PatKind::Bind` nodes with non-empty
+/// tuple types. This handles patterns produced by a previous tuple-decompose pass that
 /// transformed `Bind(t)` into `Tuple([Bind(t_0), Bind(t_1), ...])` — the
 /// inner `Bind(t_0)` would otherwise be invisible to the scanner.
 fn find_binds_in_pat(
@@ -277,7 +292,6 @@ fn find_binds_in_pat(
         PatKind::Bind(ident) => {
             let elem_types = match &pat.ty {
                 Ty::Tuple(elems) if !elems.is_empty() => Some(elems.clone()),
-                Ty::Udt(Res::Item(item_id)) => resolve_udt_element_types(store, item_id),
                 _ => None,
             };
             if let Some(elem_types) = elem_types {
@@ -299,8 +313,7 @@ fn find_binds_in_pat(
 }
 
 /// Finds all `StmtKind::Local(_, pat, _)` in a block where `pat` is
-/// `PatKind::Bind(ident)` with `Ty::Tuple(elems)` or `Ty::Udt(Res::Item(_))`
-/// resolving to a multi-field UDT, and the composite type is non-empty.
+/// `PatKind::Bind(ident)` with a non-empty `Ty::Tuple(elems)`.
 fn find_tuple_bindings_in_block(
     store: &PackageStore,
     package_id: PackageId,
@@ -373,7 +386,7 @@ fn all_uses_are_field_access(package: &Package, block_id: BlockId, local_id: Loc
     uses.iter().all(|u| *u)
 }
 
-/// Decomposes a single SROA candidate in-place.
+/// Decomposes a single tuple-decompose candidate in-place.
 ///
 /// # Before
 /// ```text
@@ -390,7 +403,11 @@ fn all_uses_are_field_access(package: &Package, block_id: BlockId, local_id: Loc
 /// - Rewrites the binding `Pat` from `Bind` to `Tuple` of per-element `Bind`s.
 /// - Allocates new `LocalVarId`, `PatId` nodes through `assigner`.
 /// - Delegates to [`rewrite_field_accesses`] and [`rewrite_assign_tuples`].
-fn decompose_candidate(package: &mut Package, assigner: &mut Assigner, candidate: &SroaCandidate) {
+fn decompose_candidate(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    candidate: &TupleDecomposeCandidate,
+) {
     let new_locals = decompose_binding(
         package,
         assigner,
@@ -459,7 +476,7 @@ fn rewrite_field_accesses(
     }
 }
 
-/// Rewrites a single expression to replace references to an SROA-decomposed
+/// Rewrites a single expression to replace references to an tuple-decompose-decomposed
 /// tuple local with references to its scalar replacements.
 ///
 /// Handles two `ExprKind::Field` cases:
@@ -582,7 +599,7 @@ fn rewrite_single_expr(
 /// `new_expr_id`.
 ///
 /// Before, entry, statements, and parent expressions still point at the
-/// aggregate expression that SROA wants to replace. After, every such edge
+/// aggregate expression that tuple-decompose wants to replace. After, every such edge
 /// points at the scalarized replacement, allowing the old node to become dead.
 fn replace_expr_references(
     package: &mut Package,
@@ -665,14 +682,6 @@ fn replace_expr_in_expr(expr: &mut Expr, old_expr_id: ExprId, new_expr_id: ExprI
                 replace_expr_id(expr_id, old_expr_id, new_expr_id);
             }
         }
-        ExprKind::Struct(_, copy, fields) => {
-            if let Some(expr_id) = copy {
-                replace_expr_id(expr_id, old_expr_id, new_expr_id);
-            }
-            for field in fields {
-                replace_expr_id(&mut field.value, old_expr_id, new_expr_id);
-            }
-        }
         ExprKind::String(components) => {
             for component in components {
                 if let qsc_fir::fir::StringComponent::Expr(expr_id) = component {
@@ -687,6 +696,10 @@ fn replace_expr_in_expr(expr: &mut Expr, old_expr_id: ExprId, new_expr_id: ExprI
         | ExprKind::Closure(_, _)
         | ExprKind::Hole
         | ExprKind::Lit(_)
+        // `Struct` is dead PostTupleDecompose: `check_expr_udt_erase_invariants`
+        // (invariants.rs:372-376) panics on `Struct`, enforced PostTupleDecompose
+        // (lib.rs:348-352).
+        | ExprKind::Struct(_, _, _)
         | ExprKind::Var(_, _) => {}
     }
 }
@@ -714,7 +727,10 @@ fn build_stmt_block_map_for_callable(
 }
 
 /// Collects all block IDs reachable from a callable's implementation.
-fn collect_all_block_ids_in_callable(package: &Package, item_id: LocalItemId) -> Vec<BlockId> {
+pub(crate) fn collect_all_block_ids_in_callable(
+    package: &Package,
+    item_id: LocalItemId,
+) -> Vec<BlockId> {
     let Some(item) = package.items.get(item_id) else {
         return Vec::new();
     };

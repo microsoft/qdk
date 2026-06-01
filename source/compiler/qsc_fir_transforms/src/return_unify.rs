@@ -410,7 +410,7 @@ fn build_scoped_udt_pure_ty_cache(
 // their `Return` nodes, but this is safe because:
 // 1. `check_no_returns` walks the same reachable set returned by
 //    [`collect_reachable_from_entry`].
-// 2. Downstream passes (defunc, udt_erase, sroa, arg_promote,
+// 2. Downstream passes (defunc, udt_erase, tuple_decompose, arg_promote,
 //    exec_graph_rebuild) recompute reachability via the same walker and
 //    never re-reach a callable that was unreachable here. Defunc's
 //    specialization creates new clone items rather than widening
@@ -527,7 +527,7 @@ fn unify_returns_impl(
             };
 
             let package = store.get_mut(package_id);
-            transform_block_with_flags(
+            let slots = transform_block_with_flags(
                 package,
                 assigner,
                 package_id,
@@ -538,7 +538,7 @@ fn unify_returns_impl(
                 return_slot_strategy,
             );
             if run_simplify {
-                simplify::run_to_fixpoint(package, assigner, block_id, &mut errors);
+                simplify::run_to_fixpoint(package, assigner, block_id, &mut errors, &slots);
             }
         }
     }

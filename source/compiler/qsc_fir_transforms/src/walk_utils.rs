@@ -308,14 +308,6 @@ pub(crate) fn collect_uses_in_expr(
                 collect_uses_in_expr(package, *x, local_id, uses, false);
             }
         }
-        ExprKind::Struct(_, copy, fields) => {
-            if let Some(c) = copy {
-                collect_uses_in_expr(package, *c, local_id, uses, false);
-            }
-            for fa in fields {
-                collect_uses_in_expr(package, fa.value, local_id, uses, false);
-            }
-        }
         ExprKind::String(components) => {
             for c in components {
                 if let qsc_fir::fir::StringComponent::Expr(e) = c {
@@ -330,6 +322,189 @@ pub(crate) fn collect_uses_in_expr(
         ExprKind::Closure(vars, _) => {
             if vars.contains(&local_id) {
                 uses.push(false);
+            }
+        }
+        ExprKind::Struct(_, copy, fields) => {
+            if let Some(c) = copy {
+                collect_uses_in_expr(package, *c, local_id, uses, false);
+            }
+            for fa in fields {
+                collect_uses_in_expr(package, fa.value, local_id, uses, false);
+            }
+        }
+        ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
+    }
+}
+
+/// Classification of a single use of a local variable.
+///
+/// Unlike the boolean [`collect_uses_in_block`] classifier, this variant
+/// records the [`ExprId`] of every whole-value read so a later pass can
+/// rewrite those sites in place rather than disqualifying the local outright.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ParamUse {
+    /// A `Field::Path` or `Field::Prim` projection over the local
+    /// (for example `p.0` or `p::Item`).
+    FieldAccess,
+    /// A whole-tuple assignment whose right-hand side is a tuple literal;
+    /// each element flows to a separate field, so the local is decomposable.
+    Decomposable,
+    /// A bare `Var(Res::Local(local))` read at the given expression.
+    WholeValueRead(ExprId),
+    /// A use that prevents promotion: a whole-value reassignment from a
+    /// non-tuple right-hand side, a closure capture, or a non-`Path`/`Prim`
+    /// field projection.
+    HardBlock,
+}
+
+/// Classifies uses of `local_id` in a block, recording each as a [`ParamUse`].
+///
+/// This is the [`ParamUse`] counterpart of [`collect_uses_in_block`]: it
+/// preserves the whole-value read sites (as [`ParamUse::WholeValueRead`])
+/// instead of collapsing them to a single boolean.
+pub(crate) fn classify_uses_in_block(
+    package: &Package,
+    block_id: BlockId,
+    local_id: LocalVarId,
+    out: &mut Vec<ParamUse>,
+) {
+    let block = package.get_block(block_id);
+    for &stmt_id in &block.stmts {
+        let stmt = package.get_stmt(stmt_id);
+        match &stmt.kind {
+            StmtKind::Expr(e) | StmtKind::Semi(e) => {
+                classify_uses_in_expr(package, *e, local_id, out, false);
+            }
+            StmtKind::Local(_, _, expr) => {
+                classify_uses_in_expr(package, *expr, local_id, out, false);
+            }
+            StmtKind::Item(_) => {}
+        }
+    }
+}
+
+/// Recursively classifies uses of `local_id` in an expression.
+///
+/// `inside_field` is true when `expr_id` is the direct child of a
+/// `Field(_, Path(_) | Prim(_))` or non-empty `AssignField(_, Path(_), _)` —
+/// meaning the variable reference is being used for field access.
+#[allow(clippy::too_many_lines)] // Exhaustive `ExprKind` match mirrors `collect_uses_in_expr`.
+fn classify_uses_in_expr(
+    package: &Package,
+    expr_id: ExprId,
+    local_id: LocalVarId,
+    out: &mut Vec<ParamUse>,
+    inside_field: bool,
+) {
+    let expr = package.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Var(Res::Local(var_id), _) if *var_id == local_id => {
+            if inside_field {
+                out.push(ParamUse::FieldAccess);
+            } else {
+                out.push(ParamUse::WholeValueRead(expr_id));
+            }
+        }
+        ExprKind::Field(inner, Field::Path(_) | Field::Prim(_)) => {
+            classify_uses_in_expr(package, *inner, local_id, out, true);
+        }
+        ExprKind::AssignField(record, Field::Path(path), value) if !path.indices.is_empty() => {
+            classify_uses_in_expr(package, *record, local_id, out, true);
+            classify_uses_in_expr(package, *value, local_id, out, false);
+        }
+        ExprKind::Array(es) | ExprKind::ArrayLit(es) | ExprKind::Tuple(es) => {
+            for &e in es {
+                classify_uses_in_expr(package, e, local_id, out, false);
+            }
+        }
+        ExprKind::Assign(a, b) => {
+            let lhs_expr = package.get_expr(*a);
+            let rhs_expr = package.get_expr(*b);
+            if let ExprKind::Var(Res::Local(var_id), _) = &lhs_expr.kind
+                && *var_id == local_id
+            {
+                if let ExprKind::Tuple(elements) = &rhs_expr.kind {
+                    // Tuple-literal RHS: each element flows to its own field.
+                    out.push(ParamUse::Decomposable);
+                    for &e in elements {
+                        classify_uses_in_expr(package, e, local_id, out, false);
+                    }
+                } else {
+                    // Non-tuple whole-value reassignment: block.
+                    out.push(ParamUse::HardBlock);
+                    classify_uses_in_expr(package, *b, local_id, out, false);
+                }
+            } else {
+                classify_uses_in_expr(package, *a, local_id, out, false);
+                classify_uses_in_expr(package, *b, local_id, out, false);
+            }
+        }
+        ExprKind::ArrayRepeat(a, b)
+        | ExprKind::AssignOp(_, a, b)
+        | ExprKind::BinOp(_, a, b)
+        | ExprKind::Call(a, b)
+        | ExprKind::Index(a, b)
+        | ExprKind::AssignField(a, _, b)
+        | ExprKind::UpdateField(a, _, b) => {
+            classify_uses_in_expr(package, *a, local_id, out, false);
+            classify_uses_in_expr(package, *b, local_id, out, false);
+        }
+        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
+            classify_uses_in_expr(package, *a, local_id, out, false);
+            classify_uses_in_expr(package, *b, local_id, out, false);
+            classify_uses_in_expr(package, *c, local_id, out, false);
+        }
+        ExprKind::Block(block_id) => {
+            classify_uses_in_block(package, *block_id, local_id, out);
+        }
+        ExprKind::Fail(e) | ExprKind::Return(e) | ExprKind::UnOp(_, e) => {
+            classify_uses_in_expr(package, *e, local_id, out, false);
+        }
+        ExprKind::Field(inner, _) => {
+            // Non-`Path`/`Prim` field projection keeps the whole value live.
+            let inner_expr = package.get_expr(*inner);
+            if let ExprKind::Var(Res::Local(var_id), _) = &inner_expr.kind
+                && *var_id == local_id
+            {
+                out.push(ParamUse::HardBlock);
+            } else {
+                classify_uses_in_expr(package, *inner, local_id, out, false);
+            }
+        }
+        ExprKind::If(cond, body, otherwise) => {
+            classify_uses_in_expr(package, *cond, local_id, out, false);
+            classify_uses_in_expr(package, *body, local_id, out, false);
+            if let Some(e) = otherwise {
+                classify_uses_in_expr(package, *e, local_id, out, false);
+            }
+        }
+        ExprKind::Range(s, st, e) => {
+            for x in [s, st, e].into_iter().flatten() {
+                classify_uses_in_expr(package, *x, local_id, out, false);
+            }
+        }
+        ExprKind::String(components) => {
+            for c in components {
+                if let qsc_fir::fir::StringComponent::Expr(e) = c {
+                    classify_uses_in_expr(package, *e, local_id, out, false);
+                }
+            }
+        }
+        ExprKind::While(cond, block_id) => {
+            classify_uses_in_expr(package, *cond, local_id, out, false);
+            classify_uses_in_block(package, *block_id, local_id, out);
+        }
+        ExprKind::Closure(vars, _) => {
+            if vars.contains(&local_id) {
+                out.push(ParamUse::HardBlock);
+            }
+        }
+        ExprKind::Struct(_, copy, fields) => {
+            if let Some(c) = copy {
+                classify_uses_in_expr(package, *c, local_id, out, false);
+            }
+            for fa in fields {
+                classify_uses_in_expr(package, fa.value, local_id, out, false);
             }
         }
         ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}

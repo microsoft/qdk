@@ -590,7 +590,7 @@ fn remaining_callable_value_info(
 ///   `Ty::Udt`, but `build_callable_flow_state` tracks field-extraction
 ///   expressions like `config.Op` to resolve concrete callable values). After
 ///   defunc, callable values are either specialized or rejected as
-///   `DynamicCallable`. Post-UDT-erasure passes (SROA, `arg_promote`) may expose
+///   `DynamicCallable`. Post-UDT-erasure passes (tuple-decompose, `arg_promote`) may expose
 ///   bare `Ty::Arrow` parameters, but partial eval handles them correctly
 ///   because it dispatches on *values* (`Value::Global` / `Value::Closure`),
 ///   not on the `Ty::Arrow` type annotation.

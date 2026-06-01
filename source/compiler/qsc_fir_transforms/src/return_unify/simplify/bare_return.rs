@@ -104,6 +104,7 @@ use super::{
     extract_root_local, identify_merge_or_trailing_slot, match_flag_set, match_slot_assign,
     push_children,
 };
+use crate::return_unify::lower::SynthSlots;
 
 /// Apply the bare-return collapse rule to `block_id`.
 ///
@@ -111,16 +112,26 @@ use super::{
 /// rewrite shortens the block by at least one statement (the merge plus
 /// the terminal pair collapses to a single trailing `Expr(v)`), so
 /// termination is guaranteed without an explicit bound.
-pub(super) fn apply(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+pub(super) fn apply(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let mut changed = false;
-    while try_apply_once(package, assigner, block_id) {
+    while try_apply_once(package, assigner, block_id, slots) {
         changed = true;
     }
     changed
 }
 
 /// Performs at most one rewrite. Returns `true` when the pattern matched.
-fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: BlockId) -> bool {
+fn try_apply_once(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    block_id: BlockId,
+    slots: &SynthSlots,
+) -> bool {
     let stmt_ids = package.get_block(block_id).stmts.clone();
     if stmt_ids.len() < 2 {
         return false;
@@ -134,7 +145,7 @@ fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: Bloc
     //    already been eliminated (e.g. when the return is the entire body
     //    so the flag-strategy lowering emitted no merge in the first place).
     let Some((has_returned, return_slot)) =
-        identify_merge_or_trailing_slot(package, block_id, stmt_ids[tail_idx], &block_ty)
+        identify_merge_or_trailing_slot(package, block_id, stmt_ids[tail_idx], &block_ty, slots)
     else {
         return false;
     };

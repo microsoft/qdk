@@ -56,10 +56,18 @@ fn gc_removes_return_unify_orphans() {
         }
     "};
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
+    let before = arena_live_count(store.get(pkg_id));
     let removed = super::gc_unreachable(store.get_mut(pkg_id));
+    let after = arena_live_count(store.get(pkg_id));
     assert!(
         removed > 0,
         "return_unify should leave orphans that GC removes"
+    );
+    // The reported count must match the actual arena shrinkage.
+    assert_eq!(
+        after,
+        before - removed,
+        "live count must drop by exactly the removed count"
     );
     // Verify post-GC integrity (PostArgPromote: checks arena links without
     // requiring exec_graph_rebuild to have run).
@@ -82,8 +90,16 @@ fn gc_removes_defunc_orphans() {
         }
     "};
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
+    let before = arena_live_count(store.get(pkg_id));
     let removed = super::gc_unreachable(store.get_mut(pkg_id));
+    let after = arena_live_count(store.get(pkg_id));
     assert!(removed > 0, "defunc should leave orphans that GC removes");
+    // The reported count must match the actual arena shrinkage.
+    assert_eq!(
+        after,
+        before - removed,
+        "live count must drop by exactly the removed count"
+    );
     // Verify post-GC integrity (PostArgPromote: checks arena links without
     // requiring exec_graph_rebuild to have run).
     crate::invariants::check(
@@ -158,5 +174,84 @@ fn gc_is_idempotent() {
     assert_eq!(
         second_pass, 0,
         "second GC pass should find nothing to remove"
+    );
+}
+
+#[test]
+fn entry_only_reachable_item_survives_dead_sibling_removed() {
+    // `Used` is reachable from the entry; `Dead` is not. `gc_unreachable` never
+    // removes items itself, so a dead sibling's body only becomes orphaned once
+    // `item_dce` tombstones the item. This pins the identity-level outcome: the
+    // live item's body block survives the sweep while the dead sibling's body
+    // block is tombstoned (not merely `removed > 0`).
+    use qsc_fir::fir::{BlockId, CallableImpl, ItemKind};
+
+    let source = indoc! {"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                Used(q);
+                Reset(q);
+            }
+            operation Used(q : Qubit) : Unit { H(q); }
+            operation Dead(q : Qubit) : Unit { X(q); }
+        }
+    "};
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
+
+    fn body_block(package: &qsc_fir::fir::Package, name: &str) -> BlockId {
+        package
+            .items
+            .values()
+            .find_map(|item| match &item.kind {
+                ItemKind::Callable(decl) if decl.name.name.as_ref() == name => {
+                    match &decl.implementation {
+                        CallableImpl::Spec(spec) => Some(spec.body.block),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("callable {name} not found"))
+    }
+
+    let used_block = body_block(store.get(pkg_id), "Used");
+    let dead_block = body_block(store.get(pkg_id), "Dead");
+    assert_ne!(
+        used_block, dead_block,
+        "the two callables should have distinct body blocks"
+    );
+
+    // Both bodies occupy their arena slots before item DCE.
+    assert!(store.get(pkg_id).blocks.get(used_block).is_some());
+    assert!(store.get(pkg_id).blocks.get(dead_block).is_some());
+
+    // Item DCE drops `Dead` (entry-unreachable), orphaning its body block while
+    // leaving the live `Used` item intact.
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+    let removed_items =
+        crate::item_dce::eliminate_dead_items(pkg_id, store.get_mut(pkg_id), &reachable);
+    assert!(
+        removed_items >= 1,
+        "item_dce should remove the entry-unreachable `Dead` item"
+    );
+    assert!(
+        store.get(pkg_id).blocks.get(dead_block).is_some(),
+        "dead body block should still occupy its slot before GC"
+    );
+
+    let removed = super::gc_unreachable(store.get_mut(pkg_id));
+    assert!(removed > 0, "GC should sweep the orphaned dead body");
+
+    // Identity-level survivorship: the entry-reachable item's body survives the
+    // sweep, and the dead sibling's body is tombstoned.
+    assert!(
+        store.get(pkg_id).blocks.get(used_block).is_some(),
+        "entry-reachable `Used` body block must survive GC"
+    );
+    assert!(
+        store.get(pkg_id).blocks.get(dead_block).is_none(),
+        "dead sibling `Dead` body block must be tombstoned by GC"
     );
 }

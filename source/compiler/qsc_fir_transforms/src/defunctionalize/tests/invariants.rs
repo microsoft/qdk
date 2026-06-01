@@ -1,13 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// Many tests pair a primary assertion with a `check_rewrite` before/after
+// snapshot, so the generated Q# pushes function bodies past the line limit.
+#![allow(clippy::too_many_lines)]
+
 use super::*;
 use expect_test::expect;
 
 #[test]
 fn invariants_single_hof() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -15,14 +18,58 @@ fn invariants_single_hof() {
             use q = Qubit();
             ApplyOp(H, q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_AdjCtl_(H, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_AdjCtl__H_(q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOp_AdjCtl__H_(q : Qubit) : Unit {
+            H(q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn invariants_closure_with_captures() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -31,14 +78,66 @@ fn invariants_closure_with_captures() {
             let angle = 1.0;
             ApplyOp(q1 => Rx(angle, q1), q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let angle : Double = 1.;
+            ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda_, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            Rx(angle, q1)
+        }
+        operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let angle : Double = 1.;
+            ApplyOp_Empty__closure_(q, angle);
+            __quantum__rt__qubit_release(q);
+        }
+        operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            Rx(angle, q1)
+        }
+        operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
+            _lambda_(__capture_0, q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn invariants_functor_composition() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyAdj(op : Qubit => Unit is Adj, q : Qubit) : Unit {
             Adjoint op(q);
         }
@@ -46,14 +145,58 @@ fn invariants_functor_composition() {
             use q = Qubit();
             ApplyAdj(S, q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyAdj(op : (Qubit => Unit), q : Qubit) : Unit {
+            Adjoint op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyAdj_AdjCtl_(S, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyAdj_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            Adjoint op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyAdj(op : (Qubit => Unit), q : Qubit) : Unit {
+            Adjoint op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyAdj_AdjCtl__S_(q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyAdj_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            Adjoint op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyAdj_AdjCtl__S_(q : Qubit) : Unit {
+            Adjoint S(q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn error_dynamic_callable() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -63,7 +206,69 @@ fn error_dynamic_callable() {
             if true { set op = X; }
             ApplyOp(op, q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            mutable op : (Qubit => Unit is Adj + Ctl) = H;
+            if true {
+                op = X;
+            }
+
+            ApplyOp_AdjCtl_(op, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            mutable op : (Qubit => Unit is Adj + Ctl) = H;
+            if true {
+                op = X;
+            }
+
+            if true {
+                ApplyOp_AdjCtl__X_(q)
+            } else {
+                ApplyOp_AdjCtl__H_(q)
+            };
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOp_AdjCtl__X_(q : Qubit) : Unit {
+            X(q);
+        }
+        operation ApplyOp_AdjCtl__H_(q : Qubit) : Unit {
+            H(q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
@@ -128,8 +333,7 @@ fn error_multiple_dynamic_sites_collected() {
 
 #[test]
 fn nested_hof_call_chain_passes_invariants() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyInner(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -140,14 +344,73 @@ fn nested_hof_call_chain_passes_invariants() {
             use q = Qubit();
             ApplyOuter(H, q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyInner(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation ApplyOuter(op : (Qubit => Unit), q : Qubit) : Unit {
+            ApplyInner_Empty_(op, q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOuter_AdjCtl_(H, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyInner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOuter_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            ApplyInner_Empty_(op, q);
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyInner(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation ApplyOuter(op : (Qubit => Unit), q : Qubit) : Unit {
+            ApplyInner_Empty_(op, q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOuter_AdjCtl__H_(q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyInner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOuter_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            ApplyInner_Empty_(op, q);
+        }
+        operation ApplyOuter_AdjCtl__H_(q : Qubit) : Unit {
+            ApplyInner_Empty__H_(q);
+        }
+        operation ApplyInner_Empty__H_(q : Qubit) : Unit {
+            H(q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn hof_inside_for_loop_passes_invariants() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -157,14 +420,82 @@ fn hof_inside_for_loop_passes_invariants() {
                 ApplyOp(H, q);
             }
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_87 : Unit = {
+                let _range_id_39 : Range = 0..3;
+                mutable _index_id_42 : Int = _range_id_39::Start;
+                let _step_id_47 : Int = _range_id_39::Step;
+                let _end_id_52 : Int = _range_id_39::End;
+                while _step_id_47 > 0 and _index_id_42 <= _end_id_52 or _step_id_47 < 0 and _index_id_42 >= _end_id_52 {
+                    let _ : Int = _index_id_42;
+                    ApplyOp_AdjCtl_(H, q);
+                    _index_id_42 += _step_id_47;
+                }
+
+            };
+            __quantum__rt__qubit_release(q);
+            _generated_ident_87
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_87 : Unit = {
+                let _range_id_39 : Range = 0..3;
+                mutable _index_id_42 : Int = _range_id_39::Start;
+                let _step_id_47 : Int = _range_id_39::Step;
+                let _end_id_52 : Int = _range_id_39::End;
+                while _step_id_47 > 0 and _index_id_42 <= _end_id_52 or _step_id_47 < 0 and _index_id_42 >= _end_id_52 {
+                    let _ : Int = _index_id_42;
+                    ApplyOp_AdjCtl__H_(q);
+                    _index_id_42 += _step_id_47;
+                }
+
+            };
+            __quantum__rt__qubit_release(q);
+            _generated_ident_87
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOp_AdjCtl__H_(q : Qubit) : Unit {
+            H(q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn function_callable_argument_defunctionalizes() {
-    check_invariants(
-        r#"
+    let source = r#"
         function ApplyFn(f : Int -> Int, x : Int) : Int {
             f(x)
         }
@@ -173,14 +504,48 @@ fn function_callable_argument_defunctionalizes() {
         operation Main() : Unit {
             let _ = ApplyFn(Double, 5);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        function ApplyFn(f : (Int -> Int), x : Int) : Int {
+            f(x)
+        }
+        function Double(x : Int) : Int {
+            x * 2
+        }
+        operation Main() : Unit {
+            let _ : Int = ApplyFn(Double, 5);
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        function ApplyFn(f : (Int -> Int), x : Int) : Int {
+            f(x)
+        }
+        function Double(x : Int) : Int {
+            x * 2
+        }
+        operation Main() : Unit {
+            let _ : Int = ApplyFn_Double_(5);
+        }
+        function ApplyFn_Double_(x : Int) : Int {
+            Double(x)
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn explicit_functor_specializations_defunctionalize() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit is Adj + Ctl, q : Qubit) : Unit is Adj + Ctl {
             body ... { op(q); }
             adjoint ... { Adjoint op(q); }
@@ -191,14 +556,113 @@ fn explicit_functor_specializations_defunctionalize() {
             use q = Qubit();
             ApplyOp(S, q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(q);
+            }
+            adjoint ... {
+                Adjoint op(q);
+            }
+            controlled (ctls, ...) {
+                Controlled op(ctls, q);
+            }
+            controlled adjoint (ctls, ...) {
+                Controlled Adjoint op(ctls, q);
+            }
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_AdjCtl_(S, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(q);
+            }
+            adjoint ... {
+                Adjoint op(q);
+            }
+            controlled (ctls, ...) {
+                Controlled op(ctls, q);
+            }
+            controlled adjoint (ctls, ...) {
+                Controlled Adjoint op(ctls, q);
+            }
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(q);
+            }
+            adjoint ... {
+                Adjoint op(q);
+            }
+            controlled (ctls, ...) {
+                Controlled op(ctls, q);
+            }
+            controlled adjoint (ctls, ...) {
+                Controlled Adjoint op(ctls, q);
+            }
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_AdjCtl__S_(q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(q);
+            }
+            adjoint ... {
+                Adjoint op(q);
+            }
+            controlled (ctls, ...) {
+                Controlled op(ctls, q);
+            }
+            controlled adjoint (ctls, ...) {
+                Controlled Adjoint op(ctls, q);
+            }
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOp_AdjCtl__S_(q : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                S(q);
+            }
+            adjoint ... {
+                Adjoint S(q);
+            }
+            controlled (ctls, ...) {
+                Controlled S(ctls, q);
+            }
+            controlled adjoint (ctls, ...) {
+                Controlled Adjoint S(ctls, q);
+            }
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn full_pipeline_preserves_post_all_invariants() {
-    check_pipeline(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -209,14 +673,82 @@ fn full_pipeline_preserves_post_all_invariants() {
             let angle = 1.0;
             ApplyOp(q1 => Rx(angle, q1), q);
         }
-        "#,
+        "#;
+    check_pipeline(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_AdjCtl_(H, q);
+            ApplyOp_AdjCtl_(X, q);
+            let angle : Double = 1.;
+            ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda_, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            Rx(angle, q1)
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_AdjCtl__H_(q);
+            ApplyOp_AdjCtl__X_(q);
+            let angle : Double = 1.;
+            ApplyOp_Empty__closure_(q, angle);
+            __quantum__rt__qubit_release(q);
+        }
+        operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            Rx(angle, q1)
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOp_AdjCtl__H_(q : Qubit) : Unit {
+            H(q);
+        }
+        operation ApplyOp_AdjCtl__X_(q : Qubit) : Unit {
+            X(q);
+        }
+        operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
+            _lambda_(__capture_0, q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn invariant_no_closures_remain() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -224,14 +756,64 @@ fn invariant_no_closures_remain() {
             use q = Qubit();
             ApplyOp(q1 => H(q1), q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation _lambda_(q1 : Qubit, ) : Unit {
+            H(q1)
+        }
+        operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_Empty__H_(q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation _lambda_(q1 : Qubit, ) : Unit {
+            H(q1)
+        }
+        operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOp_Empty__H_(q : Qubit) : Unit {
+            H(q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn invariant_no_arrow_params_remain() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -240,14 +822,63 @@ fn invariant_no_arrow_params_remain() {
             ApplyOp(H, q);
             ApplyOp(X, q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_AdjCtl_(H, q);
+            ApplyOp_AdjCtl_(X, q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            ApplyOp_AdjCtl__H_(q);
+            ApplyOp_AdjCtl__X_(q);
+            __quantum__rt__qubit_release(q);
+        }
+        operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation ApplyOp_AdjCtl__H_(q : Qubit) : Unit {
+            H(q);
+        }
+        operation ApplyOp_AdjCtl__X_(q : Qubit) : Unit {
+            X(q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
 #[test]
 fn five_branch_conditional_callable_resolves_successfully() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -269,7 +900,102 @@ fn five_branch_conditional_callable_resolves_successfully() {
             }
             Apply(op, q);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation Apply(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let n : Int = 2;
+            mutable op : (Qubit => Unit is Adj + Ctl) = H;
+            if n == 0 {
+                op = X;
+            } else if n == 1 {
+                op = Y;
+            } else if n == 2 {
+                op = Z;
+            } else if n == 3 {
+                op = S;
+            } else {
+                op = T;
+            }
+
+            Apply_AdjCtl_(op, q);
+            __quantum__rt__qubit_release(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation Apply_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation Apply(op : (Qubit => Unit), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let n : Int = 2;
+            mutable op : (Qubit => Unit is Adj + Ctl) = H;
+            if n == 0 {
+                op = X;
+            } else if n == 1 {
+                op = Y;
+            } else if n == 2 {
+                op = Z;
+            } else if n == 3 {
+                op = S;
+            } else {
+                op = T;
+            }
+
+            if n == 0 {
+                Apply_AdjCtl__X_(q)
+            } else if n == 1 {
+                Apply_AdjCtl__Y_(q)
+            } else if n == 2 {
+                Apply_AdjCtl__Z_(q)
+            } else if n == 3 {
+                Apply_AdjCtl__S_(q)
+            } else {
+                Apply_AdjCtl__T_(q)
+            };
+            __quantum__rt__qubit_release(q);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        operation Apply_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+            op(q);
+        }
+        operation Apply_AdjCtl__X_(q : Qubit) : Unit {
+            X(q);
+        }
+        operation Apply_AdjCtl__Y_(q : Qubit) : Unit {
+            Y(q);
+        }
+        operation Apply_AdjCtl__Z_(q : Qubit) : Unit {
+            Z(q);
+        }
+        operation Apply_AdjCtl__S_(q : Qubit) : Unit {
+            S(q);
+        }
+        operation Apply_AdjCtl__T_(q : Qubit) : Unit {
+            T(q);
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
@@ -313,8 +1039,7 @@ fn nine_branch_conditional_callable_degrades_to_dynamic() {
 
 #[test]
 fn controlled_functor_count_saturates_without_overflow() {
-    check_invariants(
-        r#"
+    let source = r#"
         operation Foo(q : Qubit) : Unit is Ctl {
             body ... { H(q); }
             controlled (cs, ...) { Controlled H(cs, q); }
@@ -335,7 +1060,89 @@ fn controlled_functor_count_saturates_without_overflow() {
             ApplyCtl2(q, c1, c2);
             ApplyCtl3(q, c1, c2, c3);
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace test
+        operation Foo(q : Qubit) : Unit is Ctl {
+            body ... {
+                H(q);
+            }
+            controlled (cs, ...) {
+                Controlled H(cs, q);
+            }
+        }
+        operation ApplyCtl1(q : Qubit, c1 : Qubit) : Unit {
+            Controlled Foo([c1], q);
+        }
+        operation ApplyCtl2(q : Qubit, c1 : Qubit, c2 : Qubit) : Unit {
+            Controlled Foo([c1, c2], q);
+        }
+        operation ApplyCtl3(q : Qubit, c1 : Qubit, c2 : Qubit, c3 : Qubit) : Unit {
+            Controlled Foo([c1, c2, c3], q);
+        }
+        operation Main() : Unit {
+            let _generated_ident_126 : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_128 : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_130 : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_132 : Qubit = __quantum__rt__qubit_allocate();
+            let (q : Qubit, c1 : Qubit, c2 : Qubit, c3 : Qubit) = (_generated_ident_126, _generated_ident_128, _generated_ident_130, _generated_ident_132);
+            ApplyCtl1(q, c1);
+            ApplyCtl2(q, c1, c2);
+            ApplyCtl3(q, c1, c2, c3);
+            __quantum__rt__qubit_release(_generated_ident_132);
+            __quantum__rt__qubit_release(_generated_ident_130);
+            __quantum__rt__qubit_release(_generated_ident_128);
+            __quantum__rt__qubit_release(_generated_ident_126);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace test
+        operation Foo(q : Qubit) : Unit is Ctl {
+            body ... {
+                H(q);
+            }
+            controlled (cs, ...) {
+                Controlled H(cs, q);
+            }
+        }
+        operation ApplyCtl1(q : Qubit, c1 : Qubit) : Unit {
+            Controlled Foo([c1], q);
+        }
+        operation ApplyCtl2(q : Qubit, c1 : Qubit, c2 : Qubit) : Unit {
+            Controlled Foo([c1, c2], q);
+        }
+        operation ApplyCtl3(q : Qubit, c1 : Qubit, c2 : Qubit, c3 : Qubit) : Unit {
+            Controlled Foo([c1, c2, c3], q);
+        }
+        operation Main() : Unit {
+            let _generated_ident_126 : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_128 : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_130 : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_132 : Qubit = __quantum__rt__qubit_allocate();
+            let (q : Qubit, c1 : Qubit, c2 : Qubit, c3 : Qubit) = (_generated_ident_126, _generated_ident_128, _generated_ident_130, _generated_ident_132);
+            ApplyCtl1(q, c1);
+            ApplyCtl2(q, c1, c2);
+            ApplyCtl3(q, c1, c2, c3);
+            __quantum__rt__qubit_release(_generated_ident_132);
+            __quantum__rt__qubit_release(_generated_ident_130);
+            __quantum__rt__qubit_release(_generated_ident_128);
+            __quantum__rt__qubit_release(_generated_ident_126);
+        }
+        function Length(a : Qubit[]) : Int {
+            body intrinsic;
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
@@ -350,8 +1157,7 @@ fn newtype_ctor_callable_field_cleanup() {
     // branch is specialized at least once; otherwise a literal-conditioned
     // projection leaves the unused branch's closure as dead-code and
     // convergence cannot succeed independently of the UDT-ctor guard.
-    check_invariants(
-        r#"
+    let source = r#"
         namespace Test {
           newtype Choice = (F : Int -> Int, Offset : Int);
 
@@ -372,6 +1178,70 @@ fn newtype_ctor_callable_field_cleanup() {
             fT(10) + fF(10) + selectedT::Offset + selectedF::Offset
           }
         }
-        "#,
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        // namespace Test
+        newtype Choice = ((Int -> Int), Int);
+        function Choose(flag : Bool) : __UDT_Item_1__Package_2_ {
+            if flag {
+                Choice(/ * closure item = 4 captures = [] * / _lambda_, 100)
+            } else {
+                Choice(/ * closure item = 5 captures = [] * / _lambda_, 7)
+            }
+
+        }
+        function Main() : Int {
+            let selectedT : __UDT_Item_1__Package_2_ = Choose(true);
+            let selectedF : __UDT_Item_1__Package_2_ = Choose(false);
+            let fT : (Int -> Int) = selectedT::F;
+            let fF : (Int -> Int) = selectedF::F;
+            fT(10) + fF(10) + selectedT::Offset + selectedF::Offset
+        }
+        function _lambda_(x : Int, ) : Int {
+            x + 1
+        }
+        function _lambda_(x : Int, ) : Int {
+            x * 2
+        }
+        // entry
+        Main()
+
+        AFTER:
+        // namespace Test
+        newtype Choice = ((Int -> Int), Int);
+        function Choose(flag : Bool) : __UDT_Item_1__Package_2_ {
+            if flag {
+                Choice((), 100)
+            } else {
+                Choice((), 7)
+            }
+
+        }
+        function Main() : Int {
+            let selectedT : __UDT_Item_1__Package_2_ = Choose(true);
+            let selectedF : __UDT_Item_1__Package_2_ = Choose(false);
+            if true {
+                _lambda_(10)
+            } else {
+                _lambda_(10)
+            } + if false {
+                _lambda_(10)
+            } else {
+                _lambda_(10)
+            } + selectedT::Offset + selectedF::Offset
+        }
+        function _lambda_(x : Int, ) : Int {
+            x + 1
+        }
+        function _lambda_(x : Int, ) : Int {
+            x * 2
+        }
+        // entry
+        Main()
+    "#]],
     );
 }

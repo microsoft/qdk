@@ -16,7 +16,7 @@
 //! | `PostDefunc` | Defunctionalization — no `Ty::Arrow` / closures. |
 //! | `PostUdtErase` | UDT erasure — no `Ty::Udt` / struct exprs. |
 //! | `PostTupleCompLower` | Tuple comparison lowering. |
-//! | `PostSroa` | SROA — tuple decomposition patterns match types. |
+//! | `PostTupleDecompose` | tuple-decompose — tuple decomposition patterns match types. |
 //! | `PostArgPromote` | Argument promotion — input patterns match types. |
 //! | `PostGc` | Unreachable GC — no orphaned arena node references. |
 //! | `PostItemDce` | Item DCE — no orphaned live-tree references after item pruning. |
@@ -72,9 +72,9 @@ pub enum InvariantLevel {
     /// After tuple comparison lowering: additionally no `BinOp(Eq/Neq)` on
     /// tuple-typed operands.
     PostTupleCompLower,
-    /// After SROA: additionally synthesized local tuple patterns must match
+    /// After tuple-decompose: additionally synthesized local tuple patterns must match
     /// the tuple types they decompose.
-    PostSroa,
+    PostTupleDecompose,
     /// After argument promotion: additionally synthesized callable input tuple
     /// patterns must match the callable input types they decompose.
     PostArgPromote,
@@ -114,7 +114,7 @@ impl InvariantLevel {
                 | Self::PostDefunc
                 | Self::PostUdtErase
                 | Self::PostTupleCompLower
-                | Self::PostSroa
+                | Self::PostTupleDecompose
                 | Self::PostArgPromote
                 | Self::PostGc
                 | Self::PostItemDce
@@ -130,7 +130,7 @@ impl InvariantLevel {
                 | Self::PostDefunc
                 | Self::PostUdtErase
                 | Self::PostTupleCompLower
-                | Self::PostSroa
+                | Self::PostTupleDecompose
                 | Self::PostArgPromote
                 | Self::PostGc
                 | Self::PostItemDce
@@ -145,7 +145,7 @@ impl InvariantLevel {
             Self::PostDefunc
                 | Self::PostUdtErase
                 | Self::PostTupleCompLower
-                | Self::PostSroa
+                | Self::PostTupleDecompose
                 | Self::PostArgPromote
                 | Self::PostGc
                 | Self::PostItemDce
@@ -159,7 +159,7 @@ impl InvariantLevel {
             self,
             Self::PostUdtErase
                 | Self::PostTupleCompLower
-                | Self::PostSroa
+                | Self::PostTupleDecompose
                 | Self::PostArgPromote
                 | Self::PostGc
                 | Self::PostItemDce
@@ -172,7 +172,7 @@ impl InvariantLevel {
         matches!(
             self,
             Self::PostTupleCompLower
-                | Self::PostSroa
+                | Self::PostTupleDecompose
                 | Self::PostArgPromote
                 | Self::PostGc
                 | Self::PostItemDce
@@ -180,11 +180,11 @@ impl InvariantLevel {
         )
     }
 
-    /// Returns `true` when this level is at or after SROA.
-    fn is_post_sroa_or_later(self) -> bool {
+    /// Returns `true` when this level is at or after tuple-decompose.
+    fn is_post_tuple_decompose_or_later(self) -> bool {
         matches!(
             self,
-            Self::PostSroa
+            Self::PostTupleDecompose
                 | Self::PostArgPromote
                 | Self::PostGc
                 | Self::PostItemDce
@@ -736,7 +736,7 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
 ///   callable-valued parameters. Pinned items are excluded from this check
 ///   because they are specialization targets that intentionally retain
 ///   arrow-typed parameters for callable-args codegen.
-/// - `check_callable_input_pattern_shapes` once SROA and argument promotion may
+/// - `check_callable_input_pattern_shapes` once tuple-decompose and argument promotion may
 ///   have synthesized tuple-shaped inputs.
 /// - `check_no_returns` once return unification should have removed
 ///   `ExprKind::Return`.
@@ -882,7 +882,7 @@ fn check_pat_for_arrow(package: &Package, pat_id: PatId) {
 /// Validates the tuple-pattern shape of a callable's primary input pattern and
 /// any specialization-specific input patterns.
 ///
-/// This check becomes relevant after tuple-decomposing stages such as SROA and
+/// This check becomes relevant after tuple-decomposing stages such as tuple-decompose and
 /// argument promotion, which may synthesize tuple-shaped inputs that must still
 /// mirror the callable input types exactly.
 ///
@@ -1029,8 +1029,8 @@ fn check_spec_decl_types(
 /// For each local binding, this layers:
 /// - `check_pat_types` on the bound pattern type.
 /// - `check_tuple_pat_shape_matches_type` after tuple-decomposing stages.
-/// - `check_local_pat_for_nested_tuple_arrow` after SROA (arrow types may
-///   appear inside tuples between UDT erasure and SROA).
+/// - `check_local_pat_for_nested_tuple_arrow` after tuple-decompose (arrow types may
+///   appear inside tuples between UDT erasure and tuple-decompose).
 /// - `check_expr_types` on the initializer expression.
 /// - a final initializer-type equality assertion at `PostAll`.
 ///
@@ -1047,7 +1047,7 @@ fn check_stmt_types(
         StmtKind::Expr(e) | StmtKind::Semi(e) => check_expr_types(store, package, *e, level),
         StmtKind::Local(_, pat, expr) => {
             check_pat_types(package, *pat, level);
-            if level.is_post_sroa_or_later() {
+            if level.is_post_tuple_decompose_or_later() {
                 check_tuple_pat_shape_matches_type(package, *pat, "local binding");
                 check_local_pat_for_nested_tuple_arrow(package, *pat);
             }

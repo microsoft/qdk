@@ -32,28 +32,26 @@ fn adjoint_spec_hoist_in_call_arg() {
         &expect![[r#"
             // namespace Test
             operation Inner(x : Int, q : Qubit) : Unit is Adj {
-                body {
+                body ... {
                     X(q);
                 }
-                adjoint {
+                adjoint ... {
                     X(q);
                 }
             }
             operation Outer(n : Int, q : Qubit) : Unit is Adj {
-                body {
+                body ... {
                     Inner(n, q);
                 }
-                adjoint {
+                adjoint ... {
                     let _ : ((Int, Qubit) => Unit is Adj) = Inner;
                     ()
                 }
             }
             operation Main() : Unit {
-                body {
-                    let q : Qubit = __quantum__rt__qubit_allocate();
-                    Adjoint Outer(1, q);
-                    __quantum__rt__qubit_release(q);
-                }
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Adjoint Outer(1, q);
+                __quantum__rt__qubit_release(q);
             }
             function Length(a : Qubit[]) : Int {
                 body intrinsic;
@@ -88,33 +86,22 @@ fn controlled_spec_hoist_in_call_arg() {
         &expect![[r#"
             // namespace Test
             operation Outer(n : Int, q : Qubit) : Unit is Ctl {
-                body {
+                body ... {
                     H(q);
                 }
-                controlled {
+                controlled (ctls, ...) {
                     let _ : ((Qubit[], Qubit) => Unit is Adj + Ctl) = Controlled H;
-                    let _ : Qubit[] = _local3;
+                    let _ : Qubit[] = ctls;
                     ()
                 }
             }
             operation Main() : Unit {
-                body {
-                    let
-                    @generated_ident_53 : Qubit = __quantum__rt__qubit_allocate();
-                    let
-                    @generated_ident_55 : Qubit = __quantum__rt__qubit_allocate();
-                    let (c : Qubit, q : Qubit) = (
-                        @generated_ident_53,
-                        @generated_ident_55
-                    );
-                    Controlled Outer([c], (1, q));
-                    __quantum__rt__qubit_release(
-                        @generated_ident_55
-                    );
-                    __quantum__rt__qubit_release(
-                        @generated_ident_53
-                    );
-                }
+                let _generated_ident_53 : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_55 : Qubit = __quantum__rt__qubit_allocate();
+                let (c : Qubit, q : Qubit) = (_generated_ident_53, _generated_ident_55);
+                Controlled Outer([c], (1, q));
+                __quantum__rt__qubit_release(_generated_ident_55);
+                __quantum__rt__qubit_release(_generated_ident_53);
             }
             function Length(a : Qubit[]) : Int {
                 body intrinsic;
@@ -150,39 +137,28 @@ fn controlled_adjoint_spec_hoist_in_call_arg() {
         &expect![[r#"
             // namespace Test
             operation Outer(n : Int, q : Qubit) : Unit is Adj + Ctl {
-                body {
+                body ... {
                     H(q);
                 }
-                adjoint {
+                adjoint ... {
                     H(q);
                 }
-                controlled {
-                    Controlled H(_local3, q);
+                controlled (ctls, ...) {
+                    Controlled H(ctls, q);
                 }
-                controlled adjoint {
+                controlled adjoint (ctls, ...) {
                     let _ : ((Qubit[], Qubit) => Unit is Adj + Ctl) = Controlled H;
-                    let _ : Qubit[] = _local4;
+                    let _ : Qubit[] = ctls;
                     ()
                 }
             }
             operation Main() : Unit {
-                body {
-                    let
-                    @generated_ident_71 : Qubit = __quantum__rt__qubit_allocate();
-                    let
-                    @generated_ident_73 : Qubit = __quantum__rt__qubit_allocate();
-                    let (c : Qubit, q : Qubit) = (
-                        @generated_ident_71,
-                        @generated_ident_73
-                    );
-                    Controlled Adjoint Outer([c], (1, q));
-                    __quantum__rt__qubit_release(
-                        @generated_ident_73
-                    );
-                    __quantum__rt__qubit_release(
-                        @generated_ident_71
-                    );
-                }
+                let _generated_ident_71 : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_73 : Qubit = __quantum__rt__qubit_allocate();
+                let (c : Qubit, q : Qubit) = (_generated_ident_71, _generated_ident_73);
+                Controlled Adjoint Outer([c], (1, q));
+                __quantum__rt__qubit_release(_generated_ident_73);
+                __quantum__rt__qubit_release(_generated_ident_71);
             }
             function Length(a : Qubit[]) : Int {
                 body intrinsic;
@@ -217,34 +193,34 @@ fn while_body_with_call_arg_return() {
         &expect![[r#"
             // namespace Test
             function Add(a : Int, b : Int) : Int {
-                body {
-                    a + b
-                }
+                a + b
             }
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 3 {
-                        let _ : ((Int, Int) -> Int) = Add;
-                        let _ : Int = 0;
-                        {
-                            __ret_val = 42;
-                            __has_returned = true;
-                        };
-                        if not __has_returned {
-                            i += 1;
-                        };
-                    }
-
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-            -1
-                        } else __ret_val
-                    }
-
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                mutable i : Int = 0;
+                while not __has_returned and i < 3 {
+                    let _ : ((Int, Int) -> Int) = Add;
+                    let _ : Int = 0;
+                    {
+                        __ret_val = 42;
+                        __has_returned = true;
+                    };
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+            -1
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             // entry
             Main()
@@ -272,31 +248,31 @@ fn local_init_retype_in_call_arg_fix() {
         &expect![[r#"
             // namespace Test
             function Identity(x : Int) : Int {
-                body {
-                    x
-                }
+                x
             }
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let c : Bool = true;
-                    let x : Int = if c {
-                        {
-                            __ret_val = 1;
-                            __has_returned = true;
-                        }
-
-                    } else {
-                        0
-                    };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            Identity(x)
-                        } else __ret_val
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let c : Bool = true;
+                let x : Int = if c {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
                     }
 
+                } else {
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        Identity(x)
+                    } else {
+                        __ret_val
+                    }
                 }
+
             }
             // entry
             Main()
@@ -328,32 +304,34 @@ fn nested_block_middle_of_block_fix() {
         &expect![[r#"
             // namespace Test
             function Main() : Int {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
-                    let c : Bool = true;
-                    let _unused : Int = {
-                        if c {
-                            {
-                                __ret_val = 1;
-                                __has_returned = true;
-                            };
-                        }
-
-                        2
-                    };
-                    let y : Int = if not __has_returned {
-                        3
-                    } else {
-                        0
-                    };
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            y
-                        } else __ret_val
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let c : Bool = true;
+                let _unused : Int = {
+                    if c {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
                     }
 
+                    2
+                };
+                let y : Int = if not __has_returned {
+                    3
+                } else {
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        y
+                    } else {
+                        __ret_val
+                    }
                 }
+
             }
             // entry
             Main()
@@ -394,51 +372,45 @@ fn flag_fallback_handles_arrow_return() {
         &expect![[r#"
             // namespace Test
             function MakeAdder(n : Int) : (Int -> Int) {
-                body {
-                    mutable __has_returned : Bool = false;
-                    mutable __ret_val : (Int -> Int) = __return_unify_fail_5;
-                    mutable i : Int = 0;
-                    while not __has_returned and i < 3 {
-                        if i == n {
-                            {
-                                __ret_val = / * closure item = 3 captures = [] * / < lambda >;
-                                __has_returned = true;
-                            };
-                        }
-
-                        if not __has_returned {
-                            i += 1;
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : (Int -> Int) = __return_unify_fail_5;
+                mutable i : Int = 0;
+                while not __has_returned and i < 3 {
+                    if i == n {
+                        {
+                            __ret_val = / * closure item = 3 captures = [] * / _lambda_;
+                            __has_returned = true;
                         };
                     }
 
-                    if __has_returned __ret_val else {
-                        if not __has_returned {
-                            / * closure item = 4 captures = [] * / < lambda >
-                        } else __ret_val
-                    }
-
+                    if not __has_returned {
+                        i += 1;
+                    };
                 }
+
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        / * closure item = 4 captures = [] * / _lambda_
+                    } else {
+                        __ret_val
+                    }
+                }
+
             }
             function Main() : Int {
-                body {
-                    let f : (Int -> Int) = MakeAdder(1);
-                    f(10)
-                }
+                let f : (Int -> Int) = MakeAdder(1);
+                f(10)
             }
-            function < lambda > (x : Int, ) : Int {
-                body {
-                    x + 1
-                }
+            function _lambda_(x : Int, ) : Int {
+                x + 1
             }
-            function < lambda > (x : Int, ) : Int {
-                body {
-                    x
-                }
+            function _lambda_(x : Int, ) : Int {
+                x
             }
             function __return_unify_fail_5(_ : Int) : Int {
-                body {
-                    fail $"callable init expr"
-                }
+                fail $"callable init expr"
             }
             // entry
             Main()

@@ -12,8 +12,8 @@
 //! # Pipeline position
 //!
 //! Runs after UDT erasure (which converts structs to tuples) and before
-//! SROA (which decomposes tuple-typed locals into scalars). This ordering
-//! is critical: SROA cannot decompose bindings that have whole-value uses
+//! tuple-decompose (which decomposes tuple-typed locals into scalars). This ordering
+//! is critical: tuple-decompose cannot decompose bindings that have whole-value uses
 //! such as tuple equality, so this pass eliminates those uses first.
 //!
 //! # Input patterns
@@ -48,7 +48,7 @@
 //!   empty. Whole-Unit equality is left for downstream passes to handle
 //!   directly.
 //!
-//! ## Cross-pass contract with SROA
+//! ## Cross-pass contract with tuple-decompose
 //!
 //! When the LHS or RHS of a tuple comparison is itself a tuple literal
 //! (`ExprKind::Tuple(es)`), `extract_or_field` returns the element
@@ -58,13 +58,13 @@
 //! a single element `ExprId` can be referenced more than once across the
 //! lowered comparison.
 //!
-//! [`crate::sroa`] runs immediately after this pass, and its
+//! [`crate::tuple_decompose`] runs immediately after this pass, and its
 //! `replace_expr_references` walks every reachable expression edge in the
 //! owning callable and rewrites matching `ExprId` edges. That walk must
 //! tolerate the aliased `ExprId`s this pass leaves behind: rewriting one
 //! occurrence must not break the others, and the original aggregate node
 //! is allowed to become dead once all of its parent edges have been
-//! redirected. See the mirror note in [`crate::sroa`].
+//! redirected. See the mirror note in [`crate::tuple_decompose`].
 
 #[cfg(test)]
 mod tests;

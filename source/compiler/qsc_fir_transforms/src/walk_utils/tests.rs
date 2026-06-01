@@ -382,3 +382,107 @@ fn empty_local_items_returns_empty() {
     let ids = collect_expr_ids_in_local_callables(package, &[]);
     assert!(ids.is_empty(), "empty item list should yield empty result");
 }
+
+/// Maps each [`ParamUse`] to a stable variant name, discarding the
+/// non-deterministic [`ExprId`] inside [`ParamUse::WholeValueRead`] so the
+/// classification order can be asserted without snapshot brittleness.
+fn variant_names(uses: &[ParamUse]) -> Vec<&'static str> {
+    uses.iter()
+        .map(|u| match u {
+            ParamUse::FieldAccess => "FieldAccess",
+            ParamUse::Decomposable => "Decomposable",
+            ParamUse::WholeValueRead(_) => "WholeValueRead",
+            ParamUse::HardBlock => "HardBlock",
+        })
+        .collect()
+}
+
+#[test]
+fn classify_field_projection_is_field_access() {
+    let (store, pkg_id) = compile_to_fir(
+        "struct Pair { X : Int, Y : Int }
+             function Main() : Int {
+                 let p = new Pair { X = 1, Y = 2 };
+                 p.X + p.Y
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+    let local_id = find_local_var(package, "p");
+    let mut uses = Vec::new();
+    classify_uses_in_block(package, block_id, local_id, &mut uses);
+    // p.X and p.Y are both field projections.
+    assert_eq!(variant_names(&uses), ["FieldAccess", "FieldAccess"]);
+}
+
+#[test]
+fn classify_whole_value_read_is_whole_value_read() {
+    let (store, pkg_id) = compile_to_fir(
+        "function Consume(t : (Int, Int)) : Int {
+                 let (a, b) = t;
+                 a + b
+             }
+             function Main() : Int {
+                 let t = (1, 2);
+                 Consume(t)
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+    let local_id = find_local_var(package, "t");
+    let mut uses = Vec::new();
+    classify_uses_in_block(package, block_id, local_id, &mut uses);
+    // t is passed by value as a call argument — a bare whole-value read.
+    assert_eq!(variant_names(&uses), ["WholeValueRead"]);
+    // The recorded ExprId must resolve to the `t` Var read in the package.
+    let ParamUse::WholeValueRead(expr_id) = uses[0] else {
+        panic!("expected WholeValueRead, got {:?}", uses[0]);
+    };
+    assert!(
+        matches!(
+            &package.get_expr(expr_id).kind,
+            ExprKind::Var(Res::Local(v), _) if *v == local_id
+        ),
+        "WholeValueRead must point at the local's Var read"
+    );
+}
+
+#[test]
+fn classify_closure_capture_is_hard_block() {
+    let (store, pkg_id) = compile_to_fir(
+        "function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+             function Main() : Int {
+                 let y = 5;
+                 let f = x -> x + y;
+                 Apply(f, 10)
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+    let local_id = find_local_var(package, "y");
+    let mut uses = Vec::new();
+    classify_uses_in_block(package, block_id, local_id, &mut uses);
+    // y is captured by the closure — a hard block on promotion.
+    assert_eq!(variant_names(&uses), ["HardBlock"]);
+}
+
+#[test]
+fn classify_local_used_only_in_struct_field_is_recorded() {
+    // Phase 1 guard: a local used ONLY inside a struct-literal field value must
+    // be classified (as a whole-value read), not silently dropped. Before the
+    // fix, `ExprKind::Struct` was not recursed and this produced an empty list.
+    let (store, pkg_id) = compile_to_fir(
+        "struct Wrapper { V : Int }
+             function Main() : Wrapper {
+                 let n = 42;
+                 new Wrapper { V = n }
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+    let local_id = find_local_var(package, "n");
+    let mut uses = Vec::new();
+    classify_uses_in_block(package, block_id, local_id, &mut uses);
+    // n flows into the struct field by value — recorded as a whole-value read.
+    assert_eq!(variant_names(&uses), ["WholeValueRead"]);
+}
