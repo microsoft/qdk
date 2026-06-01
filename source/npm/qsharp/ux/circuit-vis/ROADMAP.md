@@ -63,28 +63,39 @@ Captured from the GroupSplittingTest bug bash.
 
 ---
 
-## [Bug fixes — open](CIRCUIT_EDITOR_TODO.md#bug-fixes--open)
+## [Bug fixes](CIRCUIT_EDITOR_TODO.md#bug-fixes--open)
 
 Reproducible regressions from recent editor flows. Listed by
 severity (crashes first).
 
-|                                                                                                                                                        |                                                          | Status                                                                                              |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| [B1](CIRCUIT_EDITOR_TODO.md#b1-classical-control-indicators-always-show-c_null--partial)                                                               | Classical-control indicators always show `C_null`        | ⚠️ Partial — immediate symptom fixed; architectural fix deferred to future editor-authoring feature |
-| [B2](CIRCUIT_EDITOR_TODO.md#b2-moving--deleting-an-m-that-later-gates-depend-on-crashes)                                                               | Moving / deleting M with downstream deps crashes         | ❌                                                                                                  |
-| [B3](CIRCUIT_EDITOR_TODO.md#b3-moving-qubits-around-an-m-that-later-gates-depend-on-crashes)                                                           | Qubit reorder around dependent M crashes                 | ❌                                                                                                  |
-| [B4](CIRCUIT_EDITOR_TODO.md#b4-removing-an-m-doesnt-update-later-classical-wire-positions-inside-collapsed-groups)                                     | M removal leaves stale classical wire layout             | ❌                                                                                                  |
-| [B5](CIRCUIT_EDITOR_TODO.md#b5-add--remove-control-on-a-classically-controlled-op-blocked-by-classical-ref-entries--shipped-pending-user-confirmation) | Add/remove control fails on classical groups             | ✅ Shipped (pending user-confirmation)                                                              |
-| [B6](CIRCUIT_EDITOR_TODO.md#b6-shiftexpand-group-downward-doesnt-move-vertically-adjacent-groups)                                                      | Shift-extend doesn't push adjacent groups                | ❌                                                                                                  |
-| [B7](CIRCUIT_EDITOR_TODO.md#b7-qubit-rearrangement-doesnt-update-group-contents-correctly--shipped)                                                    | Qubit reorder doesn't update group contents              | ✅ Shipped (pending user-confirmation)                                                              |
-| [B8](CIRCUIT_EDITOR_TODO.md#b8-clone-move-of-a-multi-wire-group-rewrites-targets-to-a-single-wire-stub--shipped)                                       | Clone-move of a group rewrites `.targets` to single wire | ✅ Shipped (pending user-confirmation)                                                              |
-| [B9](CIRCUIT_EDITOR_TODO.md#b9-quantum-controls-on-a-group-are-never-drawn--shipped-pending-user-confirmation)                                         | Quantum controls on a group are never drawn              | ✅ Shipped (pending user-confirmation)                                                              |
-| [B10](CIRCUIT_EDITOR_TODO.md#b10-control-drag-on-a-group-moves-the-whole-group-instead-of-just-the-control--shipped-pending-user-confirmation)         | Control drag on a group moves the whole group            | ✅ Shipped (pending user-confirmation)                                                              |
+|                                                                                                                                                                             |                                                                        | Status                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [B1](CIRCUIT_EDITOR_TODO.md#b1-classical-control-indicators-always-show-c_null--partial)                                                                                    | Classical-control indicators always show `C_null`                      | ⚠️ Partial — immediate symptom fixed; architectural fix deferred to future editor-authoring feature |
+| [B2](CIRCUIT_EDITOR_TODO.md#b2-moving--deleting-an-m-that-later-gates-depend-on-crashes--shipped-pending-user-confirmation)                                                 | Moving / deleting M with downstream deps crashes                       | ✅ Shipped (pending user-confirmation)                                                              |
+| [B3](CIRCUIT_EDITOR_TODO.md#b3-moving-qubits-around-an-m-that-later-gates-depend-on-crashes)                                                                                | Qubit reorder around dependent M crashes                               | ✅ Shipped (user-confirmed)                                                                         |
+| [B4](CIRCUIT_EDITOR_TODO.md#b4-removing-an-m-doesnt-update-later-classical-wire-positions)                                                                                  | M removal leaves stale classical wire layout                           | ✅ Subsumed by B2's cascade-delete (pending user-confirmation)                                      |
+| [B5](CIRCUIT_EDITOR_TODO.md#b5-add--remove-control-on-a-classically-controlled-op-blocked-by-classical-ref-entries--shipped-pending-user-confirmation)                      | Add/remove control fails on classical groups                           | ✅ Shipped (pending user-confirmation)                                                              |
+| [B6](CIRCUIT_EDITOR_TODO.md#b6-shift-extend-onto--past-an-external-sibling--shipped-pending-user-confirmation)                                                              | Shift-extend onto / past an external sibling                           | ✅ Shipped (pending user-confirmation)                                                              |
+| [B7](CIRCUIT_EDITOR_TODO.md#b7-qubit-rearrangement-doesnt-update-group-contents-correctly--shipped)                                                                         | Qubit reorder doesn't update group contents                            | ✅ Shipped (pending user-confirmation)                                                              |
+| [B8](CIRCUIT_EDITOR_TODO.md#b8-clone-move-of-a-multi-wire-group-rewrites-targets-to-a-single-wire-stub--shipped)                                                            | Clone-move of a group rewrites `.targets` to single wire               | ✅ Shipped (pending user-confirmation)                                                              |
+| [B9](CIRCUIT_EDITOR_TODO.md#b9-quantum-controls-on-a-group-are-never-drawn--shipped-pending-user-confirmation)                                                              | Quantum controls on a group are never drawn                            | ✅ Shipped (pending user-confirmation)                                                              |
+| [B10](CIRCUIT_EDITOR_TODO.md#b10-control-drag-on-a-group-moves-the-whole-group-instead-of-just-the-control--shipped-pending-user-confirmation)                              | Control drag on a group moves the whole group                          | ✅ Shipped (pending user-confirmation)                                                              |
+| [B11](CIRCUIT_EDITOR_TODO.md#b11-control-drag-on-a-group-expanded-groups-blocked--classically-controlled-groups-re-expand-on-every-move--shipped-pending-user-confirmation) | Control drag on a group: expanded blocked + classical groups re-expand | ✅ Shipped (pending user-confirmation)                                                              |
 
-B2-B4 are the same family (classical-register reference integrity).
-B6 extends D4 Stage B's overlap resolver to cross-column
-collisions. B1, B5, B7, B8, B9, and B10 are shipped (pending
-user-confirmation).
+**B1 is the only bug entry not fully closed.** Its visible
+symptom (`C_null` label) is fixed by a render-side fallback;
+the architectural piece (global classical-register id assignment)
+is deliberately deferred until the editor-authoring feature gives
+a second concrete producer to anchor the design (see B1 detail).
+
+The B2/B3/B4 trio (classical-register reference integrity under
+M edits and qubit reorders) is closed: B2's `_applyClassicalRefRemap`
+
+- cascade-delete pass, B3's structural immunity via `moveQubit`'s
+  1-to-1 wire permutation (regression-tested in
+  [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)),
+  and B4's subsumption by B2's cascade together remove the entire
+  class of orphaned-classical-ref crashes.
 
 ---
 

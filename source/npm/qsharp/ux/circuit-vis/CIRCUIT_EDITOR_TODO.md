@@ -2121,30 +2121,58 @@ no-consumer passthrough sanity check). 382 → 392 tests pass.
 **Subsumes.** B4 — orphaned classical refs no longer exist in
 the model post-fix.
 
-### B3. Moving qubits around an M that later gates depend on crashes
+### B3. Moving qubits around an M that later gates depend on crashes — ✅ Shipped (user-confirmed)
 
 **Symptom.** Reorder qubit wires (drag a qubit label up or
 down) such that an M's producer wire ends up after a consumer's
 column. Crash on next render.
 
-**Likely cause.** Same family as B2 — register references
-become invalid because the column-order invariant
-("producer's column strictly precedes consumer's column") is
-violated by the wire reorder, but the consuming op's
-`controls` weren't rewritten or moved.
+**Original diagnosis (turned out to be wrong).** Same family as
+B2 — column-order invariant ("producer's column strictly
+precedes consumer's column") violated by the wire reorder.
+Proposed fix was to run D2's column-order validation inside
+`moveQubit`.
 
-**Fix direction.** `moveQubit` should run the same column-order
-validation as D2 (`Location.inEarlierColumnThan` on every
-external producer→consumer pair) and either refuse the reorder
-or restructure to preserve the invariant. The dropzone-filter
-side of D2's solution doesn't directly apply (qubit reorders
-don't go through gate dropzones), but the action-layer refusal
-does.
+**Actual root cause.** Same family as B2, but the
+column-order story doesn't apply: `moveQubit` is a **1-to-1
+wire permutation** that doesn't touch column positions at all,
+only wire indices. The crash was identical in shape to B2's —
+the renderer's `_getRegY` chasing a `(qubit, result)` key
+that no longer resolved — but the trigger was different: any
+register reference whose `qubit` field went stale because the
+wire-index remap missed it.
 
-**Open question.** Should qubit-reorder refuse, or auto-shift
-the consuming ops rightward to restore the invariant? Auto-shift
-is more user-friendly but harder to reason about (every column
-shift may collide with other ops).
+**Fix (came for free).** Two pieces, both already in place by
+the time this bug was retested:
+
+1. `moveQubit`'s [`remapRefsInGrid`](actions/circuitActions.ts)
+   walks every op in every column at every nesting depth and
+   feeds its registers through the wire-permutation function —
+   including M's `.qubits`, M's `.results`, every consumer's
+   `.controls`, every nested group's eager `.targets` cache,
+   and refs buried inside collapsed children. The 1-to-1
+   permutation preserves uniqueness as long as the pre-state
+   was well-formed: no orphans, no duplicate `(qubit, result)`
+   keys.
+
+2. The [`_applyClassicalRefRemap`](actions/circuitActions.ts)
+   fix (skip M's producer-side `.results` when applying the
+   consumer remap) — landed alongside B2 — closed the
+   collateral double-remap path that could corrupt M.results
+   under certain `moveMeasurementWithDependents` flows. Not
+   reached by `moveQubit` itself but shared the same renderer
+   crash surface.
+
+**Regression coverage.** Five `moveQubit`-with-classical-
+consumer tests in
+[circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs):
+single-M wire swap, two-Ms-on-different-wires swap, multiple-Ms-
+on-same-wire swap, `isBetween` move past a wire with multiple
+Ms-with-consumers, and a buried-in-nested-groups consumer.
+A header-comment block in the test file documents why
+`moveQubit` is structurally immune to the double-remap class
+of bug (it doesn't call `_updateMeasurementLines`, so no
+producer values are recomputed beneath a consumer remap).
 
 ### B4. Removing an M doesn't update later classical wire positions
 
