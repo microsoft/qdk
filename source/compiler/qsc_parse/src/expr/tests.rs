@@ -2858,3 +2858,247 @@ fn parenthesized_expr_in_for_is_valid() {
                     Stmt _id_ [16-18]: Expr: Expr _id_ [16-18]: Unit"#]],
     );
 }
+
+// Call expression recovery tests
+
+#[test]
+fn call_missing_close_paren_empty_args() {
+    check(
+        expr,
+        "foo(",
+        &expect![[r#"
+            Expr _id_ [0-4]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-4]: Unit
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 4,
+                            hi: 4,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn call_missing_close_paren_one_arg() {
+    check(
+        expr,
+        "foo(x",
+        &expect![[r#"
+            Expr _id_ [0-5]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-5]: Paren: Expr _id_ [4-5]: Path: Path _id_ [4-5] (Ident _id_ [4-5] "x")
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 5,
+                            hi: 5,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn call_missing_close_paren_trailing_comma() {
+    check(
+        expr,
+        "foo(x,",
+        &expect![[r#"
+            Expr _id_ [0-6]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-6]: Tuple:
+                    Expr _id_ [4-5]: Path: Path _id_ [4-5] (Ident _id_ [4-5] "x")
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 6,
+                            hi: 6,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn call_missing_close_paren_two_args() {
+    check(
+        expr,
+        "foo(x, y",
+        &expect![[r#"
+            Expr _id_ [0-8]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-8]: Tuple:
+                    Expr _id_ [4-5]: Path: Path _id_ [4-5] (Ident _id_ [4-5] "x")
+                    Expr _id_ [7-8]: Path: Path _id_ [7-8] (Ident _id_ [7-8] "y")
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 8,
+                            hi: 8,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn call_nested_missing_close_parens() {
+    check(
+        expr,
+        "foo(bar(",
+        &expect![[r#"
+            Expr _id_ [0-8]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-8]: Paren: Expr _id_ [4-8]: Call:
+                    Expr _id_ [4-7]: Path: Path _id_ [4-7] (Ident _id_ [4-7] "bar")
+                    Expr _id_ [7-8]: Unit
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 8,
+                            hi: 8,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn call_nested_with_arg_missing_close_parens() {
+    check(
+        expr,
+        "foo(x, bar(",
+        &expect![[r#"
+            Expr _id_ [0-11]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-11]: Tuple:
+                    Expr _id_ [4-5]: Path: Path _id_ [4-5] (Ident _id_ [4-5] "x")
+                    Expr _id_ [7-11]: Call:
+                        Expr _id_ [7-10]: Path: Path _id_ [7-10] (Ident _id_ [7-10] "bar")
+                        Expr _id_ [10-11]: Unit
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 11,
+                            hi: 11,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn call_nested_inner_missing_close_paren() {
+    check(
+        expr,
+        "foo(bar(x)",
+        &expect![[r#"
+            Expr _id_ [0-10]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-10]: Paren: Expr _id_ [4-10]: Call:
+                    Expr _id_ [4-7]: Path: Path _id_ [4-7] (Ident _id_ [4-7] "bar")
+                    Expr _id_ [7-10]: Paren: Expr _id_ [8-9]: Path: Path _id_ [8-9] (Ident _id_ [8-9] "x")
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 10,
+                            hi: 10,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn call_with_struct_arg_missing_close_paren() {
+    check(
+        expr,
+        "foo(new Bar { x = 1 })",
+        &expect![[r#"
+            Expr _id_ [0-22]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-22]: Paren: Expr _id_ [4-21]: Struct (Path _id_ [8-11] (Ident _id_ [8-11] "Bar")):
+                    FieldsAssign _id_ [14-19]: (Ident _id_ [14-15] "x") Expr _id_ [18-19]: Lit: Int(1)"#]],
+    );
+}
+
+#[test]
+fn call_with_incomplete_struct_arg() {
+    check(
+        expr,
+        "foo(new Bar { x = 1 )",
+        &expect![[r#"
+            Expr _id_ [0-21]: Call:
+                Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
+                Expr _id_ [3-21]: Paren: Expr _id_ [4-19]: Struct (Path _id_ [8-11] (Ident _id_ [8-11] "Bar")): <empty>
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Brace,
+                        ),
+                        Close(
+                            Paren,
+                        ),
+                        Span {
+                            lo: 20,
+                            hi: 21,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}

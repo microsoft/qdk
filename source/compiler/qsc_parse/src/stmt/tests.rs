@@ -787,10 +787,18 @@ fn recover_statements_before_and_after() {
                     Expr _id_ [22-27]: BinOp (Add):
                         Expr _id_ [22-23]: Lit: Int(2)
                         Expr _id_ [26-27]: Lit: Int(2)
-                Stmt _id_ [41-81]: Local (Immutable):
+                Stmt _id_ [41-54]: Local (Immutable):
                     Pat _id_ [45-46]: Bind:
                         Ident _id_ [45-46] "y"
-                    Expr _id_ [49-80]: Err
+                    Expr _id_ [49-54]: Call:
+                        Expr _id_ [49-52]: Path: Path _id_ [49-52] (Ident _id_ [49-52] "Foo")
+                        Expr _id_ [52-54]: Paren: Expr _id_ [53-54]: Path: Path _id_ [53-54] (Ident _id_ [53-54] "x")
+                Stmt _id_ [67-81]: Local (Immutable):
+                    Pat _id_ [71-72]: Bind:
+                        Ident _id_ [71-72] "z"
+                    Expr _id_ [75-80]: BinOp (Mul):
+                        Expr _id_ [75-76]: Path: Path _id_ [75-76] (Ident _id_ [75-76] "x")
+                        Expr _id_ [79-80]: Lit: Int(3)
                 Stmt _id_ [94-95]: Expr: Expr _id_ [94-95]: Path: Path _id_ [94-95] (Ident _id_ [94-95] "z")
 
             [
@@ -805,6 +813,70 @@ fn recover_statements_before_and_after() {
                         Span {
                             lo: 67,
                             hi: 70,
+                        },
+                    ),
+                ),
+                Error(
+                    Token(
+                        Semi,
+                        Keyword(
+                            Let,
+                        ),
+                        Span {
+                            lo: 67,
+                            hi: 70,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn recover_let_after_unclosed_call() {
+    check(
+        parse_block,
+        "{
+            let y = Foo(x
+            let z = 3;
+        }",
+        &expect![[r#"
+            Block _id_ [0-60]:
+                Stmt _id_ [14-27]: Local (Immutable):
+                    Pat _id_ [18-19]: Bind:
+                        Ident _id_ [18-19] "y"
+                    Expr _id_ [22-27]: Call:
+                        Expr _id_ [22-25]: Path: Path _id_ [22-25] (Ident _id_ [22-25] "Foo")
+                        Expr _id_ [25-27]: Paren: Expr _id_ [26-27]: Path: Path _id_ [26-27] (Ident _id_ [26-27] "x")
+                Stmt _id_ [40-50]: Local (Immutable):
+                    Pat _id_ [44-45]: Bind:
+                        Ident _id_ [44-45] "z"
+                    Expr _id_ [48-49]: Lit: Int(3)
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Keyword(
+                            Let,
+                        ),
+                        Span {
+                            lo: 40,
+                            hi: 43,
+                        },
+                    ),
+                ),
+                Error(
+                    Token(
+                        Semi,
+                        Keyword(
+                            Let,
+                        ),
+                        Span {
+                            lo: 40,
+                            hi: 43,
                         },
                     ),
                 ),
@@ -854,6 +926,66 @@ fn recover_missing_semicolon() {
                         Span {
                             lo: 68,
                             hi: 71,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn recover_call_missing_close_paren_in_block() {
+    check(
+        parse_block,
+        "{ foo( }",
+        &expect![[r#"
+            Block _id_ [0-8]:
+                Stmt _id_ [2-6]: Expr: Expr _id_ [2-6]: Call:
+                    Expr _id_ [2-5]: Path: Path _id_ [2-5] (Ident _id_ [2-5] "foo")
+                    Expr _id_ [5-6]: Unit
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Close(
+                            Brace,
+                        ),
+                        Span {
+                            lo: 7,
+                            hi: 8,
+                        },
+                    ),
+                ),
+            ]"#]],
+    );
+}
+
+#[test]
+fn recover_call_with_arg_missing_close_paren_in_block() {
+    check(
+        parse_block,
+        "{ foo(x }",
+        &expect![[r#"
+            Block _id_ [0-9]:
+                Stmt _id_ [2-7]: Expr: Expr _id_ [2-7]: Call:
+                    Expr _id_ [2-5]: Path: Path _id_ [2-5] (Ident _id_ [2-5] "foo")
+                    Expr _id_ [5-7]: Paren: Expr _id_ [6-7]: Path: Path _id_ [6-7] (Ident _id_ [6-7] "x")
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Close(
+                            Brace,
+                        ),
+                        Span {
+                            lo: 8,
+                            hi: 9,
                         },
                     ),
                 ),
