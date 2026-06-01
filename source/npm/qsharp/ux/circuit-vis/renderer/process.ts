@@ -588,6 +588,20 @@ const _splitTargetsY = (
   classicalRegY = classicalRegY.slice();
   classicalRegY.sort((a, b) => a - b);
 
+  // Qubit positions whose QUANTUM wire is itself a target — i.e.
+  // a `{qubit: Q}` entry with `result == null`. The body legitimately
+  // covers these wires. Every OTHER qubit position whose wire falls
+  // strictly between two consecutive target Ys is a wire the body
+  // would visually cross without operating on — which forces a
+  // split (rule 4 below). Built from the original targets list, not
+  // the sorted copy, since membership is order-independent.
+  const quantumTargetPositions = new Set<number>();
+  for (const t of targets) {
+    if (t.result == null) {
+      quantumTargetPositions.add(qIdPosition[t.qubit]);
+    }
+  }
+
   let prevPos = 0;
   let prevY = 0;
 
@@ -595,14 +609,45 @@ const _splitTargetsY = (
     const y = _getRegY(target, registers);
     const pos = qIdPosition[target.qubit];
 
+    // A target on a classical sub-wire (`{qubit: Q, result: N}`)
+    // sits BELOW its parent qubit's quantum wire, so transitioning
+    // from a target at position P to a classical sub-wire at
+    // position P+1 visually crosses qubit P+1's quantum wire. If
+    // P+1's wire isn't itself a quantum target, the body should
+    // split so the wire passes through the gap. This is symmetric
+    // to rule 2 ("non-adjacent qubit registers"), but rule 2's
+    // strict `pos > prevPos + 1` check misses it because the
+    // classical sub-wire shares its parent qubit's position index.
+    //
+    // Generalized form: split if there's any quantum-wire position
+    // strictly between `prevPos` (exclusive) and `pos` (inclusive
+    // when `target.result != null`, exclusive otherwise) that isn't
+    // in the quantum-target set. This same loop subsumes rule 2 for
+    // free, but we keep rule 2's explicit check above for clarity
+    // against the comment numbering.
+    const upperPos = target.result == null ? pos - 1 : pos;
+    let crossesUntargetedQubit = false;
+    if (groups.length > 0) {
+      for (let p = prevPos + 1; p <= upperPos; p++) {
+        if (!quantumTargetPositions.has(p)) {
+          crossesUntargetedQubit = true;
+          break;
+        }
+      }
+    }
+
     // Split into new group if one of the following holds:
     //      1. First target register
     //      2. Non-adjacent qubit registers
     //      3. There is a classical register between current and previous register
+    //      4. The body would visually cross an intermediate quantum
+    //         wire that isn't itself a target (covers the
+    //         classical-sub-wire-skips-a-quantum-row case)
     if (
       groups.length === 0 ||
       pos > prevPos + 1 ||
-      (classicalRegY[0] > prevY && classicalRegY[0] < y)
+      (classicalRegY[0] > prevY && classicalRegY[0] < y) ||
+      crossesUntargetedQubit
     )
       groups.push([y]);
     else groups[groups.length - 1].push(y);

@@ -2017,35 +2017,109 @@ maintain. Designing this in isolation today is premature; revisit
 when the editor-authoring feature gives a second concrete producer
 to anchor the design.
 
-### B2. Moving / deleting an M that later gates depend on crashes
+### B2. Moving / deleting an M that later gates depend on crashes — ✅ Shipped (pending user-confirmation)
 
 **Symptom.** Drag an M gate that is the producer of a classical
 register consumed by a later gate (typically a classically-
 controlled group), or delete it via the context menu. The next
 render throws.
 
-**Likely cause.** The consumer's `controls: [{ qubit, result }]`
-still references a producer that no longer exists at any earlier
-column. The renderer's `_getRegY` (or the layout pass) can't
-resolve the register and either throws or returns `NaN`, cascading
-into downstream geometry math.
+**Root cause.** Two distinct failure modes shared one underlying
+gap — the action layer had no notion that an M's classical
+outputs might be referenced elsewhere in the tree.
 
-**Fix direction.** Mirror D2's approach in reverse — the action
-layer's `moveOperation` and `removeOperation` should detect when
-an M's classical outputs are consumed downstream and either:
+1. **Delete.** [`removeOperation`](actions/circuitActions.ts)
+   removed the M without touching any classically-controlled
+   consumer. The consumer's `controls: [{ qubit, result }]`
+   still pointed at the deleted producer; the renderer's
+   `_getRegY` couldn't resolve the register and threw.
 
-- refuse the move/delete (with a dropzone-filter equivalent
-  hiding invalid target columns), or
-- automatically delete every dependent consumer in the same
-  action (cascade-delete).
+2. **Move.** [`moveOperation`](actions/circuitActions.ts)
+   ran the tail-end `_updateMeasurementLines` sweep that
+   renumbers per-wire result indices, but the renumber
+   propagated only to the M's own `results` array — never to
+   downstream classical refs. After a wire change, _two_ Ms
+   were involved: the moved M (whose wire and possibly result
+   index changed) AND any UNMOVED M on either the source or
+   target wire (whose result index got bumped by the renumber
+   sweep). Consumers of either could end up with a stale
+   `(qubit, result)` key that resolved to nothing.
 
-Refuse is the safer default; the user can manually delete the
-consumers first if they actually want to.
+**Fix.** Cascade pattern, following the `removeQubitLineWithConfirmation`
+precedent — action layer stays UI-free, controller layer owns
+prompt + render orchestration.
 
-**Open question.** Cascade-delete or refuse? Cascade is
-destructive but matches what "move the M" probably means
-semantically ("I want the consumers gone too, this is no
-longer a measurement").
+- **Action layer** (`actions/circuitActions.ts`):
+  - `collectMeasurementConsumers(grid, mLoc)` walks the tree
+    and returns every op whose classical-ref `(qubit, result)`
+    matches one of the M's `results` entries.
+  - `removeMeasurementWithDependents(model, mLoc, consumers)`
+    cascade-deletes consumers first (predicate matches by
+    object identity, surviving column splices), then
+    re-derives M's location by ref via `_findLocationByRef`
+    and calls `removeOperation`. Two-step ordering avoids the
+    ancestor-targets refresh seeing dangling refs.
+  - `moveMeasurementWithDependents(model, srcLoc, tgtLoc, srcWire, tgtWire, insertCol, invalidatedConsumers)`:
+    1. Snapshot every M's pre-move `(qubit, result)` keys by
+       object identity (the moved M's clone reference is lost
+       through `moveOperation`'s JSON deep-clone, so its
+       pre-keys are captured separately).
+    2. Call `moveOperation` (move first, then cascade — lets
+       us use the pre-move target string against the
+       unmodified grid).
+    3. Cascade-delete invalidated consumers via
+       `findAndRemoveOperations(op => invalidatedSet.has(op))`.
+    4. Build `keyRemap: Map<"oldQ:oldR", "newQ:newR">` by
+       pairing pre/post snapshots positionally _per M_ — both
+       the moved M and any unmoved M whose result indices got
+       bumped by the renumber sweep.
+    5. Apply remap to every classical ref in the tree via
+       `_applyClassicalRefRemap`.
+    6. `_deepRefreshDerivedTargets` + `resolveOverlappingOperationsRecursive`
+       to handle visual-span changes on surviving classically-
+       controlled groups.
+
+- **Controller layer** (`editor/operationPrompts.ts`, new file):
+  - `_deleteOperationWithConfirmation(model, loc, renderFn)`:
+    non-M / no-consumers path is a direct passthrough; M with
+    consumers prompts ("Deleting this M will also delete N
+    dependent operation(s)…"), then calls
+    `removeMeasurementWithDependents`.
+  - `_moveOperationWithConfirmation(model, srcLoc, tgtLoc, srcWire, tgtWire, insertCol, renderFn)`:
+    non-M / no-consumers path is a direct passthrough; M with
+    consumers partitions via `Location.inEarlierColumnThan(targetLoc, consumerLoc)`
+    into survivors (consumer still strictly after M's new
+    column → classical-ref remap) and invalidated (consumer
+    at-or-before → cascade-delete), prompts with a
+    three-shape message (pure-survivors / pure-invalidated /
+    mixed), then calls `moveMeasurementWithDependents`.
+
+- **Wiring**: context menu Delete and `dragController`'s
+  drag-out-delete + drop-commit-move all route through the
+  controller wrappers. `mutationHandledByWrapper` local in
+  `onDropzoneMouseUp` gates the trailing render to avoid
+  double-renders.
+
+- **Ctrl+drag**: clone path is unchanged. The new wrappers
+  only run for source-side mutations; clone synthesizes a
+  fresh op and never touches the source M's consumers.
+
+**Open question (resolved).** Cascade-delete on invalidate,
+remap on survive. The "do a mix" answer to the column-order
+edge case is implemented by partitioning the consumer set
+and surfacing both counts in the prompt message.
+
+**Tests.** 10 new cases in
+[`circuitActions.test.mjs`](../../test/circuit-editor/circuitActions.test.mjs)
+covering `collectMeasurementConsumers` (empty, top-level,
+nested, classical-ref must match), `removeMeasurementWithDependents`
+(cascade + location re-derive after collapse), and
+`moveMeasurementWithDependents` (survivor remap, invalidated
+cascade, the unmoved-M renumbering propagation case, and the
+no-consumer passthrough sanity check). 382 → 392 tests pass.
+
+**Subsumes.** B4 — orphaned classical refs no longer exist in
+the model post-fix.
 
 ### B3. Moving qubits around an M that later gates depend on crashes
 
@@ -2074,7 +2148,7 @@ shift may collide with other ops).
 
 ### B4. Removing an M doesn't update later classical wire positions
 
-inside collapsed groups
+inside collapsed groups — ✅ Subsumed by B2 (pending user-confirmation)
 
 **Symptom.** Delete an M whose results are referenced by gates
 inside a later collapsed group. The visible classical sub-wire
@@ -2089,16 +2163,16 @@ computation (in [sqore.ts](sqore.ts)'s `getRowHeights`) doesn't
 re-walk the collapsed children to discover the now-orphaned
 classical refs. The view caches stale heights.
 
-**Fix direction.** Couples to B2 — if removing an M with
-live consumers is refused (or cascade-deletes the consumers),
-the orphaned-ref state never arises. If kept independent, the
-row-height pass needs to descend into collapsed groups when
-counting classical references.
+**Fix.** B2's cascade-delete pass eliminates the orphaned-ref
+state entirely — by the time `removeOperation` runs, every
+consumer of the deleted M is already gone, so the row-height
+pass has nothing stale to count. The "fix at the row-height
+layer" alternative (walk collapsed children) is no longer
+needed.
 
-**Open question.** Is the right fix at the row-height layer
-(walk collapsed children) or at the data layer (refuse / cascade
-on M removal)? Probably the latter — orphaned classical refs
-shouldn't exist in the model at all.
+**Open question (resolved).** Data-layer fix (B2's cascade)
+was the right call — orphaned classical refs shouldn't exist
+in the model at all.
 
 ### B5. Add / remove control on a classically-controlled op blocked by classical-ref entries — ✅ Shipped (pending user-confirmation)
 

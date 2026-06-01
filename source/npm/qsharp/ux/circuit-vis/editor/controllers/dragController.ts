@@ -8,8 +8,11 @@ import {
   collectExternalProducerLocations,
   moveOperation,
   removeControl,
-  removeOperation,
 } from "../../actions/circuitActions.js";
+import {
+  _deleteOperationWithConfirmation,
+  _moveOperationWithConfirmation,
+} from "../operationPrompts.js";
 import {
   createGateGhost,
   createWireDropzone,
@@ -32,11 +35,9 @@ import { toolboxGateDictionary } from "../toolboxGates.js";
 import {
   deepEqual,
   findOperation,
-  findParentArray,
   getAncestorColumnSiblingWires,
   getGateElems,
   getGateLocationString,
-  getMinMaxRegIdx,
   getQuantumWireRange,
   getToolboxElems,
 } from "../../utils.js";
@@ -116,7 +117,7 @@ export class DragController {
    * Begin the wire-pick flow that lets the user click a wire to add
    * a control to `selectedOperation`. Called from the context menu.
    */
-  startAddingControl(selectedOperation: Unitary, selectedLocation: string) {
+  startAddingControl(selectedOperation: Unitary) {
     this.ctx.interaction.selectedOperation = selectedOperation;
     this.ctx.container.classList.add("adding-control");
     this.ctx.ghostQubitLayer.style.display = "block";
@@ -147,7 +148,7 @@ export class DragController {
         ev.stopPropagation(),
       );
       dropzone.addEventListener("click", () =>
-        this.commitAddControl(selectedOperation, selectedLocation, wireIndex),
+        this.commitAddControl(wireIndex),
       );
       this.ctx.overlayLayer.appendChild(dropzone);
     }
@@ -444,6 +445,13 @@ export class DragController {
     const originalGrid = JSON.parse(
       JSON.stringify(this.ctx.model.componentGrid),
     ) as ComponentGrid;
+    // Set when a code path delegates rendering to a prompt-aware
+    // wrapper (currently `_moveOperationWithConfirmation`). The
+    // wrapper owns the renderFn call — sync on the no-prompt
+    // path, async via the prompt callback when one is shown — so
+    // the trailing deepEqual block must skip its own renderFn to
+    // avoid double-rendering on the no-prompt fast path.
+    let mutationHandledByWrapper = false;
     const targetLoc = dropzoneElem.getAttribute("data-dropzone-location");
     const insertNewColumn =
       dropzoneElem.getAttribute("data-dropzone-inter-column") == "true" ||
@@ -536,22 +544,35 @@ export class DragController {
           );
         }
       } else {
-        moveOperation(
+        // Regular move path. Routes through the prompt-aware
+        // wrapper so moving a measurement with downstream
+        // classical consumers surfaces a confirmation dialog
+        // (mix of cascade-update for survivors + cascade-delete
+        // for invalidated consumers, per the column-order
+        // partition). The wrapper owns the renderFn call on
+        // BOTH branches (sync no-prompt + async prompt-callback),
+        // so we skip the trailing deepEqual block via
+        // `mutationHandledByWrapper`.
+        _moveOperationWithConfirmation(
           this.ctx.model,
           sourceLocation,
           targetLoc,
           this.ctx.interaction.selectedWire,
           targetWire,
-          this.ctx.interaction.movingControl,
           insertNewColumn,
+          this.ctx.renderFn,
         );
+        mutationHandledByWrapper = true;
       }
     }
 
     this.ctx.interaction.selectedOperation = null;
     resetTransient(this.ctx.interaction);
 
-    if (!deepEqual(originalGrid, this.ctx.model.componentGrid)) {
+    if (
+      !mutationHandledByWrapper &&
+      !deepEqual(originalGrid, this.ctx.model.componentGrid)
+    ) {
       this.ctx.renderFn();
     }
   };
@@ -590,10 +611,24 @@ export class DragController {
             this.ctx.interaction.selectedOperation,
             this.ctx.interaction.selectedWire,
           );
+          this.ctx.renderFn();
         } else {
-          removeOperation(this.ctx.model, selectedLocation);
+          // Drag-out-delete. Routes through the prompt-aware
+          // wrapper so deleting a measurement with downstream
+          // classical consumers surfaces a confirmation dialog
+          // before cascade-deleting them. The wrapper handles
+          // renderFn on both branches; this branch no longer
+          // calls renderFn unconditionally.
+          _deleteOperationWithConfirmation(
+            this.ctx.model,
+            selectedLocation,
+            this.ctx.renderFn,
+          );
+          // Fall through to the qubit-controller branch via the
+          // surrounding `else if` chain (no early return needed —
+          // this is the terminal branch for the delete path; the
+          // pre-existing `this.ctx.renderFn()` below is removed.
         }
-        this.ctx.renderFn();
       } else if (this.ctx.interaction.selectedWire != null) {
         // A qubit label was dragged off-circuit → ask the qubit
         // controller (which owns the prompt + render flow).
@@ -711,14 +746,23 @@ export class DragController {
 
   /**
    * Final step of `startAddingControl`: actually add the control,
-   * then reshuffle the column if the new control range overlaps a
-   * neighboring op.
+   * tear down the add-control UI, and re-render. The action layer
+   * (`addControl` → `_resolveSpanChange`) owns the post-widening
+   * cascade now — column splits, ancestor `.targets` refresh,
+   * sibling shifts. This wrapper does NOT duplicate any of that.
+   *
+   * Earlier versions ran a second split-and-shift pass HERE after
+   * calling `addControl`, which produced a visible duplicate when
+   * the centralized cascade had already split the column: the
+   * legacy pass spliced the just-placed op into a fresh column at
+   * the same index a second time, leaving the source op visible
+   * in two places. The legacy block also used `getMinMaxRegIdx`
+   * directly with no ancestor walk, so it would have missed
+   * cascades anyway. Removed entirely — the action layer's
+   * centralized check (`_resolveSpanChange`) is the single source
+   * of truth.
    */
-  private commitAddControl(
-    selectedOperation: Unitary,
-    selectedLocation: string,
-    wireIndex: number,
-  ): void {
+  private commitAddControl(wireIndex: number): void {
     if (
       this.ctx.interaction.selectedOperation == null ||
       this.ctx.interaction.selectedOperation.kind !== "unitary"
@@ -733,37 +777,6 @@ export class DragController {
     this.ctx.container.classList.remove("adding-control");
     this.ctx.ghostQubitLayer.style.display = "none";
     if (!successful) return;
-
-    const last = Location.parse(selectedLocation).last();
-    if (last == null) return;
-    const [columnIndex, position] = last;
-    const selectedOperationParent = findParentArray(
-      this.ctx.model.componentGrid,
-      selectedLocation,
-    );
-    if (!selectedOperationParent) return;
-
-    // If the new control range intersects another op in the same
-    // column, push the selected op into a fresh column ahead of it.
-    const [minTarget, maxTarget] = getMinMaxRegIdx(selectedOperation);
-    selectedOperationParent[columnIndex].components.forEach((op, opIndex) => {
-      if (opIndex === position) return;
-      const [minOp, maxOp] = getMinMaxRegIdx(op);
-      if (
-        (minOp >= minTarget && minOp <= maxTarget) ||
-        (maxOp >= minTarget && maxOp <= maxTarget) ||
-        (minTarget >= minOp && minTarget <= minOp) ||
-        (maxTarget >= maxOp && maxTarget <= maxOp)
-      ) {
-        selectedOperationParent[columnIndex].components.splice(position, 1);
-        if (selectedOperationParent[columnIndex].components.length === 0) {
-          selectedOperationParent.splice(columnIndex, 1);
-        }
-        selectedOperationParent.splice(columnIndex, 0, {
-          components: [selectedOperation],
-        });
-      }
-    });
 
     this.ctx.renderFn();
   }

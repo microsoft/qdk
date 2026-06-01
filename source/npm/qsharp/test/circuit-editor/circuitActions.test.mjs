@@ -19,10 +19,13 @@ import {
   addControl,
   addOperation,
   collectExternalProducerLocations,
+  collectMeasurementConsumers,
   findAndRemoveOperations,
+  moveMeasurementWithDependents,
   moveOperation,
   moveQubit,
   removeControl,
+  removeMeasurementWithDependents,
   removeOperation,
   removeQubit,
 } from "../../dist/ux/circuit-vis/actions/circuitActions.js";
@@ -5014,5 +5017,1157 @@ test("moveOperation extend (B6): deeply-nested source past a multi-wire ancestor
       { gate: "Z", qubit: 4 },
     ],
     `Sib's children must be preserved through the split; got ${JSON.stringify(sibChildren)}`,
+  );
+});
+
+// ---------------------------------------------------------------
+// B2 — measurement move / delete with downstream consumers.
+//
+// `collectMeasurementConsumers` is the foundation: it walks the
+// grid and finds every op whose classical-ref `(qubit, result)`
+// matches one of the M's `results` entries. Both the prompt
+// layer and the cascade actions consume its output.
+//
+// `removeMeasurementWithDependents` is a thin orchestration on
+// top of `findAndRemoveOperations` + `removeOperation` — the
+// test surface is the predicate-match correctness and the M
+// location re-derivation that survives the cascade's column
+// shifts.
+//
+// `moveMeasurementWithDependents` is the bulk of the new logic:
+// pre-/post-move (qubit, result) snapshotting, the wire-level
+// renumbering remap propagation, the survivor / invalidated
+// partition by object identity, and the post-mutation overlap
+// resolution for changed visual spans.
+// ---------------------------------------------------------------
+
+const _mGate = (/** @type {number} */ q, /** @type {number} */ r) => ({
+  kind: "measurement",
+  gate: "Measure",
+  qubits: [{ qubit: q }],
+  results: [{ qubit: q, result: r }],
+});
+const _ccx = (
+  /** @type {number} */ targetQubit,
+  /** @type {number} */ ctrlQubit,
+  /** @type {number} */ ctrlResult,
+) => ({
+  kind: "unitary",
+  gate: "X",
+  targets: [{ qubit: targetQubit }],
+  controls: [{ qubit: ctrlQubit, result: ctrlResult }],
+});
+
+test("collectMeasurementConsumers: empty when no consumer references the M", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      {
+        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 1 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  assert.equal(
+    collectMeasurementConsumers(model.componentGrid, "0,0").length,
+    0,
+  );
+});
+
+test("collectMeasurementConsumers: finds a top-level classically-controlled consumer", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      { components: [_ccx(1, 0, 0)] },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  assert.equal(consumers.length, 1);
+  assert.equal(consumers[0].location, "1,0");
+});
+
+test("collectMeasurementConsumers: walks into nested children", () => {
+  // Consumer is buried two levels deep inside a non-classically-
+  // controlled group; the walker still finds it.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            targets: [{ qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Inner",
+                    targets: [{ qubit: 1 }],
+                    children: [{ components: [_ccx(1, 0, 0)] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  // Only the leaf X is a logical consumer. The Outer / Inner
+  // wrappers don't carry the classical ref in their `.controls`,
+  // so they don't count — even though `.targets` cache propagation
+  // (when present) would include it.
+  assert.equal(
+    consumers.length,
+    1,
+    `expected only the leaf X to be flagged; got ${JSON.stringify(
+      consumers.map((c) => c.op.gate),
+    )}`,
+  );
+  assert.equal(consumers[0].op.gate, "X");
+});
+
+test("collectMeasurementConsumers: ancestor groups with propagated .targets are NOT flagged", () => {
+  // Regression for the "deleting one M emptied my circuit" bug.
+  // Simulate the post-`_deepRefreshDerivedTargets` state where
+  // the outer group's `.targets` cache has propagated the classical
+  // ref upward. If we mistakenly inspected `.targets`, the Outer
+  // group would be flagged as a consumer — and cascade-delete would
+  // wipe the unrelated sibling Y inside it.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            // PROPAGATED cache: classical ref from inner X is here.
+            targets: [{ qubit: 1 }, { qubit: 2 }, { qubit: 0, result: 0 }],
+            children: [
+              {
+                components: [_ccx(1, 0, 0)], // the actual consumer
+              },
+              {
+                components: [
+                  // Unrelated sibling — purely quantum, independent
+                  // of M. MUST survive a cascade-delete of M.
+                  {
+                    kind: "unitary",
+                    gate: "Y",
+                    targets: [{ qubit: 2 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  assert.equal(
+    consumers.length,
+    1,
+    `Outer group with propagated .targets must NOT be flagged; ` +
+      `expected only the leaf X. Got ${JSON.stringify(
+        consumers.map((c) => c.op.gate),
+      )}`,
+  );
+  assert.equal(consumers[0].op.gate, "X");
+
+  // End-to-end: removing the M with this consumer set must leave
+  // the Y intact inside the (now-shrunken) Outer group.
+  removeMeasurementWithDependents(
+    model,
+    "0,0",
+    consumers.map((c) => c.op),
+  );
+  // Outer should still exist with the Y child preserved.
+  const outerOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  assert.equal(outerOp?.gate, "Outer", "Outer group must survive");
+  const survivingGates = outerOp.children
+    .flatMap((/** @type {any} */ col) => col.components)
+    .map((/** @type {any} */ op) => op.gate);
+  assert.ok(
+    survivingGates.includes("Y"),
+    `Unrelated sibling Y must survive; got children ${JSON.stringify(survivingGates)}`,
+  );
+  assert.ok(
+    !survivingGates.includes("X"),
+    `X (the true consumer) must be cascade-deleted; got children ${JSON.stringify(survivingGates)}`,
+  );
+});
+
+test("collectMeasurementConsumers: classical-ref must MATCH (qubit, result); other Ms don't trigger", () => {
+  // Two Ms, on different wires. Consumer references only one of
+  // them. The other M's `collectMeasurementConsumers` returns
+  // empty.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      { components: [_mGate(1, 0)] },
+      { components: [_ccx(2, 1, 0)] }, // consumes M_1
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  assert.equal(
+    collectMeasurementConsumers(model.componentGrid, "0,0").length,
+    0,
+    "M_0 has no consumer (the consumer references M_1's (q1, r0))",
+  );
+  assert.equal(
+    collectMeasurementConsumers(model.componentGrid, "1,0").length,
+    1,
+    "M_1's consumer is the classically-controlled X",
+  );
+});
+
+test("removeMeasurementWithDependents: deletes M and all classical-ref consumers", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      { components: [_ccx(1, 0, 0)] },
+      { components: [_ccx(2, 0, 0)] },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  assert.equal(consumers.length, 2);
+  removeMeasurementWithDependents(
+    model,
+    "0,0",
+    consumers.map((c) => c.op),
+  );
+  // Every column should be gone.
+  assert.equal(
+    model.componentGrid.length,
+    0,
+    `expected empty grid; got ${JSON.stringify(model.componentGrid)}`,
+  );
+});
+
+test("removeMeasurementWithDependents: M's location is re-derived after the cascade collapses columns", () => {
+  // Consumer in col 0 alone collapses col 0; M was in col 1 and
+  // shifts down to col 0. Naive use of the original location
+  // string "1,0" would either miss M (post-cascade) or hit the
+  // wrong op. The action layer re-derives by ref.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      { components: [_ccx(1, 0, 0)] }, // consumer ALONE in col 0
+      { components: [_mGate(0, 0)] }, // M in col 1
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const consumers = collectMeasurementConsumers(model.componentGrid, "1,0");
+  assert.equal(consumers.length, 1);
+  removeMeasurementWithDependents(
+    model,
+    "1,0",
+    consumers.map((c) => c.op),
+  );
+  assert.equal(
+    model.componentGrid.length,
+    0,
+    `expected empty grid after cascade; got ${JSON.stringify(model.componentGrid)}`,
+  );
+});
+
+test("removeMeasurementWithDependents: surviving Ms' result-index renumbering propagates to their consumers", () => {
+  // Two Ms on wire 0: M_a → result 0, M_b → result 1.
+  // A consumer references (0, 1) — i.e. M_b.
+  // Delete M_a. Its only consumer is itself (none in this case),
+  // so the consumer set is empty. But the tail-end
+  // _updateMeasurementLines sweep renumbers M_b from result 1
+  // → result 0 to close the gap. The consumer's (0, 1) must be
+  // remapped to (0, 0) or the next render throws
+  // "Classical register ID 1 invalid for qubit ID 0 with 1
+  // classical register(s)".
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] }, // M_a (to be deleted)
+      { components: [_mGate(0, 1)] }, // M_b (survives)
+      { components: [_ccx(1, 0, 1)] }, // consumes M_b
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  // M_a has no consumers (the ccx references M_b, not M_a).
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  assert.equal(consumers.length, 0, "M_a has no direct consumers");
+
+  removeMeasurementWithDependents(model, "0,0", []);
+
+  // Locate the surviving ccx and verify its classical-ref was
+  // remapped from (0, 1) → (0, 0) to track M_b's new result idx.
+  /** @type {any} */
+  let consumerOp;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "unitary" && op.gate === "X") {
+        consumerOp = op;
+      }
+    }
+  }
+  assert.ok(consumerOp, "consumer must still exist");
+  const classicalRef = consumerOp.controls.find(
+    (/** @type {any} */ c) => c.result !== undefined,
+  );
+  assert.deepEqual(
+    { qubit: classicalRef.qubit, result: classicalRef.result },
+    { qubit: 0, result: 0 },
+    "consumer of M_b must remap (0,1) → (0,0) after M_a's deletion renumbered M_b",
+  );
+  // And the model's per-wire numResults must reflect the single
+  // surviving M.
+  assert.equal(
+    model.qubits[0].numResults,
+    1,
+    "wire 0 must report exactly 1 classical register after deletion",
+  );
+});
+
+test("moveMeasurementWithDependents: surviving consumer's classical-ref tracks the M's new wire", () => {
+  // M on wire 0, consumer in a later column on wire 2 with
+  // classical-ref (0, 0). M moves DOWN to wire 1 (and the column
+  // stays at the original col 0, just one wire over).
+  // Expected: consumer's classical-ref becomes (1, 0).
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      { components: [_ccx(2, 0, 0)] },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  // Survivor partition: target column 0 is strictly before
+  // consumer column 1 → consumer survives.
+  const moved = moveMeasurementWithDependents(
+    model,
+    "0,0",
+    "0,0",
+    0,
+    1,
+    /* insertNewColumn */ false,
+    [],
+  );
+  assert.ok(moved);
+
+  // The consumer is in col 1 (target's col was 0, consumer was
+  // at col 1 pre-move). Find it.
+  const consumerOp = /** @type {any} */ (model.componentGrid[1].components[0]);
+  const classicalRef = consumerOp.controls.find(
+    (/** @type {any} */ c) => c.result !== undefined,
+  );
+  assert.deepEqual(
+    { qubit: classicalRef.qubit, result: classicalRef.result },
+    { qubit: 1, result: 0 },
+    "consumer's classical-ref must track M's new wire",
+  );
+});
+
+test("moveMeasurementWithDependents: invalidated consumer is cascade-deleted", () => {
+  // M at col 0, ccx (consumer) at col 1, unrelated H at col 2.
+  // Move M to "2,0" (target slot in col 2 alongside H on wire 2,
+  // no collision since M's wire 0 is disjoint from H's wire 2).
+  //
+  // Post-move (pre-cascade): col 0=ccx (was col 1; original col 0
+  // collapsed when M moved out), col 1=[M, H] (was col 2 with M
+  // inserted at slot 0). Now M is in col 1 and ccx is in col 0
+  // — consumer is in an earlier column, invalidated by definition.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] },
+      { components: [_ccx(1, 0, 0)] },
+      { components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 2 }] }] },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  // Caller (prompt layer) would partition; here we hand the
+  // single consumer in as invalidated directly.
+  const moved = moveMeasurementWithDependents(
+    model,
+    "0,0",
+    "2,0",
+    0,
+    0,
+    /* insertNewColumn */ false,
+    consumers.map((c) => c.op),
+  );
+  assert.ok(moved);
+  // The ccx should be gone; only M and H remain.
+  const remainingGates = model.componentGrid
+    .flatMap((/** @type {any} */ col) => col.components)
+    .map((/** @type {any} */ op) => op.gate)
+    .sort();
+  assert.deepEqual(
+    remainingGates,
+    ["H", "Measure"],
+    `ccx must be cascade-deleted; got ${JSON.stringify(remainingGates)}`,
+  );
+});
+
+test("moveMeasurementWithDependents: consumer of an UNMOVED M whose result index gets renumbered is also remapped", () => {
+  // Two Ms on wire 0 (results 0 and 1). A consumer of the SECOND
+  // M references (0, 1). Move the FIRST M to a different wire.
+  // The remaining M on wire 0 gets renumbered down to result 0 by
+  // _updateMeasurementLines. The consumer must be remapped from
+  // (0, 1) → (0, 0) to track the renumbering.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      { components: [_mGate(0, 0)] }, // M_first, result 0
+      { components: [_mGate(0, 1)] }, // M_second, result 1
+      { components: [_ccx(2, 0, 1)] }, // consumer of M_second
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move M_first from wire 0 to wire 1. Its result key changes
+  // from (0, 0) to (1, 0). M_second on wire 0 was result 1;
+  // after the move it gets renumbered to result 0.
+  // The consumer's (0, 1) must become (0, 0) to track M_second.
+  //
+  // Pass invalidatedConsumers=[] — we're not invalidating
+  // anything; the consumer is downstream of M_second (unmoved),
+  // not M_first (moved).
+  const moved = moveMeasurementWithDependents(
+    model,
+    "0,0",
+    "0,0",
+    0,
+    1,
+    /* insertNewColumn */ false,
+    [],
+  );
+  assert.ok(moved);
+
+  // Find the consumer in the grid (its location may have shifted
+  // — locate by gate).
+  /** @type {any} */
+  let consumerOp;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "unitary" && op.gate === "X") {
+        consumerOp = op;
+        break;
+      }
+    }
+    if (consumerOp) break;
+  }
+  assert.ok(consumerOp, "consumer must still exist");
+  const classicalRef = consumerOp.controls.find(
+    (/** @type {any} */ c) => c.result !== undefined,
+  );
+  assert.deepEqual(
+    { qubit: classicalRef.qubit, result: classicalRef.result },
+    { qubit: 0, result: 0 },
+    "consumer of M_second must remap (0,1) → (0,0) after M_first's move triggered the wire-0 renumber",
+  );
+});
+
+test("moveMeasurementWithDependents: M with no consumers behaves like a regular move", () => {
+  // Sanity check: the cascade overhead is a no-op when there's
+  // no consumer to remap or invalidate.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [{ components: [_mGate(0, 0)] }],
+  };
+  const model = new CircuitModel(circuit);
+  const moved = moveMeasurementWithDependents(
+    model,
+    "0,0",
+    "0,0",
+    0,
+    1,
+    /* insertNewColumn */ false,
+    [],
+  );
+  assert.ok(moved);
+  const m = /** @type {any} */ (model.componentGrid[0].components[0]);
+  assert.equal(m.qubits[0].qubit, 1);
+});
+
+// ---------------------------------------------------------------
+// Centralized post-widening cleanup.
+//
+// Whenever an op's `.targets` / `.controls` grow (added control,
+// added target, wider remap, etc.), the action layer's
+// `_resolveSpanChange` must check the op against its own column
+// siblings AND propagate up through every ancestor. Prior to this,
+// only ancestors were checked — so a top-level `addControl` that
+// widened the op into a same-column sibling silently left them
+// overlapping. These tests pin the centralized invariant: any
+// path that widens an op must trigger the split-and-shift.
+// ---------------------------------------------------------------
+
+test("addControl: top-level widening into a same-column sibling splits the column", () => {
+  // CNOT(target q0, control q1) and unrelated H on q3 share col 0.
+  // Add a control on q3 to the CNOT → CNOT now spans q0..q3 and
+  // overlaps H. The CNOT must end up in its own column, with H
+  // pushed one slot to the right.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 0 }],
+            controls: [{ qubit: 1 }],
+          },
+          { kind: "unitary", gate: "H", targets: [{ qubit: 3 }] },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const cnotOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const ok = addControl(model, cnotOp, 3);
+  assert.ok(ok, "addControl should succeed on a fresh wire");
+
+  // Expect two top-level columns: [CNOT] then [H].
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    `expected the column to split into 2; got grid: ${JSON.stringify(
+      model.componentGrid.map((c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+  assert.equal(model.componentGrid[0].components.length, 1);
+  assert.equal(model.componentGrid[0].components[0].gate, "X");
+  assert.equal(model.componentGrid[1].components.length, 1);
+  assert.equal(model.componentGrid[1].components[0].gate, "H");
+});
+
+test("addControl: nested widening into a same-column sibling inside a group splits inside the group", () => {
+  // Inside group Foo (top-level), col 0 contains [H(q0), Z(q3)].
+  // Add a control on q3 to H → H now spans q0..q3 and overlaps Z
+  // INSIDE the group's child grid. The H must end up in its own
+  // column inside Foo; Z follows one column to the right.
+  //
+  // Prior to centralizing the cleanup, the ancestor cascade fired
+  // on Foo (refreshing its outer cache) but never resolved the
+  // collision inside Foo's children.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 3 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "Z", targets: [{ qubit: 3 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const hOp = /** @type {any} */ (fooOp.children[0].components[0]);
+  const ok = addControl(model, hOp, 3);
+  assert.ok(ok);
+
+  // Foo's child grid must now have two columns: [H] then [Z].
+  assert.equal(
+    fooOp.children.length,
+    2,
+    `expected Foo's child grid to split; got ${JSON.stringify(
+      fooOp.children.map((/** @type {any} */ c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+  assert.equal(fooOp.children[0].components[0].gate, "H");
+  assert.equal(fooOp.children[1].components[0].gate, "Z");
+});
+
+test("addControl: widening that pushes the OUTER GROUP into its top-level sibling also splits the top-level column", () => {
+  // Top-level col 0: [Foo(q0), X(q3)].
+  //   - Foo has one child H(q0). Foo's outer span = [q0,q0].
+  //   - X is on q3.
+  //   - Adding a control on q3 to H widens H to q0..q3, which
+  //     cascades up to widen Foo's `.targets` to q0..q3, which
+  //     now overlaps the top-level X.
+  // Expect TWO splits: (a) inside Foo there's only one child so
+  // no inner split, and (b) at top-level, Foo gets its own column
+  // and X is pushed to col 1.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+          { kind: "unitary", gate: "X", targets: [{ qubit: 3 }] },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const hOp = /** @type {any} */ (fooOp.children[0].components[0]);
+  addControl(model, hOp, 3);
+
+  // Top-level grid should now have [Foo] then [X].
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    `expected the top-level column to split; got ${JSON.stringify(
+      model.componentGrid.map((c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+  assert.equal(model.componentGrid[0].components[0].gate, "Foo");
+  assert.equal(model.componentGrid[1].components[0].gate, "X");
+});
+
+test("addControl: no overlap means no split (centralized path is a no-op)", () => {
+  // Sanity check: when adding the control doesn't introduce a
+  // collision, the column stays as it was.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+          { kind: "unitary", gate: "Z", targets: [{ qubit: 3 }] },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const hOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  // Add control on q1 — widens H to q0..q1, doesn't reach Z's q3.
+  addControl(model, hOp, 1);
+  assert.equal(
+    model.componentGrid.length,
+    1,
+    `no collision; column should not split. Got ${JSON.stringify(
+      model.componentGrid.map((c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+});
+
+// ---------------------------------------------------------------
+// Regression: overlap-collision check must use the **drawn span**
+// of siblings (`getMinMaxRegIdx` — includes classical-control
+// wires), not the quantum-only `getQuantumWireRange`. A sibling
+// whose target is on a high wire but whose classical control
+// points at a low-wire measurement visually occupies every wire
+// between them (the renderer paints a connector through them);
+// a widened group whose span intersects ANY of those wires
+// collides with that connector even if it doesn't touch the
+// quantum target. Earlier versions routed the action-layer
+// helper through `getQuantumWireRange` and under-reported the
+// collision — the visible symptom matched the user's
+// "straddled between a classical-control dependency and a qubit
+// dependency" report: the widened group's expanded box drew
+// directly through the classical-control connector with no
+// column split.
+// ---------------------------------------------------------------
+
+test("addControl widening: sibling with classical control on a LOW wire (drawn-span overlap) triggers split even when quantum target is clear", () => {
+  // 5 qubits.
+  //   col 0: M on q1 (produces a result that X will read).
+  //   col 1: [Foo(span q0, child H@q0), X(target q3, classical
+  //          control pointing at M's result on q1)].
+  // X's QUANTUM span is just [q3]. X's DRAWN span is [q1, q3]
+  // because the classical-control connector falls from the gate
+  // body on q3 down to the producer's wire q1.
+  //
+  // Add a quantum control on q2 to H inside Foo. Foo's `.targets`
+  // widens from q0 to q0..q2. Foo's NEW span doesn't touch X's
+  // quantum target q3 — but it DOES intersect X's drawn span at
+  // q1, q2 (where X's classical-control connector lives). The
+  // renderer would draw Foo's expanded box right through that
+  // connector. The action-layer cascade must split col 1 to
+  // restore a non-overlapping layout.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "Measure",
+            qubits: [{ qubit: 1 }],
+            results: [{ qubit: 1, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 3 }],
+            controls: [{ qubit: 1, result: 0 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const fooOp = /** @type {any} */ (model.componentGrid[1].components[0]);
+  const hOp = /** @type {any} */ (fooOp.children[0].components[0]);
+
+  addControl(model, hOp, 2);
+
+  // col 0 (M) stays. The Foo/X column must have split into two:
+  // one with Foo alone, one with X alone.
+  assert.equal(
+    model.componentGrid.length,
+    3,
+    `expected col 1 to split into two; got ${JSON.stringify(
+      model.componentGrid.map((c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+  // Foo lands in a fresh column at index 1; X gets pushed to the
+  // next column (mirrors the `commitAddControl` convention).
+  assert.deepEqual(
+    model.componentGrid[1].components.map((/** @type {any} */ op) => op.gate),
+    ["Foo"],
+    "Foo must end up alone in its column after the split",
+  );
+  assert.deepEqual(
+    model.componentGrid[2].components.map((/** @type {any} */ op) => op.gate),
+    ["X"],
+    "X must end up alone in the column to Foo's right",
+  );
+
+  // Sanity: Foo's children-derived targets now include q2 (the
+  // new control wire) but not q3 (X's quantum target) — the
+  // split was justified ONLY by the drawn-span collision with X's
+  // classical-control connector. Note groups store only the
+  // wires their direct children USE, not every wire in the span,
+  // so q1 (in the [q0..q2] span but used by nobody) isn't here.
+  const widenedFoo = /** @type {any} */ (model.componentGrid[1].components[0]);
+  const fooWires = widenedFoo.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.ok(
+    fooWires.includes(0) && fooWires.includes(2) && !fooWires.includes(3),
+    `Foo's targets must include q0 and q2 but not q3; got ${JSON.stringify(fooWires)}`,
+  );
+});
+
+test("moveOperation shift-extend: cross-over a sibling whose drawn span includes a classical-control wire", () => {
+  // Same drawn-span vs quantum-span distinction as the previous
+  // test, but exercised through `moveOperation`'s shift-extend
+  // path. This is the literal scenario in the user's bug report.
+  //
+  // 5 qubits.
+  //   col 0: M on q1.
+  //   col 1: [Foo(span q0, child H@q0), X(target q3, classical
+  //          control on q1)].
+  // Shift-drop H from inside Foo onto wire q2 (Foo's trailing
+  // inner-col at q2). Foo's `.targets` cascade-widens to q0..q2.
+  // q2 doesn't touch X's quantum target (q3) but DOES sit on
+  // X's classical-control connector (which spans q1..q3 visually).
+  // Expect col 1 to split: Foo alone, X pushed right.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "Measure",
+            qubits: [{ qubit: 1 }],
+            results: [{ qubit: 1, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 3 }],
+            controls: [{ qubit: 1, result: 0 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // H lives at "1,0-0,0" (top col 1, op 0 = Foo; then inner col
+  // 0, op 0 = H). Shift-drop to Foo's trailing inner-col "1,0-1,0"
+  // at wire 2.
+  const moved = moveOperation(model, "1,0-0,0", "1,0-1,0", 0, 2, false, false);
+  assert.ok(moved, "moveOperation must succeed");
+
+  assert.equal(
+    model.componentGrid.length,
+    3,
+    `expected col 1 to split; got ${JSON.stringify(
+      model.componentGrid.map((c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+  assert.deepEqual(
+    model.componentGrid[0].components.map((/** @type {any} */ op) => op.gate),
+    ["Measure"],
+    "M must stay in col 0",
+  );
+  assert.deepEqual(
+    model.componentGrid[1].components.map((/** @type {any} */ op) => op.gate),
+    ["Foo"],
+    "Foo must occupy the new col 1 alone",
+  );
+  assert.deepEqual(
+    model.componentGrid[2].components.map((/** @type {any} */ op) => op.gate),
+    ["X"],
+    "X must be pushed to col 2",
+  );
+
+  // Foo's widened quantum span includes q2 (the drop wire) but
+  // not q3 (X's quantum target) — confirms the split was driven
+  // by the drawn-span collision, not a quantum-span overlap.
+  const widenedFoo = /** @type {any} */ (model.componentGrid[1].components[0]);
+  const fooWires = widenedFoo.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.ok(
+    fooWires.includes(2) && !fooWires.includes(3),
+    `Foo must enclose q2 but not q3; got ${JSON.stringify(fooWires)}`,
+  );
+});
+
+test("no false split: widening that lands BELOW a classically-controlled sibling's drawn span stays put", () => {
+  // Negative sanity: the drawn-span fix must not over-block. If
+  // the widened group's span lies entirely outside the sibling's
+  // drawn span (both quantum target AND classical-control wire),
+  // no collision exists and no split must happen.
+  //
+  // 5 qubits.
+  //   col 0: M on q2.
+  //   col 1: [X(target q3, classical control on q2), Z(q0)].
+  //   - X's drawn span: q2..q3.
+  //   - Z is the op we widen.
+  // Add a quantum control on q1 to Z. Z's new span: q0..q1. That
+  // DOESN'T overlap X's drawn span [q2, q3], so the column must
+  // NOT split.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "Measure",
+            qubits: [{ qubit: 2 }],
+            results: [{ qubit: 2, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 3 }],
+            controls: [{ qubit: 2, result: 0 }],
+          },
+          { kind: "unitary", gate: "Z", targets: [{ qubit: 0 }] },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const zOp = /** @type {any} */ (model.componentGrid[1].components[1]);
+  addControl(model, zOp, 1);
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    `widening below the drawn span must not split; got ${JSON.stringify(
+      model.componentGrid.map((c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+  assert.deepEqual(
+    model.componentGrid[1].components.map((/** @type {any} */ op) => op.gate),
+    ["X", "Z"],
+    "X and Z must still share col 1",
+  );
+});
+
+// ---------------------------------------------------------------
+// moveOperation: ordinary (non-shift-extend) move where the
+// post-move op's span collides with a column sibling. Exercises
+// the same `_resolveSpanChange` chokepoint as the shift-extend
+// path, but for SOURCE shapes the existing tests don't cover:
+//
+//   - a CONTROLLED gate moved into a sibling-occupied column
+//     (control leg is what causes the collision, not the target),
+//   - a MULTI-TARGET gate (SWAP) moved into a sibling-occupied
+//     column.
+//
+// Both shapes route through `_addOp`'s pre-insert overlap check
+// AND the dest-side `_resolveSpanChange` cascade. `_addOp` handles
+// the immediate column; `_resolveSpanChange` is the architectural
+// guarantee that nothing slips through. Pin both invariants:
+// post-move grid layout splits cleanly, no duplicate, no
+// overlap.
+// ---------------------------------------------------------------
+
+test("moveOperation: moving a CONTROLLED gate into a sibling-occupied column splits the column", () => {
+  // 5 qubits.
+  //   col 0: [Z(q4)] — anchor, stays put.
+  //   col 1: [H(q0), Y(q2)] — H is the source, Y is the sibling.
+  //
+  // Move H from "1,0" → "1,0" with the same target wire (q0)
+  // wouldn't be interesting. Instead, build H to have a control
+  // on q3 already (so its span = q0..q3, which is COMPATIBLE with
+  // Y on q2... no, wait, that overlaps. Use a different setup.)
+  //
+  // Restart: build a circuit where the SOURCE's span doesn't yet
+  // overlap the sibling, then MOVE the source to a column where
+  // it now does. That's the genuine "move-into-overlap" case.
+  //
+  //   col 0: [CNOT(target=q0, ctrl=q3)] — source, span q0..q3.
+  //   col 1: [Y(q1)] — destination's sibling.
+  // Move CNOT from "0,0" to col 1 wire 0 — same wire, just
+  // moving horizontally into a column where Y(q1) sits. CNOT's
+  // span [q0,q3] envelops q1, so it collides with Y → split.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "CNOT",
+            targets: [{ qubit: 0 }],
+            controls: [{ qubit: 3 }],
+          },
+        ],
+      },
+      {
+        components: [{ kind: "unitary", gate: "Y", targets: [{ qubit: 1 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move CNOT from col 0 to col 1, wire stays at q0. Target
+  // location "1,0" = col 1, opIndex 0.
+  const moved = moveOperation(model, "0,0", "1,0", 0, 0, false, false);
+  assert.ok(moved);
+
+  // _addOp's pre-insert overlap check sees CNOT's span [0,3]
+  // would overlap Y(q1) and inserts a fresh column. Top-level
+  // grid: [CNOT] in col 0 (the freshly inserted one), [Y] in col
+  // 1. The OLD col 0 (where CNOT used to live) is empty and gets
+  // pruned by `_removeOp`'s cleanup.
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    `expected exactly 2 columns post-move; got ${JSON.stringify(
+      model.componentGrid.map((c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+
+  // CNOT exactly once, in its own column. Y exactly once, in its
+  // own column. Order: CNOT before Y (the _addOp insert-new-column
+  // convention pushes the original sibling right).
+  const layout = model.componentGrid.map((c) =>
+    c.components.map((/** @type {any} */ op) => op.gate),
+  );
+  assert.deepEqual(layout, [["CNOT"], ["Y"]]);
+
+  // No duplicate.
+  let cnotCount = 0;
+  let yCount = 0;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (/** @type {any} */ (op).gate === "CNOT") cnotCount++;
+      if (/** @type {any} */ (op).gate === "Y") yCount++;
+    }
+  }
+  assert.equal(cnotCount, 1, `CNOT must appear exactly once; got ${cnotCount}`);
+  assert.equal(yCount, 1, `Y must appear exactly once; got ${yCount}`);
+
+  // The CNOT's control on q3 is preserved through the move (the
+  // move is on the TARGET leg, not the control, and `_moveAsUnit`
+  // is true for op-with-controls only when explicitly grabbing
+  // the control — here the move keeps the control intact).
+  const movedCnot = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const controls = (movedCnot.controls ?? []).map(
+    (/** @type {any} */ c) => c.qubit,
+  );
+  assert.deepEqual(
+    controls,
+    [3],
+    `CNOT's control on q3 must survive the move; got ${JSON.stringify(controls)}`,
+  );
+});
+
+test("moveOperation: moving a MULTI-TARGET gate (SWAP) into a sibling-occupied column splits the column", () => {
+  // 4 qubits.
+  //   col 0: [SWAP(q0,q2)] — source, span q0..q2.
+  //   col 1: [Y(q1)] — destination's sibling.
+  //
+  // Move SWAP horizontally from col 0 to col 1. The source op
+  // `selectedWire` = q0 (one of the SWAP's legs), targetWire =
+  // q0 (no vertical change). `_moveAsUnit` is true for SWAP
+  // (multi-target), so the move keeps both legs at q0 and q2;
+  // its span [q0, q2] envelops q1, colliding with Y → split.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "SWAP",
+            targets: [{ qubit: 0 }, { qubit: 2 }],
+          },
+        ],
+      },
+      {
+        components: [{ kind: "unitary", gate: "Y", targets: [{ qubit: 1 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const moved = moveOperation(model, "0,0", "1,0", 0, 0, false, false);
+  assert.ok(moved);
+
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    `expected exactly 2 columns post-move; got ${JSON.stringify(
+      model.componentGrid.map((c) =>
+        c.components.map((/** @type {any} */ op) => op.gate),
+      ),
+    )}`,
+  );
+
+  const layout = model.componentGrid.map((c) =>
+    c.components.map((/** @type {any} */ op) => op.gate),
+  );
+  assert.deepEqual(
+    layout,
+    [["SWAP"], ["Y"]],
+    "SWAP must occupy a fresh column ahead of Y",
+  );
+
+  // No duplicates.
+  let swapCount = 0;
+  let yCount = 0;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (/** @type {any} */ (op).gate === "SWAP") swapCount++;
+      if (/** @type {any} */ (op).gate === "Y") yCount++;
+    }
+  }
+  assert.equal(swapCount, 1, `SWAP must appear exactly once; got ${swapCount}`);
+  assert.equal(yCount, 1, `Y must appear exactly once; got ${yCount}`);
+
+  // Both SWAP legs survive on their original wires (unit-shift
+  // with delta=0 → no change to either leg).
+  const movedSwap = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const swapWires = movedSwap.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    swapWires,
+    [0, 2],
+    `SWAP's targets must remain [q0, q2]; got ${JSON.stringify(swapWires)}`,
   );
 });

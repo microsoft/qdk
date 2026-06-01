@@ -184,8 +184,8 @@ class CircuitEvents {
    * controller; kept on `CircuitEvents` because `contextMenu.ts`
    * still invokes it by name.
    */
-  _startAddingControl(selectedOperation: Unitary, selectedLocation: string) {
-    this.drag.startAddingControl(selectedOperation, selectedLocation);
+  _startAddingControl(selectedOperation: Unitary) {
+    this.drag.startAddingControl(selectedOperation);
   }
 
   /**

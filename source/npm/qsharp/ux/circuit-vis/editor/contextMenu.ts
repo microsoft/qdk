@@ -2,7 +2,8 @@
 // Licensed under the MIT license.
 
 import { Parameter } from "../data/circuit.js";
-import { removeControl, removeOperation } from "../actions/circuitActions.js";
+import { removeControl } from "../actions/circuitActions.js";
+import { _deleteOperationWithConfirmation } from "./operationPrompts.js";
 import { CircuitEvents } from "./events.js";
 import { findGateElem, findOperation } from "../utils.js";
 import {
@@ -57,8 +58,14 @@ const addContextMenuToHostElem = (
       hostElem.classList.contains("control-dot") && dataWire != null;
 
     const deleteOption = _createContextMenuItem("Delete", () => {
-      removeOperation(circuitEvents.model, selectedLocation);
-      circuitEvents.renderFn();
+      // Route through the prompt-aware wrapper so deleting a
+      // measurement with downstream classical consumers surfaces
+      // a confirmation dialog before cascade-deleting them.
+      _deleteOperationWithConfirmation(
+        circuitEvents.model,
+        selectedLocation,
+        circuitEvents.renderFn,
+      );
     });
 
     if (
@@ -84,7 +91,7 @@ const addContextMenuToHostElem = (
 
       const addControlOption = _createContextMenuItem("Add Control", () => {
         if (selectedOperation.kind !== "unitary") return;
-        circuitEvents._startAddingControl(selectedOperation, selectedLocation);
+        circuitEvents._startAddingControl(selectedOperation);
       });
 
       let removeControlOption: HTMLDivElement | undefined;
