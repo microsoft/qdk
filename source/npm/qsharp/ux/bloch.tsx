@@ -1,24 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
-
-/* TODO:
-
-- Draw the equator (z plane line)
-- VS Code doesn't render property in dark theme
-- Show the equations from state vector to bloch angles
-- Calculate the T / H gates for an arbitrary point
-  - For an arbitrary precision, e.g. 1e-4, 1e-6, etc.
-  - Maybe allow distance from the z-axis to be a separate precision
-- Show the matrix to be applied when hovering over a gate
-- Add the trailing dots with a slider for history and fade out speed
-- Add a slider for rotation speed
-- Add a slider to drag back and forth to replay the gates
-
-To convert basis state coeffeicients a & b into a point on the Bloch sphere:
- - Calculate the angle theta = 2 * acos(magnitute(a))
- - Calculate the angle phi = arg(b) - arg(a), normalized to [0, 2 * PI)
+/* Future enhancements (tracked in BLOCH_TODO.md alongside the
+   ship-readiness work): an undo/step-back button, a slider to scrub
+   through gate history, equator / Bloch-angle overlays, and synthesis
+   of arbitrary points from H/T gates. The math for converting basis
+   coefficients (a, b) to a Bloch-sphere point is:
+     theta = 2 * acos(magnitude(a))
+     phi   = arg(b) - arg(a), normalized to [0, 2 * PI)
 */
 
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -40,7 +29,6 @@ import {
   SphereGeometry,
   Sprite,
   SpriteMaterial,
-  Vector3,
   WebGLRenderer,
   WireframeGeometry,
 } from "three";
@@ -60,30 +48,37 @@ import {
   Hadamard,
 } from "./cplx.js";
 import { Markdown } from "./renderers.js";
+import { detectThemeChange, ensureTheme } from "./themeObserver.js";
 
 import rzOps from "../rz-array.json";
 
-const colors = {
+// Two color palettes for parts of the scene we draw directly with WebGL
+// (sphere material, label sprites). Picked by eye to stay legible against
+// the typical VS Code light / dark / playground backgrounds. CSS-styled
+// parts of the widget instead pull from the shared QDK theme tokens.
+const lightThemeColors = {
   sphereColor: 0x404080,
   sphereBrightness: 2,
   sphereOpacity: 0.5,
   directionalLightBrightness: 0.25,
   markerColor: 0xc00000,
   sphereLinesOpacity: 0.2,
+  labelCanvasColor: "#606080",
 };
 
-const fontMap = {
-  helvetiker: 0,
-  optimer: 1,
-  gentilis: 2,
-  "droid/droid_sans": 3,
-  "droid/droid_serif": 4,
+const darkThemeColors = {
+  sphereColor: 0x8080c0,
+  sphereBrightness: 1.6,
+  sphereOpacity: 0.55,
+  directionalLightBrightness: 0.35,
+  markerColor: 0xff5050,
+  sphereLinesOpacity: 0.35,
+  labelCanvasColor: "#d0d0e0",
 };
 
-const weightMap = {
-  regular: 0,
-  bold: 1,
-};
+function colorsFor(isDark: boolean) {
+  return isDark ? darkThemeColors : lightThemeColors;
+}
 
 const gateLaTeX = {
   X: "\\begin{bmatrix} 0 & 1 \\\\ 1 & 0 \\end{bmatrix}",
@@ -133,7 +128,7 @@ function hueToRgb(p: number, q: number, t: number) {
   return p;
 }
 
-function makeLabelSprite(text: string): Sprite {
+function makeLabelSprite(text: string, fillStyle: string): Sprite {
   // Render the label into an offscreen canvas and use it as a sprite texture.
   // Sprites always face the camera, so labels stay legible as the user
   // orbits the sphere. No font asset, no async load, no extra three.js
@@ -146,7 +141,7 @@ function makeLabelSprite(text: string): Sprite {
   ctx.font = "bold 96px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "#606080";
+  ctx.fillStyle = fillStyle;
   ctx.fillText(text, size / 2, size / 2);
 
   const texture = new CanvasTexture(canvas);
@@ -158,21 +153,21 @@ function makeLabelSprite(text: string): Sprite {
   return sprite;
 }
 
-function createText(scene: Scene) {
+function createLabels(isDark: boolean): Sprite[] {
   // Positions preserved verbatim from the original FontLoader/TextGeometry
   // implementation so the labels land in exactly the same spots.
-  const xLabel = makeLabelSprite("x");
+  const fill = colorsFor(isDark).labelCanvasColor;
+
+  const xLabel = makeLabelSprite("x", fill);
   xLabel.position.set(0, 0, 6.4);
 
-  const yLabel = makeLabelSprite("y");
+  const yLabel = makeLabelSprite("y", fill);
   yLabel.position.set(6.4, 0, 0);
 
-  const zLabel = makeLabelSprite("z");
+  const zLabel = makeLabelSprite("z", fill);
   zLabel.position.set(0, 6.4, 0);
 
-  scene.add(xLabel);
-  scene.add(yLabel);
-  scene.add(zLabel);
+  return [xLabel, yLabel, zLabel];
 }
 
 const rotationTimeMs = 100;
@@ -188,17 +183,19 @@ class BlochRenderer {
   animationCallbackId = 0;
   gateQueue: AppliedGate[] = [];
   rotations: Rotations;
+  // Stored so setTheme() can mutate the sphere material and swap out the
+  // axis label sprites when light/dark changes after construction.
+  sphereMaterial: MeshLambertMaterial;
+  sphereLineMaterial: MeshBasicMaterialParameters;
+  markerMaterial: MeshBasicMaterial;
+  directionalLight: DirectionalLight;
+  labelSprites: Sprite[] = [];
+  isDark: boolean;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, isDark: boolean) {
     this.rotations = new Rotations(64);
-
-    // For VS Code, WebView body attribute 'data-vscode-theme-kind' will contain 'light' if light theme is active.
-    // Note: The value is usually 'vscode-light' or 'vscode-dark', but high-contrast dark is just 'vscode-high-contrast',
-    // whereas the light high contract theme is 'vscode-high-contrast-light'.
-    // Default to 'light' if the attribute is not present. (e.g. in the Playground)
-    const isLight = (
-      document.body.getAttribute("data-vscode-theme-kind") ?? "light"
-    ).includes("light");
+    this.isDark = isDark;
+    const palette = colorsFor(isDark);
 
     const renderer = new WebGLRenderer({
       canvas,
@@ -223,10 +220,11 @@ class BlochRenderer {
 
     const light = new DirectionalLight(
       0xffffff,
-      colors.directionalLightBrightness,
+      palette.directionalLightBrightness,
     );
     light.position.set(-1, 2, 4);
     scene.add(light);
+    this.directionalLight = light;
 
     // Note that the orbit controls move the camera, they don't rotate the
     // scene, so the X, Y, and Z axis for the Bloch sphere remain fixed.
@@ -238,17 +236,19 @@ class BlochRenderer {
     // Add the main sphere
     const sphereGeometry = new SphereGeometry(5, 32, 16);
     const material = new MeshLambertMaterial({
-      emissive: colors.sphereColor,
-      emissiveIntensity: colors.sphereBrightness,
+      emissive: palette.sphereColor,
+      emissiveIntensity: palette.sphereBrightness,
       transparent: true,
-      opacity: colors.sphereOpacity,
+      opacity: palette.sphereOpacity,
     });
+    this.sphereMaterial = material;
     const sphere = new Mesh(sphereGeometry, material);
     qubit.add(sphere);
 
     // Add the 'spin' direction marker
     const coneGeometry = new ConeGeometry(0.2, 0.75, 32);
-    const coneMat = new MeshBasicMaterial({ color: colors.markerColor });
+    const coneMat = new MeshBasicMaterial({ color: palette.markerColor });
+    this.markerMaterial = coneMat;
     const marker = new Mesh(coneGeometry, coneMat);
     marker.position.set(0, 5.125, 0.4);
     marker.rotateX(Math.PI / 2);
@@ -260,8 +260,9 @@ class BlochRenderer {
     const sphereLines = new LineSegments(wireframe);
     const materialProps = sphereLines.material as MeshBasicMaterialParameters;
     materialProps.depthTest = true;
-    materialProps.opacity = colors.sphereLinesOpacity;
+    materialProps.opacity = palette.sphereLinesOpacity;
     materialProps.transparent = true;
+    this.sphereLineMaterial = materialProps;
     qubit.add(sphereLines);
     scene.add(qubit);
 
@@ -338,7 +339,8 @@ class BlochRenderer {
     this.trail = trail;
 
     // Labels are now synchronous, so just create them and render once.
-    createText(scene);
+    this.labelSprites = createLabels(isDark);
+    this.labelSprites.forEach((s) => scene.add(s));
     this.render();
   }
 
@@ -454,6 +456,76 @@ class BlochRenderer {
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
+
+  setTheme(isDark: boolean) {
+    if (this.isDark === isDark) return;
+    this.isDark = isDark;
+    const palette = colorsFor(isDark);
+
+    this.sphereMaterial.emissive.setHex(palette.sphereColor);
+    this.sphereMaterial.emissiveIntensity = palette.sphereBrightness;
+    this.sphereMaterial.opacity = palette.sphereOpacity;
+    this.sphereMaterial.needsUpdate = true;
+
+    this.markerMaterial.color.setHex(palette.markerColor);
+    this.markerMaterial.needsUpdate = true;
+
+    if (this.sphereLineMaterial.opacity !== undefined) {
+      this.sphereLineMaterial.opacity = palette.sphereLinesOpacity;
+    }
+
+    this.directionalLight.intensity = palette.directionalLightBrightness;
+
+    // Canvas-backed sprite textures are baked at the colors they were
+    // generated with; the cheapest correct fix is to recreate them.
+    this.labelSprites.forEach((sprite) => {
+      this.scene.remove(sprite);
+      // Both texture and material are disposable; clean up before
+      // releasing the reference to keep WebGL resources tidy.
+      sprite.material.map?.dispose();
+      sprite.material.dispose();
+    });
+    this.labelSprites = createLabels(isDark);
+    this.labelSprites.forEach((s) => this.scene.add(s));
+
+    this.render();
+  }
+
+  dispose() {
+    // Stop any in-flight animation frame so it doesn't try to render into
+    // a context we're about to throw away.
+    if (this.animationCallbackId) {
+      cancelAnimationFrame(this.animationCallbackId);
+      this.animationCallbackId = 0;
+    }
+    this.controls.dispose();
+    // Walk every Mesh in the scene and release its geometry/material/textures.
+    // three.js doesn't do this automatically; failing to do so accumulates
+    // GPU memory and (more visibly) eats WebGL contexts on every remount.
+    this.scene.traverse((obj) => {
+      const mesh = obj as Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const mat = mesh.material as
+        | { map?: { dispose: () => void }; dispose?: () => void }
+        | { map?: { dispose: () => void }; dispose?: () => void }[]
+        | undefined;
+      if (Array.isArray(mat)) {
+        mat.forEach((m) => {
+          m.map?.dispose();
+          m.dispose?.();
+        });
+      } else if (mat) {
+        mat.map?.dispose();
+        mat.dispose?.();
+      }
+    });
+    this.labelSprites.forEach((sprite) => {
+      sprite.material.map?.dispose();
+      sprite.material.dispose();
+    });
+    this.labelSprites = [];
+    this.renderer.dispose();
+  }
 }
 
 export interface BlochSphereProps {
@@ -483,17 +555,31 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const appliedGatesRef = useRef<string>("");
 
   useEffect(() => {
-    if (canvasRef.current) {
-      renderer.current = new BlochRenderer(canvasRef.current);
-      // Replay any gates supplied via the URL on initial mount. We just call
-      // the regular `rotate` so the renderer animations, state vector, and
-      // history pane all stay in sync with the rest of the UI.
-      if (props.initialGates) {
-        for (const ch of props.initialGates) {
-          rotate(ch);
-        }
+    if (!canvasRef.current) return;
+    // Resolve the initial theme exactly once; subsequent changes are
+    // delivered via detectThemeChange below.
+    const initialIsDark = ensureTheme() ?? false;
+    const r = new BlochRenderer(canvasRef.current, initialIsDark);
+    renderer.current = r;
+    // Replay any gates supplied via the URL on initial mount. We just call
+    // the regular `rotate` so the renderer animations, state vector, and
+    // history pane all stay in sync with the rest of the UI.
+    if (props.initialGates) {
+      for (const ch of props.initialGates) {
+        rotate(ch);
       }
     }
+    // Wire live theme switches (e.g. user toggles VS Code light/dark while
+    // the widget is open) through to the WebGL scene. CSS-styled parts of
+    // the widget pick up the change automatically via theme tokens.
+    const themeCleanup = detectThemeChange(document.body, (isDark) => {
+      r.setTheme(isDark);
+    });
+    return () => {
+      themeCleanup();
+      r.dispose();
+      renderer.current = null;
+    };
   }, []);
 
   const getLaTeX = (
@@ -628,7 +714,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     props.onGatesChanged?.("");
   }
 
-  function applyGates(e: Event) {
+  function applyGates() {
     const input = document.getElementById("run_gates") as HTMLInputElement;
     const text = input.value;
     for (const gate of text) {
@@ -650,7 +736,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   return (
     <div style="position: relative;">
       <canvas ref={canvasRef} width="600" height="600"></canvas>
-      <div style="font-size: 0.8em; position: absolute; left: 600px; top: 50px; height: 700px; min-width: 200px; background: #eee; overflow-y: scroll; display: flex; flex-direction: column; align-items: flex-start;">
+      <div
+        class="qs-bloch-history"
+        style="font-size: 0.8em; position: absolute; left: 600px; top: 50px; height: 700px; min-width: 200px; overflow-y: scroll; display: flex; flex-direction: column; align-items: flex-start;"
+      >
         {gateArray.map((str) => (
           <div style="border-bottom: 1px dotted gray; text-align: left">
             <Markdown markdown={str}></Markdown>

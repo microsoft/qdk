@@ -34,6 +34,81 @@ into the main product. Items are not ordered by priority.
     repo root.
   - Delete it if we don't need to regenerate.
 
+## Widget correctness — must-fix before PR
+
+- [ ] **WebGL resource leak on unmount.** `BlochRenderer` is created in a
+      `useEffect` with no cleanup. Navigating away from the Bloch view (or
+      closing/reopening the VS Code webview) leaves the `WebGLRenderer`,
+      `OrbitControls`, geometries, materials, textures, and live
+      `requestAnimationFrame` loop alive. Browsers cap concurrent WebGL
+      contexts (~8–16); enough navigation triggers
+      "Too many active WebGL contexts". Need `cancelAnimationFrame`,
+      `renderer.dispose()`, `controls.dispose()`, and a scene traversal
+      disposing geometries/materials/textures.
+- [ ] **Theme sensitivity.** `isLight` is computed from
+      `data-vscode-theme-kind` and never read. Sphere color, label color
+      (`#606080` baked into the canvas texture), and the history pane
+      background (`#eee`) are identical in every theme. In VS Code dark
+      themes the labels are nearly invisible and the white history pane
+      blares. Branch on `isLight` for label color, history pane background,
+      and probably the sphere emissive color; watch the attribute via a
+      `MutationObserver` so live theme switches are picked up.
+- [ ] **`document.getElementById("run_gates" | "rz_button")`.** Two Bloch
+      widgets on a page would collide, and any external collision silently
+      hijacks our state. Replace with refs to a self-contained subtree.
+- [ ] **Validate `?gates` URL input.** A malicious/stale link with
+      `?gates=AAAAAAAA…` (10k chars) will `console.error` per char _and_
+      push 10k animations onto the queue. Filter to the known gate-code
+      whitelist (`X Y Z H S s T t`) and cap length.
+- [ ] **Dead code.** Remove `fontMap` / `weightMap` leftovers from the
+      deleted `FontLoader` path. Remove the top-of-file
+      `/* eslint-disable @typescript-eslint/no-unused-vars */` once the
+      genuine unused vars are gone. Prune stale TODO comments at the top
+      that refer to dropped features.
+
+## Widget UX — should-fix
+
+- [ ] **Text input + Run is awkward.** Placeholder says
+      "Enter gates then tab away" but tab doesn't trigger anything; Enter
+      doesn't submit (no `<form>`); the input doesn't clear after Run, so a
+      second click re-applies the same gates.
+- [ ] **Rz slider is indirect.** Moving the slider populates the text box
+      with a pre-baked gate string; the user has to then click Run. People
+      reasonably expect the slider to rotate the sphere directly. Either
+      auto-apply on input or rename the control so the two-step contract
+      is obvious.
+- [ ] **Accessibility.** Gate buttons label themselves only with the symbol
+      ("X", "S†"); add `aria-label` like "Apply Pauli-X gate". The
+      `<canvas>` has no `role="img"` / `aria-label`. Slider should say
+      "Rz rotation angle in radians", not just "Rz". Tooltips on each gate
+      button (the matrices are already in `gateLaTeX`) would help sighted
+      learners too.
+- [ ] **History pane layout breaks in the VS Code webview.** It's
+      `position: absolute; left: 600px; min-width: 200px; height: 700px` —
+      narrow webviews / phone-sized playground windows clip or hide it.
+      Switch to a normal flex layout.
+- [ ] **Empty state.** First-time users see a blank gray rectangle next to
+      the sphere with no hint that gates produce history. Add a placeholder
+      line.
+- [ ] **Undo / step-back.** Only `Reset` exists today (nuke everything).
+      A simple "Undo last gate" is much cheaper than the full replay
+      slider mentioned in the top-of-file TODO and would meaningfully
+      improve usability.
+
+## Widget — nice-to-have
+
+- [ ] **WebGL fallback.** If `WebGLRenderer` construction throws (no GPU /
+      headless Codespaces / browser disables WebGL), the whole widget
+      vanishes silently. Add a `try/catch` and surface a
+      "WebGL not available" message.
+- [ ] **Show current state succinctly.** The state vector only appears in
+      the gate history. A small fixed pane showing the current $|\psi\rangle$
+      and Bloch angles (θ, φ) would be more useful than scrolling history
+      to find the last line.
+- [ ] **Localization.** Hard-coded English everywhere. The VS Code
+      extension has `vscode.l10n.t(...)`; webview-side strings can be
+      threaded through too.
+
 ## Integration polish
 
 - [x] **Decide where the Bloch view belongs in the playground nav.** Moved

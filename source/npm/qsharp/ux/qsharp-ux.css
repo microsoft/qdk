@@ -541,6 +541,17 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   height: 25px;
 }
 
+/* Bloch sphere widget: the gate-history pane sitting to the right of the
+   3D canvas. Uses the shared QDK theme tokens so the pane swaps colors
+   along with VS Code / playground theme changes. The 3D canvas itself
+   (sphere material, axis labels) is themed imperatively from bloch.tsx
+   since it's drawn via WebGL. */
+.qs-bloch-history {
+  background: var(--qdk-background-accent);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+}
+
 .qs-estimatesOverview-saveIcon {
   cursor: pointer;
   width: 3em;
