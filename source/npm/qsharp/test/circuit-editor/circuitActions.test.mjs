@@ -4597,12 +4597,21 @@ test("removeControl: removing a control on a wire that only has a classical-ref 
   assert.equal(condX.controls[0].result, 0);
 });
 
-test("addControl: adding a quantum control on a classically-controlled GROUP succeeds even when the wire is in the group's visual-extent .targets", () => {
-  // The wider B5 case: a classically-controlled GROUP carries a
-  // classical-ref entry in BOTH .targets (visual extent) AND
-  // .controls (conditional dep) on the M-owning wire. Adding a
-  // quantum control on a DIFFERENT external wire must succeed
-  // without being blocked by either entry.
+test("addControl: refuses on a classically-controlled GROUP (group-control authoring is deferred)", () => {
+  // Previously B5/M1 unblocked add-control on classically-
+  // controlled groups by filtering classical-ref entries out of
+  // the dedup check. The shipped behavior was correct as far as
+  // the data layer went, but the renderer has no agreed visual
+  // rule for a quantum-control connector on a multi-target /
+  // multi-sub-box body (see "Controls on Groups" in
+  // CIRCUIT_EDITOR_TODO.md). Until that ships, the editor
+  // refuses to author controls on any op that has children OR
+  // more than one target, so the rendering question never has
+  // to be answered for newly-authored circuits. Loaded data
+  // with such controls still renders.
+  //
+  // The single-target classically-controlled-unitary half of
+  // B5/M1's fix is preserved — see the sister test below.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }, { id: 3 }],
@@ -4622,10 +4631,7 @@ test("addControl: adding a quantum control on a classically-controlled GROUP suc
           {
             kind: "unitary",
             gate: "CondGroup",
-            // Visual extent: q1, q2 (the group's quantum content),
-            // PLUS the classical-ref claim on q0 (the M-owner).
             targets: [{ qubit: 0, result: 0 }, { qubit: 1 }, { qubit: 2 }],
-            // Conditional on c_0.0.
             controls: [{ qubit: 0, result: 0 }],
             isConditional: true,
             children: [
@@ -4643,24 +4649,175 @@ test("addControl: adding a quantum control on a classically-controlled GROUP suc
   };
   const model = new CircuitModel(circuit);
   const group = /** @type {any} */ (model.componentGrid[1].components[0]);
+  const controlsBefore = JSON.parse(JSON.stringify(group.controls));
 
-  // Add a quantum control on wire 3 (a fresh wire, not part of the
-  // group's existing references). The pre-fix bug would have
-  // succeeded here too — wire 3 was never matched by qubit only —
-  // so check the trickier case: add on wire 0 (the M-owner), which
-  // pre-fix would have been blocked by the classical-ref entry.
-  const ok = addControl(model, group, 0);
+  // Attempt to add a quantum control on a fresh wire (q3) — the
+  // refusal is about the op SHAPE (has children), not about a
+  // dedup collision.
+  const ok = addControl(model, group, 3);
 
+  assert.equal(ok, false, "addControl must refuse on a group");
+  assert.deepEqual(
+    group.controls,
+    controlsBefore,
+    "group.controls must be untouched by the refused call",
+  );
+});
+
+test("addControl: still succeeds on a classically-controlled single-target UNITARY (no children)", () => {
+  // The half of B5/M1 that DOES survive: a classically-controlled
+  // unitary with one target and no children isn't multi-target, so
+  // adding a quantum control on a fresh wire still works.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "M",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0, result: 0 }],
+            isConditional: true,
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const op = /** @type {any} */ (model.componentGrid[1].components[0]);
+
+  // Add a quantum control on q2 — should succeed.
+  const ok = addControl(model, op, 2);
+
+  assert.equal(ok, true);
+  const hasQuantumQ2 = op.controls.some(
+    (/** @type {any} */ c) => c.qubit === 2 && c.result === undefined,
+  );
+  assert.ok(hasQuantumQ2, "single-target unitary must accept the new control");
+});
+
+test("addControl: refuses on a multi-target unitary even without children", () => {
+  // SWAP-shaped op: `targets.length === 2`, no children. The
+  // structural predicate is the same as for groups — multiple
+  // wire-legs and no agreed control-connector visual.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "SWAP",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const swap = /** @type {any} */ (model.componentGrid[0].components[0]);
+
+  const ok = addControl(model, swap, 2);
+
+  assert.equal(ok, false);
+  assert.ok(
+    swap.controls == null || swap.controls.length === 0,
+    "multi-target unitary must not gain a control from the refused call",
+  );
+});
+
+test("addControl: refuses on a plain group (no classical conditions)", () => {
+  // A pure organizational group — children but no controls. Same
+  // refusal: the op has multiple wire-legs.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const group = /** @type {any} */ (model.componentGrid[0].components[0]);
+
+  const ok = addControl(model, group, 2);
+
+  assert.equal(ok, false);
+  assert.ok(
+    group.controls == null || group.controls.length === 0,
+    "plain group must not gain a control from the refused call",
+  );
+});
+
+test("removeControl: refuses on a multi-target / group op, leaving existing controls in place", () => {
+  // A group loaded with a pre-existing quantum control (e.g. from
+  // a `.qsc` file the editor inherits) renders fine, but the
+  // editor refuses to remove the control. The control survives
+  // the refused call.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            controls: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const group = /** @type {any} */ (model.componentGrid[0].components[0]);
+
+  const ok = removeControl(model, group, 0);
+
+  assert.equal(ok, false);
   assert.equal(
-    ok,
-    true,
-    "addControl must succeed on q0 even though group already references q0 via a classical ref",
+    group.controls.length,
+    1,
+    "the pre-existing control must survive a refused removeControl",
   );
-  // The group now has a quantum control on q0.
-  const hasQuantumQ0 = group.controls.some(
-    (/** @type {any} */ c) => c.qubit === 0 && c.result === undefined,
-  );
-  assert.ok(hasQuantumQ0, "group must now have a quantum control on q0");
+  assert.equal(group.controls[0].qubit, 0);
 });
 
 // ---------------------------------------------------------------

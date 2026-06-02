@@ -2130,6 +2130,45 @@ const findAndRemoveOperations = (
 };
 
 /**
+ * Returns true if `op` is a multi-target unitary, multi-qubit
+ * measurement, or a group (has children). The shared property:
+ * the op has more than one wire-leg, so there is no single
+ * canonical position at which a new quantum-control connector
+ * could attach — the existing CNOT-style "one solid line from
+ * top control to bottom target" rendering rule doesn't extend
+ * to a body that's split across non-adjacent wires.
+ *
+ * Used to gate [`addControl`](#) and [`removeControl`](#): until
+ * the editor ships a unified rendering rule for quantum controls
+ * on multi-target ops (see the "Controls on Groups" section of
+ * [`CIRCUIT_EDITOR_TODO.md`](../CIRCUIT_EDITOR_TODO.md)), the
+ * editor refuses to create or destroy controls on such ops.
+ *
+ * Existing controls in loaded `.qsc` data on a multi-target op
+ * still render (via [`_renderQuantumGroupControls`](../renderer/formatters/gateFormatter.ts)
+ * for groups; via [`_controlledGate`](../renderer/formatters/gateFormatter.ts)'s
+ * ControlledUnitary branch for split multi-target unitaries).
+ * They just can't be authored or removed through the editor
+ * surface — the existing controls can still be DRAGGED via the
+ * `movingControl` leg-rewire path, which is a permutation of
+ * controls already on the op and doesn't introduce a new one.
+ *
+ * Mirrors the structural-shape half of [`_moveAsUnit`](#)'s
+ * predicate (the `movingControl` short-circuit there is
+ * orthogonal to "does the op have multiple wire-legs?").
+ */
+const _isMultiTargetOrGroup = (op: Operation): boolean => {
+  if (op.children != null) return true;
+  switch (op.kind) {
+    case "unitary":
+    case "ket":
+      return op.targets.length > 1;
+    case "measurement":
+      return op.qubits.length > 1;
+  }
+};
+
+/**
  * Add a control to the specified operation on the given wire index.
  *
  * @returns True if the control was added, false if it already existed.
@@ -2139,6 +2178,13 @@ const addControl = (
   op: Unitary,
   wireIndex: number,
 ): boolean => {
+  // Refuse on multi-target ops and groups until the unified
+  // rendering rule for quantum controls on such bodies lands.
+  // See [`_isMultiTargetOrGroup`](#) for the rationale; gating
+  // at the action layer ensures every entry point (context menu,
+  // dropzone commit, drag flows, programmatic callers) gets the
+  // same treatment without each having to remember the rule.
+  if (_isMultiTargetOrGroup(op)) return false;
   if (!op.controls) {
     op.controls = [];
   }
@@ -2184,6 +2230,13 @@ const removeControl = (
   op: Unitary,
   wireIndex: number,
 ): boolean => {
+  // Symmetric to [`addControl`](#): refuse on multi-target ops
+  // and groups so legacy controls on such ops can be observed
+  // but not destroyed through the editor surface. The
+  // `movingControl` drag-leg-rewire path is permutation-only
+  // and doesn't reach this function. See
+  // [`_isMultiTargetOrGroup`](#).
+  if (_isMultiTargetOrGroup(op)) return false;
   if (op.controls) {
     // Match only PURE-QUANTUM controls. If both `{qubit: wireIndex}`
     // and `{qubit: wireIndex, result: N}` exist on the same wire,
@@ -2636,4 +2689,5 @@ export {
   removeOperation,
   removeQubit,
   resolveOverlappingOperations,
+  _isMultiTargetOrGroup,
 };

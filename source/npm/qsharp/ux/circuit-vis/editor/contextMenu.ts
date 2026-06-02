@@ -2,7 +2,10 @@
 // Licensed under the MIT license.
 
 import { Parameter } from "../data/circuit.js";
-import { removeControl } from "../actions/circuitActions.js";
+import {
+  _isMultiTargetOrGroup,
+  removeControl,
+} from "../actions/circuitActions.js";
 import { _deleteOperationWithConfirmation } from "./operationPrompts.js";
 import { CircuitEvents } from "./events.js";
 import { findGateElem, findOperation } from "../utils.js";
@@ -74,14 +77,22 @@ const addContextMenuToHostElem = (
     ) {
       contextMenu.appendChild(deleteOption);
     } else if (isControl) {
-      const removeControlOption = _createContextMenuItem(
-        "Remove control",
-        () => {
-          removeControl(circuitEvents.model, selectedOperation, dataWire);
-          circuitEvents.renderFn();
-        },
-      );
-      contextMenu.appendChild(removeControlOption!);
+      // Hide "Remove control" on a control-dot right-click when
+      // the parent op is multi-target / a group. Authoring controls
+      // on such bodies is gated at the action layer (see
+      // `_isMultiTargetOrGroup`); the menu mirrors that to avoid
+      // exposing a silently-no-op affordance. Existing controls
+      // can still be moved via control-drag (leg rewire only).
+      if (!_isMultiTargetOrGroup(selectedOperation)) {
+        const removeControlOption = _createContextMenuItem(
+          "Remove control",
+          () => {
+            removeControl(circuitEvents.model, selectedOperation, dataWire);
+            circuitEvents.renderFn();
+          },
+        );
+        contextMenu.appendChild(removeControlOption!);
+      }
     } else {
       const adjointOption = _createContextMenuItem("Toggle Adjoint", () => {
         if (selectedOperation.kind !== "unitary") return;
@@ -89,13 +100,27 @@ const addContextMenuToHostElem = (
         circuitEvents.renderFn();
       });
 
+      // Multi-target unitaries and groups: don't surface Add /
+      // Remove Control. Until the editor ships a unified rendering
+      // rule for quantum controls on multi-target bodies (see the
+      // "Controls on Groups" milestone in CIRCUIT_EDITOR_TODO.md),
+      // creating or destroying controls on such ops would either
+      // silently no-op (action-layer refusal) or produce visually
+      // ambiguous output. The body-drag, leg-rewire, and existing-
+      // control-render paths are unaffected.
+      const allowControlAuthoring = !_isMultiTargetOrGroup(selectedOperation);
+
       const addControlOption = _createContextMenuItem("Add Control", () => {
         if (selectedOperation.kind !== "unitary") return;
         circuitEvents._startAddingControl(selectedOperation);
       });
 
       let removeControlOption: HTMLDivElement | undefined;
-      if (selectedOperation.controls && selectedOperation.controls.length > 0) {
+      if (
+        allowControlAuthoring &&
+        selectedOperation.controls &&
+        selectedOperation.controls.length > 0
+      ) {
         removeControlOption = _createContextMenuItem("Remove Control", () => {
           circuitEvents._startRemovingControl(selectedOperation);
         });
@@ -117,14 +142,18 @@ const addContextMenuToHostElem = (
       });
 
       if (selectedOperation.gate == "X") {
-        contextMenu.appendChild(addControlOption);
+        if (allowControlAuthoring) {
+          contextMenu.appendChild(addControlOption);
+        }
         if (removeControlOption) {
           contextMenu.appendChild(removeControlOption);
         }
         contextMenu.appendChild(deleteOption);
       } else {
         contextMenu.appendChild(adjointOption);
-        contextMenu.appendChild(addControlOption);
+        if (allowControlAuthoring) {
+          contextMenu.appendChild(addControlOption);
+        }
         if (removeControlOption) {
           contextMenu.appendChild(removeControlOption);
         }

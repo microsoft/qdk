@@ -170,6 +170,17 @@ overhaul to land first. Ship order:
 - **[Host persistence (webview reload / VS Code restart)](CIRCUIT_EDITOR_TODO.md#deferred-host-persistence-webview-reload--vs-code-restart)** —
   `ViewState` resets when the circuit tab is closed and reopened
   or the window reloads. Deferred; visible pain is minor.
+- **[Quantum-control authoring on multi-target ops / groups](CIRCUIT_EDITOR_TODO.md#m6-deferred-quantum-control-rendering-on-multi-target-bodies)** —
+  The editor refuses `addControl` / `removeControl` on any op
+  with `children` or more than one target (groups, SWAP-shaped
+  unitaries, multi-qubit measurements). Pre-existing controls on
+  such ops loaded from `.qsc` files still render and can still
+  be moved (control-leg drag is permutation-only) — they just
+  can't be created or destroyed through the editor surface.
+  Lifted by the deferred **M6** milestone, which ships a
+  unified rendering rule (Option C: per-control connector to
+  nearest sub-box edge) for quantum controls on multi-target
+  bodies.
 
 ---
 

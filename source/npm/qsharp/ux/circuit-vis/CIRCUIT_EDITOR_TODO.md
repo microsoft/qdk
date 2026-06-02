@@ -1853,16 +1853,173 @@ detailed root-cause + fix writeups live in the
 [`B`-numbered bug-fix entries](#bug-fixes--open) below — kept there
 as engineering archaeology rather than re-inlined here.
 
-| #   | Detail                                                                                                                                                 | One-line summary                                                                                                                      |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| M1  | [B5](#b5-add--remove-control-on-a-classically-controlled-op-blocked-by-classical-ref-entries---shipped-pending-user-confirmation)                      | Add / remove control on classically-controlled ops (incl. groups): filter four dedup / dropzone sites for pure-quantum entries.       |
-| M2  | [B9](#b9-quantum-controls-on-a-group-are-never-drawn---shipped-pending-user-confirmation)                                                              | Rendering: pure-quantum controls on groups draw a `controlDot` + connector to the nearest dashed-box edge; mixed-controls render too. |
-| M3  | [B10](#b10-control-drag-on-a-group-moves-the-whole-group-instead-of-just-the-control---shipped-pending-user-confirmation)                              | Drag semantics: control-leg drag rewires just the leg (not the whole group); drop on body wire swaps via `_swapWiresInSubtree`.       |
-| M4  | [B11](#b11-control-drag-on-a-group-expanded-groups-blocked--classically-controlled-groups-re-expand-on-every-move---shipped-pending-user-confirmation) | Drag init on expanded groups + ViewState transfer across `moveOperation`'s deep-clone via `sqore-prev-location` stamp.                |
+| #   | Detail                                                                                                                                                 | One-line summary                                                                                                                                                                                              |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1  | [B5](#b5-add--remove-control-on-a-classically-controlled-op-blocked-by-classical-ref-entries---shipped-pending-user-confirmation)                      | Add / remove control on classically-controlled ops: filter four dedup / dropzone sites for pure-quantum entries. ⚠️ **Group / multi-target half reverted by M5**; single-target-unitary half still in effect. |
+| M2  | [B9](#b9-quantum-controls-on-a-group-are-never-drawn---shipped-pending-user-confirmation)                                                              | Rendering: pure-quantum controls on groups draw a `controlDot` + connector to the nearest dashed-box edge; mixed-controls render too. Still ships — `.qsc`-loaded controls on groups continue to render.      |
+| M3  | [B10](#b10-control-drag-on-a-group-moves-the-whole-group-instead-of-just-the-control---shipped-pending-user-confirmation)                              | Drag semantics: control-leg drag rewires just the leg (not the whole group); drop on body wire swaps via `_swapWiresInSubtree`.                                                                               |
+| M4  | [B11](#b11-control-drag-on-a-group-expanded-groups-blocked--classically-controlled-groups-re-expand-on-every-move---shipped-pending-user-confirmation) | Drag init on expanded groups + ViewState transfer across `moveOperation`'s deep-clone via `sqore-prev-location` stamp.                                                                                        |
+| M5  | [see below](#m5-refuse-addremove-control-on-multi-target-ops--groups--shipped)                                                                         | Refuse `addControl` / `removeControl` on any op with `children != null` or `targets.length > 1` (incl. multi-qubit measurements). Action layer + context menu both gated. Pre-existing controls render.       |
 
 (B8 — clone-move of a multi-wire group rewriting `.targets` —
 shipped in parallel but isn't gated on having controls; it's a
 general group-cloning fix and stays in the bug-fixes section.)
+
+##### M5: refuse add/remove control on multi-target ops / groups — shipped
+
+**What changed.** Added `_isMultiTargetOrGroup(op)` predicate in
+[circuitActions.ts](actions/circuitActions.ts) — returns `true`
+when `op.children != null` OR `op.targets.length > 1` (unitary /
+ket) OR `op.qubits.length > 1` (measurement). Both
+[`addControl`](actions/circuitActions.ts) and
+[`removeControl`](actions/circuitActions.ts) early-return `false`
+when the predicate fires. The context-menu builder in
+[contextMenu.ts](editor/contextMenu.ts) consumes the same
+predicate to omit "Add Control" / "Remove Control" /
+"Remove control" entries so the menu never advertises a
+silently-no-op affordance.
+
+**Why now.** Trying to extend the editor to author quantum
+controls on multi-target bodies (groups, SWAP-shaped unitaries)
+surfaced a visual design problem we don't have a settled answer
+for — see the [M6 deferred-milestone writeup](#m6-deferred-quantum-control-rendering-on-multi-target-bodies)
+below for the four options considered. Rather than ship a
+half-answered visual behind a flag, we narrow the editor's
+authoring surface to "ops whose existing CNOT-style rendering
+trivially extends" — single-target unitaries — and defer the
+multi-target / group case to a planned future milestone.
+
+**What still works.**
+
+- M1's single-target classically-controlled-unitary half is
+  preserved. Adding a quantum control to a classically-conditioned
+  H gate (one target, no children) still routes through the
+  pure-quantum dedup filter from M1 and lands cleanly.
+- M2's rendering of pre-existing controls on groups and
+  ControlledUnitary-split ops is unchanged. Loaded `.qsc` files
+  with such controls render the same as before.
+- M3's control-leg drag still works on every shape that has
+  controls today, because dragging is a permutation of the
+  existing control set (rewires leg position) rather than
+  creation/destruction — `movingControl` never reaches
+  `addControl` / `removeControl`.
+- The body-drag path is unaffected. The user can still drag a
+  group or SWAP body around as a rigid unit (`_moveAsUnit`).
+
+**What's blocked.**
+
+- Right-clicking the body of a group / SWAP / multi-qubit
+  measurement no longer offers "Add Control".
+- Right-clicking a group / multi-target op that already has
+  controls no longer offers "Remove Control".
+- Right-clicking an existing control dot whose parent op is a
+  group / multi-target op no longer offers "Remove control"
+  (the per-leg menu item is hidden too — the body and the leg
+  menus are gated by the same predicate).
+- The `movingControl` drag-out-delete gesture (drag a control
+  to outside the editor area to remove it) silently no-ops on
+  these ops because it routes through `removeControl` under
+  the hood. The drag-init still fires but the model is
+  unchanged and the next render is a deepEqual no-op.
+
+**Tests.** [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+pins five contracts:
+
+1. `addControl: refuses on a classically-controlled GROUP`.
+2. `addControl: still succeeds on a classically-controlled single-target UNITARY (no children)` — pins the M1 half that survives.
+3. `addControl: refuses on a multi-target unitary even without children` — SWAP shape.
+4. `addControl: refuses on a plain group (no classical conditions)`.
+5. `removeControl: refuses on a multi-target / group op, leaving existing controls in place` — proves loaded-data controls aren't accidentally destroyed by the refused call.
+
+The previously-shipped "addControl on a classically-controlled
+GROUP succeeds" test was replaced by item 1 above — its old
+positive contract is incompatible with M5 by design.
+
+##### M6 (deferred): quantum-control rendering on multi-target bodies
+
+**Why deferred.** A control on a CNOT-shaped op (one target +
+N controls) draws a single solid vertical line from each control
+dot straight down to the target box — that's a 30-year-old
+convention and every reader recognizes it on sight. The same
+gesture on a multi-target body breaks because there are
+**multiple** target boxes split across non-adjacent wires, with
+a dashed inter-box "skip" line connecting them. There is no
+existing convention for "control on a multi-target body" we can
+adopt off the shelf, and the choice we make sets a precedent
+for every future split-body shape (multi-qubit measurements,
+extracted custom gates rendered as multi-target unitaries,
+controlled-controlled groups). We want to make it once,
+deliberately.
+
+**Four options considered.**
+
+| Opt   | Sketch                                                                                                                                                                                                                                                                            | Pros                                                                                                                | Cons                                                                                                                                                                                                                                                                            |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A     | **Single solid line** from topmost control to bottommost sub-box, passing visually "through" any gap wires.                                                                                                                                                                       | Closest visual analog to CNOT; trivial implementation (just reuse `_controlledGate`'s connector geometry).          | The line crosses non-participating wires with no indication it doesn't act on them. Worse, it visually erases the dashed inter-box skip signal that's the whole point of split-target rendering: today a reader sees the dashed line and knows "this op skips those wires."     |
+| B     | **Mixed solid/dashed segments**: solid between control & top sub-box; dashed between sub-boxes (carried forward from today); solid between bottom sub-box & lowest control.                                                                                                       | Preserves the dashed-skip signal where it already exists.                                                           | Three rendering rules co-located on one connector, segmented by sub-box edges; the visual reads as a "weird wire" rather than as a control connector. Edge cases (control inside a gap, control collinear with a sub-box edge) need their own carve-outs. Hard to test cleanly. |
+| **C** | **Per-control connector to nearest sub-box edge** — each control dot draws its own short connector to the closest sub-box (top or bottom). Inter-sub-box dashed skip line is untouched. Generalizes M2's existing group-control rendering rule to ControlledUnitary split bodies. | One rule covers groups, ControlledUnitary, single-target (collapses to today's CNOT line). Dashed signal preserved. | More connectors to draw; need a clear edge-case rule for "control wire is between two sub-boxes" (nearest edge — closer of top-of-lower vs bottom-of-upper).                                                                                                                    |
+| D     | **Off-axis connector** like classical controls (the dashed circle-and-line drawn to one side of the body box).                                                                                                                                                                    | Visually unambiguous — clearly not part of the gate body.                                                           | Hijacks the visual vocabulary classical conditions own. Conflates "quantum control" with "classical condition" at a glance, which is exactly what M2 spent effort to disentangle. Wrong direction.                                                                              |
+
+**Recommendation: Option C.** Rationale:
+
+- **Unifies three cases under one rule.** A control's connector
+  is "vertical line from the dot to the nearest edge of the
+  nearest sub-box." For a single-target gate, "nearest sub-box"
+  is the only sub-box, and the rule collapses pixel-for-pixel
+  to today's CNOT-style rendering. For a group, the rule
+  matches M2's existing "controlDot + connector to the nearest
+  dashed-box edge" behavior. For a ControlledUnitary split
+  across non-adjacent wires, the rule fills in the case that
+  today's `_controlledGate` handles by drawing a solid line
+  that obliterates the dashed connector — a latent rendering
+  bug Option C also fixes.
+- **Preserves the dashed inter-sub-box signal.** The skip line
+  between sub-boxes is what tells the reader "this op operates
+  on the boxed wires and skips the wires in between." Option C
+  doesn't touch it.
+- **Edge cases have natural answers.**
+  - Control wire is above all sub-boxes → connector goes down to
+    the top of the topmost sub-box (today's behavior).
+  - Control wire is below all sub-boxes → connector goes up to
+    the bottom of the bottommost sub-box (today's behavior).
+  - Control wire is in a gap between two sub-boxes → connector
+    goes to the closer of "bottom of upper sub-box" vs "top of
+    lower sub-box" (tie → either; render the same dot either
+    way).
+  - Control wire is **on** a sub-box's wire range → the dot is
+    drawn at the box's edge on that wire; no connector is needed
+    (zero-length).
+
+**Acceptance criteria for M6.**
+
+1. Single-target gate rendering is byte-identical to today's
+   output (regression).
+2. M2's existing group-control rendering is byte-identical to
+   today (regression — Option C generalizes M2, doesn't replace
+   it).
+3. ControlledUnitary split-target case (existing data) draws
+   per-control connectors to nearest sub-box edge instead of one
+   solid line through everything. Net change: the dashed
+   inter-sub-box skip line stops being overdrawn by the control
+   connector for non-adjacent target wires.
+4. M5's `_isMultiTargetOrGroup` refusal is **removed** from
+   `addControl` / `removeControl` and the gated context-menu
+   items become unconditional. The `M5` test file's "refuses on
+   …" tests are replaced with "succeeds on …" tests.
+5. Per-control connector geometry has a dedicated unit test in
+   the renderer test suite covering all four edge cases (above
+   all, below all, in gap, on a sub-box wire).
+6. The action-layer dedup / dropzone-filter sites M1 originally
+   shipped for groups (now dead code behind the M5 refusal)
+   come back into use without modification.
+
+**Estimated scope.** Renderer-only change to
+[`gateFormatter.ts`](renderer/formatters/gateFormatter.ts);
+geometry helper extracted from M2's
+`_renderQuantumGroupControls`; action layer touched only to
+delete the M5 refusal predicate from the two call sites.
+Self-contained; doesn't gate or get gated by any other
+in-flight work.
 
 #### Known open issues
 
@@ -1937,22 +2094,24 @@ landed. Some are flagged out-of-scope in shipped milestones above.
 
 #### Roadmap
 
-| Item                                   | Status                         |
-| -------------------------------------- | ------------------------------ |
-| M1: add / remove control plumbing      | ✅ Shipped (pending confirm)   |
-| M2: render quantum controls on groups  | ✅ Shipped (pending confirm)   |
-| M3: control-leg drag semantics         | ✅ Shipped (pending confirm)   |
-| M4: drag init + ViewState across moves | ✅ Shipped (pending confirm)   |
-| `qubitUseCounts` on single-leg rewire  | ❌ Open                        |
-| Classical-condition editing            | ❌ Deferred (editor-authoring) |
-| Toolbox control element                | ❌ Open (design TBD)           |
-| Control clone-on-group audit           | ❌ Open                        |
-| Drag-extend via control dot            | ❌ Open (design TBD)           |
-| Click / select / delete semantics      | ❌ Open (design TBD)           |
-| Visual differentiation                 | ❌ Open (design TBD)           |
-| Default-expansion interaction          | ❌ Open (design TBD)           |
-| Keyboard accessibility                 | ❌ Open                        |
-| Control as selectable unit             | ❌ Open (design TBD)           |
+| Item                                                                  | Status                                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| M1: add / remove control plumbing                                     | ⚠️ Partial — single-target unitary half in effect; group / multi-target half reverted by M5 pending M6 |
+| M2: render quantum controls on groups                                 | ✅ Shipped (pending confirm) — render-only; still draws loaded-data controls                           |
+| M3: control-leg drag semantics                                        | ✅ Shipped (pending confirm)                                                                           |
+| M4: drag init + ViewState across moves                                | ✅ Shipped (pending confirm)                                                                           |
+| M5: refuse add/remove control on multi-target ops & groups            | ✅ Shipped (pending confirm)                                                                           |
+| M6: unified quantum-control rendering on multi-target bodies (Opt. C) | ❌ Deferred — design documented, implementation a future PR                                            |
+| `qubitUseCounts` on single-leg rewire                                 | ❌ Open                                                                                                |
+| Classical-condition editing                                           | ❌ Deferred (editor-authoring)                                                                         |
+| Toolbox control element                                               | ❌ Open (design TBD)                                                                                   |
+| Control clone-on-group audit                                          | ❌ Open                                                                                                |
+| Drag-extend via control dot                                           | ❌ Open (design TBD)                                                                                   |
+| Click / select / delete semantics                                     | ❌ Open (design TBD)                                                                                   |
+| Visual differentiation                                                | ❌ Open (design TBD)                                                                                   |
+| Default-expansion interaction                                         | ❌ Open (design TBD)                                                                                   |
+| Keyboard accessibility                                                | ❌ Open                                                                                                |
+| Control as selectable unit                                            | ❌ Open (design TBD)                                                                                   |
 
 ---
 
