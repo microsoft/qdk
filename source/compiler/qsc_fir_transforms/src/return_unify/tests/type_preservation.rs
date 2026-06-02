@@ -4,49 +4,11 @@
 use super::*;
 
 #[test]
-fn type_preservation_guard_clause_simplification() {
-    // Guard-clause simplification recovers the block tail; the pipeline checks
-    // the type invariant.
-    let (store, pkg_id) = compile_return_unified(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                if true {
-                    return 1;
-                }
-                0
-            }
-        }
-    "#});
-    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
-        &store, pkg_id, "Main",
-    );
-}
-
-#[test]
-fn type_preservation_flag_lowering_int() {
-    // Flag lowering with Int return — invariant checked in pipeline.
-    let (store, pkg_id) = compile_return_unified(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                mutable i = 0;
-                while i < 10 {
-                    if i == 5 {
-                        return i;
-                    }
-                    i += 1;
-                }
-                i
-            }
-        }
-    "#});
-    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
-        &store, pkg_id, "Main",
-    );
-}
-
-#[test]
 fn type_preservation_array_backed_qubit_return() {
-    let (store, pkg_id) = compile_return_unified(indoc! {r#"
+    // Array-backed return slot for a Qubit-returning loop; terminal/block type
+    // parity is enforced by the centralized PostReturnUnify invariant run inside
+    // `compile_return_unified`.
+    compile_return_unified(indoc! {r#"
         namespace Test {
             operation Pick(q : Qubit) : Qubit {
                 mutable i = 0;
@@ -63,54 +25,13 @@ fn type_preservation_array_backed_qubit_return() {
             }
         }
     "#});
-    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
-        &store, pkg_id, "Pick",
-    );
-}
-
-#[test]
-fn type_preservation_tuple_return() {
-    // Tuple return type — invariant checked in pipeline.
-    let (store, pkg_id) = compile_return_unified(indoc! {r#"
-        namespace Test {
-            function Main() : (Int, Bool) {
-                if true {
-                    return (1, true);
-                }
-                (0, false)
-            }
-        }
-    "#});
-    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
-        &store, pkg_id, "Main",
-    );
-}
-
-#[test]
-fn type_preservation_nested_block_expr() {
-    // Nested block expression return — invariant checked in pipeline.
-    let (store, pkg_id) = compile_return_unified(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                let x = {
-                    if true {
-                        return 1;
-                    }
-                    2
-                };
-                x
-            }
-        }
-    "#});
-    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
-        &store, pkg_id, "Main",
-    );
 }
 
 #[test]
 fn type_preservation_double_return() {
-    // Double return type — invariant checked in pipeline.
-    let (store, pkg_id) = compile_return_unified(indoc! {r#"
+    // Double return type; terminal/block type parity is enforced by the
+    // centralized PostReturnUnify invariant run inside `compile_return_unified`.
+    compile_return_unified(indoc! {r#"
         namespace Test {
             function Main() : Double {
                 if true {
@@ -120,7 +41,4 @@ fn type_preservation_double_return() {
             }
         }
     "#});
-    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
-        &store, pkg_id, "Main",
-    );
 }

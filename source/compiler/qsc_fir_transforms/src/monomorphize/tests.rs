@@ -1371,21 +1371,6 @@ fn mono_recursive_generic() {
 }
 
 #[test]
-fn mono_invariants_hold_post_pass() {
-    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to(
-        indoc! {r#"
-                operation Identity<'T>(x : 'T) : 'T { x }
-                operation Outer<'T>(x : 'T) : 'T { Identity(x) }
-                operation Main() : Int { Outer(42) }
-            "#},
-        crate::test_utils::PipelineStage::Mono,
-    );
-    // If we reach here, the invariant check inside
-    // compile_and_run_pipeline_to already passed.
-    let _ = (store, pkg_id);
-}
-
-#[test]
 fn mono_generic_with_simulatable_intrinsic() {
     // A generic function used via a simulatable intrinsic path.
     // Length is a cross-package intrinsic: verify it's specialized.

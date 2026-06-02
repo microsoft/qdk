@@ -994,33 +994,6 @@ fn recursive_promoted_self_call_dissolves_to_clean_flat_form_through_pipeline() 
 }
 
 #[test]
-fn recursive_promoted_self_call_dissolution_is_idempotent() {
-    // Re-running arg_promote on the dissolved recursive self-call is a no-op:
-    // the clean flat form `Loop(p_0, p_1, n - 1)` is a fixed point with no
-    // projection temporary to re-create or re-dissolve.
-    let source = "struct Pair { X : Int, Y : Int }
-            function Loop(p : Pair, n : Int) : Int {
-                if n <= 0 {
-                    p.X + p.Y
-                } else {
-                    Loop(p, n - 1)
-                }
-            }
-            function Main() : Int {
-                Loop(new Pair { X = 1, Y = 2 }, 3)
-            }";
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
-    let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
-    let second = crate::pretty::write_package_qsharp(&store, pkg_id);
-    assert_eq!(
-        first, second,
-        "arg_promote should be idempotent on the dissolved recursive self-call"
-    );
-}
-
-#[test]
 fn pure_pass_through_tuple_param_is_not_promoted() {
     // A bare tuple-typed parameter that is only ever forwarded as a whole value
     // (zero field accesses) is a pure pass-through. The `field >= 1` gate leaves
@@ -1257,7 +1230,9 @@ fn whole_value_call_arg_is_reconstructed() {
 fn arg_promote_is_idempotent_for_reconstructed_body() {
     // Running `arg_promote` a second time over a body that already contains a
     // reconstructed whole-value read must be a no-op: the reconstructed tuple
-    // literal is not re-decomposed and no further rewrites occur.
+    // literal is not re-decomposed and no further rewrites occur. The dissolved
+    // recursive self-call `Loop(p_0, p_1, n - 1)` is likewise a fixed point with
+    // no projection temporary to re-create or re-dissolve.
     let source = "struct Pair { X : Int, Y : Int }
             function Loop(p : Pair, n : Int) : Int {
                 if n <= 0 {
@@ -2281,18 +2256,46 @@ fn regular_intrinsic_tuple_parameter_is_not_promoted() {
 }
 
 #[test]
-fn simulatable_intrinsic_nested_tuple_parameter_is_not_promoted() {
-    // A `@SimulatableIntrinsic` with a *nested* tuple parameter is skipped by
-    // arg_promote just like the flat-tuple case: the signature stays
-    // tuple-shaped and the call site keeps its whole nested-tuple argument.
-    // This also guards the `unreachable!()` arms guarding the intrinsic gate,
-    // proving the gate still excludes intrinsics upstream (no panic).
+fn intrinsic_nested_tuple_parameter_is_not_promoted() {
+    // An intrinsic callable with a *nested* (depth >= 2) tuple parameter is
+    // skipped by arg_promote regardless of intrinsic flavor: both a
+    // `@SimulatableIntrinsic` and a regular `body intrinsic` keep their
+    // tuple-shaped signature, and their call sites keep the whole nested-tuple
+    // argument (never decomposed into multi-index leaf projections). This also
+    // guards the `unreachable!()` arms behind the intrinsic gate, proving the
+    // gate still excludes intrinsics upstream (no panic).
     //
     // Like a regular `body intrinsic`, a simulatable intrinsic has no
-    // FIR-usable body (codegen-only), so the full pipeline rejects this
-    // signature in the intrinsic precheck before arg_promote runs. This drives
+    // FIR-usable body (codegen-only), so the full pipeline rejects these
+    // signatures in the intrinsic precheck before arg_promote runs. This drives
     // arg_promote directly on the FIR to exercise the pass in isolation.
-    let source = "@SimulatableIntrinsic()
+    fn assert_nested_tuple_param_untouched(source: &str, callable: &str, expected_call: &str) {
+        let (mut store, pkg_id) = compile_to_fir(source);
+
+        let mut assigner = Assigner::from_package(store.get(pkg_id));
+        arg_promote(&mut store, pkg_id, &mut assigner);
+
+        let package = store.get(pkg_id);
+        // Signature unchanged: the parameter stays a single whole binding, not
+        // decomposed into the nested leaves.
+        assert_eq!(
+            callable_input_binding_names(package, callable),
+            vec!["p"],
+            "intrinsic '{callable}' parameter must stay a single un-promoted binding"
+        );
+
+        // Call site keeps the whole nested-tuple argument (not flattened into
+        // multi-index leaf projections).
+        let call_shapes = extract_call_shapes(&store, pkg_id, "Main");
+        assert_eq!(
+            call_shapes, expected_call,
+            "intrinsic '{callable}' call site must keep its whole nested-tuple argument"
+        );
+    }
+
+    // `@SimulatableIntrinsic` flavor: signature and call site both untouched.
+    assert_nested_tuple_param_untouched(
+        "@SimulatableIntrinsic()
         operation MeasureNested(p : (Int, (Int, Int))) : Int {
             let (a, (b, c)) = p;
             a + b + c
@@ -2301,47 +2304,20 @@ fn simulatable_intrinsic_nested_tuple_parameter_is_not_promoted() {
         operation Main() : Int {
             let nested = (1, (2, 3));
             MeasureNested(nested)
-        }";
-
-    let (mut store, pkg_id) = compile_to_fir(source);
-
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
-
-    let package = store.get(pkg_id);
-    // Signature unchanged: parameter stays a single whole binding, not
-    // decomposed into the nested leaves.
-    assert_eq!(
-        callable_input_binding_names(package, "MeasureNested"),
-        vec!["p"]
+        }",
+        "MeasureNested",
+        "MeasureNested(nested)",
     );
 
-    // Call site keeps the whole nested-tuple argument (not flattened into
-    // multi-index leaf projections).
-    let call_shapes = extract_call_shapes(&store, pkg_id, "Main");
-    expect!["MeasureNested(nested)"].assert_eq(&call_shapes);
-}
-
-#[test]
-fn nested_body_intrinsic_param_not_promoted() {
-    // A regular `body intrinsic` callable with a *nested* (depth >= 2) tuple
-    // parameter is skipped by arg_promote just like the flat-tuple case: the
-    // signature stays tuple-shaped and is never decomposed into scalar leaves.
-    // The full pipeline rejects such callables in the intrinsic precheck before
-    // arg_promote runs, so this drives arg_promote directly on the FIR.
-    let source = "operation Foo(p : (Int, (Int, Int))) : Unit { body intrinsic; }
+    // Regular `body intrinsic` flavor: same skip behavior on a literal nested
+    // tuple argument.
+    assert_nested_tuple_param_untouched(
+        "operation Foo(p : (Int, (Int, Int))) : Unit { body intrinsic; }
         @EntryPoint()
-        operation Main() : Unit { Foo((1, (2, 3))) }";
-
-    let (mut store, pkg_id) = compile_to_fir(source);
-
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
-
-    let package = store.get(pkg_id);
-    // Parameter stays a single whole binding; the nested tuple was not
-    // decomposed into leaves.
-    assert_eq!(callable_input_binding_names(package, "Foo"), vec!["p"]);
+        operation Main() : Unit { Foo((1, (2, 3))) }",
+        "Foo",
+        "Foo((Int(1), (Int(2), Int(3))))",
+    );
 }
 
 #[test]

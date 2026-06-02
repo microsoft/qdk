@@ -1210,30 +1210,6 @@ fn outer_return_wrapping_if_with_stmt_return_in_else_does_not_loop() {
 }
 
 #[test]
-fn outer_return_wrapping_if_with_stmt_return_in_else_full_pipeline() {
-    // Verify the full pipeline (including PostAll invariant checks) succeeds
-    // now that If expression types and Pat types are synchronized after
-    // return replacement.
-    let source = indoc! {r#"
-        namespace Test {
-            import Std.Measurement.*;
-
-            @EntryPoint()
-            operation Main() : Int {
-                use q = Qubit();
-                return if M(q) == One {
-                    1
-                } else {
-                    return M(q) == One ? 0 | 1;
-                };
-            }
-        }
-    "#};
-
-    let _ = compile_and_run_pipeline_to(source, PipelineStage::Full);
-}
-
-#[test]
 fn recursive_function_with_return() {
     check_no_returns_q(
         indoc! {r#"

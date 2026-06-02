@@ -31,26 +31,6 @@ fn check(source: &str, expect: &Expect) {
 }
 
 #[test]
-fn reachable_includes_direct_call_chain() {
-    // Main calls A, A calls B. C is never called.
-    check(
-        indoc! {"
-                namespace Test {
-                    function B() : Unit {}
-                    function A() : Unit { B(); }
-                    function C() : Unit {}
-                    @EntryPoint()
-                    function Main() : Unit { A(); }
-                }
-            "},
-        &expect![[r#"
-                A
-                B
-                Main"#]],
-    );
-}
-
-#[test]
 fn unreachable_callable_excluded() {
     // Only Main is called; Orphan is unreachable.
     check(
@@ -67,14 +47,16 @@ fn unreachable_callable_excluded() {
 }
 
 #[test]
-fn transitive_chain_all_reachable() {
-    // Main → A → B → C (full chain).
+fn transitive_chain_reachable_and_uncalled_excluded() {
+    // Main → A → B → C is a full transitive chain (all reachable); Dead is never
+    // called and must be excluded even while the chain propagates reachability.
     check(
         indoc! {"
                 namespace Test {
                     function C() : Unit {}
                     function B() : Unit { C(); }
                     function A() : Unit { B(); }
+                    function Dead() : Unit {}
                     @EntryPoint()
                     function Main() : Unit { A(); }
                 }
@@ -122,22 +104,6 @@ fn multiple_unreachable_functions() {
             "},
         &expect![[r#"
                 Alive
-                Main"#]],
-    );
-}
-
-#[test]
-fn entry_expression_followed() {
-    // A single entry point with no calls — only Main is reachable.
-    check(
-        indoc! {"
-                namespace Test {
-                    function Helper() : Unit {}
-                    @EntryPoint()
-                    function Main() : Int { 42 }
-                }
-            "},
-        &expect![[r#"
                 Main"#]],
     );
 }

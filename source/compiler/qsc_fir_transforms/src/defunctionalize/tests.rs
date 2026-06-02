@@ -545,71 +545,6 @@ fn spec_key_different() {
 }
 
 #[test]
-fn spec_key_hash_consistent() {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let key1 = SpecKey {
-        hof_id: LocalItemId::from(5usize),
-        concrete_args: vec![ConcreteCallableKey::Global {
-            item_id: ItemId {
-                package: fir::PackageId::from(1usize),
-                item: LocalItemId::from(10usize),
-            },
-            functor: FunctorApp::default(),
-        }],
-    };
-    let key2 = key1.clone();
-
-    let mut hasher1 = DefaultHasher::new();
-    key1.hash(&mut hasher1);
-    let mut hasher2 = DefaultHasher::new();
-    key2.hash(&mut hasher2);
-    assert_eq!(hasher1.finish(), hasher2.finish());
-}
-
-#[test]
-fn concrete_callable_key_global() {
-    let key = ConcreteCallableKey::Global {
-        item_id: ItemId {
-            package: fir::PackageId::from(1usize),
-            item: LocalItemId::from(42usize),
-        },
-        functor: FunctorApp {
-            adjoint: true,
-            controlled: 1,
-        },
-    };
-    match &key {
-        ConcreteCallableKey::Global { item_id, functor } => {
-            assert_eq!(item_id.item, LocalItemId::from(42usize));
-            assert!(functor.adjoint);
-            assert_eq!(functor.controlled, 1);
-        }
-        ConcreteCallableKey::Closure { .. } => panic!("expected Global variant"),
-    }
-}
-
-#[test]
-fn concrete_callable_key_closure() {
-    let key = ConcreteCallableKey::Closure {
-        target: LocalItemId::from(7usize),
-        functor: FunctorApp {
-            adjoint: false,
-            controlled: 2,
-        },
-    };
-    match &key {
-        ConcreteCallableKey::Closure { target, functor } => {
-            assert_eq!(*target, LocalItemId::from(7usize));
-            assert!(!functor.adjoint);
-            assert_eq!(functor.controlled, 2);
-        }
-        ConcreteCallableKey::Global { .. } => panic!("expected Closure variant"),
-    }
-}
-
-#[test]
 fn error_diagnostic_has_code() {
     use miette::Diagnostic;
     use qsc_data_structures::span::Span;
@@ -708,18 +643,46 @@ fn test_helpers_surface_defunctionalization_errors() {
     );
 }
 
-/// A HOF whose body defines a nested lambda (lifted to a
-/// `StmtKind::Item` in FIR) must have that item included in the extracted
-/// body package so that `FirCloner::clone_nested_item` can find it during
-/// specialization.
+/// A HOF whose body defines a nested item — either a lifted lambda
+/// (`StmtKind::Item` + `ExprKind::Closure`) or a named nested function
+/// (`StmtKind::Item`) — must have that item included in the extracted body
+/// package so that `FirCloner::clone_nested_item` can find it during
+/// specialization. Both flavors must produce a concrete specialized clone of
+/// the HOF (`Transform`), proving specialization actually ran rather than just
+/// not panicking.
 #[test]
-fn hof_with_nested_lambda_in_body_specializes_correctly() {
-    // `Transform` is a HOF (takes `f : Int -> Int`).  Its body defines
-    // `helper` as a local lambda — the compiler lifts this to a nested
-    // item and references it via `StmtKind::Item` + `ExprKind::Closure`.
-    // When `Transform` is specialized for `x -> x + 1`, the body extraction
-    // must include the nested item or FirCloner will panic.
-    let source = r#"
+fn hof_with_nested_item_in_body_specializes_correctly() {
+    fn assert_transform_specialized(source: &str) {
+        let (store, pkg_id) = compile_and_defunctionalize(source);
+        let package = store.get(pkg_id);
+        let names: Vec<String> = package
+            .items
+            .values()
+            .filter_map(|item| match &item.kind {
+                ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+                _ => None,
+            })
+            .collect();
+        // The original generic HOF remains (item DCE has not run yet), plus a
+        // freshly specialized clone whose name carries the specialization
+        // suffix — concrete proof that `Transform` was specialized for the
+        // `x -> x + 1` argument, with its nested item successfully extracted.
+        assert!(
+            names.iter().any(|n| n == "Transform"),
+            "original Transform HOF should remain pre-DCE; callables: {names:?}"
+        );
+        assert!(
+            names
+                .iter()
+                .any(|n| n != "Transform" && n.starts_with("Transform")),
+            "a specialized Transform clone should be created; callables: {names:?}"
+        );
+    }
+
+    // Nested *lambda* lifted to an item: the compiler lifts `helper` to a
+    // nested item referenced via `StmtKind::Item` + `ExprKind::Closure`.
+    assert_transform_specialized(
+        r#"
         function Transform(f : Int -> Int, x : Int) : Int {
             let helper = y -> y * 2;
             helper(f(x))
@@ -727,16 +690,12 @@ fn hof_with_nested_lambda_in_body_specializes_correctly() {
         function Main() : Int {
             Transform(x -> x + 1, 5)
         }
-    "#;
-    check_pipeline(source);
-}
+    "#,
+    );
 
-/// A HOF whose body defines a *named* nested function
-/// (which appears as `StmtKind::Item` in FIR) must have that item included
-/// in the extracted body package for specialization to succeed.
-#[test]
-fn hof_with_nested_named_function_specializes_correctly() {
-    let source = r#"
+    // Nested *named function* item appearing directly as `StmtKind::Item`.
+    assert_transform_specialized(
+        r#"
         function Transform(f : Int -> Int, x : Int) : Int {
             function Helper(y : Int) : Int { y * 2 }
             Helper(f(x))
@@ -744,8 +703,8 @@ fn hof_with_nested_named_function_specializes_correctly() {
         function Main() : Int {
             Transform(x -> x + 1, 5)
         }
-    "#;
-    check_pipeline(source);
+    "#,
+    );
 }
 
 #[test]
@@ -771,12 +730,47 @@ fn unreachable_closure_structure_preserved() {
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
     assert_no_defunctionalization_errors("unreachable_closure_structure_preserved", &errors);
 
-    // Document that dead callable still exists (item DCE hasn't run yet).
+    // Structure preserved: defunctionalize only rewrites *reachable* call
+    // sites, so DeadFn's body must still contain the un-specialized HOF call
+    // `Apply(x -> x * 2, 10)` — its lifted closure survives and the `Apply`
+    // arrow argument was NOT eliminated for the dead site.
     let package = fir_store.get(fir_pkg_id);
-    let dead_exists = package.items.values().any(|item| {
-        matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "DeadFn")
-    });
-    assert!(dead_exists, "DeadFn should still exist pre-DCE");
+    let dead_decl = package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "DeadFn" => Some(decl),
+            _ => None,
+        })
+        .expect("DeadFn should still exist pre-DCE");
+
+    let mut dead_has_closure = false;
+    let mut dead_calls_unspecialized_apply = false;
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &dead_decl.implementation,
+        &mut |_id, expr| {
+            if matches!(expr.kind, fir::ExprKind::Closure(..)) {
+                dead_has_closure = true;
+            }
+            if let fir::ExprKind::Call(callee_id, _) = &expr.kind {
+                let callee = package.get_expr(*callee_id);
+                if let fir::ExprKind::Var(fir::Res::Item(item_id), _) = &callee.kind
+                    && resolve_item_name(&fir_store, item_id) == "Apply"
+                {
+                    dead_calls_unspecialized_apply = true;
+                }
+            }
+        },
+    );
+    assert!(
+        dead_has_closure,
+        "DeadFn's lifted `x -> x * 2` closure must survive defunctionalization unchanged"
+    );
+    assert!(
+        dead_calls_unspecialized_apply,
+        "DeadFn must still call the un-specialized `Apply` HOF (dead site not rewritten)"
+    );
 }
 
 /// The `StmtKind::Semi(Return(_))` arm in defunctionalize analysis

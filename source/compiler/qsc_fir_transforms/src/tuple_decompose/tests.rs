@@ -278,6 +278,30 @@ fn struct_fields_decompose() {
             Main()
         "#]],
     );
+    // Decompose-specific: pin the non-parseable render as well. The struct local
+    // `p` must split into scalar `p_0`/`p_1` bindings with field accesses
+    // rewritten to the scalars, and the render must use `body { ... }` spec
+    // syntax. This snapshot fails if the pass produced
+    // parseable-but-undecomposed output.
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
+    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
+    expect![[r#"
+        // namespace test
+        newtype Pair = (Int, Int);
+        function Main() : Int {
+            body {
+                let (p_0 : Int, p_1 : Int) = (1, 2);
+                p_0 + p_1
+            }
+        }
+        // entry
+        Main()
+    "#]]
+    .assert_eq(&rendered);
+    assert!(
+        rendered.contains("body"),
+        "pretty-printed Q# after tuple-decompose should use `body` spec syntax:\n{rendered}"
+    );
 }
 
 #[test]
@@ -1142,6 +1166,18 @@ fn tuple_decompose_tuple_compare_shared_var_rewrites_all_eq_operands_after_pipel
             ("pair_1".to_string(), "pair_1".to_string()),
         ]
     );
+    // The shared-var tuple `pair == pair` must lower to element-wise scalar
+    // comparisons, so the QIR below is generated from decomposed FIR rather than
+    // merely being QIR-shaped.
+    let qir = generate_qir(SHARED_VAR_TUPLE_COMPARE_SOURCE);
+    assert!(
+        qir.contains("@ENTRYPOINT__main"),
+        "QIR after tuple-decompose should define the entry point:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__qis__"),
+        "QIR should contain quantum measurement intrinsics:\n{qir}"
+    );
 }
 
 #[test]
@@ -1165,37 +1201,6 @@ fn multi_index_assign_field_decomposes_iteratively() {
     assert!(
         stale_assign_fields.is_empty(),
         "nested AssignField uses should be fully rewritten after iterative tuple-decompose: {stale_assign_fields:?}"
-    );
-}
-
-#[test]
-fn tuple_decompose_tuple_compare_shared_var_generates_qir() {
-    // Decompose-specific: assert the shared-var tuple `pair == pair` was actually
-    // decomposed into element-wise scalar comparisons `(pair_0 == pair_0,
-    // pair_1 == pair_1)` with no stale field access on a non-tuple, so the QIR
-    // below is generated from decomposed FIR rather than merely being QIR-shaped.
-    let (eq_pairs, invalid_fields) =
-        collect_eq_pairs_and_invalid_fields(SHARED_VAR_TUPLE_COMPARE_SOURCE);
-    assert!(
-        invalid_fields.is_empty(),
-        "post-tuple-decompose should not leave field accesses on non-tuples:\n{}",
-        invalid_fields.join("\n")
-    );
-    assert_eq!(
-        eq_pairs,
-        vec![
-            ("pair_0".to_string(), "pair_0".to_string()),
-            ("pair_1".to_string(), "pair_1".to_string()),
-        ]
-    );
-    let qir = generate_qir(SHARED_VAR_TUPLE_COMPARE_SOURCE);
-    assert!(
-        qir.contains("@ENTRYPOINT__main"),
-        "QIR after tuple-decompose should define the entry point:\n{qir}"
-    );
-    assert!(
-        qir.contains("__quantum__qis__"),
-        "QIR should contain quantum measurement intrinsics:\n{qir}"
     );
 }
 
@@ -1430,45 +1435,6 @@ fn render_before_after_tuple_decompose(source: &str) -> (String, String) {
 fn check_before_after_tuple_decompose(source: &str, expect: &Expect) {
     let (before, after) = render_before_after_tuple_decompose(source);
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
-}
-
-#[test]
-fn pretty_print_after_tuple_decompose_decomposes_struct_local() {
-    // Struct local with field-only access decomposes directly under the first
-    // tuple-decompose pass (no dependence on the destructure-normalization path).
-    let source = indoc! {r#"
-        namespace Test {
-            struct Pair { X : Int, Y : Int }
-            @EntryPoint()
-            function Main() : Int {
-                let p = new Pair { X = 5, Y = 6 };
-                p.X + p.Y
-            }
-        }
-    "#};
-    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
-    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
-    // Decompose-specific: pin the rendered Q#. The struct local `p` must be split
-    // into scalar `p_0`/`p_1` bindings whose field accesses are rewritten to the
-    // scalars, and the render must use `body { ... }` spec syntax. This snapshot
-    // fails if the pass produced parseable-but-undecomposed output.
-    expect![[r#"
-        // namespace Test
-        newtype Pair = (Int, Int);
-        function Main() : Int {
-            body {
-                let (p_0 : Int, p_1 : Int) = (5, 6);
-                p_0 + p_1
-            }
-        }
-        // entry
-        Main()
-    "#]] // snapshot populated by UPDATE_EXPECT=1
-    .assert_eq(&rendered);
-    assert!(
-        rendered.contains("body"),
-        "pretty-printed Q# after tuple-decompose should use `body` spec syntax:\n{rendered}"
-    );
 }
 
 #[test]

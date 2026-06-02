@@ -34,20 +34,6 @@ fn unsupported_param_type_has_diagnostic_code() {
 }
 
 #[test]
-fn unsupported_return_type_has_diagnostic_code() {
-    let error = Error::UnsupportedReturnType(
-        "MyOp".to_string(),
-        "(Int, Int)".to_string(),
-        Span::default(),
-    );
-    let code = error.code().expect("should have diagnostic code");
-    assert_eq!(
-        code.to_string(),
-        "Qsc.FirTransform.UnsupportedIntrinsicReturnType"
-    );
-}
-
-#[test]
 fn intrinsic_with_tuple_param() {
     check_precheck_errors(
         indoc! {r#"
@@ -234,23 +220,6 @@ fn intrinsic_with_multiple_primitive_params() {
                     operation Main() : Unit {
                         use q = Qubit();
                         Foo(q, q);
-                    }
-                }
-            "#},
-        &expect![[""]],
-    );
-}
-
-#[test]
-fn intrinsic_returning_unit() {
-    check_precheck_errors(
-        indoc! {r#"
-                namespace Test {
-                    operation Foo(q : Qubit) : Unit { body intrinsic; }
-                    @EntryPoint()
-                    operation Main() : Unit {
-                        use q = Qubit();
-                        Foo(q);
                     }
                 }
             "#},

@@ -88,34 +88,31 @@ fn run_pipeline_output_satisfies_post_all_invariants() {
     invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
 }
 
-/// Verifies that a program using higher-order functions satisfies `PostAll`
-/// invariants -- exercises the defunctionalization contract specifically.
+/// Verifies that a single program exercising every major transform contract
+/// at once -- monomorphization (generic `Identity`), UDT erasure (`newtype
+/// Pair`), defunctionalization (callable-typed `Apply` argument), and
+/// return-unification (`EarlyReturn` early `return`) -- still satisfies the
+/// full `PostAll` invariant suite.
+///
+/// This intentionally combines what were previously four near-identical
+/// single-feature contract tests (defunc / return-unify / UDT / mono) into one
+/// representative anchor. The combined program forces all four transforms to
+/// run in the same pipeline invocation, so a contract regression in any single
+/// transform -- or in their interaction -- surfaces here. The authoritative
+/// minimal anchor above (`run_pipeline_output_satisfies_post_all_invariants`)
+/// remains as the simplest-possible entry-point contract.
 #[test]
-fn run_pipeline_defunctionalized_output_satisfies_post_all_invariants() {
+fn run_pipeline_combined_features_output_satisfies_post_all_invariants() {
     let (store, pkg_id) = compile_and_run_full_pipeline(
         r#"
+        function Identity<'T>(x : 'T) : 'T { x }
+
+        newtype Pair = (First : Int, Second : Int);
+
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
 
-        @EntryPoint()
-        operation Main() : Unit {
-            use q = Qubit();
-            Apply(H, q);
-            Reset(q);
-        }
-        "#,
-    );
-
-    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
-}
-
-/// Verifies that a program with early returns satisfies `PostAll` invariants --
-/// exercises the return-unification contract specifically.
-#[test]
-fn run_pipeline_return_unified_output_satisfies_post_all_invariants() {
-    let (store, pkg_id) = compile_and_run_full_pipeline(
-        r#"
         operation EarlyReturn(flag : Bool) : Int {
             if flag { return 1; }
             0
@@ -123,43 +120,12 @@ fn run_pipeline_return_unified_output_satisfies_post_all_invariants() {
 
         @EntryPoint()
         operation Main() : Int {
-            EarlyReturn(true)
+            use q = Qubit();
+            Apply(H, q);
+            Reset(q);
+            let p = Pair(Identity(1), 2);
+            p::First + EarlyReturn(true)
         }
-        "#,
-    );
-
-    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
-}
-
-/// Verifies that a program using user-defined types satisfies `PostAll`
-/// invariants -- exercises the UDT erasure contract specifically.
-#[test]
-fn run_pipeline_udt_erased_output_satisfies_post_all_invariants() {
-    let (store, pkg_id) = compile_and_run_full_pipeline(
-        r#"
-        newtype Pair = (First : Int, Second : Int);
-
-        @EntryPoint()
-        operation Main() : Int {
-            let p = Pair(1, 2);
-            p::First
-        }
-        "#,
-    );
-
-    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
-}
-
-/// Verifies that a program with generic functions satisfies `PostAll` invariants
-/// -- exercises the monomorphization contract specifically.
-#[test]
-fn run_pipeline_monomorphized_output_satisfies_post_all_invariants() {
-    let (store, pkg_id) = compile_and_run_full_pipeline(
-        r#"
-        function Identity<'T>(x : 'T) : 'T { x }
-
-        @EntryPoint()
-        operation Main() : Int { Identity(42) }
         "#,
     );
 

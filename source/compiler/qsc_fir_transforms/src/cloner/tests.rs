@@ -366,6 +366,26 @@ fn body_block(decl: &CallableDecl) -> BlockId {
 
 #[test]
 fn clone_block_is_idempotent() {
+    fn bind_and_use_local(pkg: &Package) -> (LocalVarId, LocalVarId) {
+        let bind = pkg
+            .pats
+            .values()
+            .find_map(|p| match &p.kind {
+                PatKind::Bind(ident) => Some(ident.id),
+                _ => None,
+            })
+            .expect("cloned bind pattern should exist");
+        let used = pkg
+            .exprs
+            .values()
+            .find_map(|e| match &e.kind {
+                ExprKind::Var(Res::Local(id), _) => Some(*id),
+                _ => None,
+            })
+            .expect("cloned local use should exist");
+        (bind, used)
+    }
+
     let source = make_test_package();
 
     // First clone: source → target1.
@@ -394,95 +414,84 @@ fn clone_block_is_idempotent() {
         );
     }
 
+    // ID-remap integrity: after cloning, the `Var(Local)` use must resolve to
+    // the *same* LocalVarId as the cloned `Bind` pattern — i.e. the reference
+    // was remapped to the freshly cloned binding, not left pointing at a stale
+    // source id. This consistency must hold identically across both clone
+    // generations.
+    let (bind1, use1) = bind_and_use_local(&target1);
+    let (bind2, use2) = bind_and_use_local(&target2);
+    assert_eq!(
+        bind1, use1,
+        "first clone must remap the local use to its freshly cloned binding"
+    );
+    assert_eq!(
+        bind2, use2,
+        "second clone must remap the local use to its freshly cloned binding"
+    );
+
     // Element counts must match across both clones.
     assert_eq!(target1.exprs.iter().count(), target2.exprs.iter().count());
     assert_eq!(target1.pats.iter().count(), target2.pats.iter().count());
     assert_eq!(target1.stmts.iter().count(), target2.stmts.iter().count());
 }
 
-#[test]
-fn clone_expr_is_idempotent_for_literal() {
-    let source = make_test_package();
-
-    // First clone of Expr 1: Lit(Int(42)).
-    let mut target1 = empty_package();
-    let mut cloner1 = FirCloner::new(&target1);
-    let expr1_id = cloner1.clone_expr(&source, ExprId::from(1u32), &mut target1);
-
-    // Second clone from target1.
-    let mut target2 = empty_package();
-    let mut cloner2 = FirCloner::new(&target2);
-    let expr2_id = cloner2.clone_expr(&target1, expr1_id, &mut target2);
-
-    let expr1 = target1.exprs.get(expr1_id).expect("expr1");
-    let expr2 = target2.exprs.get(expr2_id).expect("expr2");
-
-    assert_eq!(expr1.ty, expr2.ty);
-    match (&expr1.kind, &expr2.kind) {
-        (ExprKind::Lit(qsc_fir::fir::Lit::Int(v1)), ExprKind::Lit(qsc_fir::fir::Lit::Int(v2))) => {
-            assert_eq!(v1, v2, "literal value must survive double-clone");
-        }
-        _ => panic!("expected Lit(Int) on both clones"),
-    }
-}
-
 // ── Type preservation and structural assertion tests ──
 
 #[test]
-fn clone_preserves_expression_types() {
+fn clone_preserves_expression_and_pattern_types() {
     let source = make_test_package();
     let mut target = empty_package();
     let mut cloner = FirCloner::new(&target);
     cloner.clone_block(&source, BlockId::from(0u32), &mut target);
 
+    // Expression count and the multiset of expression types are preserved.
     assert_eq!(
         target.exprs.iter().count(),
         source.exprs.iter().count(),
         "expression count must match"
     );
-
-    let mut source_types: Vec<String> = source
+    let mut source_expr_types: Vec<String> = source
         .exprs
         .iter()
         .map(|(_, e)| format!("{:?}", e.ty))
         .collect();
-    let mut target_types: Vec<String> = target
+    let mut target_expr_types: Vec<String> = target
         .exprs
         .iter()
         .map(|(_, e)| format!("{:?}", e.ty))
         .collect();
-    source_types.sort();
-    target_types.sort();
-    assert_eq!(source_types, target_types, "expression types must match");
-}
+    source_expr_types.sort();
+    target_expr_types.sort();
+    assert_eq!(
+        source_expr_types, target_expr_types,
+        "expression types must match"
+    );
 
-#[test]
-fn clone_preserves_pattern_types_and_kinds() {
-    let source = make_test_package();
-    let mut target = empty_package();
-    let mut cloner = FirCloner::new(&target);
-    cloner.clone_block(&source, BlockId::from(0u32), &mut target);
-
+    // Pattern count and the multiset of pattern types are preserved.
     assert_eq!(
         target.pats.iter().count(),
         source.pats.iter().count(),
         "pattern count must match"
     );
-
-    let mut source_types: Vec<String> = source
+    let mut source_pat_types: Vec<String> = source
         .pats
         .iter()
         .map(|(_, p)| format!("{:?}", p.ty))
         .collect();
-    let mut target_types: Vec<String> = target
+    let mut target_pat_types: Vec<String> = target
         .pats
         .iter()
         .map(|(_, p)| format!("{:?}", p.ty))
         .collect();
-    source_types.sort();
-    target_types.sort();
-    assert_eq!(source_types, target_types, "pattern types must match");
+    source_pat_types.sort();
+    target_pat_types.sort();
+    assert_eq!(
+        source_pat_types, target_pat_types,
+        "pattern types must match"
+    );
 
+    // Bind-pattern kind counts are preserved.
     let source_bind_count = source
         .pats
         .iter()

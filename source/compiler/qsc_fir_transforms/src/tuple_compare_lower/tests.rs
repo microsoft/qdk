@@ -680,8 +680,11 @@ fn tuple_compare_lower_is_idempotent() {
 
 #[test]
 fn entry_expression_tuple_comparison_is_lowered() {
-    // Tuple comparison in an @EntryPoint callable is lowered correctly.
-    // Documents that the entry expression path is covered by tuple_compare_lower.
+    // Minimal coverage that the classical tuple-eq lowering (pinned in full by
+    // `classical_tuple_eq_decomposed`) also fires inside an explicit
+    // `@EntryPoint() operation`. Only the element-wise decomposition is asserted
+    // here; the before/after render is not re-pinned to avoid duplicating the
+    // survivor's snapshot.
     let source = indoc! {"
             namespace Test {
                 @EntryPoint()
@@ -700,25 +703,5 @@ fn entry_expression_tuple_comparison_is_lowered() {
               BinOp(Eq, ty=Bool):
                 Lit(Int(2), ty=Int)
                 Lit(Int(2), ty=Int)"#]],
-    );
-    check_before_after(
-        source,
-        &expect![[r#"
-            BEFORE:
-            // namespace Test
-            operation Main() : Bool {
-                (1, 2) == (1, 2)
-            }
-            // entry
-            Main()
-
-            AFTER:
-            // namespace Test
-            operation Main() : Bool {
-                1 == 1 and 2 == 2
-            }
-            // entry
-            Main()
-        "#]],
     );
 }

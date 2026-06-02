@@ -871,7 +871,7 @@ fn hoist_return_in_while_condition_short_circuit_and_or_unconditional_path() {
 }
 
 #[test]
-fn while_condition_direct_nested_if_return_uses_flag_strategy() {
+fn while_condition_direct_nested_if_return_via_flag_transform() {
     let source = indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -895,7 +895,7 @@ fn while_condition_direct_nested_if_return_uses_flag_strategy() {
 }
 
 #[test]
-fn while_condition_short_circuit_rhs_return_uses_flag_strategy() {
+fn while_condition_short_circuit_rhs_return_via_flag_transform() {
     let source = indoc! {r#"
         namespace Test {
             function Main() : Int {

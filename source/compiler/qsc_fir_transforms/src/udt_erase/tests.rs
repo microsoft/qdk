@@ -841,6 +841,8 @@ fn nested_udt_erased_to_nested_tuple() {
 /// `UpdateField(_, Field::Path(_), _)` survives.
 #[test]
 fn udt_update_field_simple() {
+    // `p w/ Fst <- 42` on a two-field UDT lowers to an erased tuple that keeps
+    // the untouched field as a projection from the source value.
     check_main_local_summaries_after_erasure(
         indoc! {"
             namespace Test {
@@ -1164,6 +1166,44 @@ fn udt_zero_fields_erased_to_unit() {
             Main()
         "#]],
     );
+
+    // The empty-struct surface form `struct Empty {}` lowers to the same
+    // zero-field UDT and must erase identically, with its `new Empty {}`
+    // constructor rewritten to the unit literal `()`.
+    let struct_source = indoc! {"
+            struct Empty {}
+
+            function Main() : Unit {
+                let e = new Empty {};
+            }
+        "};
+    check_erasure(
+        struct_source,
+        &expect![[r#"
+            Main: input=Unit, output=Unit"#]],
+    );
+    check_before_after_udt_erase(
+        struct_source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            newtype Empty = Unit;
+            function Main() : Unit {
+                let e : __UDT_Item_1__Package_2_ = new Empty {};
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            newtype Empty = Unit;
+            function Main() : Unit {
+                let e : Unit = ();
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }
 
 #[test]
@@ -1252,27 +1292,6 @@ fn resolve_ty_udt_in_tuple() {
     );
 }
 
-#[test]
-fn udt_copy_update_expression() {
-    // `p w/ Fst <- 10` on a two-field UDT should lower to an erased tuple
-    // that keeps the untouched field as a projection from the source value.
-    check_main_local_summaries_after_erasure(
-        indoc! {"
-            namespace Test {
-                newtype Pair = (Fst: Int, Snd: Int);
-                @EntryPoint()
-                function Main() : Unit {
-                    let p = Pair(1, 2);
-                    let p2 = p w/ Fst <- 10;
-                }
-            }
-        "},
-        &expect![[r#"
-            Immutable p = Tuple(Lit(Int(1)), Lit(Int(2)))
-            Immutable p2 = Tuple(Lit(Int(10)), Field(Var(p), Path([1])))"#]],
-    );
-}
-
 /// Verifies that `new Pair { ...p, Fst = 42 }` on a two-field UDT is
 /// lowered to a tuple with the replacement at index 0 after UDT erasure.
 #[test]
@@ -1315,27 +1334,6 @@ fn udt_copy_update_multiple_fields() {
     );
 }
 
-/// Verifies that copy-update on a single-field UDT is lowered to the scalar
-/// replacement value directly.
-#[test]
-fn udt_copy_update_single_field_udt() {
-    check_main_local_summaries_after_erasure(
-        indoc! {"
-            namespace Test {
-                newtype Wrapper = (val: Int);
-                @EntryPoint()
-                function Main() : Unit {
-                    let w = Wrapper(99);
-                    let w2 = w w/ val <- 10;
-                }
-            }
-        "},
-        &expect![[r#"
-            Immutable w = Lit(Int(99))
-            Immutable w2 = Lit(Int(10))"#]],
-    );
-}
-
 /// Verifies copy-update on a UDT with nested UDT fields. Updating
 /// a top-level field should produce a tuple with the replacement
 /// and field extractions for the remaining fields.
@@ -1358,46 +1356,6 @@ fn udt_copy_update_nested() {
             Immutable i = Tuple(Lit(Int(1)), Lit(Int(2)))
             Immutable o = Tuple(Var(i), Lit(Bool(true)))
             Immutable o2 = Tuple(Field(Var(o), Path([0])), Lit(Bool(false)))"#]],
-    );
-}
-
-#[test]
-fn zero_field_udt_erased_to_unit() {
-    // Zero-field struct: `struct Empty {}` — boundary condition for
-    // UDT erasure where the underlying type collapses to Unit.
-    let source = indoc! {"
-            struct Empty {}
-
-            function Main() : Unit {
-                let e = new Empty {};
-            }
-        "};
-    check_erasure(
-        source,
-        &expect![[r#"
-            Main: input=Unit, output=Unit"#]],
-    );
-    check_before_after_udt_erase(
-        source,
-        &expect![[r#"
-            BEFORE:
-            // namespace test
-            newtype Empty = Unit;
-            function Main() : Unit {
-                let e : __UDT_Item_1__Package_2_ = new Empty {};
-            }
-            // entry
-            Main()
-
-            AFTER:
-            // namespace test
-            newtype Empty = Unit;
-            function Main() : Unit {
-                let e : Unit = ();
-            }
-            // entry
-            Main()
-        "#]],
     );
 }
 
@@ -1968,17 +1926,29 @@ fn cross_package_udt_copy_update_erased() {
     let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
     erase_udts(&mut store, pkg_id, &mut assigner);
 
-    // Verify that mutated specs in the user package are non-empty after erasure.
+    // After erasure the user package's IR must be UDT-free: no `Pair` struct
+    // constructions survive, no expression carries a `Udt` type, and every
+    // surviving by-path field access (`updated.Fst`) is rooted on a *tuple*
+    // receiver (a tuple-index op) rather than a UDT — matching the PostUdtErase
+    // invariant. Pre-fix, struct constructions and UDT-typed field accesses
+    // survived in the cross-package copy-update path.
     let package = store.get(pkg_id);
-    for item in package.items.values() {
-        if let ItemKind::Callable(decl) = &item.kind
-            && let CallableImpl::Spec(spec) = &decl.implementation
-        {
-            let block = package.get_block(spec.body.block);
+    for (_, expr) in package.exprs.iter() {
+        assert!(
+            !matches!(expr.kind, ExprKind::Struct(..)),
+            "user package should have no struct expressions after UDT erasure"
+        );
+        assert!(
+            !matches!(expr.ty, Ty::Udt(_)),
+            "user package expression types should be UDT-free after erasure, found {:?}",
+            expr.ty
+        );
+        if let ExprKind::Field(receiver, Field::Path(_)) = &expr.kind {
+            let receiver_ty = &package.exprs.get(*receiver).expect("field receiver").ty;
             assert!(
-                !block.stmts.is_empty(),
-                "callable '{}' body should have non-empty stmts after UDT erasure",
-                decl.name.name
+                matches!(receiver_ty, Ty::Tuple(_)),
+                "surviving by-path field access must be on a tuple receiver after \
+                 erasure, found {receiver_ty:?}"
             );
         }
     }

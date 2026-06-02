@@ -20,14 +20,11 @@ use rustc_hash::FxHashSet;
 
 use crate::reachability::collect_reachable_from_entry;
 use crate::test_utils::{
-    PipelineStage, compile_and_run_pipeline_to, compile_and_run_pipeline_to_with_errors,
-    compile_to_fir,
+    PipelineStage, check_semantic_equivalence, compile_and_run_pipeline_to,
+    compile_and_run_pipeline_to_with_errors, compile_to_fir, eval_qsharp_original,
 };
 use crate::walk_utils::{for_each_expr, for_each_expr_in_callable_impl};
 use indoc::indoc;
-use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
-};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BinOp, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, Lit, LocalVarId, Package,
@@ -797,96 +794,6 @@ fn try_eval_fir_entry(
         &mut receiver,
     )
     .map_err(|(err, _frames)| format!("{err:?}"))
-}
-
-/// Compiles Q# source to FIR using a single lowerer (matching the
-/// `qsc_eval` test pattern), and evaluates the entry exec graph.
-///
-/// The FIR has no transforms applied — this captures the original program
-/// semantics.
-fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value, String> {
-    use qsc_frontend::compile as frontend_compile;
-    use qsc_hir::hir::PackageId;
-    use qsc_lowerer::map_hir_package_to_fir;
-    use qsc_passes::{PackageType, run_core_passes, run_default_passes};
-
-    let mut lowerer = qsc_lowerer::Lowerer::new();
-    let mut core = frontend_compile::core();
-    run_core_passes(&mut core);
-    let fir_store = qsc_fir::fir::PackageStore::new();
-    let core_fir = lowerer.lower_package(&core.package, &fir_store);
-    let mut hir_store = qsc_frontend::compile::PackageStore::new(core);
-
-    let mut std = frontend_compile::std(&hir_store, TargetCapabilityFlags::empty());
-    assert!(std.errors.is_empty());
-    assert!(run_default_passes(hir_store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = lowerer.lower_package(&std.package, &fir_store);
-    let std_id = hir_store.insert(std);
-
-    let sources = SourceMap::new(vec![("test.qs".into(), source.into())], None);
-    let mut unit = frontend_compile::compile(
-        &hir_store,
-        &[(PackageId::CORE, None), (std_id, None)],
-        sources,
-        TargetCapabilityFlags::empty(),
-        LanguageFeatures::default(),
-    );
-    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
-    let pass_errors = run_default_passes(hir_store.core(), &mut unit, PackageType::Exe);
-    assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = lowerer.lower_package(&unit.package, &fir_store);
-    let user_hir_id = hir_store.insert(unit);
-
-    let mut fir_store = qsc_fir::fir::PackageStore::new();
-    fir_store.insert(map_hir_package_to_fir(PackageId::CORE), core_fir);
-    fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
-    fir_store.insert(map_hir_package_to_fir(user_hir_id), unit_fir);
-
-    try_eval_fir_entry(&fir_store, map_hir_package_to_fir(user_hir_id))
-}
-
-/// Compiles Q# source, runs the full FIR transform pipeline (including
-/// `return_unify` and `exec_graph_rebuild`), and evaluates the entry exec
-/// graph.
-fn eval_qsharp_transformed(source: &str) -> Result<qsc_eval::val::Value, String> {
-    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
-    try_eval_fir_entry(&store, pkg_id)
-}
-
-/// Asserts semantic equivalence of a Q# program before and after the
-/// full FIR transform pipeline.
-///
-/// 1. Compiles the original Q# source (no transforms) and evaluates it to
-///    get the expected return value.
-/// 2. Compiles and runs the full FIR pipeline (including `return_unify`),
-///    then evaluates to get the actual return value.
-/// 3. Asserts the two results match (both succeed with equal values, or
-///    both fail).
-fn check_semantic_equivalence(source: &str) {
-    let expected = eval_qsharp_original(source);
-    let actual = eval_qsharp_transformed(source);
-
-    match (&expected, &actual) {
-        (Ok(exp_val), Ok(act_val)) => {
-            assert_eq!(
-                exp_val, act_val,
-                "semantic equivalence violated: original returned {exp_val}, \
-                 transformed returned {act_val}"
-            );
-        }
-        (Err(exp_err), Err(act_err)) => {
-            assert_eq!(
-                exp_err, act_err,
-                "semantic equivalence violated: original failed with {exp_err}, transformed failed with {act_err}"
-            );
-        }
-        (Ok(exp_val), Err(err)) => {
-            panic!("original succeeded with {exp_val} but transformed failed: {err}");
-        }
-        (Err(err), Ok(act_val)) => {
-            panic!("original failed with {err} but transformed succeeded with {act_val}");
-        }
-    }
 }
 
 fn check_idempotency(source: &str) {

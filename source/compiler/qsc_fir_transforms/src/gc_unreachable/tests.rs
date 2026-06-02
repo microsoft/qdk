@@ -110,31 +110,6 @@ fn gc_removes_defunc_orphans() {
 }
 
 #[test]
-fn gc_then_check_id_references_passes() {
-    // A non-trivial program exercising multiple transform passes.
-    // After GC, check_id_references (via PostAll invariants) should not panic.
-    let source = indoc! {"
-        namespace Test {
-            operation ApplyIfOne(q : Qubit, op : Qubit => Unit) : Unit {
-                op(q);
-            }
-            @EntryPoint()
-            operation Main() : Unit {
-                use q = Qubit();
-                ApplyIfOne(q, H);
-                if M(q) == One {
-                    X(q);
-                }
-                Reset(q);
-            }
-        }
-    "};
-    // Run full pipeline — this runs GC then PostAll invariants (including check_id_references).
-    let (_store, _pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
-    // If we reach here, check_id_references passed post-GC.
-}
-
-#[test]
 fn gc_on_entry_less_package_is_noop() {
     // Compile a source with entry, then target the core package (no entry).
     let source = indoc! {"
@@ -186,20 +161,6 @@ fn entry_only_reachable_item_survives_dead_sibling_removed() {
     // block is tombstoned (not merely `removed > 0`).
     use qsc_fir::fir::{BlockId, CallableImpl, ItemKind};
 
-    let source = indoc! {"
-        namespace Test {
-            @EntryPoint()
-            operation Main() : Unit {
-                use q = Qubit();
-                Used(q);
-                Reset(q);
-            }
-            operation Used(q : Qubit) : Unit { H(q); }
-            operation Dead(q : Qubit) : Unit { X(q); }
-        }
-    "};
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
-
     fn body_block(package: &qsc_fir::fir::Package, name: &str) -> BlockId {
         package
             .items
@@ -215,6 +176,21 @@ fn entry_only_reachable_item_survives_dead_sibling_removed() {
             })
             .unwrap_or_else(|| panic!("callable {name} not found"))
     }
+
+    let source = indoc! {"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                Used(q);
+                Reset(q);
+            }
+            operation Used(q : Qubit) : Unit { H(q); }
+            operation Dead(q : Qubit) : Unit { X(q); }
+        }
+    "};
+
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
 
     let used_block = body_block(store.get(pkg_id), "Used");
     let dead_block = body_block(store.get(pkg_id), "Dead");

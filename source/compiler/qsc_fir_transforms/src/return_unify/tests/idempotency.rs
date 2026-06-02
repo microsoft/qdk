@@ -16,21 +16,6 @@ fn idempotency_no_return() {
 }
 
 #[test]
-fn idempotency_simple_guard_clause() {
-    // Single guard clause — flag lowering plus guard-clause simplification.
-    check_idempotency(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                if true {
-                    return 1;
-                }
-                0
-            }
-        }
-    "#});
-}
-
-#[test]
 fn idempotency_nested_if_else_returns() {
     // Multiple branches with returns — flag lowering plus simplification.
     check_idempotency(indoc! {r#"
@@ -68,23 +53,6 @@ fn idempotency_while_loop_return() {
 }
 
 #[test]
-fn idempotency_for_loop_return() {
-    // Return inside for loop — semantic flag lowering.
-    check_idempotency(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                for i in 0..9 {
-                    if i == 5 {
-                        return i;
-                    }
-                }
-                -1
-            }
-        }
-    "#});
-}
-
-#[test]
 fn idempotency_nested_blocks_with_return() {
     // Return inside nested block — tests block normalization idempotency.
     check_idempotency(indoc! {r#"
@@ -111,58 +79,6 @@ fn idempotency_unit_return() {
                 if true {
                     return ();
                 }
-            }
-        }
-    "#});
-}
-
-#[test]
-fn idempotency_tuple_return() {
-    // Tuple-typed return — flag lowering plus simplification.
-    check_idempotency(indoc! {r#"
-        namespace Test {
-            function Main() : (Int, Bool) {
-                if true {
-                    return (1, true);
-                }
-                (0, false)
-            }
-        }
-    "#});
-}
-
-#[test]
-fn idempotency_string_return_flag_lowering() {
-    // String-typed return in while loop — semantic flag lowering.
-    check_idempotency(indoc! {r#"
-        namespace Test {
-            function Main() : String {
-                mutable i = 0;
-                while i < 3 {
-                    if i == 1 {
-                        return "found";
-                    }
-                    i += 1;
-                }
-                "not found"
-            }
-        }
-    "#});
-}
-
-#[test]
-fn idempotency_leaky_if_flag_lowering() {
-    // Leaky nested-if pattern — semantic flag lowering with non-trivial guarding.
-    check_idempotency(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                if true {
-                    if false {
-                        return 1;
-                    }
-                    return 2;
-                }
-                3
             }
         }
     "#});

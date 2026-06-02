@@ -940,6 +940,45 @@ fn exec_graph_rebuild_preserves_invariants() {
     "};
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ExecGraphRebuild);
     crate::invariants::check(&store, pkg_id, crate::invariants::InvariantLevel::PostAll);
+
+    // Pin the actual rebuilt graph shape for `Main`, not just invariant
+    // validity: the allocate / H / Reset / release sequence must reconstruct
+    // to this exact node ordering.
+    let main_local = store
+        .get(pkg_id)
+        .items
+        .iter()
+        .find_map(|(item_id, item)| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Main" => Some(item_id),
+            _ => None,
+        })
+        .expect("Main callable should exist");
+    let main_store_id = StoreItemId {
+        package: pkg_id,
+        item: main_local,
+    };
+    let graph = format_store_callable_exec_graph(&store, main_store_id, ExecGraphConfig::NoDebug);
+    expect![[r#"
+        0: __quantum__rt__qubit_allocate
+        1: Store
+        2: Tuple(len=0)
+        3: Call
+        4: Bind(q)
+        5: H
+        6: Store
+        7: Var(LocalVarId(1))
+        8: Call
+        9: Reset
+        10: Store
+        11: Var(LocalVarId(1))
+        12: Call
+        13: __quantum__rt__qubit_release
+        14: Store
+        15: Var(LocalVarId(1))
+        16: Call
+        17: Unit
+        18: Ret"#]]
+    .assert_eq(&graph);
 }
 
 #[test]

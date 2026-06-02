@@ -76,29 +76,6 @@ pub fn format_pipeline_errors(errors: &[crate::PipelineError]) -> String {
     }
 }
 
-/// Metadata prepended to transform snapshot views so failures carry their
-/// scenario, pipeline stage, rendered surface, and protected claim.
-#[derive(Clone, Copy, Debug)]
-pub struct TransformSnapshotCase {
-    pub case: &'static str,
-    pub stage: PipelineStage,
-    pub view: &'static str,
-    pub claim: &'static str,
-}
-
-/// Renders a transform snapshot by prepending the case, stage, view, and
-/// claim metadata from `case` to `actual_view`.
-#[must_use]
-pub fn format_transform_snapshot(
-    case: &TransformSnapshotCase,
-    actual_view: impl std::fmt::Display,
-) -> String {
-    format!(
-        "case={}\nstage={:?}\nview={}\nclaim={}\n\n{}",
-        case.case, case.stage, case.view, case.claim, actual_view
-    )
-}
-
 /// Asserts that a warning-aware pipeline result has no fatal errors.
 pub fn assert_pipeline_succeeded(context: &str, result: &crate::PipelineResult) {
     assert_no_pipeline_errors(context, &result.errors);
@@ -126,6 +103,7 @@ pub fn assert_full_pipeline_succeeds(
 ) -> crate::PipelineResult {
     let result = crate::run_pipeline_with_diagnostics(store, pkg_id);
     assert_no_pipeline_errors(context, &result.errors);
+    assert_no_pipeline_warnings(context, &result.warnings);
     result
 }
 
@@ -227,13 +205,6 @@ fn compile_to_fir_with_cached_stdlib(
         assert!(pass_errors.is_empty(), "user code has compilation errors");
         lower_cached_stdlib_and_user_to_fir(store, std_id, &unit)
     })
-}
-
-/// Convenience wrapper around [`package_store_with_stdlib`] that passes
-/// [`TargetCapabilityFlags::empty()`].
-#[must_use]
-pub fn package_store_with_stdlib_default() -> HirPackageStore {
-    package_store_with_stdlib(TargetCapabilityFlags::empty())
 }
 
 /// Compiles Q# source through core+std → HIR passes → FIR lowering.
@@ -907,56 +878,8 @@ pub(crate) fn eval_qsharp_original_with_library(
     lib_source: &str,
     user_source: &str,
 ) -> Result<qsc_eval::val::Value, String> {
-    let mut lowerer = qsc_lowerer::Lowerer::new();
-    let mut core = frontend_compile::core();
-    run_core_passes(&mut core);
-    let fir_store = fir::PackageStore::new();
-    let core_fir = lowerer.lower_package(&core.package, &fir_store);
-    let mut hir_store = HirPackageStore::new(core);
-
-    let mut std = frontend_compile::std(&hir_store, TargetCapabilityFlags::empty());
-    assert!(std.errors.is_empty());
-    assert!(run_default_passes(hir_store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = lowerer.lower_package(&std.package, &fir_store);
-    let std_id = hir_store.insert(std);
-
-    // Library package
-    let lib_sources = SourceMap::new(vec![("lib.qs".into(), lib_source.into())], None);
-    let mut lib_unit = frontend_compile::compile(
-        &hir_store,
-        &[(PackageId::CORE, None), (std_id, None)],
-        lib_sources,
-        TargetCapabilityFlags::empty(),
-        LanguageFeatures::default(),
-    );
-    assert!(lib_unit.errors.is_empty(), "{:?}", lib_unit.errors);
-    let lib_pass_errors = run_default_passes(hir_store.core(), &mut lib_unit, PackageType::Lib);
-    assert!(lib_pass_errors.is_empty(), "{lib_pass_errors:?}");
-    let lib_fir = lowerer.lower_package(&lib_unit.package, &fir_store);
-    let lib_id = hir_store.insert(lib_unit);
-
-    // User package
-    let user_sources = SourceMap::new(vec![("test.qs".into(), user_source.into())], None);
-    let mut unit = frontend_compile::compile(
-        &hir_store,
-        &[(PackageId::CORE, None), (std_id, None), (lib_id, None)],
-        user_sources,
-        TargetCapabilityFlags::empty(),
-        LanguageFeatures::default(),
-    );
-    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
-    let pass_errors = run_default_passes(hir_store.core(), &mut unit, PackageType::Exe);
-    assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = lowerer.lower_package(&unit.package, &fir_store);
-    let user_hir_id = hir_store.insert(unit);
-
-    let mut fir_store = fir::PackageStore::new();
-    fir_store.insert(map_hir_package_to_fir(PackageId::CORE), core_fir);
-    fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
-    fir_store.insert(map_hir_package_to_fir(lib_id), lib_fir);
-    fir_store.insert(map_hir_package_to_fir(user_hir_id), unit_fir);
-
-    try_eval_fir_entry(&fir_store, map_hir_package_to_fir(user_hir_id))
+    let (fir_store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    try_eval_fir_entry(&fir_store, pkg_id)
 }
 
 /// Compiles Q# source, runs the full FIR transform pipeline, and evaluates

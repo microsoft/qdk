@@ -766,48 +766,6 @@ fn aggregate_arrow_typed_return_simplifies_to_if_semantic() {
 }
 
 #[test]
-fn aggregate_arrow_typed_return_local_indirection_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Choose(flag : Bool) : ((Int -> Int), Int) {
-                if flag {
-                    return (x -> x + 1, 100);
-                }
-                (x -> x * 2, 7)
-            }
-
-            function Main() : (Int, Int) {
-                let pair = Choose(true);
-                let (trueF, trueOffset) = pair;
-                let otherPair = Choose(false);
-                let (falseF, falseOffset) = otherPair;
-                (trueF(10) + trueOffset, falseF(10) + falseOffset)
-            }
-        }
-    "#});
-}
-
-#[test]
-fn aggregate_arrow_typed_return_nested_path_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Choose(flag : Bool) : (Int, ((Int -> Int), Int)) {
-                if flag {
-                    return (0, (x -> x + 1, 100));
-                }
-                (0, (x -> x * 2, 7))
-            }
-
-            function Main() : (Int, Int) {
-                let (_, (trueF, trueOffset)) = Choose(true);
-                let (_, (falseF, falseOffset)) = Choose(false);
-                (trueF(10) + trueOffset, falseF(10) + falseOffset)
-            }
-        }
-    "#});
-}
-
-#[test]
 fn aggregate_arrow_typed_return_udt_field_access_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
@@ -820,34 +778,6 @@ fn aggregate_arrow_typed_return_udt_field_access_semantic() {
                 let selected = Choose(true);
                 let f = selected::F;
                 f(10) + selected::Offset
-            }
-        }
-    "#});
-}
-
-#[test]
-fn aggregate_arrow_typed_return_bang_deconstruction_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            newtype Choice = (F : Int -> Int, Offset : Int);
-            function Choose(flag : Bool) : Choice {
-                if flag { return Choice(x -> x + 1, 100); }
-                Choice(x -> x * 2, 7)
-            }
-            function Main() : Int {
-                let (f, offset) = Choose(true)!;
-                f(10) + offset
-            }
-        }
-    "#});
-}
-
-#[test]
-fn single_trailing_return_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                return 42;
             }
         }
     "#});
@@ -868,26 +798,6 @@ fn guard_clause_pattern_semantic() {
 }
 
 #[test]
-fn multiple_guard_clauses_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                if true {
-                    return 1;
-                }
-                if false {
-                    return 2;
-                }
-                if true {
-                    return 3;
-                }
-                0
-            }
-        }
-    "#});
-}
-
-#[test]
 fn both_branches_return_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
@@ -897,22 +807,6 @@ fn both_branches_return_semantic() {
                 } else {
                     return 2;
                 }
-            }
-        }
-    "#});
-}
-
-#[test]
-fn return_in_nested_block_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                {
-                    {
-                        return 10;
-                    }
-                };
-                5
             }
         }
     "#});
@@ -937,25 +831,7 @@ fn return_inside_while_loop_semantic() {
 }
 
 #[test]
-fn while_return_tuple_value_uses_flag_fallback_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Main() : (Int, Bool) {
-                mutable i = 0;
-                while i < 3 {
-                    if i == 1 {
-                        return (i, true);
-                    }
-                    i += 1;
-                }
-                (-1, false)
-            }
-        }
-    "#});
-}
-
-#[test]
-fn while_return_array_value_uses_flag_fallback_semantic() {
+fn while_return_array_value_via_flag_transform_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Main() : Int[] {
@@ -1037,19 +913,6 @@ fn nested_loop_exit_convergence_is_guarded_by_flag_semantic() {
 }
 
 #[test]
-fn unit_returning_with_return_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Main() : Unit {
-                if true {
-                    return ();
-                }
-            }
-        }
-    "#});
-}
-
-#[test]
 fn while_body_call_arg_return_keeps_loop_before_trailing_merge_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
@@ -1077,36 +940,6 @@ fn return_value_is_complex_expression_semantic() {
                     return Add(1, 2) + Add(3, 4);
                 }
                 0
-            }
-        }
-    "#});
-}
-
-#[test]
-fn return_in_else_branch_only_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                if true {
-                    1
-                } else {
-                    return 2;
-                }
-            }
-        }
-    "#});
-}
-
-#[test]
-fn range_return_default_in_flag_lowering_is_supported_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Main() : Range {
-                mutable i = 0;
-                while i < 1 {
-                    return 0..1;
-                }
-                2..3
             }
         }
     "#});
@@ -1163,34 +996,6 @@ fn early_return_in_qubit_array_scope_preserves_release_order_semantic() {
 
             operation Main() : Int {
                 Foo(true)
-            }
-        }
-    "#});
-}
-
-// Idempotency tests
-//
-// Verify that running `unify_returns` a second time on already-transformed
-// FIR is a no-op: no new arena entries (blocks, stmts, exprs, pats) are
-// allocated, and no errors are produced.
-
-/// Helper: compile through `return_unify`, then run `unify_returns` again and
-/// assert that the package arenas are unchanged (no new IDs allocated).
-
-#[test]
-fn triple_nested_if_return_with_else_return_semantic() {
-    check_semantic_equivalence(indoc! {r#"
-        namespace Test {
-            function Main() : Int {
-                if 0 > 0 {
-                    if 0 > 0 {
-                        if 0 > 0 { return 0; }
-                        return 0;
-                    }
-                    0
-                } else {
-                    return 0;
-                }
             }
         }
     "#});

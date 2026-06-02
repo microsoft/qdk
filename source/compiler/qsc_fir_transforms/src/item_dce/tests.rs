@@ -117,25 +117,6 @@ fn dce_preserves_all_reachable_items() {
 }
 
 #[test]
-fn dce_with_closure_passes_invariants() {
-    // Closures produce StmtKind::Item declarations in outer blocks.
-    // After defunc these become specialized items; the original closure item
-    // may become unreachable. ItemDce + cascading GC should keep invariants
-    // clean.
-    let source = indoc! {"
-        namespace Test {
-            function Apply(f : Int -> Int, x : Int) : Int { f(x) }
-            @EntryPoint()
-            function Main() : Int { Apply(x -> x + 1, 5) }
-        }
-    "};
-    // Running through Full exercises ItemDce + cascading GC + invariants.
-    let (_store, _pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
-    // If we reach here, post-DCE invariants (including check_id_references)
-    // passed after cascading GC cleaned up any orphaned StmtKind::Item stmts.
-}
-
-#[test]
 fn dce_on_entry_less_package_is_noop() {
     // Library packages have no entry expression. The pipeline guards against
     // calling collect_reachable_from_entry (which panics) on entry-less
@@ -212,20 +193,35 @@ fn dce_removes_unreachable_generic_instantiations() {
             function Main() : Int { Wrap(42) + Wrap(0) }
         }
     "};
-    let (store_before, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Gc);
-    let items_before = item_count(store_before.get(pkg_id));
-
     let (store_after, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ItemDce);
-    let items_after = item_count(store_after.get(pkg_id));
+    let package = store_after.get(pkg_id);
+    let names: Vec<String> = package
+        .items
+        .iter()
+        .filter_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+            _ => None,
+        })
+        .collect();
 
+    // Reachable entry survives.
     assert!(
-        items_after < items_before,
-        "DCE should reduce items: before={items_before}, after={items_after}"
+        names.iter().any(|n| n == "Main"),
+        "entry Main must survive DCE; remaining: {names:?}"
     );
-    let callables_after = callable_count(store_after.get(pkg_id));
+    // Generic templates are unreachable after monomorphization → removed.
     assert!(
-        callables_after > 0,
-        "monomorphized callables should survive: {callables_after}"
+        !names.iter().any(|n| n == "Id" || n == "Wrap"),
+        "generic Id/Wrap templates must be removed; remaining: {names:?}"
+    );
+    // Their monomorphized instantiations remain reachable from Main.
+    assert!(
+        names.iter().any(|n| n.starts_with("Id<")),
+        "monomorphized Id<Int> must survive; remaining: {names:?}"
+    );
+    assert!(
+        names.iter().any(|n| n.starts_with("Wrap<")),
+        "monomorphized Wrap<Int> must survive; remaining: {names:?}"
     );
 }
 
@@ -275,20 +271,33 @@ fn dce_removes_unreachable_closure_and_generic() {
             function Main() : Int { Apply(x -> x + 1, 5) }
         }
     "};
-    let (store_before, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Gc);
-    let items_before = item_count(store_before.get(pkg_id));
-
     let (store_after, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ItemDce);
-    let items_after = item_count(store_after.get(pkg_id));
+    let package = store_after.get(pkg_id);
+    let names: Vec<String> = package
+        .items
+        .iter()
+        .filter_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+            _ => None,
+        })
+        .collect();
 
+    // Reachable entry survives.
     assert!(
-        items_after < items_before,
-        "DCE should reduce items with closures+generics: before={items_before}, after={items_after}"
+        names.iter().any(|n| n == "Main"),
+        "entry Main must survive DCE; remaining: {names:?}"
     );
-    let callables_after = callable_count(store_after.get(pkg_id));
+    // The generic HOF template is unreachable after monomorphization and
+    // defunctionalization → removed.
     assert!(
-        callables_after > 0,
-        "specialized callables should survive: {callables_after}"
+        !names.iter().any(|n| n == "Apply"),
+        "generic Apply template must be removed; remaining: {names:?}"
+    );
+    // A specialized/monomorphized Apply (the concrete callee reachable from
+    // Main) survives.
+    assert!(
+        names.iter().any(|n| n != "Apply" && n.starts_with("Apply")),
+        "a specialized Apply callable must survive; remaining: {names:?}"
     );
 }
 

@@ -59,7 +59,7 @@ fn return_inside_while_loop() {
 }
 
 #[test]
-fn while_return_tuple_value_uses_flag_fallback() {
+fn while_return_tuple_value_via_flag_transform() {
     let source = indoc! {r#"
         namespace Test {
             function Main() : (Int, Bool) {
@@ -190,7 +190,7 @@ fn all_returning_nested_if_tuple_uses_return_slot_fallback() {
 }
 
 #[test]
-fn while_return_array_value_uses_flag_fallback() {
+fn while_return_array_value_via_flag_transform() {
     let source = indoc! {r#"
         namespace Test {
             function Main() : Int[] {

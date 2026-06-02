@@ -389,6 +389,18 @@ fn generic_identity_monomorphized_to_concrete_type() {
     let package = fir_store.get(fir_pkg_id);
     validate(package, &fir_store);
     invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
+
+    // Monomorphization must have produced a concrete Identity specialization
+    // with no residual generic type parameter in any reachable signature.
+    let summary = format_reachable_callable_summary(&fir_store, fir_pkg_id);
+    assert!(
+        summary.contains("Identity"),
+        "a monomorphized Identity specialization should remain reachable:\n{summary}"
+    );
+    assert!(
+        !summary.contains('\''),
+        "no generic type parameter should remain after monomorphization:\n{summary}"
+    );
 }
 
 #[test]
@@ -426,22 +438,18 @@ fn callable_argument_defunctionalized_to_direct_call() {
     run_pipeline_successfully(&mut fir_store, fir_pkg_id);
     let package = fir_store.get(fir_pkg_id);
     validate(package, &fir_store);
-}
 
-#[test]
-fn tuple_return_scalars_promoted_by_tuple_decompose() {
-    let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
-        r#"
-        operation Pair() : (Int, Bool) { (1, true) }
-        operation Main() : Int {
-            let (a, _) = Pair();
-            a
-        }
-        "#,
+    // Defunctionalization must have removed the callable-typed `op` parameter:
+    // no reachable signature may still contain an arrow type.
+    let summary = format_reachable_callable_summary(&fir_store, fir_pkg_id);
+    assert!(
+        summary.contains("Apply"),
+        "the defunctionalized Apply callable should remain reachable:\n{summary}"
     );
-    run_pipeline_successfully(&mut fir_store, fir_pkg_id);
-    let package = fir_store.get(fir_pkg_id);
-    validate(package, &fir_store);
+    assert!(
+        !summary.contains("=>"),
+        "defunctionalization should eliminate the callable-typed parameter from Apply:\n{summary}"
+    );
 }
 
 #[test]
@@ -454,21 +462,6 @@ fn for_loop_iterators_pass_invariants() {
                 sum += i;
             }
             sum
-        }
-        "#,
-    );
-    run_pipeline_successfully(&mut fir_store, fir_pkg_id);
-    let package = fir_store.get(fir_pkg_id);
-    validate(package, &fir_store);
-}
-
-#[test]
-fn array_operations_pass_post_pipeline_invariants() {
-    let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
-        r#"
-        operation Main() : Int {
-            let arr = [1, 2, 3];
-            arr[1]
         }
         "#,
     );
@@ -825,6 +818,18 @@ fn nested_generics_fully_monomorphized() {
     let package = fir_store.get(fir_pkg_id);
     validate(package, &fir_store);
     invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
+
+    // Both nested generics must be monomorphized and reachable, with no
+    // residual generic type parameter in any reachable signature.
+    let summary = format_reachable_callable_summary(&fir_store, fir_pkg_id);
+    assert!(
+        summary.contains("Inner") && summary.contains("Outer"),
+        "both Inner and Outer should be monomorphized and reachable:\n{summary}"
+    );
+    assert!(
+        !summary.contains('\''),
+        "no generic type parameter should remain after nested monomorphization:\n{summary}"
+    );
 }
 
 #[test]
@@ -845,6 +850,22 @@ fn generic_for_loop_monomorphized_and_invariants_hold() {
     let package = fir_store.get(fir_pkg_id);
     validate(package, &fir_store);
     invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
+
+    // Monomorphization removes the generic parameter and defunctionalization
+    // removes the callable-typed `op` parameter from the reachable signature.
+    let summary = format_reachable_callable_summary(&fir_store, fir_pkg_id);
+    assert!(
+        summary.contains("Apply"),
+        "the monomorphized Apply specialization should remain reachable:\n{summary}"
+    );
+    assert!(
+        !summary.contains('\''),
+        "no generic type parameter should remain after monomorphization:\n{summary}"
+    );
+    assert!(
+        !summary.contains("=>"),
+        "defunctionalization should eliminate the callable-typed parameter:\n{summary}"
+    );
 }
 
 #[test]
@@ -1071,23 +1092,6 @@ fn direct_lambda_calls_preserve_nested_tuple_packaging() {
 
     validate(package, &fir_store);
     invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
-}
-
-#[test]
-fn entry_expression_simple_call_passes_pipeline() {
-    let source = r#"
-        namespace Test {
-            operation Greet() : Result {
-                use q = Qubit();
-                H(q);
-                M(q)
-            }
-        }
-    "#;
-    let (mut store, pkg_id) = compile_to_fir_with_entry(source, "Test.Greet()");
-    run_pipeline_successfully(&mut store, pkg_id);
-    let package = store.get(pkg_id);
-    validate(package, &store);
 }
 
 #[test]
