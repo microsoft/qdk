@@ -2528,6 +2528,11 @@ impl<'a> PartialEvaluator<'a> {
                 .push(jump_to_continuation_ins);
             let _ = self.eval_context.pop_block_node();
             return Ok(EvalControlFlow::Continue(Value::unit()));
+        } else if let Value::Bool(true) = condition_value {
+            return Err(Error::Unexpected(
+                "loop with constant true condition".to_string(),
+                self.get_expr_package_span(condition_expr_id),
+            ));
         }
 
         // Otherwise, branch to either the body block or the continuation block.
