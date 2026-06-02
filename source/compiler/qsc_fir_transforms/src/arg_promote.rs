@@ -61,7 +61,7 @@
 //! After the fixed point converges, [`normalize_call_arg_types`] performs a
 //! package-wide call-shape normalization pass to ensure argument expression
 //! types exactly match callable input types (for example,
-//! `T` to `(T)` wrapping for single-element tuple inputs).
+//! `T` to `(T,)` wrapping for single-element tuple inputs).
 //!
 //! # Input patterns
 //!
@@ -112,13 +112,13 @@
 //!
 //! ```text
 //! // Callable input after prior rewrites/promotions
-//! operation UseOne(p : (Qubit[])) : Unit { ... }
+//! operation UseOne(p : (Qubit[],)) : Unit { ... }
 //!
 //! // Call expression before normalization (type mismatch)
 //! UseOne(qs);              // arg type: Qubit[]
 //!
 //! // Call expression after normalization
-//! UseOne((qs,));           // arg type: (Qubit[])
+//! UseOne((qs,));           // arg type: (Qubit[],)
 //! ```
 //!
 //! # Notes
@@ -2187,18 +2187,18 @@ fn rebuild_controlled_arg_layers(
 ///
 /// This pass is intentionally run after fixed-point promotion converges,
 /// because prior rewrites can leave call arguments with shape-equivalent but
-/// type-distinct forms (most notably `T` vs `(T)` for single-element tuples).
+/// type-distinct forms (most notably `T` vs `(T,)` for single-element tuples).
 ///
 /// # Before
 /// ```text
-/// operation UseOne(p : (Qubit[])) : Unit { ... }
+/// operation UseOne(p : (Qubit[],)) : Unit { ... }
 /// UseOne(qs);        // arg type Qubit[]
 /// ```
 ///
 /// # After
 /// ```text
-/// operation UseOne(p : (Qubit[])) : Unit { ... }
-/// UseOne((qs,));     // arg type (Qubit[])
+/// operation UseOne(p : (Qubit[],)) : Unit { ... }
+/// UseOne((qs,));     // arg type (Qubit[],)
 /// ```
 ///
 /// # Ensures

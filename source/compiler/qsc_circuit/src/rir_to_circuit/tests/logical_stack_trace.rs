@@ -196,6 +196,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         &structured_control_flow,
         &[],
         &ScopeStack::top(),
+        &(&store, &fir_store),
     ) {
         panic!("error building operation list: {err}");
     }

@@ -468,14 +468,8 @@ pub trait PackageStoreLookup {
 }
 
 /// A FIR package store.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct PackageStore(IndexMap<PackageId, Package>);
-
-impl Clone for PackageStore {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
 
 impl PackageStoreLookup for PackageStore {
     fn get_block(&self, id: StoreBlockId) -> &Block {
