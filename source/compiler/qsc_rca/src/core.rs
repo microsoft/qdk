@@ -341,14 +341,7 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            let call_compute_kind =
-                self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id, expr_type);
-            match call_compute_kind {
-                CallComputeKind::Regular(compute_kind) => compute_kind,
-                CallComputeKind::Override(compute_kind) => {
-                    return compute_kind;
-                }
-            }
+            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id, expr_type)
         };
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
@@ -394,40 +387,13 @@ impl<'a> Analyzer<'a> {
         compute_kind
     }
 
-    fn analyze_expr_call_for_length_intrinsic(&self, args_expr_id: ExprId) -> ComputeKind {
-        let application_instance = self.get_current_application_instance();
-        let args_compute_kind = *application_instance.get_expr_compute_kind(args_expr_id);
-        match args_compute_kind {
-            ComputeKind::Static => ComputeKind::Static,
-            ComputeKind::Dynamic {
-                runtime_features, ..
-            } => {
-                if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) {
-                    ComputeKind::Dynamic {
-                        runtime_features,
-                        value_kind: ValueKind::Variable,
-                    }
-                } else {
-                    ComputeKind::Static
-                }
-            }
-        }
-    }
-
     fn analyze_expr_call_with_spec_callee(
         &mut self,
         callee: &Callee,
         callable_decl: &'a CallableDecl,
         args_expr_id: ExprId,
         fixed_args: Option<Vec<LocalVarId>>,
-    ) -> CallComputeKind {
-        // The `Length` intrinsic function has a specialized override.
-        if is_length_intrinsic(callable_decl) {
-            return CallComputeKind::Override(
-                self.analyze_expr_call_for_length_intrinsic(args_expr_id),
-            );
-        }
-
+    ) -> ComputeKind {
         // Analyze the specialization to determine its application generator set.
         let callee_id = GlobalSpecId::from((callee.item, callee.functor_app.functor_set_value()));
         self.analyze_spec(callee_id, callable_decl);
@@ -503,7 +469,7 @@ impl<'a> Analyzer<'a> {
             runtime_features.insert(RuntimeFeatureFlags::CallToCyclicOperation);
         }
 
-        CallComputeKind::Regular(compute_kind)
+        compute_kind
     }
 
     fn analyze_expr_call_with_static_callee(
@@ -511,7 +477,7 @@ impl<'a> Analyzer<'a> {
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
         expr_type: &Ty,
-    ) -> CallComputeKind {
+    ) -> ComputeKind {
         // Try to resolve the callee.
         let package_id = self.get_current_package_id();
         let package = self.package_store.get(package_id);
@@ -535,7 +501,7 @@ impl<'a> Analyzer<'a> {
             self.get_current_application_instance_mut()
                 .unresolved_callee_exprs
                 .push(callee_expr_id);
-            return CallComputeKind::Regular(compute_kind);
+            return compute_kind;
         };
 
         if self.callee_in_active_contexts(&callee) {
@@ -554,10 +520,10 @@ impl<'a> Analyzer<'a> {
             self.get_current_application_instance_mut()
                 .unresolved_callee_exprs
                 .push(callee_expr_id);
-            return CallComputeKind::Regular(ComputeKind::Dynamic {
+            return ComputeKind::Dynamic {
                 runtime_features: RuntimeFeatureFlags::CallToUnresolvedCallee,
                 value_kind: ValueKind::Constant,
-            });
+            };
         }
 
         // We try to resolve the callee and determine the compute kind of the call depending on the callee kind.
@@ -565,7 +531,7 @@ impl<'a> Analyzer<'a> {
             // If the callee is not found, that is an indication that it is an item that was removed during
             // incremental compilation but remains in the name resolution data structures. Assume it is static
             // so that it generates an "unbound name" error at runtime.
-            return CallComputeKind::Regular(ComputeKind::Static);
+            return ComputeKind::Static;
         };
         match global_callee {
             Global::Callable(callable_decl) => self.analyze_expr_call_with_spec_callee(
@@ -574,9 +540,7 @@ impl<'a> Analyzer<'a> {
                 args_expr_id,
                 fixed_args,
             ),
-            Global::Udt => {
-                CallComputeKind::Regular(self.analyze_expr_call_with_udt_callee(args_expr_id))
-            }
+            Global::Udt => self.analyze_expr_call_with_udt_callee(args_expr_id),
         }
     }
 
@@ -1174,8 +1138,8 @@ impl<'a> Analyzer<'a> {
             }
         };
 
-        // If the condition is dynamic, we require an additional runtime feature.
-        if !matches!(condition_expr_compute_kind, ComputeKind::Static) {
+        // If the condition is a dynamic variable, we require an additional runtime feature.
+        if condition_expr_compute_kind.is_variable_value_kind() {
             let ComputeKind::Dynamic {
                 runtime_features, ..
             } = &mut compute_kind
@@ -2252,11 +2216,6 @@ impl SpecContext {
     }
 }
 
-enum CallComputeKind {
-    Regular(ComputeKind),
-    Override(ComputeKind),
-}
-
 /// Builds a neutral, arity-matched `ApplicationGeneratorSet` for a callable whose body
 /// statements are being marked as "visited" without analysis (e.g. `@SimulatableIntrinsic`
 /// and `@Test` callable bodies in `set_all_stmts_in_block_to_default`).
@@ -2409,11 +2368,6 @@ fn derive_instrinsic_operation_application_generator_set(
         inherent: inherent_compute_kind,
         dynamic_param_applications,
     }
-}
-
-fn is_length_intrinsic(callable_decl: &CallableDecl) -> bool {
-    matches!(callable_decl.implementation, CallableImpl::Intrinsic)
-        && callable_decl.name.name.as_ref() == "Length"
 }
 
 fn ty_to_runtime_runtime_output_flags(ty: &Ty) -> RuntimeFeatureFlags {
