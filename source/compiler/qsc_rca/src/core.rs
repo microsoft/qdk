@@ -1208,10 +1208,7 @@ impl<'a> Analyzer<'a> {
 
         // If the condition is dynamic, we may require an additional runtime feature.
         if let ComputeKind::Dynamic { value_kind, .. } = condition_expr_compute_kind
-            && (value_kind == ValueKind::Variable
-                || self
-                    .target_capabilities
-                    .contains(TargetCapabilityFlags::BackwardsBranching))
+            && (value_kind == ValueKind::Variable || self.should_emit_classical_loops())
         {
             let ComputeKind::Dynamic {
                 runtime_features, ..
