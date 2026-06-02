@@ -308,9 +308,9 @@ impl TySource {
 #[derive(Clone, Debug)]
 pub(super) enum ArgTy {
     /// A missing argument, indicating partial application.
-    Hole(Ty),
+    Hole(Ty, Span),
     /// A given argument.
-    Given(Ty),
+    Given(Ty, Span),
     /// A list of arguments. This corresponds literally to tuple syntax, not to any expression of a tuple type.
     Tuple(Vec<ArgTy>),
 }
@@ -319,8 +319,8 @@ impl ArgTy {
     /// Applies a function `f` to each type in the argument type.
     fn map(self, f: &mut impl FnMut(Ty) -> Ty) -> Self {
         match self {
-            Self::Hole(ty) => Self::Hole(f(ty)),
-            Self::Given(ty) => Self::Given(f(ty)),
+            Self::Hole(ty, span) => Self::Hole(f(ty), span),
+            Self::Given(ty, span) => Self::Given(f(ty), span),
             Self::Tuple(items) => Self::Tuple(items.into_iter().map(|i| i.map(f)).collect()),
         }
     }
@@ -333,12 +333,12 @@ impl ArgTy {
             // However, we do know that the type of Arg must be Eq to the type of Param, so we
             // add that to the constraints.
             // Preserve the hole.
-            (Self::Hole(arg), _) => App {
+            (Self::Hole(arg, arg_span), _) => App {
                 holes: vec![param.clone()],
                 constraints: vec![Constraint::Eq {
                     expected: param.clone(),
                     actual: arg.clone(),
-                    span,
+                    span: *arg_span,
                 }],
                 errors: Vec::new(),
             },
@@ -346,12 +346,12 @@ impl ArgTy {
             // because the hole can be anything.
             // However, we do know that the type of Arg must be Eq to the type of Param, so we
             // add that to the constraints.
-            (Self::Given(arg), _) => App {
+            (Self::Given(arg, arg_span), _) => App {
                 holes: Vec::new(),
                 constraints: vec![Constraint::Eq {
                     expected: param.clone(),
                     actual: arg.clone(),
-                    span,
+                    span: *arg_span,
                 }],
                 errors: Vec::new(),
             },
@@ -410,7 +410,7 @@ impl ArgTy {
 
     pub(super) fn to_ty(&self) -> Ty {
         match self {
-            ArgTy::Hole(ty) | ArgTy::Given(ty) => ty.clone(),
+            ArgTy::Hole(ty, _) | ArgTy::Given(ty, _) => ty.clone(),
             ArgTy::Tuple(items) => Ty::Tuple(items.iter().map(Self::to_ty).collect()),
         }
     }

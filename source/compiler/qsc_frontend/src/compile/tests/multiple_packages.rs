@@ -496,8 +496,8 @@ fn reexports_still_type_check() {
                                 "Bool",
                                 "Int",
                                 Span {
-                                    lo: 128,
-                                    hi: 140,
+                                    lo: 137,
+                                    hi: 139,
                                 },
                             ),
                         ),

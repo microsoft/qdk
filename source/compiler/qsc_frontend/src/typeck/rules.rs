@@ -266,23 +266,42 @@ impl<'a> Context<'a> {
             ExprKind::Block(block) => self.infer_block(block),
             ExprKind::Call(callee, input) => {
                 let callee = self.infer_expr(callee);
-                let input = if has_holes(input) {
-                    self.infer_hole_tuple_arg(input)
+                let input_expr = &**input;
+                let input = if has_holes(input_expr) {
+                    self.infer_hole_tuple_arg(input_expr)
                 } else {
-                    let ty = self.infer_expr(input);
+                    let ty = self.infer_expr(input_expr);
                     // If the outermost element is a tuple, we must wrap it in an `ArgTy::Tuple`.
-                    match ty {
+                    if let Partial {
+                        ty: Ty::Tuple(tys),
+                        diverges,
+                    } = ty
+                    {
+                        let spans: Vec<_> = if let ExprKind::Tuple(items) = input_expr.kind.as_ref()
+                        {
+                            items.iter().map(|item| item.span).collect()
+                        } else {
+                            vec![input_expr.span; tys.len()]
+                        };
                         Partial {
-                            ty: Ty::Tuple(tys),
+                            ty: ArgTy::Tuple(
+                                tys.into_iter()
+                                    .zip(spans)
+                                    .map(|(ty, span)| ArgTy::Given(ty, span))
+                                    .collect(),
+                            ),
                             diverges,
-                        } => Partial {
-                            ty: ArgTy::Tuple(tys.into_iter().map(ArgTy::Given).collect()),
-                            diverges,
-                        },
-                        _ => Partial {
-                            ty: ArgTy::Given(ty.ty),
+                        }
+                    } else {
+                        let arg_span = if let ExprKind::Paren(inner) = input_expr.kind.as_ref() {
+                            inner.span
+                        } else {
+                            input_expr.span
+                        };
+                        Partial {
+                            ty: ArgTy::Given(ty.ty, arg_span),
                             diverges: false,
-                        },
+                        }
                     }
                 };
                 let output_ty = if callee.ty == Ty::Err {
@@ -723,7 +742,7 @@ impl<'a> Context<'a> {
             ExprKind::Hole => {
                 let ty = self.inferrer.fresh_ty(TySource::not_divergent(expr.span));
                 self.record(expr.id, ty.clone());
-                converge(ArgTy::Hole(ty))
+                converge(ArgTy::Hole(ty, expr.span))
             }
             ExprKind::Paren(inner) => {
                 let inner = self.infer_hole_tuple_arg(inner);
@@ -739,9 +758,17 @@ impl<'a> Context<'a> {
                     tys.push(item.ty);
                 }
                 self.record(expr.id, Ty::Tuple(tys.iter().map(ArgTy::to_ty).collect()));
-                self.diverge_if_map(ArgTy::Given, diverges, converge(ArgTy::Tuple(tys)))
+                let span = expr.span;
+                self.diverge_if_map(
+                    |ty| ArgTy::Given(ty, span),
+                    diverges,
+                    converge(ArgTy::Tuple(tys)),
+                )
             }
-            _ => self.infer_expr(expr).map(ArgTy::Given),
+            _ => {
+                let span = expr.span;
+                self.infer_expr(expr).map(|ty| ArgTy::Given(ty, span))
+            }
         }
     }
 

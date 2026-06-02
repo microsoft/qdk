@@ -476,15 +476,15 @@ fn int_as_double_error() {
             }
         "},
         "Microsoft.Quantum.Convert.IntAsDouble(false)",
-        &expect![[r#"
+        &expect![[r##"
             #8 62-71 "(a : Int)" : ?
             #9 63-70 "a : Int" : ?
             #18 103-147 "Microsoft.Quantum.Convert.IntAsDouble(false)" : Double
             #19 103-140 "Microsoft.Quantum.Convert.IntAsDouble" : (Int -> Double)
             #25 140-147 "(false)" : Bool
             #26 141-146 "false" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 103, hi: 147 }))))
-        "#]],
+            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 141, hi: 146 }))))
+        "##]],
     );
 }
 
@@ -538,7 +538,7 @@ fn single_arg_for_tuple() {
             #31 124-126 "Ry" : ((Double, Qubit) => Unit is Adj + Ctl)
             #34 126-129 "(q)" : Qubit
             #35 127-128 "q" : Qubit
-            Error(Type(Error(TyMismatch("(Double, Qubit)", "Qubit", Span { lo: 124, hi: 129 }))))
+            Error(Type(Error(TyMismatch("(Double, Qubit)", "Qubit", Span { lo: 127, hi: 128 }))))
         "##]],
     );
 }
@@ -1732,7 +1732,7 @@ fn call_controlled_error() {
                 Controlled A.Foo([1], q);
             }
         "},
-        &expect![[r#"
+        &expect![[r##"
             #6 31-42 "(q : Qubit)" : Qubit
             #7 32-41 "q : Qubit" : Qubit
             #17 72-75 "..." : Qubit
@@ -1752,8 +1752,8 @@ fn call_controlled_error() {
             #39 163-166 "[1]" : Int[]
             #40 164-165 "1" : Int
             #41 168-169 "q" : Qubit
-            Error(Type(Error(TyMismatch("Qubit", "Int", Span { lo: 146, hi: 170 }))))
-        "#]],
+            Error(Type(Error(TyMismatch("Qubit", "Int", Span { lo: 163, hi: 166 }))))
+        "##]],
     );
 }
 
@@ -1772,6 +1772,32 @@ fn adj_requires_unit_return() {
             #13 49-50 "1" : Int
             Error(Type(Error(TyMismatch("Unit", "Int", Span { lo: 36, hi: 39 }))))
         "#]],
+    );
+}
+
+#[test]
+fn should_have_been_array() {
+    check(
+        indoc! {"
+            namespace A {
+                operation Foo(qs: Qubit[]) : Unit is Adj {
+                    Foo(qs[0])
+                }
+            }
+        "},
+        "",
+        &expect![[r##"
+            #6 31-44 "(qs: Qubit[])" : Qubit[]
+            #7 32-43 "qs: Qubit[]" : Qubit[]
+            #17 59-85 "{\n        Foo(qs[0])\n    }" : Unit
+            #19 69-79 "Foo(qs[0])" : Unit
+            #20 69-72 "Foo" : (Qubit[] => Unit is Adj)
+            #23 72-79 "(qs[0])" : Qubit
+            #24 73-78 "qs[0]" : Qubit
+            #25 73-75 "qs" : Qubit[]
+            #28 76-77 "0" : Int
+            Error(Type(Error(TyMismatch("Qubit[]", "Qubit", Span { lo: 73, hi: 78 }))))
+        "##]],
     );
 }
 
@@ -1979,7 +2005,7 @@ fn fail_in_call_args_checks_non_divergent_types() {
             #34 67-78 "fail \"true\"" : Int
             #35 72-78 "\"true\"" : String
             #36 80-83 "3.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 60, hi: 84 }))))
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 80, hi: 83 }))))
         "##]],
     );
 }
@@ -2175,7 +2201,7 @@ fn return_in_call_args_checks_non_divergent_types() {
             #34 67-80 "return \"true\"" : Int
             #35 74-80 "\"true\"" : String
             #36 82-85 "3.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 60, hi: 86 }))))
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 82, hi: 85 }))))
         "##]],
     );
 }
@@ -2767,7 +2793,7 @@ fn newtype_cons_wrong_input() {
             #19 70-76 "NewInt" : (Int -> UDT<"NewInt": Item 1 (Package 2)>)
             #22 76-81 "(5.0)" : Double
             #23 77-80 "5.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 70, hi: 81 }))))
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 77, hi: 80 }))))
         "##]],
     );
 }
@@ -4134,7 +4160,7 @@ fn functors_in_arg_subset_of_ctl_adj() {
             operation Bar(q : Qubit) : () is Adj {}
             Foo(Bar);
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-150 "{\n            operation Foo(op : Qubit => () is Adj + Ctl) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            Foo(Bar);\n        }" : Unit
             #2 0-150 "{\n            operation Foo(op : Qubit => () is Adj + Ctl) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            Foo(Bar);\n        }" : Unit
             #7 27-58 "(op : Qubit => () is Adj + Ctl)" : (Qubit => Unit is Adj + Ctl)
@@ -4147,8 +4173,8 @@ fn functors_in_arg_subset_of_ctl_adj() {
             #35 131-134 "Foo" : ((Qubit => Unit is Adj) => Unit)
             #38 134-139 "(Bar)" : (Qubit => Unit is Adj)
             #39 135-138 "Bar" : (Qubit => Unit is Adj)
-            Error(Type(Error(MissingFunctor(Value(CtlAdj), Value(Adj), Span { lo: 131, hi: 139 }))))
-        "#]],
+            Error(Type(Error(MissingFunctor(Value(CtlAdj), Value(Adj), Span { lo: 135, hi: 138 }))))
+        "##]],
     );
 }
 
@@ -4187,7 +4213,7 @@ fn functors_in_arg_nested_arrow_superset_of_adj() {
             operation Bar(op : Qubit => () is Adj + Ctl) : () {}
             Foo(Bar);
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-165 "{\n            operation Foo(op : (Qubit => () is Adj) => ()) : () {}\n            operation Bar(op : Qubit => () is Adj + Ctl) : () {}\n            Foo(Bar);\n        }" : Unit
             #2 0-165 "{\n            operation Foo(op : (Qubit => () is Adj) => ()) : () {}\n            operation Bar(op : Qubit => () is Adj + Ctl) : () {}\n            Foo(Bar);\n        }" : Unit
             #7 27-60 "(op : (Qubit => () is Adj) => ())" : ((Qubit => Unit is Adj) => Unit)
@@ -4200,8 +4226,8 @@ fn functors_in_arg_nested_arrow_superset_of_adj() {
             #40 146-149 "Foo" : (((Qubit => Unit is Adj) => Unit) => Unit)
             #43 149-154 "(Bar)" : ((Qubit => Unit is Adj) => Unit)
             #44 150-153 "Bar" : ((Qubit => Unit is Adj) => Unit)
-            Error(Type(Error(MissingFunctor(Value(CtlAdj), Value(Adj), Span { lo: 146, hi: 154 }))))
-        "#]],
+            Error(Type(Error(MissingFunctor(Value(CtlAdj), Value(Adj), Span { lo: 150, hi: 153 }))))
+        "##]],
     );
 }
 
@@ -4293,7 +4319,7 @@ fn functors_in_arg_array_subset_of_adj() {
             operation Bar(q : Qubit) : () {}
             Foo([Bar]);
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-144 "{\n            operation Foo(ops : (Qubit => () is Adj)[]) : () {}\n            operation Bar(q : Qubit) : () {}\n            Foo([Bar]);\n        }" : Unit
             #2 0-144 "{\n            operation Foo(ops : (Qubit => () is Adj)[]) : () {}\n            operation Bar(q : Qubit) : () {}\n            Foo([Bar]);\n        }" : Unit
             #7 27-57 "(ops : (Qubit => () is Adj)[])" : (Qubit => Unit is Adj)[]
@@ -4307,8 +4333,8 @@ fn functors_in_arg_array_subset_of_adj() {
             #37 126-133 "([Bar])" : (Qubit => Unit)[]
             #38 127-132 "[Bar]" : (Qubit => Unit)[]
             #39 128-131 "Bar" : (Qubit => Unit)
-            Error(Type(Error(MissingFunctor(Value(Adj), Value(Empty), Span { lo: 123, hi: 133 }))))
-        "#]],
+            Error(Type(Error(MissingFunctor(Value(Adj), Value(Empty), Span { lo: 127, hi: 132 }))))
+        "##]],
     );
 }
 
