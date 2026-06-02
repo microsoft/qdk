@@ -85,11 +85,18 @@ const _deleteOperationWithConfirmation = (
  * existing `deepEqual` short-circuit handles the "no change" case
  * upstream so we don't second-guess it here.
  *
- * `movingControl` is intentionally NOT a parameter: only the
- * regular (non-control, non-clone) move path routes through here.
- * Control-drag on an M isn't a thing (M has no `controls`) and
- * Ctrl+drag on an M is "clone, no cascade" by user-directive — both
- * paths bypass this wrapper at the call site.
+ * `movingControl` MUST be threaded through unchanged. The
+ * dragController routes every non-clone drag through this wrapper,
+ * INCLUDING control-dot drags on ordinary unitaries (a CNOT's
+ * control dot, a group's control dot, etc.). Hardcoding
+ * `movingControl: false` here corrupts those gates: `_moveY`'s
+ * single-leg branch treats the control's wire as the target's
+ * wire and rewrites `op.targets` to a single-wire stub on the
+ * control's wire — turning CNOT(target=q1, ctrl=q0) into a
+ * self-controlled X on q0 after a horizontal-column drag of the
+ * control dot. The M-consumer cascade path below still passes
+ * `false` to `moveMeasurementWithDependents` because Ms have no
+ * `controls` array, so control-drag of an M is unreachable.
  */
 const _moveOperationWithConfirmation = (
   model: CircuitModel,
@@ -97,6 +104,7 @@ const _moveOperationWithConfirmation = (
   targetLocation: string,
   sourceWire: number,
   targetWire: number,
+  movingControl: boolean,
   insertNewColumn: boolean,
   renderFn: () => void,
 ): void => {
@@ -151,7 +159,7 @@ const _moveOperationWithConfirmation = (
     targetLocation,
     sourceWire,
     targetWire,
-    /* movingControl */ false,
+    movingControl,
     insertNewColumn,
   );
   renderFn();

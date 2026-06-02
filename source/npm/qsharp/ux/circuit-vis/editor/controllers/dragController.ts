@@ -559,6 +559,7 @@ export class DragController {
           targetLoc,
           this.ctx.interaction.selectedWire,
           targetWire,
+          this.ctx.interaction.movingControl,
           insertNewColumn,
           this.ctx.renderFn,
         );

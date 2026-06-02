@@ -4873,6 +4873,144 @@ test("moveOperation: horizontal control drag on a group moves the whole op to th
   assert.equal(children[1].targets[0].qubit, 2);
 });
 
+test("moveOperation: horizontal control drag on a CNOT keeps target and control intact", () => {
+  // Regression: dragging a control DOT (not the gate body) of an
+  // ordinary CNOT-shaped op horizontally to a new column must
+  // preserve the full topology — target stays on its wire, the
+  // dragged control stays on its wire, only the column changes.
+  //
+  // The earlier symptom (before the wrapper threaded
+  // `movingControl` through) was: a horizontal control drag
+  // routed through `_moveOperationWithConfirmation` with
+  // `movingControl=false`, which made `_moveY`'s single-leg
+  // branch treat the operation as a target rewrite. With
+  // `sourceWire === targetWire === control's wire`, the swap-
+  // unlike-register branch fired (the control was the unlike
+  // register on `targetWire`), then `op.targets = [{qubit:
+  // targetWire}]` replaced the target with a single-wire stub
+  // on the control's wire — collapsing CNOT(target=q1, ctrl=q0)
+  // to a self-controlled X on q0.
+  //
+  // With `movingControl=true` the leg-rewire path is a no-op for
+  // an in-place (sourceWire === targetWire) drag — the
+  // like-register guard early-returns — so `_moveX` does the
+  // column relocation alone.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0 }],
+          },
+        ],
+      },
+      // Empty target column reserved for the move destination.
+      { components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 1 }] }] },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Horizontal control drag: sourceWire = control's wire (0),
+  // targetWire = same wire (0), targetLocation in column 1.
+  const moved = moveOperation(model, "0,0", "1,0", 0, 0, true, false);
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(
+    movedAny.targets.length,
+    1,
+    "target count must stay 1 (not collapsed by a stray rewrite)",
+  );
+  assert.equal(
+    movedAny.targets[0].qubit,
+    1,
+    "target must stay on its original wire (q1)",
+  );
+  assert.equal(movedAny.controls.length, 1, "control count must stay 1");
+  assert.equal(
+    movedAny.controls[0].qubit,
+    0,
+    "control must stay on its original wire (q0)",
+  );
+});
+
+test("moveOperation: vertical control drag on a CNOT rewires just the control leg", () => {
+  // Sister test to the horizontal case: dragging a control DOT
+  // VERTICALLY to a fresh wire (sourceWire !== targetWire) rewires
+  // only the control. The target stays put, and no other control
+  // is added.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Vertical control drag: control was on q0, drop on q2.
+  const moved = moveOperation(model, "0,0", "0,0", 0, 2, true, false);
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(movedAny.targets.length, 1);
+  assert.equal(movedAny.targets[0].qubit, 1, "target stays on q1");
+  assert.equal(movedAny.controls.length, 1, "still exactly one control");
+  assert.equal(movedAny.controls[0].qubit, 2, "control rewired to q2");
+});
+
+test("moveOperation: vertical control drag on a CCX rewires only the dragged leg", () => {
+  // Multi-control case: CCX with controls on q0 and q1, target
+  // on q2. Drag the q0 control vertically to q3 — only the q0
+  // control should move; the q1 control must stay put, and the
+  // target must stay put.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 2 }],
+            controls: [{ qubit: 0 }, { qubit: 1 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Vertical control drag of the q0 control onto q3.
+  const moved = moveOperation(model, "0,0", "0,0", 0, 3, true, false);
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(movedAny.targets.length, 1);
+  assert.equal(movedAny.targets[0].qubit, 2, "target unchanged on q2");
+  assert.equal(movedAny.controls.length, 2, "still exactly two controls");
+  const controlWires = movedAny.controls
+    .map((/** @type {any} */ c) => c.qubit)
+    .sort();
+  assert.deepEqual(
+    controlWires,
+    [1, 3],
+    "q0 control moved to q3; q1 control stayed put",
+  );
+});
+
 // ---------------------------------------------------------------
 // B11b regression — `sqore-prev-location` stamp contract.
 //
