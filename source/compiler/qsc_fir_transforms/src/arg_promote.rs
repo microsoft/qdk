@@ -13,11 +13,13 @@
 //!
 //! For each entry-reachable callable, the pass:
 //! - Identifies parameters bound via `PatKind::Bind(p)` with `Ty::Tuple(...)`
-//!   where every use in every specialization body is a field access.
+//!   that have at least one field access and no use that blocks promotion.
+//!   Standalone whole-value reads of the parameter do not block promotion;
+//!   they are reconstructed from the scalar leaves during the body rewrite.
 //! - Verifies the callable is not used as a first-class value, referenced
 //!   as a closure target, or otherwise left indirectly dispatched.
-//!   First-class detection and closure-target detection together cover
-//!   the partial-application cases that used to be enumerated separately.
+//!   First-class and closure-target detection together cover the
+//!   partial-application cases.
 //! - Decomposes the binding in `CallableDecl.input` and rewrites field
 //!   accesses in all specialization bodies.
 //! - Rewrites all call sites to pass individual fields instead of the whole
@@ -29,7 +31,7 @@
 //! must remain stable for indirect invocation.
 //!
 //! The pass iterates to a fixed point, peeling one level of tuple nesting
-//! per iteration (identical to tuple-decompose's iterative strategy).
+//! per iteration, like tuple-decompose.
 //!
 //! # Pipeline position
 //!
@@ -45,8 +47,8 @@
 //! 1. **Reachability scan** ([`collect_reachable_from_entry`]):
 //!    Limit work to entry-reachable callables.
 //! 2. **Eligibility analysis** ([`check_candidates`]):
-//!    Find `PatKind::Bind` inputs of tuple/UDT shape whose uses are field-only
-//!    across every specialization.
+//!    Find tuple-typed `PatKind::Bind` inputs that have at least one field
+//!    access and no promotion-blocking use across every specialization.
 //! 3. **Safety filters** ([`collect_first_class_callables`],
 //!    [`collect_closure_targets`]):
 //!    Exclude callables used as first-class values or closure targets.
@@ -263,18 +265,18 @@ struct DestructureRewrite {
 /// so the destructured source local's only uses become field accesses.
 ///
 /// For a statement `let (a, b, ...) = src;` where `src` is read as a bare
-/// whole-value `Var(Local)` (an input-bound parameter *or* any other local),
+/// whole-value `Var(Local)` — an input-bound parameter or any other local —
 /// this rewrites it into `let a = src::0; let b = src::1; ...`, emitting one
 /// projection per non-discard element. After this rewrite the source local's
 /// only uses are field projections, which:
 /// - lets [`find_promotion_candidates`] treat an input parameter as a
-///   promotion candidate (the original parameter case), and
-/// - makes a non-parameter source local field-only, so the subsequent tuple-decompose
-///   pass can scalar-replace it.
+///   promotion candidate, and
+/// - makes a non-parameter source local field-only, so the subsequent
+///   tuple-decompose pass can scalar-replace it.
 ///
-/// Only a bare `Var(Local)` right-hand side is rewritten; a `Call`, `Tuple`
-/// literal, or any other RHS is left untouched (tuple-decompose already handles those
-/// once the destructured local is field-only).
+/// Only a bare `Var(Local)` right-hand side is rewritten. A `Call`, `Tuple`
+/// literal, or any other RHS is left untouched, since tuple-decompose already
+/// handles those once the destructured local is field-only.
 ///
 /// Runs at the top of each [`promote_to_fixed_point`] iteration, scoped to
 /// reachable local callable bodies.
@@ -289,8 +291,8 @@ struct DestructureRewrite {
 /// threading a cumulative positional index path. Every leaf emits a single
 /// direct multi-index projection — no intermediate whole-value temporary is
 /// created for nested elements:
-/// - `PatKind::Discard`: emits no binding (the projection is a pure read of
-///   an already-evaluated local).
+/// - `PatKind::Discard`: emits no binding, since the projection is a pure
+///   read of an already-evaluated local.
 /// - `PatKind::Bind`: emits `let <bind> = src::Path[i, ...];`, reusing the
 ///   existing sub-binding's `PatId` so its `LocalVarId` is preserved.
 /// - `PatKind::Tuple` (nested): recurses into each child, so `(y, z)` at
@@ -585,8 +587,8 @@ fn apply_promotions(
     let package = store.get_mut(package_id);
 
     // Group candidates by their declaring callable so each callable's entire
-    // input is flattened exactly once (dissolving all inter-parameter
-    // grouping), preserving first-seen order for deterministic ID allocation.
+    // input is flattened exactly once, dissolving all inter-parameter
+    // grouping, and preserve first-seen order for deterministic ID allocation.
     let mut order: Vec<LocalItemId> = Vec::new();
     let mut groups: FxHashMap<LocalItemId, Vec<&ArgPromoCandidate>> = FxHashMap::default();
     for candidate in candidates {
@@ -661,10 +663,9 @@ struct PromotionResult {
     leaves: Vec<(Vec<usize>, Ty)>,
 }
 
-/// Checks whether a callable's input parameter is a single tuple-typed
-/// binding whose only uses in all specialization bodies are field
-/// accesses. Also recurses into `PatKind::Tuple` sub-patterns to find
-/// inner bindings eligible for promotion after a previous pass.
+/// Collects the promotable tuple-typed parameter bindings of a callable.
+/// Recurses into `PatKind::Tuple` sub-patterns to find inner bindings that
+/// became eligible after a previous pass peeled an outer tuple level.
 fn check_candidates(
     package: &Package,
     _package_id: PackageId,
@@ -676,8 +677,8 @@ fn check_candidates(
     candidates
 }
 
-/// Recursively walks a callable's input pattern to find `PatKind::Bind` nodes
-/// with tuple types whose uses are all field accesses.
+/// Recursively walks a callable's input pattern to find promotable
+/// tuple-typed `PatKind::Bind` nodes (see [`param_is_promotable`]).
 fn find_param_binds_in_pat(
     package: &Package,
     item_id: LocalItemId,
@@ -867,9 +868,9 @@ fn scan_first_class_in_expr(
     let expr = package.get_expr(expr_id);
     match &expr.kind {
         ExprKind::Call(callee, args) => {
-            // The callee position is a direct call — don't mark it.
-            // But still recurse into the callee's sub-expressions
-            // (e.g., if callee is Field(...), that's not a direct Var).
+            // The callee position is a direct call — don't mark it, but still
+            // recurse into the callee's sub-expressions, since a callee like
+            // Field(...) is not a direct Var.
             let callee_expr = package.get_expr(*callee);
             match &callee_expr.kind {
                 ExprKind::Var(Res::Item(_), _) => {
@@ -1078,8 +1079,8 @@ fn promote_callable(
     // control layers (e.g. `(ctls, payload)`) pick up the flattened payload.
     refresh_spec_input_types(package, item_id);
 
-    // Remap each promoted parameter's body field reads to its scalar leaves
-    // (interior whole-tuple reads are reconstructed as nested leaf tuples).
+    // Remap each promoted parameter's body field reads to its scalar leaves;
+    // interior whole-tuple reads are reconstructed as nested leaf tuples.
     // Each parameter's recorded whole-value read sites are carried alongside
     // so the body rewrite can reconstruct those standalone reads.
     let reads_by_local: FxHashMap<LocalVarId, &[ExprId]> = candidates

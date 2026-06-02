@@ -22,44 +22,35 @@
 //! # Architecture
 //!
 //! This pass implements the "flag-lowering everywhere" design: every
-//! return-bearing block is lowered through a uniform mutable-flag and return-slot
-//! scaffolding, then simplified by a named rewrite catalogue in [`simplify`].
-//! This is the selected semantic baseline: normalize to statement boundaries,
-//! lower through the flag/slot model, and recover structured output only via
-//! [`simplify::run_to_fixpoint`].
+//! return-bearing block is lowered through uniform mutable-flag and
+//! return-slot scaffolding, then folded back into structured form by the
+//! named rewrite catalogue in [`simplify`].
 //!
-//! The formal basis is Böhm–Jacopini (1966) — every program with
-//! arbitrary control flow can be expressed as a structured program using
-//! bounded mutable state. Kozen–Tseng (2008) shows the auxiliary state
-//! is essential at the propositional level. The algorithmic ancestor is
-//! LLVM's `UnifyFunctionExitNodes` followed by `SimplifyCFG`: lower
-//! once into a single-exit form, then fold the canonical output shapes
-//! back into structured form with named, individually-tested rewrite
-//! rules. (FIR is tree-IR; LLVM's pass substitutes an auxiliary boolean +
-//! slot for PHI-based unification.)
+//! The approach follows LLVM's `UnifyFunctionExitNodes` + `SimplifyCFG`:
+//! lower once into single-exit form, then recover structure with named,
+//! individually-tested rules. FIR is a tree IR, so an auxiliary boolean
+//! flag and value slot stand in for LLVM's PHI-based unification. The
+//! formal basis is Böhm–Jacopini (1966): bounded mutable state suffices to
+//! express arbitrary control flow as a structured program.
 //!
 //! The pass uses a three-phase pipeline per callable block:
 //!
 //! 1. **Normalize** ([`normalize::hoist_returns_to_statement_boundary`]):
-//!    Hoist any `Return` in compound positions (e.g. inside a block-expression
-//!    used as a `Call` argument) to its enclosing statement boundary. After
-//!    this phase, every `Return` is either a bare `Semi(Return(_))` /
-//!    `Expr(Return(_))` or nested inside `If`, `While`, or `Block` statements.
+//!    Hoist any `Return` in a compound position to its enclosing statement
+//!    boundary. Afterward every `Return` is either a bare `Semi(Return(_))`
+//!    / `Expr(Return(_))` or nested inside an `If`, `While`, or `Block`
+//!    statement.
 //!
 //! 2. **Transform** ([`transform_block_with_flags`]):
-//!    Apply semantic flag lowering to eliminate all `Return` nodes by introducing
-//!    `__has_returned` and `__ret_val` mutable slots. This corresponds to
-//!    LLVM's `UnifyFunctionExitNodes` / `mergereturn` lowering for early
-//!    returns: every return path writes the slot and the flag, and a single
-//!    merge expression at the tail reads them.
+//!    Eliminate all `Return` nodes via flag lowering, introducing the
+//!    `__has_returned` and `__ret_val` mutable slots. Every return path
+//!    writes the slot and flag; a single merge expression at the tail
+//!    reads them.
 //!
 //! 3. **Simplify** ([`simplify::run_to_fixpoint`]):
-//!    After semantic flag lowering, run a named rewrite catalogue
-//!    ([`simplify::guard_clause`], [`simplify::both_branches`],
-//!    [`simplify::bare_return`], [`simplify::let_folding`],
-//!    [`simplify::dead_flag`], [`simplify::dead_local`]) to fold the
-//!    canonical flag-output shapes back into structured form. This is the
-//!    structured-IR analog of LLVM's `SimplifyCFG` after `mergereturn`.
+//!    Run the named rewrite catalogue (`guard_clause`, `both_branches`,
+//!    `bare_return`, `let_folding`, `dead_flag`, `dead_local`) to fold the
+//!    canonical flag-output shapes back into structured form.
 //!
 //! # Contract
 //!
@@ -407,27 +398,22 @@ fn build_scoped_udt_pure_ty_cache(
 /// otherwise unsupported shapes are left unchanged after the diagnostic.
 //
 // Only entry-reachable callables are unified. Unreachable callables retain
-// their `Return` nodes, but this is safe because:
-// 1. `check_no_returns` walks the same reachable set returned by
+// their `Return` nodes, which is safe because:
+// 1. `check_no_returns` walks the same reachable set from
 //    [`collect_reachable_from_entry`].
-// 2. Downstream passes (defunc, udt_erase, tuple_decompose, arg_promote,
-//    exec_graph_rebuild) recompute reachability via the same walker and
-//    never re-reach a callable that was unreachable here. Defunc's
-//    specialization creates new clone items rather than widening
-//    reachability to existing-but-dead items.
-// 3. A future pass that violates this (for example, inlines a dead call or
-//    rewires a dead callable into the call graph) must re-invoke
-//    `unify_returns` on newly reachable items before `check_no_returns`
-//    runs.
+// 2. Downstream passes recompute reachability via the same walker and never
+//    re-reach a callable that was unreachable here. Defunc's specialization
+//    creates new clone items rather than widening reachability to
+//    existing-but-dead items.
+// 3. A future pass that inlines a dead call or rewires a dead callable into
+//    the call graph must re-invoke `unify_returns` on the newly reachable
+//    items before `check_no_returns` runs.
 //
-// Re-audit trigger: the defunc "tagged-union" future work noted at
-// source/compiler/qsc_fir_transforms/src/defunctionalize.rs:42-45 could
-// change the reachability story above; this rationale must be re-validated
-// if that design lands. tagged-union
-// defunctionalization would create *new* dispatch items (union type +
-// apply function) rather than widening reachability to existing dead
-// callables, so the invariant is expected to hold. Re-audit if the
-// tagged-union design instead reuses or inlines dead callables.
+// Re-audit trigger: the defunc "tagged-union" future work could change this
+// reachability story. It is expected to create new dispatch items (union
+// type + apply function) rather than reusing dead callables, preserving the
+// invariant; re-validate if that design instead reuses or inlines dead
+// callables.
 pub fn unify_returns(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -479,10 +465,9 @@ fn unify_returns_impl(
         let return_ty = callable.output.clone();
         let body_blocks = get_callable_body_blocks(&callable);
 
-        // Pre-check: verify the normalize phase can handle all compound-
-        // position Returns in this callable's body blocks. If any block
-        // contains a Return in a context that requires a non-defaultable
-        // type default, emit a diagnostic and skip the entire callable.
+        // Pre-check: skip the whole callable if any body block holds a
+        // compound-position Return whose context needs a non-defaultable
+        // default, which would otherwise panic in normalize.
         let pre_check_error_count = errors.len();
         for &block_id in &body_blocks {
             if !contains_return_in_block(store.get(package_id), block_id) {
@@ -548,23 +533,8 @@ fn unify_returns_impl(
 
 /// Extract every explicit body block from a callable declaration.
 ///
-/// # Before
-/// ```text
-/// CallableDecl { implementation: Spec { body, adj?, ctl?, ctl_adj? } }
-/// ```
-/// # After
-/// ```text
-/// [body.block, adj.block?, ctl.block?, ctl_adj.block?]
-/// ```
-/// # Requires
-/// - `callable` has been lowered to FIR.
-///
-/// # Ensures
-/// - Returns an empty `Vec` for `CallableImpl::Intrinsic`.
-/// - Includes only specializations with an explicit body block.
-///
-/// # Mutations
-/// - None (read-only).
+/// Returns the body block plus any adj/ctl/ctl-adj specialization blocks.
+/// Intrinsics have no explicit body block, so the result is empty.
 fn get_callable_body_blocks(callable: &CallableDecl) -> Vec<BlockId> {
     match &callable.implementation {
         CallableImpl::Intrinsic => Vec::new(),
@@ -591,10 +561,10 @@ const ARRAY_RETURN_SLOT_UNWRITTEN_FAIL_MESSAGE: &str =
 ///
 /// 1. An `If` expression whose condition contains a `Return` and whose
 ///    type is non-Unit and non-defaultable (would panic in
-///    [`normalize::hoist_in_cond`]).
+///    `normalize::hoist_in_cond`).
 /// 2. A `Local` statement whose initializer contains a `Return` and whose
 ///    pattern type is non-defaultable (would panic in
-///    [`normalize::replace_local_init_with_default_and_emit`]).
+///    `normalize::replace_local_init_with_default_and_emit`).
 ///
 /// For each found, pushes [`Error::UnsupportedHoistContext`]. The caller
 /// skips normalize+transform when any non-warning error is emitted.

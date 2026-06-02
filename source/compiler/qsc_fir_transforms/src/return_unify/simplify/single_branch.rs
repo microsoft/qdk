@@ -214,7 +214,7 @@ fn wrap_in_block_expr(
 /// Returns `true` when `arm_expr_id` contains any assignment whose LHS
 /// root resolves to `has_returned` or `return_slot`.
 ///
-/// Mirrors [`super::let_folding::init_writes_to_merge_slots`]. The fold
+/// Mirrors `super::let_folding::init_writes_to_merge_slots`. The fold
 /// is only valid when the value arm does not write the merge's slots;
 /// otherwise the trailing merge (which we remove) would have read the
 /// post-write slot values and produced a different result than the

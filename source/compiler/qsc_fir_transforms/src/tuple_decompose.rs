@@ -7,9 +7,9 @@
 //! eliminating intermediate tuple allocations and field-access overhead.
 //!
 //! This is the local-variable counterpart to the `arg_promote` pass, which
-//! performs the analogous flattening at callable parameter boundaries. (This
-//! pass was historically modeled on LLVM's "scalar replacement of aggregates",
-//! but it operates exclusively on Q# tuples, not arrays or memory.)
+//! performs the analogous flattening at callable parameter boundaries. It is
+//! modeled on LLVM's "scalar replacement of aggregates", but operates
+//! exclusively on Q# tuples, not arrays or memory.
 //!
 //! Establishes [`crate::invariants::InvariantLevel::PostTupleDecompose`]:
 //! synthesized local tuple patterns agree with the tuple types they
@@ -697,8 +697,7 @@ fn replace_expr_in_expr(expr: &mut Expr, old_expr_id: ExprId, new_expr_id: ExprI
         | ExprKind::Hole
         | ExprKind::Lit(_)
         // `Struct` is dead PostTupleDecompose: `check_expr_udt_erase_invariants`
-        // (invariants.rs:372-376) panics on `Struct`, enforced PostTupleDecompose
-        // (lib.rs:348-352).
+        // panics on `Struct`, enforced PostTupleDecompose.
         | ExprKind::Struct(_, _, _)
         | ExprKind::Var(_, _) => {}
     }

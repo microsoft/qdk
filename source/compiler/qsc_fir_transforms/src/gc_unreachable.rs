@@ -3,7 +3,7 @@
 
 //! FIR arena garbage collection.
 //!
-//! Removes unreachable (orphaned) blocks, stmts, exprs, and pats from
+//! Removes unreachable blocks, stmts, exprs, and pats from
 //! a package's [`IndexMap`](qsc_data_structures::index_map::IndexMap) arenas
 //! by tombstoning entries that are not reachable from any callable spec body
 //! or the package entry expression.
@@ -59,11 +59,6 @@ use rustc_hash::FxHashSet;
 /// "Unreachable" means: not visited by a [`Visitor`] walk starting from
 /// every item in `package.items` and the `package.entry` expression.
 /// Items themselves are never removed.
-///
-/// # When to call
-///
-/// After all FIR transforms that create or orphan arena nodes, and before
-/// `exec_graph_rebuild`.
 pub fn gc_unreachable(package: &mut Package) -> usize {
     let live = mark(package);
     sweep(package, &live)
@@ -84,15 +79,14 @@ fn mark(package: &Package) -> LiveSets {
         live: LiveSets::default(),
     };
 
-    // Walk all items (callable spec bodies, including unreachable callables —
-    // item-level DCE is a separate concern). This ensures every spec body's
-    // nodes are marked live.
+    // Walk all items, including unreachable callables; item-level DCE is a
+    // separate concern. This marks every spec body's nodes live.
     for (_, item) in &package.items {
         collector.visit_item(item);
     }
 
-    // Walk the entry expression tree (may reference nodes not reachable from
-    // any callable spec body, e.g. top-level let bindings in the entry block).
+    // Walk the entry expression tree, which may reference nodes not reachable
+    // from any callable spec body, e.g. top-level let bindings in the entry block.
     if let Some(entry_expr_id) = package.entry {
         collector.visit_expr(entry_expr_id);
     }
@@ -149,9 +143,8 @@ impl<'a> Visitor<'a> for ReachabilityCollector<'a> {
 
 /// Deletes every arena node that was not marked live during `mark`.
 ///
-/// Before, dead blocks, statements, expressions, and patterns still occupy the
-/// package arenas and can keep stale ids addressable. After, only the nodes in
-/// `live` remain and the returned count records how many entries were purged.
+/// Only the nodes in `live` survive; the returned count records how many
+/// entries were purged.
 fn sweep(package: &mut Package, live: &LiveSets) -> usize {
     let mut removed = 0;
 

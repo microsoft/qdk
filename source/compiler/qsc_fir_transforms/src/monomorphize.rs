@@ -106,7 +106,7 @@ pub fn monomorphize(store: &mut PackageStore, package_id: PackageId, assigner: &
     // and restore it afterward with advanced counters.
     let owned_assigner = std::mem::take(assigner);
 
-    // Create specialized (monomorphized) callables.
+    // Create specialized callables.
     let (specializations, returned_assigner) =
         create_specializations(store, package_id, instantiations, owned_assigner);
     *assigner = returned_assigner;
@@ -220,9 +220,8 @@ fn mono_key(source: StoreItemId, args: &[GenericArg]) -> String {
 /// concrete generic arguments to the base name using `<Arg1, Arg2>` notation.
 ///
 /// Functor set arguments use compact identifiers (`Empty`, `Adj`, `Ctl`,
-/// `AdjCtl`) instead of the user-facing display forms. The intrinsic callable
-/// (`CallableImpl::Intrinsic`) `Length` is exempt because downstream passes
-/// match on that name literally.
+/// `AdjCtl`) instead of the user-facing display forms. The intrinsic `Length`
+/// is exempt because downstream passes match on that name literally.
 fn mono_name(decl: &CallableDecl, args: &[GenericArg]) -> Rc<str> {
     use std::fmt::Write;
     if matches!(decl.implementation, CallableImpl::Intrinsic) && decl.name.name.as_ref() == "Length"
@@ -381,7 +380,7 @@ fn create_specializations(
             continue;
         }
 
-        // Extract needed data from the source package (read-only).
+        // Extract read-only data from the source package.
         let (body_pkg, decl_snapshot) = {
             let source_pkg: &Package = if source_id.package == target_pkg_id {
                 &target_pkg
@@ -398,7 +397,7 @@ fn create_specializations(
             (body_pkg, decl_snapshot)
         }; // source_pkg borrow released
 
-        // Clone body into target, substitute types, insert (mutate).
+        // Clone body into target, substitute types, and insert.
         let new_local_id = cloner.alloc_item();
         let new_item_id = ItemId {
             package: target_pkg_id,
@@ -693,7 +692,7 @@ fn extract_item(source: &Package, item_id: LocalItemId, target: &mut Package) {
     }
 }
 
-/// Recursively copies a pattern and its sub-patterns (for tuple patterns).
+/// Recursively copies a pattern and its sub-patterns.
 fn extract_pat(source: &Package, pat_id: PatId, target: &mut Package) {
     if target.pats.contains_key(pat_id) {
         return;
@@ -831,8 +830,7 @@ fn substitute_types_in_cloned_nodes(
     }
 }
 
-/// Substitutes type parameters inside a `GenericArg` (delegating to
-/// [`substitute_ty`] or [`substitute_functor_set`]).
+/// Substitutes type parameters inside a `GenericArg`.
 fn substitute_generic_arg(ga: &GenericArg, arg_map: &FxHashMap<ParamId, GenericArg>) -> GenericArg {
     match ga {
         GenericArg::Ty(ty) => GenericArg::Ty(substitute_ty(ty, arg_map)),

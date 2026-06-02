@@ -3,31 +3,20 @@
 
 //! FIR-to-FIR transformation passes for the Q# compiler.
 //!
-//! The FIR transform pipeline should run after FIR lowering and before
-//! partial evaluation and codegen. It is responsible for monomorphizing
-//! generics, eliminating callable-valued expressions, erasing UDTs, and
-//! performing various structural rewrites that simplify later stages.
-//! The transformations in this crate are not intended to be used as
-//! independent passes. Instead, they are ordered and orchestrated by the
-//! [`run_pipeline_with_diagnostics`] function, which applies the full
-//! sequence of transformations in one shot. This is because the passes are
-//! not designed to be individually sound or to preserve FIR invariants on
-//! their own.
-//! For example, defunctionalization produces FIR that violates invariants
-//! expected by later passes, but the subsequent UDT erasure and tuple
-//! comparison lowering restore those invariants before the next major
-//! stage (tuple-decompose).
-//!
-//! At the end of the pipeline, the FIR should be in a form that is
-//! semantically equivalent to the input but more amenable to partial
-//! evaluation and codegen.
-//!
 //! This crate defines the production FIR rewrite schedule that runs after FIR
-//! lowering. The pipeline monomorphizes reachable callables, rewrites returns
-//! to a single-exit form, defunctionalizes callable values, erases UDTs,
-//! lowers non-empty tuple
-//! equality and inequality, scalarizes tuple locals and parameters, and then
-//! rebuilds execution-graph metadata.
+//! lowering and before partial evaluation and codegen. The pipeline
+//! monomorphizes reachable callables, rewrites returns to a single-exit form,
+//! defunctionalizes callable values, erases UDTs, lowers non-empty tuple
+//! equality and inequality, scalarizes tuple locals and parameters, and
+//! rebuilds execution-graph metadata. The result is semantically equivalent to
+//! the input but more amenable to partial evaluation and codegen.
+//!
+//! The passes are not meant to run independently; they are ordered and
+//! orchestrated by [`run_pipeline_with_diagnostics`], because individual passes
+//! are not designed to be sound or to preserve FIR invariants on their own. For
+//! example, defunctionalization produces FIR that violates invariants expected
+//! by later passes, but the subsequent UDT erasure and tuple comparison
+//! lowering restore those invariants before tuple-decompose.
 //!
 //! Several passes reuse [`cloner::FirCloner`] for deep-cloning FIR subtrees,
 //! while others rewrite nodes in place or rebuild derived structures from
@@ -421,23 +410,23 @@ fn run_pipeline_to_impl(
     result
 }
 
-/// Fixed-point loop over tuple-decompose <-> argument promotion. `arg_promote` can
-/// leave caller-side tuple locals field-only (tuple-decompose's eligible shape), and
-/// tuple-decompose can in turn expose fresh tuple-copy/destructure normalize
+/// Fixed-point loop over tuple-decompose and argument promotion. `arg_promote`
+/// can leave caller-side tuple locals field-only (tuple-decompose's eligible
+/// shape), and tuple-decompose can expose fresh tuple-copy/destructure
 /// candidates for `promote_to_fixed_point`. Iterating both until neither
 /// changes the FIR fully flattens arbitrarily nested `let`-destructures and
-/// tuple-copy aliases: destructure normalization emits direct multi-index
-/// leaf projections (no whole-value temporary), and tuple-decompose scalar-replaces the
-/// projected locals, leaving no residual inner bindings. Each pass
-/// decomposes only local `Bind` patterns / promotes parameters and never
-/// violates `PostArgPromote`, so the invariants hold every round.
+/// tuple-copy aliases: destructure normalization emits direct multi-index leaf
+/// projections with no whole-value temporary, and tuple-decompose
+/// scalar-replaces the projected locals. Each pass only decomposes local
+/// `Bind` patterns or promotes parameters and never violates `PostArgPromote`,
+/// so the invariants hold every round.
 ///
-/// Convergence is guaranteed by a strictly-decreasing measure (total tuple
-/// nesting mass plus unresolved copy-alias hops), so the loop terminates in
-/// O(nesting-depth + copy-alias-chain-length) rounds. The hard cap is a
-/// divergence backstop for adversarial / machine-generated input only: on
-/// exhaustion the loop stops with residual tuples (suboptimal codegen, never
-/// a miscompile) and surfaces a non-fatal warning.
+/// A strictly-decreasing measure (total tuple nesting mass plus unresolved
+/// copy-alias hops) guarantees convergence in O(nesting-depth +
+/// copy-alias-chain-length) rounds. The hard cap is a divergence backstop for
+/// adversarial or machine-generated input: on exhaustion the loop stops with
+/// residual tuples (suboptimal codegen, never a miscompile) and surfaces a
+/// non-fatal warning.
 fn tuple_decompose_arg_promote_fixed_point(
     store: &mut PackageStore,
     package_id: PackageId,

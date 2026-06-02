@@ -30,11 +30,10 @@
 //!
 //! # Use classification
 //!
-//! The [`collect_uses_in_block`] and [`collect_uses_in_expr`] helpers
-//! classify every occurrence of a [`LocalVarId`] as either a *field-only*
-//! use or a *whole-value* use. Tuple-decomposing passes rely on that
-//! distinction to decide whether a local can be scalarized safely.
-//!
+//! Tuple-decomposing passes rely on the *field-only* vs. *whole-value*
+//! distinction recorded by [`collect_uses_in_block`] and
+//! [`collect_uses_in_expr`] to decide whether a local can be scalarized
+//! safely. The rules are:
 //! - A **"use"** is any expression that mentions the local: a
 //!   `Var(Res::Local(local))` read, a [`Closure`](ExprKind::Closure)
 //!   capture, or an assignment whose left-hand side resolves to the local.
@@ -261,7 +260,6 @@ pub(crate) fn collect_uses_in_expr(
             {
                 // Whole-tuple assignment with tuple literal RHS: treat as decomposable.
                 uses.push(true);
-                // Walk RHS elements for any uses of local_id.
                 if let ExprKind::Tuple(elements) = &rhs_expr.kind {
                     for &e in elements {
                         collect_uses_in_expr(package, e, local_id, uses, false);

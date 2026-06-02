@@ -53,23 +53,22 @@
 //!
 //! # Recognized shape
 //!
-//! To stay narrow, the initial implementation matches only the exact
-//! `__trailing_result` shape produced by the flag transform:
+//! The rule matches only the exact `__trailing_result` shape produced by
+//! the flag transform:
 //!
-//! * Statement `i` is `Local(_, Bind(ident), init)` with
-//!   `ident.name == "__trailing_result"`.
-//! * Statement `i+1` is `Expr(If(cond, then, Some(else)))`, the last
-//!   statement of the block.
+//! * Statement `i` is `Local(_, Bind(ident), init)` whose `ident.id` is
+//!   the [`SynthSlots`] `trailing_result` local.
+//! * Statement `i+1` is the block's last statement,
+//!   `Expr(If(cond, then, Some(else)))`.
 //! * `cond` is `Var(Res::Local(has_returned))`.
 //! * `then` reduces to a root local read of `ret_val` (direct slot) or
 //!   `ret_val[0]` (array-backed slot).
 //! * `else` is exactly `Var(Res::Local(ident.id))`.
-//! * The let-bound local appears nowhere else in the merge expression
-//!   (verified via [`super::local_use_count`]).
+//! * The let-bound local appears nowhere else in the merge (verified via
+//!   [`super::local_use_count`]).
 //! * `init` does not write either slot's root local.
 //!
-//! Any other let-binding name is rejected; generalizing the rule to
-//! arbitrary single-use let-elimination is future work.
+//! Generalizing to arbitrary single-use let-elimination is future work.
 
 use qsc_fir::{
     assigner::Assigner,
@@ -83,11 +82,10 @@ use crate::return_unify::lower::SynthSlots;
 
 /// Apply the let-folding rule to `block_id`.
 ///
-/// Iterates the rewrite to fixpoint within `block_id`. Each block
-/// carries at most one canonical `__trailing_result` binding, so the
-/// per-block loop typically completes after one iteration; the loop
-/// exists to mirror the other catalogue rules' shape and to remain
-/// correct if a future code path emits multiple bindings per block.
+/// Iterates to fixpoint within `block_id`. A block carries at most one
+/// `__trailing_result` binding today, so the loop usually runs once; it
+/// mirrors the other rules' shape and stays correct if multiple bindings
+/// ever appear.
 pub(super) fn apply(
     package: &mut Package,
     assigner: &mut Assigner,

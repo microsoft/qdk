@@ -4,9 +4,8 @@
 //! Bare-return collapse simplifier rule.
 //!
 //! Recognizes the canonical flag-strategy output for an unconditional
-//! trailing assignment to the return slot whose flag is forced `true`
-//! immediately before the merge, and rewrites it to a plain
-//! value-producing tail:
+//! trailing slot assignment whose flag is forced `true` immediately
+//! before the merge, and rewrites it to a plain value-producing tail:
 //!
 //! ```text
 //! {
@@ -25,21 +24,10 @@
 //! }
 //! ```
 //!
-//! The flat shape is also accepted, where the two assignments appear as
-//! contiguous `Semi` statements rather than wrapped in a Unit block:
-//!
-//! ```text
-//! {
-//!     ... pre-stmts ...
-//!     __ret_val = v;
-//!     __has_returned = true;
-//!     if __has_returned { __ret_val } else { /* fallthrough */ }
-//! }
-//! ```
-//!
-//! A third shape is recognized when the flag-strategy lowering emitted
-//! no trailing merge at all — which happens when the return is the
-//! entire body and no fallthrough value exists to merge with:
+//! Two more shapes are accepted: the *flat* form where the two
+//! assignments are contiguous `Semi` statements rather than a Unit block,
+//! and the *no-merge* form emitted when the return is the entire body so
+//! no fallthrough merge exists:
 //!
 //! ```text
 //! {
@@ -50,46 +38,29 @@
 //! }
 //! ```
 //!
-//! In this no-merge shape the slot/flag locals are identified by name
-//! through their `mutable __has_returned : Bool` and
-//! `mutable __ret_val : T` declarations elsewhere in the block, the
-//! same fallback strategy [`super::dead_flag`] uses.
-//!
-//! Provides bare-return structured recovery for shapes lowered through the
-//! flag pipeline.
+//! In the no-merge form the slot/flag locals are identified by
+//! [`SynthSlots`] id against the block's `mutable` declarations, the same
+//! fallback [`super::dead_flag`] uses.
 //!
 //! # Why this rewrite is safe
 //!
-//! After the terminal pair, `__has_returned == true`, so the merge takes
-//! its `then` arm and reads `__ret_val`. The slot assignment immediately
-//! before the merge gives `__ret_val == v`, so replacing the merge with
-//! `v` preserves the merge's value. The fallthrough else arm is dropped
-//! because it is statically unreachable on this path.
+//! After the terminal pair `__has_returned == true`, so the merge takes
+//! its `then` arm and reads `__ret_val == v`; replacing the merge with `v`
+//! preserves its value, and the statically unreachable else arm is
+//! dropped.
 //!
 //! # Conservative bailouts
 //!
-//! The rule refuses to fire when any pre-stmt:
+//! The rule refuses to fire when any pre-stmt writes either slot or reads
+//! `__has_returned`: such uses may participate in earlier control flow the
+//! per-block rule cannot reason about without full data-flow analysis.
+//! Leftover slot writes are handled downstream by [`super::dead_flag`].
 //!
-//! * Writes either slot (`__ret_val` or `__has_returned`). Reusing slots
-//!   earlier in the block is legal, but folding the merge tail in that
-//!   case crosses paths that the per-block rule cannot reason about
-//!   without a full data-flow analysis. The `dead_flag` rule handles
-//!   leftover writes downstream.
-//! * Reads `__has_returned`. A pre-stmt read may participate in earlier
-//!   control flow that the rule does not analyze; refusing here keeps
-//!   the safety net narrow.
-//!
-//! Closures need no special handling. `return_unify` synthesizes the
-//! slot locals after HIR -> FIR lowering, but FIR lowering is also
-//! where closures are lifted and their capture lists are finalized. So
-//! no closure observed by this rule can possibly capture `__has_returned`
-//! or `__ret_val`: those `LocalVarId`s did not exist when the captures
-//! were computed. The lifted callable body referenced by a closure is
-//! a separate top-level item that cannot reach the enclosing block's
-//! locals except through its captures, so a downstream closure cannot
-//! observe the slots through any other path either. The walker treats
-//! closures as opaque leaves via [`super::push_children`] and that is
-//! sound.
+//! Closures need no special handling: the slot `LocalVarId`s are minted
+//! after FIR lowering finalizes closure capture lists, so no closure can
+//! capture them, and a closure's lifted body reaches enclosing locals only
+//! through its captures. The walker treats closures as opaque leaves via
+//! [`super::push_children`].
 
 use qsc_data_structures::span::Span;
 use qsc_fir::{
@@ -139,20 +110,16 @@ fn try_apply_once(
     let tail_idx = stmt_ids.len() - 1;
     let block_ty = package.get_block(block_id).ty.clone();
 
-    // Identify the slot/flag locals via either:
-    // 1. The canonical trailing merge `if __has_returned { __ret_val } else { ... }`.
-    // 2. A bare trailing slot read `__ret_val`, used when the merge has
-    //    already been eliminated (e.g. when the return is the entire body
-    //    so the flag-strategy lowering emitted no merge in the first place).
+    // Identify the slot/flag locals via the canonical trailing merge, or a
+    // bare trailing `__ret_val` read when no merge was emitted.
     let Some((has_returned, return_slot)) =
         identify_merge_or_trailing_slot(package, block_id, stmt_ids[tail_idx], &block_ty, slots)
     else {
         return false;
     };
 
-    // Try the nested-block form first (the canonical shape emitted by
-    // `replace_returns_in_expr` for `Semi(Return(v))`), then fall back
-    // to the flat two-semi form.
+    // Try the nested-block form (canonical for `Semi(Return(v))`), then
+    // fall back to the flat two-semi form.
     let (terminal_start_idx, v_id) = if let Some(v) = identify_nested_pair_stmt(
         package,
         stmt_ids[tail_idx - 1],

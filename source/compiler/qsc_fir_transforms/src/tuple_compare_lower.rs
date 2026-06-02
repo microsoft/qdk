@@ -36,11 +36,11 @@
 //!
 //! # Notes
 //!
-//! - Synthesized expressions use `EMPTY_EXEC_RANGE` (zero-length exec
-//!   graph range). The [`crate::exec_graph_rebuild`] pass runs afterward
-//!   and rebuilds correct exec graphs for the entire package, including
-//!   the synthesized `AndL`/`OrL` nodes **and** any synthesized
-//!   `Field(..)` accesses produced by `extract_or_field`.
+//! - Synthesized expressions use `EMPTY_EXEC_RANGE`. The
+//!   [`crate::exec_graph_rebuild`] pass runs afterward and rebuilds correct
+//!   exec graphs for the entire package, including the synthesized
+//!   `AndL`/`OrL` nodes **and** any synthesized `Field(..)` accesses produced
+//!   by `extract_or_field`.
 //! - Empty tuples (`Ty::Tuple([])`, i.e. Unit) are intentionally excluded
 //!   from this rewrite. With no elements there is no element-wise
 //!   comparison to fold and no neutral identity to seed the join, so

@@ -4,74 +4,42 @@
 //! Post-flag-transform simplifier catalogue.
 //!
 //! After [`super::transform_block_with_flags`] lowers a return-bearing
-//! block through the flag/slot model, this module recovers structured-IR
-//! code quality where unambiguously safe. It models the Erosa-Hendren
-//! named rewrite catalogue pattern (cf. Erosa–Hendren 1994,
-//! Ramshaw 1988) and the LLVM
-//! `UnifyFunctionExitNodes` + `SimplifyCFG` precedent: lower once with
-//! flag/slot lowering, then fold the canonical flag-output shapes back
-//! into structured form with named, individually-tested rewrite rules.
-//!
-//! # Architecture
-//!
-//! The formal basis is Böhm–Jacopini (1966) — every program with
-//! arbitrary control flow can be expressed as a structured program using
-//! bounded mutable state. Kozen–Tseng (2008) shows the auxiliary state
-//! is essential at the propositional level.
-//! [`super::transform_block_with_flags`] performs the Böhm-Jacopini
-//! lowering; the rules in this module perform the structural recovery
-//! that LLVM's `SimplifyCFG` performs after `mergereturn`.
+//! block through the flag/slot model, this module folds the canonical
+//! flag-output shapes back into structured form with named,
+//! individually-tested rewrite rules. This mirrors the structural recovery
+//! LLVM's `SimplifyCFG` performs after `mergereturn` and the
+//! Erosa-Hendren named-rewrite-catalogue pattern.
 //!
 //! # Rule signature convention
 //!
-//! Each rule is implemented as a free function
-//!
-//! ```ignore
-//! pub(super) fn apply(
-//!     package: &mut Package,
-//!     assigner: &mut Assigner,
-//!     block_id: BlockId,
-//! ) -> bool
-//! ```
-//!
-//! that mutates `block_id` in place and returns `true` iff the rule
-//! fired at least once. The signature mirrors the existing
-//! `simplify_flag_patterns` style (mutate in place, no IR snapshot
-//! ownership) rather than the `Option<Replacement>` alternative because:
-//!
-//! * The rules operate on whole `Block.stmts` sequences, not single
-//!   expressions, so an `Option<ExprId>` return cannot express stmt-list
-//!   rewrites without losing information.
-//! * Mutation in place reuses existing helpers in [`super`] (e.g.
-//!   `alloc_*` builders) without forcing every rule to construct an
-//!   intermediate ownership structure.
+//! Each rule is a free function `apply(package, assigner, block_id, slots)
+//! -> bool` that mutates `block_id` in place and returns `true` iff it
+//! fired. Rules rewrite whole `Block.stmts` sequences rather than single
+//! expressions, so an `Option<ExprId>` return could not express their
+//! stmt-list rewrites; mutating in place also reuses the `alloc_*`
+//! builders in [`super`] directly.
 //!
 //! # Fixpoint driver
 //!
-//! [`run_to_fixpoint`] iterates the rule catalogue until no rule fires.
-//! It uses a measure-based divergence detector (statement count +
-//! identical-branch count) with a per-block hard cap to surface
-//! divergent rules early without panicking.
+//! [`run_to_fixpoint`] iterates the catalogue until no rule fires, using a
+//! measure-based divergence detector (statement count + identical-branch
+//! count) with a per-block hard cap to surface divergent rules without
+//! panicking.
 //!
 //! # Rule ordering
 //!
-//! The driver runs [`try_fold_identical_branches`] first, then the
-//! structural rules ([`guard_clause`], [`both_branches`], [`bare_return`])
-//! against the pre-fold shape that [`super::transform_block_with_flags`]
-//! emits, then [`let_folding`] as a cleanup pass that inlines any
-//! remaining `__trailing_result` binding into the trailing merge for
-//! shapes the structural rules did not consume. [`dead_flag`] runs after
-//! the merge has been collapsed to drop any flag-set assignments whose
-//! flag local has no remaining downstream reader, and [`dead_local`]
-//! runs last to remove the now-unused `mutable __has_returned : Bool`
-//! and `mutable __ret_val : T` declarations themselves when the
-//! preceding rules have eliminated every reference to them.
+//! [`try_fold_identical_branches`] runs first, then the structural rules
+//! ([`guard_clause`], [`both_branches`], [`bare_return`]) against the
+//! pre-fold shape, then [`let_folding`] inlines any remaining
+//! `__trailing_result` binding the structural rules did not consume.
+//! [`dead_flag`] then drops flag-set assignments with no downstream
+//! reader, and [`dead_local`] runs last to remove the now-unused
+//! `__has_returned` / `__ret_val` declarations.
 //!
-//! The structural rules deliberately run before [`let_folding`] because
-//! their patterns include the lazy continuation `if not __has_returned`
-//! as a separate statement that sits between the guard set and the
-//! trailing merge. Folding the lazy continuation into the merge's
-//! else-arm first would prevent [`guard_clause`] from matching.
+//! The structural rules run before [`let_folding`] because their patterns
+//! include the lazy `if not __has_returned` continuation as a separate
+//! statement between the guard set and the merge; folding it into the
+//! merge's else-arm first would prevent [`guard_clause`] from matching.
 
 mod bare_return;
 mod both_branches;
@@ -357,12 +325,9 @@ const _: Option<Span> = None;
 // ---------------------------------------------------------------------------
 // Shared slot/flag identification helpers used by the per-rule modules.
 //
-// These helpers were originally private to `guard_clause` and were lifted
-// to the module body when the `both_branches` rule landed, since both
-// rules need to anchor on the canonical trailing merge expression and on
-// the same `__ret_val = v; __has_returned = true;` slot-set sequence.
-// They intentionally stay narrow: each returns `Option<_>` and never
-// mutates the IR.
+// Each anchors on the canonical trailing merge expression and the
+// `__ret_val = v; __has_returned = true;` slot-set sequence. They stay
+// narrow: each returns `Option<_>` and never mutates the IR.
 // ---------------------------------------------------------------------------
 
 /// Slot identities extracted from a trailing
@@ -403,14 +368,14 @@ pub(super) fn identify_merge(
 }
 
 /// Identify the slot/flag locals from the trailing statement of
-/// `block_id`, preferring the canonical
-/// [`identify_merge`] shape and falling back to a bare
-/// `Expr(Var(__ret_val))` trailing read with name-based recovery of the
-/// `__has_returned` flag from the block's `mutable` declarations.
+/// `block_id`, preferring the canonical [`identify_merge`] shape and
+/// falling back to a bare `Expr(Var(__ret_val))` trailing read, recovering
+/// the `__has_returned` flag by [`SynthSlots`] id from the block's
+/// `mutable` declarations.
 ///
 /// The bare-trailing path fires when the flag-strategy lowering emitted
-/// no merge expression in the first place — typically when the return
-/// is the entire body and no fallthrough value exists to merge with.
+/// no merge expression — typically when the return is the entire body and
+/// no fallthrough value exists to merge with.
 ///
 /// Returns `(has_returned, return_slot)`.
 pub(super) fn identify_merge_or_trailing_slot(
@@ -427,9 +392,8 @@ pub(super) fn identify_merge_or_trailing_slot(
 }
 
 /// Recognizes a bare trailing `Expr(Var(__ret_val))` final statement and
-/// recovers the slot/flag [`LocalVarId`]s by scanning `block_id`'s
-/// `mutable __ret_val : T` and `mutable __has_returned : Bool` Local
-/// declarations.
+/// recovers the slot/flag [`LocalVarId`]s by matching the block's
+/// `mutable` Local declarations against the [`SynthSlots`] ids.
 ///
 /// Used by [`identify_merge_or_trailing_slot`] as the fallback for
 /// shapes that lack the canonical merge expression.

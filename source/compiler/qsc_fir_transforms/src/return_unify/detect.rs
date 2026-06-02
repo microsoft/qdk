@@ -41,12 +41,8 @@ pub(super) fn contains_return_in_stmt(package: &Package, stmt_id: StmtId) -> boo
 /// Return `true` when any sub-expression of `expr_id` is an `ExprKind::Return`.
 ///
 /// Delegates to [`walk_utils::for_each_expr`], which walks every
-/// sub-expression in pre-order and treats [`ExprKind::Closure`] as a
-/// leaf (closure bodies live in separate callables).
-///
-/// Does not short-circuit: the walker visits every reachable node even
-/// after a `Return` is found. This is less efficient than the manual
-/// recursive implementation but semantically equivalent.
+/// sub-expression in pre-order and treats [`ExprKind::Closure`] as a leaf
+/// (closure bodies live in separate callables). Does not short-circuit.
 pub(super) fn contains_return_in_expr(package: &Package, expr_id: ExprId) -> bool {
     let mut found = false;
     walk_utils::for_each_expr(package, expr_id, &mut |_id, expr| {

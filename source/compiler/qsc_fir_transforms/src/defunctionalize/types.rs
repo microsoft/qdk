@@ -132,12 +132,12 @@ pub enum CalleeLattice {
     Bottom,
     /// Exactly one known callable.
     Single(ConcreteCallable),
-    /// Multiple known callables (from conditional branches) — up to
+    /// Multiple known callables from conditional branches — up to
     /// [`MULTI_CAP`] before degrading to `Dynamic`.
     ///
     /// Each entry is `(callable, condition)` where `condition` is the
     /// `ExprId` of the if-condition that selects this callee. The last
-    /// entry typically has `None` (the else branch).
+    /// entry is the else branch, typically tagged `None`.
     Multi(Vec<(ConcreteCallable, Option<ExprId>)>),
     /// Too many or unknown callables — cannot resolve.
     Dynamic,
@@ -251,9 +251,10 @@ impl CalleeLattice {
                     Self::Multi(s)
                 }
             }
-            // Multi from the true branch requires nested dispatch → too
-            // complex for the current implementation, UNLESS both sides have
-            // the same callable set (variable was not modified in the branch).
+            // Multi from the true branch requires nested dispatch, which the
+            // current implementation does not support, unless both sides hold
+            // the same callable set (the variable was not modified in the
+            // branch).
             (Self::Multi(s1), Self::Multi(s2)) => {
                 let same_callables = s1.len() == s2.len()
                     && s1
@@ -266,7 +267,6 @@ impl CalleeLattice {
                     Self::Dynamic
                 }
             }
-            // Dynamic ⊔ _ = Dynamic.
             (Self::Dynamic, _) | (_, Self::Dynamic) => Self::Dynamic,
         }
     }

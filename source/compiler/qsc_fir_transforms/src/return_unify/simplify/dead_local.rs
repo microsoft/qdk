@@ -3,9 +3,9 @@
 
 //! Dead-local elimination simplifier rule.
 //!
-//! Drops single-bind `Local` declarations from a block when the bound
-//! local has no downstream readers or writers in the block and the
-//! initializer expression is provably free of side effects.
+//! Drops single-bind `Local` declarations whose bound local has no
+//! downstream reader or writer in the block and whose initializer is
+//! provably side-effect-free.
 //!
 //! ```text
 //! {
@@ -26,50 +26,38 @@
 //!
 //! # Why this rewrite is safe
 //!
-//! Q# `let` and `mutable` bindings have no observable side effect at
-//! the binding site beyond reserving a name in the local scope and
-//! evaluating the initializer expression. If the bound local is
-//! referenced nowhere downstream and the initializer is provably
-//! side-effect-free (see [`init_is_side_effect_free`]), removing the
-//! binding preserves every observable behavior of the block, including
-//! value, evaluation order, and qubit lifetimes.
-//!
-//! The canonical return-unify slot/flag declarations
-//! (`__has_returned` / `__ret_val`) are the original motivating shape:
-//! their initializers are always literals, and once the rest of the
-//! simplifier catalogue collapses the merge expression the slot/flag
-//! bindings become dead. The same dead-binding shape arises from
-//! user-authored code and from the normalize pre-pass when it
-//! preserves a user-bound name with a synthesized default-value
-//! initializer that may go unused after surrounding rules fold the
-//! shape it was reserving.
+//! A `let`/`mutable` binding's only observable effect is evaluating its
+//! initializer. When the local is referenced nowhere downstream and the
+//! initializer is provably side-effect-free (see
+//! [`init_is_side_effect_free`]), removing the binding preserves value,
+//! evaluation order, and qubit lifetimes. The canonical `__has_returned` /
+//! `__ret_val` slot declarations are the motivating case: their
+//! initializers are literals and become dead once the catalogue collapses
+//! the merge. The same shape arises from user code and from normalize's
+//! synthesized default-value initializers.
 //!
 //! # Scope
 //!
-//! The rule fires only on `StmtKind::Local(_, Bind(_), init)` shapes.
-//! Tuple-binding patterns (`let (a, b) = ...`) are rejected because
-//! decomposing them would change observable shape, and discard patterns
-//! (`let _ = ...`) are not handled — the initializer at a discard
-//! site must keep evaluating for its potential side effects, and the
-//! rule has nothing to drop. Mutability is unconstrained: the safety
-//! bar is "no downstream uses AND side-effect-free init", which holds
-//! independently of whether the binding is `let` or `mutable`.
+//! Fires only on `StmtKind::Local(_, Bind(_), init)`. Tuple-binding
+//! patterns are rejected because decomposing them would change observable
+//! shape; discard patterns (`let _ = ...`) are left alone since their
+//! initializer must keep evaluating for side effects. Mutability is
+//! unconstrained: the bar is "no downstream uses AND side-effect-free
+//! init".
 //!
-//! The initializer-purity check is conservative: it accepts only the
-//! syntactic shapes enumerated in [`init_is_side_effect_free`] and
-//! defaults to "may have effects" for anything not listed. A
-//! misclassification can only leave an extra dead binding standing;
-//! it cannot silently drop observable behavior.
+//! The purity check is conservative — it accepts only the shapes
+//! enumerated in [`init_is_side_effect_free`] and otherwise assumes
+//! effects. A misclassification can only leave an extra dead binding
+//! standing, never drop observable behavior.
 //!
-//! [`super::local_use_count`] counts closure captures correctly, so a
-//! bound local that escapes through a downstream closure capture keeps
-//! the binding alive.
+//! [`super::local_use_count`] counts closure captures, so a local that
+//! escapes through a downstream closure keeps its binding alive.
 //!
 //! # Ordering
 //!
-//! Runs after [`super::dead_flag`] so any leftover flag-setter
-//! assignments have already been pruned. A surviving setter would count
-//! as a downstream reference and prevent the rule from firing.
+//! Runs after [`super::dead_flag`] so leftover flag-setter assignments are
+//! already pruned; a surviving setter would count as a downstream
+//! reference and block the rule.
 
 use qsc_fir::{
     assigner::Assigner,

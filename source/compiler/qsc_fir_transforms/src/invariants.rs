@@ -86,14 +86,8 @@ pub enum InvariantLevel {
     /// `StmtKind::Item` definitions may still point at removed items, because
     /// they are declarations rather than executable tree edges.
     PostItemDce,
-    /// After all passes: every earlier-stage invariant (no `Ty::Param`, no
-    /// `ExprKind::Return`, no `Ty::Arrow` params / `ExprKind::Closure`, no
-    /// `Ty::Udt` / `ExprKind::Struct`, no `Field::Path` in
-    /// `UpdateField`/`AssignField`, no `BinOp(Eq/Neq)` on tuple operands,
-    /// matching tuple-decomposition pattern shapes, matching callable-input
-    /// pattern shapes, no orphaned arena node references, and valid live-tree
-    /// references after item pruning) plus the postconditions unique to this
-    /// stage:
+    /// After all passes: every earlier-stage invariant plus the postconditions
+    /// unique to this stage:
     ///
     /// - `Package.entry_exec_graph` is structurally well-formed in both
     ///   [`ExecGraphConfig::NoDebug`] and [`ExecGraphConfig::Debug`]

@@ -636,7 +636,6 @@ fn resolve_callee(
         return CalleeLattice::Dynamic;
     }
 
-    // First peel any functor application layers.
     let (base_id, outer_functor) = peel_body_functors(pkg, expr_id);
     let base_expr = pkg.get_expr(base_id);
 
@@ -880,7 +879,7 @@ fn resolve_callee(
         _ => CalleeLattice::Dynamic,
     };
 
-    // Compose the outer functor (from peeling) with the base's functor.
+    // Compose the outer functor with the base's functor.
     apply_outer_functor_lattice(base_resolved, outer_functor)
 }
 
@@ -2174,7 +2173,6 @@ fn analyze_expr_flow(
             analyze_expr_flow(pkg, store, *cond, state, package_id);
             // Fork: save callable state before branches.
             let pre_if = state.callable.clone();
-            // Analyze true branch.
             analyze_expr_flow(pkg, store, *body, state, package_id);
             let true_state = state.callable.clone();
             // Restore pre-if state and analyze false branch.

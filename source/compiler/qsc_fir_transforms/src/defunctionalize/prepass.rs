@@ -35,10 +35,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// Only expressions in `reachable_expr_ids` are scanned for promotion candidates
 /// and identity-closure patterns, restricting analysis to entry-reachable code.
 pub(super) fn run(store: &mut PackageStore, package_id: PackageId, reachable_expr_ids: &[ExprId]) {
-    // Before collecting call sites, runs pre-pass rewrites:
-    // 1. Promotes single-use immutable callable locals to direct item references.
-    // 2. Promotes single-use aggregate callable aliases into tuple destructuring.
-    // 3. Replaces identity closures `(args) => f(args)` with direct references to `f`.
     promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
     promote_adjacent_aggregate_callable_aliases(store, package_id);
     identity_closure_peephole(store, package_id, reachable_expr_ids);

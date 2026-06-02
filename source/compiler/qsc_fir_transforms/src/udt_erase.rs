@@ -134,16 +134,15 @@ type UdtCache = FxHashMap<StoreItemId, Ty>;
 /// `package.entry.is_some()`.
 ///
 /// # Returns
-/// `Vec<CallableSpecId>` — the `structurally_mutated_specs`: the set of
-/// reachable callable specs whose expression structure changed during
-/// erasure (deduped across packages and filtered to entry-reachable
-/// callables). The pipeline driver
-/// ([`crate::run_pipeline_to_with_diagnostics`]) partitions this set by
-/// package and forwards the cross-package members (those whose
-/// `callable.package` is not the target `package_id`) to
-/// [`crate::exec_graph_rebuild::rebuild_exec_graphs_with_external_specs`]
-/// as its `external_specs` argument so that exec graphs in upstream
-/// packages are rebuilt against the freshly lowered FIR.
+/// `Vec<CallableSpecId>` — the `structurally_mutated_specs`: reachable
+/// callable specs whose expression structure changed during erasure, deduped
+/// across packages and filtered to entry-reachable callables. The pipeline
+/// driver [`crate::run_pipeline_to_with_diagnostics`] partitions this set by
+/// package and forwards the cross-package members — those whose
+/// `callable.package` is not the target `package_id` — to
+/// [`crate::exec_graph_rebuild::rebuild_exec_graphs_with_external_specs`] as
+/// its `external_specs` argument, so exec graphs in upstream packages are
+/// rebuilt against the freshly lowered FIR.
 pub fn erase_udts(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -930,8 +929,7 @@ fn resolve_ty(cache: &UdtCache, ty: &Ty) -> Ty {
         Ty::Udt(Res::Item(item_id)) => {
             let key = (item_id.package, item_id.item).into();
             if let Some(pure) = cache.get(&key) {
-                // The pure type itself may contain Ty::Udt (nested UDTs),
-                // so recurse.
+                // The pure type itself may contain nested Ty::Udt, so recurse.
                 resolve_ty(cache, pure)
             } else {
                 ty.clone()

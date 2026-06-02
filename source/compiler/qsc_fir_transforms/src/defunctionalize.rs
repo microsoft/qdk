@@ -3,15 +3,15 @@
 
 //! Defunctionalization pass.
 //!
-//! Eliminates all callable-valued expressions (arrow-typed locals, closures,
-//! functor-applied callable values) in entry-reachable code through a
-//! dispatch-free specialization approach. Unlike classical defunctionalization
-//! (which introduces a tagged union and an `apply` function), this
-//! implementation directly specializes each higher-order function (HOF) call
-//! site where a concrete callable argument is known at compile time.
-//! Single-bound tuple parameters whose type contains callable values are
-//! supported via a split locator model that tracks the top-level parameter
-//! slot separately from the nested tuple field path.
+//! Eliminates all callable-valued expressions — arrow-typed locals, closures,
+//! and functor-applied callable values — in entry-reachable code through a
+//! dispatch-free specialization approach. Unlike classical defunctionalization,
+//! which introduces a tagged union and an `apply` function, this implementation
+//! directly specializes each higher-order function (HOF) call site where a
+//! concrete callable argument is known at compile time. Single-bound tuple
+//! parameters whose type contains callable values are supported via a split
+//! locator model that tracks the top-level parameter slot separately from the
+//! nested tuple field path.
 //!
 //! Establishes [`crate::invariants::InvariantLevel::PostDefunc`]: no
 //! `ExprKind::Closure` remains in reachable code, no arrow-typed callable
@@ -156,9 +156,9 @@ pub fn defunctionalize(
     let mut specialized_closure_targets: FxHashSet<LocalItemId> = FxHashSet::default();
     let mut specialized_items: FxHashSet<LocalItemId> = FxHashSet::default();
 
-    // Capture initial callable-value count for before/after progress tracking
-    // (mirrors LLVM DevirtSCCRepeatedPass: detect when an iteration fails to
-    // reduce the remaining work set).
+    // Capture the initial callable-value count for before/after progress
+    // tracking, mirroring LLVM's DevirtSCCRepeatedPass: detect when an
+    // iteration fails to reduce the remaining work set.
     let (_, mut prev_remaining_count, _) = remaining_callable_value_info(store, package_id);
 
     while iteration_count < max_iterations {
@@ -209,7 +209,6 @@ pub fn defunctionalize(
             &local_item_ids,
         );
 
-        // Check convergence
         let converged = check_convergence(
             store,
             package_id,
@@ -375,18 +374,8 @@ fn emit_fixpoint_error(
 /// `resolve_callee_projection`'s Call arm that already discriminates
 /// `ItemKind::Ty` callees as transparent projections.
 ///
-/// # Before
-/// ```text
-/// Closure([captures], consumed_target) : Arrow
-/// ```
-/// # After
-/// ```text
-/// Tuple([]) : Unit   // closure replaced with unit
-/// ```
-///
-/// # Mutations
-/// - Rewrites `Expr.kind` to `Tuple(Vec::new())` and `Expr.ty` to `Unit`
-///   for consumed closure expressions outside call-argument subtrees.
+/// Rewrites `Expr.kind` to `Tuple([])` and `Expr.ty` to `Unit` for consumed
+/// closure expressions outside call-argument subtrees.
 fn cleanup_consumed_closures(
     package: &mut Package,
     package_id: PackageId,
@@ -398,10 +387,9 @@ fn cleanup_consumed_closures(
         return 0;
     }
 
-    // First pass: collect the ExprIds of all call argument subtrees.
-    // Closures inside these subtrees are still live as HOF arguments.
-    // UDT-constructor Calls are skipped: their argument is a structural
-    // wrapper, not a live HOF argument.
+    // First pass: collect the ExprIds of all call-argument subtrees. Closures
+    // inside them are still live HOF arguments; UDT-constructor Calls are
+    // skipped because their argument is a structural wrapper.
     let mut call_arg_exprs: FxHashSet<ExprId> = FxHashSet::default();
     for &item_id in reachable_item_ids {
         if skip_items.contains(&item_id) {

@@ -6,7 +6,7 @@
 //! Every transform pass that synthesizes new FIR nodes must:
 //! - Allocate a fresh ID from the pipeline-global [`Assigner`].
 //! - Insert the node into the package's arena.
-//! - Attach [`EMPTY_EXEC_RANGE`](crate::EMPTY_EXEC_RANGE) for `Expr` and
+//! - Attach [`EMPTY_EXEC_RANGE`] for `Expr` and
 //!   `Stmt` nodes so the final [`exec_graph_rebuild`](crate::exec_graph_rebuild)
 //!   pass can replace them with correct ranges.
 //!
@@ -16,18 +16,14 @@
 //!
 //! # Why use this builder
 //!
-//! - **Crate-private surface.** Every helper is `pub(crate)`. The builder
-//!   is intentionally kept off the crate's public API so the
-//!   `EMPTY_EXEC_RANGE` contract stays a transform-pass internal detail.
-//! - **Sentinel contract is implicit.** Synthesizing an `Expr` or `Stmt`
-//!   outside these helpers will silently miss the
-//!   [`EMPTY_EXEC_RANGE`](crate::EMPTY_EXEC_RANGE) sentinel. The
-//!   [`exec_graph_rebuild`](crate::exec_graph_rebuild) pass keys off that
-//!   sentinel to know which nodes need a fresh execution-graph range, so a
-//!   hand-rolled allocator that supplies any other range produces a stale
-//!   execution graph with no compile-time error. The pipeline-wide contract
-//!   is documented in [`crate`]; new passes should route every `Expr`/`Stmt`
-//!   allocation through the helpers below.
+//! Every helper is `pub(crate)`, keeping the `EMPTY_EXEC_RANGE` contract a
+//! transform-pass internal detail. Synthesizing an `Expr` or `Stmt` outside
+//! these helpers silently misses the
+//!   [`EMPTY_EXEC_RANGE`] sentinel that
+//! [`exec_graph_rebuild`](crate::exec_graph_rebuild) keys off to recompute
+//! ranges, producing a stale execution graph with no compile-time error. New
+//! passes should route every `Expr`/`Stmt` allocation through the helpers
+//! below.
 
 use crate::EMPTY_EXEC_RANGE;
 use qsc_data_structures::span::Span;

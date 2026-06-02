@@ -285,7 +285,6 @@ impl FirCloner {
         item_id: LocalItemId,
         target: &mut Package,
     ) -> LocalItemId {
-        // Return existing mapping if already cloned.
         if let Some(&mapped) = self.item_map.get(&item_id) {
             return mapped;
         }
@@ -477,8 +476,7 @@ impl FirCloner {
                 .into()
         };
 
-        // ExecGraph stores its fields as Rc<[ExecGraphNode]>. We need to
-        // extract, remap, and reconstruct.
+        // ExecGraph stores its fields as Rc<[ExecGraphNode]>; remap and rebuild.
         let no_debug = remap_configured(graph.select_ref(qsc_fir::fir::ExecGraphConfig::NoDebug));
         let debug = remap_configured(graph.select_ref(qsc_fir::fir::ExecGraphConfig::Debug));
         ExecGraph::new(no_debug, debug)
@@ -547,13 +545,9 @@ impl FirCloner {
         new
     }
 
-    /// Clones one expression kind into `target`, recursively remapping every
-    /// referenced child id.
-    ///
-    /// Before, `kind` points at blocks, expressions, and patterns owned by the
-    /// source package. After, the returned `ExprKind` has the same shape but all
-    /// referenced children have been cloned into `target` and replaced with the
-    /// freshly allocated ids from this cloner.
+    /// Clones one expression kind into `target`, recursively cloning every
+    /// referenced child (blocks, expressions, patterns) and replacing each
+    /// child id with the freshly allocated id from this cloner.
     #[allow(clippy::too_many_lines)]
     fn clone_expr_kind(
         &mut self,

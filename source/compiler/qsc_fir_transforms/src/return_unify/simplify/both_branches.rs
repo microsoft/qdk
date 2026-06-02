@@ -49,13 +49,9 @@
 //! The collapse moves the slot-write RHS into the value position of a
 //! structured `if`. To stay safe against direct-IR consumers, the rule
 //! refuses to fire when either `v1` or `v2` mentions a sub-expression
-//! whose type contains [`qsc_fir::ty::Prim::Qubit`]. The check uses the
-//! shared
-//! [`super::expr_tree_contains_qubit_type`] walker — option (a) in the
-//! step plan — because the alternative ("no `Allocate` between slot
-//! decl and merge") would have required a Q#-stdlib-aware intrinsic
-//! lookup, which is heavier and offers no extra protection for typed
-//! Q# (where you cannot return qubits in the first place).
+//! whose type contains [`qsc_fir::ty::Prim::Qubit`], using the shared
+//! [`super::expr_tree_contains_qubit_type`] walker. Typed Q# cannot
+//! return qubits, so this almost never fires.
 
 use qsc_data_structures::span::Span;
 use qsc_fir::{

@@ -846,7 +846,7 @@ fn bind_inner_and_return(
 /// `StmtKind::Local` arm receives a non-empty replacement vector, keep the
 /// original Local stmt alive (so its `Bind` pat continues to resolve sibling
 /// reads in the enclosing block) and rewrite its initializer to a
-/// structural default of the pat's type via [`super::create_default_value`].
+/// structural default of the pat's type via [`super::slot::create_default_value`].
 ///
 /// The preserved Local sits between the hoisted return's pre-discard prefix
 /// and the bare `Semi(Return v)`. The pat, the pat's `LocalVarId`, and the
@@ -877,7 +877,7 @@ fn bind_inner_and_return(
 /// - Does NOT allocate a new `Pat`, `Stmt`, or `LocalVarId`.
 ///
 /// # Fallback
-/// When [`super::create_default_value`] returns `None` for the pat type
+/// When [`super::slot::create_default_value`] returns `None` for the pat type
 /// (non-defaultable type), uses a typed-fail expression as the dead init
 /// and reorders statements so the hoisted return fires before the dead
 /// Local, ensuring the fail init is never evaluated at runtime.

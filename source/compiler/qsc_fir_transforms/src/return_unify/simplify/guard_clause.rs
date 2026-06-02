@@ -23,24 +23,17 @@
 //! }
 //! ```
 //!
-//! Provides guard-clause structured recovery for shapes lowered through the
-//! flag pipeline.
-//!
 //! # Slot identification
 //!
-//! The rule receives only `(package, assigner, block_id)`, so the slot
-//! [`LocalVarId`]s for `__has_returned` and `__ret_val` must be recovered
-//! from the IR. The trailing merge expression carries both:
+//! The slot [`LocalVarId`]s for `__has_returned` and `__ret_val` are
+//! recovered from the trailing merge expression:
 //!
-//! * `cond` of the merge is `Var(Res::Local(has_returned), _)` of type
-//!   `Bool`.
-//! * `then` of the merge is a `Block` containing a single trailing
-//!   `Expr(Var(Res::Local(return_slot), _))` whose type equals the merge
-//!   expression's type `T`.
+//! * its `cond` is `Var(Res::Local(has_returned), _)` of type `Bool`;
+//! * its `then` is a `Block` with a single trailing
+//!   `Expr(Var(Res::Local(return_slot), _))` of the merge's type `T`.
 //!
-//! Once those identities are pinned down, the guard-set and lazy
-//! continuation must reference exactly the same locals or the rule
-//! refuses to fire.
+//! The guard-set and lazy continuation must then reference exactly those
+//! locals, or the rule refuses to fire.
 
 use qsc_data_structures::span::Span;
 use qsc_fir::{

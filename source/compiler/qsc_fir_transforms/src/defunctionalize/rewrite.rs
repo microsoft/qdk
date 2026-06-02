@@ -31,11 +31,10 @@
 //! # Notes
 //!
 //! - A copy of the `apply_target_input_at_control_path` helper also lives
-//!   in [`super::specialize::apply_target_input_at_control_path`]. The copy
-//!   is retained so that specialize and rewrite can evolve their
-//!   controlled-layer handling independently without forcing a shared
-//!   abstraction boundary; update both copies in lockstep when
-//!   controlled-layer semantics change.
+//!   in `super::specialize`. The copy is retained so that specialize and
+//!   rewrite can evolve their controlled-layer handling independently
+//!   without forcing a shared abstraction boundary; update both copies in
+//!   lockstep when controlled-layer semantics change.
 
 use super::types::{
     AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, DirectCallSite,
@@ -699,19 +698,8 @@ fn resolve_expr_to_concrete_callable(
 }
 
 /// Allocates a `BinOp(Eq, index_expr, Int(index_value))` expression used as
-/// the condition guard for index-dispatch branches.
-///
-/// # Before
-/// ```text
-/// (no expression)
-/// ```
-/// # After
-/// ```text
-/// Expr { BinOp(Eq, index_expr, Lit(Int(index_value))) : Bool }
-/// ```
-///
-/// # Mutations
-/// - Inserts two new `Expr` nodes (literal + comparison) through `assigner`.
+/// the condition guard for index-dispatch branches. Inserts two new `Expr`
+/// nodes (literal and comparison) through `assigner`.
 fn alloc_index_eq_expr(
     package: &mut Package,
     index_expr_id: ExprId,
@@ -890,19 +878,9 @@ fn find_local_init_expr_in_expr(
 /// Removes callable-typed argument locals whose only remaining uses were
 /// rewritten into direct dispatch calls, leaving no arrow-typed residue.
 ///
-/// # Before
-/// ```text
-/// { let f = some_callable; specialized_call(args); }
-/// ```
-/// # After
-/// ```text
-/// { specialized_call(args); }   // dead `let f` removed
-/// ```
-///
-/// # Mutations
-/// - Removes `Local` binding statements and `Var` references for dead locals
-///   via [`remove_dead_callable_local_from_callable`] and
-///   [`prune_dead_top_level_callable_locals`].
+/// Removes `Local` binding statements and `Var` references for dead locals
+/// via [`remove_dead_callable_local_from_callable`] and
+/// [`prune_dead_top_level_callable_locals`].
 fn prune_dead_callable_arg_locals(
     package: &mut Package,
     rewritten_callable_arg_locals: &FxHashSet<(LocalItemId, LocalVarId)>,
@@ -957,21 +935,9 @@ fn local_var_is_used_in_callable(
     used
 }
 
-/// Removes a specific dead callable local from the given callable's body
-/// by deleting its `Local` binding and any references that remain.
-///
-/// # Before
-/// ```text
-/// body { let f : Arrow = init; ... /* no uses of f */ ... }
-/// ```
-/// # After
-/// ```text
-/// body { ... }
-/// ```
-///
-/// # Mutations
-/// - Filters `Block.stmts` to remove the `Local` binding for `local_var`.
-/// - Recurses into nested blocks via [`remove_dead_callable_local_from_block`].
+/// Removes a specific dead callable local from the given callable's body by
+/// deleting its `Local` binding and any references that remain, recursing
+/// into nested blocks via [`remove_dead_callable_local_from_block`].
 fn remove_dead_callable_local_from_callable(
     package: &mut Package,
     callable_id: LocalItemId,
@@ -1001,19 +967,8 @@ fn remove_dead_callable_local_from_callable(
 }
 
 /// Removes top-level callable-typed locals whose only uses were direct
-/// dispatch rewrites, scoped to the package-level entry expression.
-///
-/// # Before
-/// ```text
-/// body { let g : Arrow = ...; /* no remaining uses of g */ ... }
-/// ```
-/// # After
-/// ```text
-/// body { ... }   // dead binding removed
-/// ```
-///
-/// # Mutations
-/// - Filters `Block.stmts` across all callable bodies in the package.
+/// dispatch rewrites, scoped to the package-level entry expression. Filters
+/// `Block.stmts` across all callable bodies in the package.
 fn prune_dead_top_level_callable_locals(package: &mut Package) {
     let callable_items: Vec<(LocalItemId, qsc_fir::fir::CallableImpl)> = package
         .items
@@ -1048,20 +1003,9 @@ fn prune_dead_top_level_callable_locals(package: &mut Package) {
 ///
 /// Iterates until no more removals occur so that cascading dead-local chains
 /// (e.g. `let a = closure; let b = a;`) are fully pruned in a single call
-/// rather than requiring multiple outer fixpoint iterations.
-///
-/// # Before
-/// ```text
-/// { let a : Arrow = closure; let b : Arrow = a; specialized_call(args); }
-/// ```
-/// # After
-/// ```text
-/// { specialized_call(args); }   // both dead bindings removed
-/// ```
-///
-/// # Mutations
-/// - Rewrites `Block.stmts` to drop unused `Local` bindings in a fixpoint
-///   loop, then recurses into nested blocks.
+/// rather than requiring multiple outer fixpoint iterations. Rewrites
+/// `Block.stmts` to drop unused `Local` bindings, then recurses into nested
+/// blocks.
 fn prune_dead_callable_locals_in_block(package: &mut Package, block_id: qsc_fir::fir::BlockId) {
     loop {
         let stmt_ids = package.get_block(block_id).stmts.clone();
@@ -1114,20 +1058,8 @@ fn prune_dead_callable_locals_in_block(package: &mut Package, block_id: qsc_fir:
 }
 
 /// Removes a dead callable local scoped to a specific block, including its
-/// `Local` binding and any remaining references.
-///
-/// # Before
-/// ```text
-/// { let f : Arrow = init; stmt1; stmt2; }
-/// ```
-/// # After
-/// ```text
-/// { stmt1; stmt2; }   // binding removed when f is unused
-/// ```
-///
-/// # Mutations
-/// - Filters `Block.stmts` to remove the dead binding.
-/// - Recurses into nested blocks via [`remove_dead_callable_local_from_stmt`].
+/// `Local` binding and any remaining references, recursing into nested
+/// blocks via [`remove_dead_callable_local_from_stmt`].
 fn remove_dead_callable_local_from_block(
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
@@ -1172,12 +1104,9 @@ fn remove_dead_callable_local_from_block(
     }
 }
 
-/// Inspects a single statement for dead callable-local bindings and
-/// deletes them when safe.
-///
-/// # Mutations
-/// - Delegates to [`prune_dead_callable_locals_in_expr`] for the
-///   statement's inner expression.
+/// Inspects a single statement for dead callable-local bindings and deletes
+/// them when safe, delegating to [`prune_dead_callable_locals_in_expr`] for
+/// the statement's inner expression.
 fn prune_dead_callable_locals_in_stmt(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
     let stmt = package.get_stmt(stmt_id).clone();
     match stmt.kind {
@@ -1189,12 +1118,9 @@ fn prune_dead_callable_locals_in_stmt(package: &mut Package, stmt_id: qsc_fir::f
 }
 
 /// Descends into an expression subtree looking for dead callable-local
-/// bindings introduced by direct-call rewrites.
-///
-/// # Mutations
-/// - Delegates to [`prune_dead_callable_locals_in_block`] for nested
-///   `Block` and `While` bodies, recursing until all dead bindings are
-///   removed.
+/// bindings introduced by direct-call rewrites, delegating to
+/// [`prune_dead_callable_locals_in_block`] for nested `Block` and `While`
+/// bodies until all dead bindings are removed.
 fn prune_dead_callable_locals_in_expr(package: &mut Package, expr_id: ExprId) {
     let expr = package.get_expr(expr_id).clone();
     match expr.kind {
@@ -1259,11 +1185,9 @@ fn prune_dead_callable_locals_in_expr(package: &mut Package, expr_id: ExprId) {
     }
 }
 
-/// Removes a specific dead callable local scoped to a single statement.
-///
-/// # Mutations
-/// - Delegates to [`remove_dead_callable_local_from_expr`] for the
-///   statement's inner expression.
+/// Removes a specific dead callable local scoped to a single statement,
+/// delegating to [`remove_dead_callable_local_from_expr`] for the
+/// statement's inner expression.
 fn remove_dead_callable_local_from_stmt(
     package: &mut Package,
     stmt_id: qsc_fir::fir::StmtId,
@@ -1279,12 +1203,9 @@ fn remove_dead_callable_local_from_stmt(
 }
 
 /// Removes references to a dead callable local inside a given expression
-/// subtree.
-///
-/// # Mutations
-/// - Recurses through `Block`, `If`, `While`, and compound expressions
-///   to reach every nested block via
-///   [`remove_dead_callable_local_from_block`].
+/// subtree, recursing through `Block`, `If`, `While`, and compound
+/// expressions to reach every nested block via
+/// [`remove_dead_callable_local_from_block`].
 fn remove_dead_callable_local_from_expr(
     package: &mut Package,
     expr_id: ExprId,
@@ -1643,7 +1564,7 @@ fn build_direct_global_callee_ty(
 /// outer type.
 ///
 /// A copy of this helper also lives in
-/// [`super::specialize::apply_target_input_at_control_path`]; keep the two
+/// `super::specialize::apply_target_input_at_control_path`; keep the two
 /// in sync when changing controlled-layer handling (see the module-level
 /// note for why both copies exist).
 fn apply_target_input_at_control_path(
@@ -3210,12 +3131,10 @@ fn build_branch_args_data(
     }
 }
 
-/// Allocates a fresh `Var` expression that references a specialized
-/// callable item, returning its new `ExprId`.
-///
-/// # Mutations
-/// - Delegates to [`alloc_item_callee_expr_with_functor`], which inserts
-///   the `Var` and any functor wrapper `Expr` nodes.
+/// Allocates a fresh `Var` expression that references a specialized callable
+/// item, returning its new `ExprId`. Delegates to
+/// [`alloc_item_callee_expr_with_functor`], which inserts the `Var` and any
+/// functor-wrapper `Expr` nodes.
 fn alloc_specialized_callee_expr(
     package: &mut Package,
     orig_callee: &Expr,
@@ -3234,21 +3153,10 @@ fn alloc_specialized_callee_expr(
     )
 }
 
-/// Allocates a fresh callee expression that wraps an item reference with
-/// the requested functor applications (`Adj` and/or `Ctl` layers).
-///
-/// # Before
-/// ```text
-/// (no expression)
-/// ```
-/// # After
-/// ```text
-/// Ctl(...(Adj(Var(item_id)))) : callee_ty   // functor chain built
-/// ```
-///
-/// # Mutations
-/// - Inserts one `Var` `Expr` and zero or more functor-wrapper `Expr`
-///   nodes into `package` through `assigner`.
+/// Allocates a fresh callee expression that wraps an item reference with the
+/// requested functor applications (`Adj` and/or `Ctl` layers). Inserts one
+/// `Var` `Expr` plus zero or more functor-wrapper `Expr` nodes through
+/// `assigner`.
 fn alloc_item_callee_expr_with_functor(
     package: &mut Package,
     span: Span,
@@ -3302,19 +3210,8 @@ fn alloc_item_callee_expr_with_functor(
     current_id
 }
 
-/// Allocates a new `ExprKind::If` expression and inserts it into the package.
-///
-/// # Before
-/// ```text
-/// (no expression)
-/// ```
-/// # After
-/// ```text
-/// If(cond_id, true_id, Some(false_id)) : result_ty
-/// ```
-///
-/// # Mutations
-/// - Inserts one `Expr` node through `assigner`.
+/// Allocates a new `ExprKind::If` expression and inserts it into the package
+/// through `assigner`.
 fn alloc_if_expr(
     package: &mut Package,
     span: Span,

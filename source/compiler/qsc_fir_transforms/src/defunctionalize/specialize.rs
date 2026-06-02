@@ -11,9 +11,9 @@
 //!
 //! # Post-transform retyping
 //!
-//! Cloning a HOF body replaces one or more indirect callable references
-//! (typed as arrow) with direct item references (typed as the callable's
-//! concrete signature). The surrounding expressions, statements, and blocks
+//! Cloning a HOF body replaces one or more indirect callable references,
+//! typed as arrow, with direct item references typed as the callable's
+//! concrete signature. The surrounding expressions, statements, and blocks
 //! that flowed those callable values still carry their pre-rewrite arrow
 //! types, so a cascade of `refresh_*_types` helpers
 //! ([`refresh_rewritten_value_types`], [`refresh_block_types`],
@@ -181,21 +181,12 @@ pub(super) fn specialize(
 }
 
 /// Drives the post-transform retyping cascade across every spec impl of a
-/// freshly cloned callable, re-establishing [`crate::invariants::InvariantLevel::PostDefunc`]
-/// type consistency after callable references become direct.
+/// freshly cloned callable, re-establishing
+/// [`crate::invariants::InvariantLevel::PostDefunc`] type consistency after
+/// callable references become direct.
 ///
-/// # Before
-/// ```text
-/// body { Expr.ty, Block.ty, Pat.ty may be stale }
-/// ```
-/// # After
-/// ```text
-/// body { Expr.ty, Block.ty, Pat.ty refreshed from children up }
-/// ```
-///
-/// # Mutations
-/// - Rewrites `Expr.ty`, `Block.ty`, and `Pat.ty` in place across the
-///   entire callable implementation.
+/// Rewrites `Expr.ty`, `Block.ty`, and `Pat.ty` in place across the entire
+/// callable implementation.
 fn refresh_rewritten_value_types(package: &mut Package, callable_impl: &CallableImpl) {
     match callable_impl {
         CallableImpl::Intrinsic => {}
@@ -214,18 +205,9 @@ fn refresh_rewritten_value_types(package: &mut Package, callable_impl: &Callable
 /// Re-computes the type of every statement in a block, returning the
 /// refreshed trailing type so enclosing expressions can cascade the update.
 ///
-/// # Before
-/// ```text
-/// Block { stmts, ty: stale_ty }
-/// ```
-/// # After
-/// ```text
-/// Block { stmts, ty: trailing_expr.ty }   // or Unit if no trailing Expr
-/// ```
-///
-/// # Mutations
-/// - Rewrites `Block.ty` in place.
-/// - Delegates to [`refresh_stmt_types`] for each statement.
+/// Rewrites `Block.ty` in place to the trailing expression's type, or `Unit`
+/// when there is no trailing `Expr`, and delegates to [`refresh_stmt_types`]
+/// for each statement.
 fn refresh_block_types(package: &mut Package, block_id: qsc_fir::fir::BlockId) -> Ty {
     let stmt_ids = package.get_block(block_id).stmts.clone();
     for stmt_id in stmt_ids {
@@ -250,21 +232,11 @@ fn refresh_block_types(package: &mut Package, block_id: qsc_fir::fir::BlockId) -
 }
 
 /// Refreshes the type of a single statement and, when it introduces a
-/// local binding, updates the bound pattern's type to match the rewritten
+/// local binding, retypes the bound pattern to match the rewritten
 /// initializer.
 ///
-/// # Before
-/// ```text
-/// Local(pat: OldTy, init_expr: NewTy)
-/// ```
-/// # After
-/// ```text
-/// Local(pat: NewTy, init_expr: NewTy)   // pat retyped to match init
-/// ```
-///
-/// # Mutations
-/// - Rewrites `Pat.ty` in place for `Bind` and `Discard` patterns.
-/// - Delegates to [`refresh_expr_types`] for the statement's expression.
+/// Rewrites `Pat.ty` in place for `Bind` and `Discard` patterns and
+/// delegates to [`refresh_expr_types`] for the statement's expression.
 fn refresh_stmt_types(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
     let stmt = package.get_stmt(stmt_id).clone();
     match stmt.kind {
@@ -287,18 +259,8 @@ fn refresh_stmt_types(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
 /// refreshed type through nested blocks, conditionals, calls, and tuple
 /// constructors.
 ///
-/// # Before
-/// ```text
-/// Expr { kind, ty: stale_ty }
-/// ```
-/// # After
-/// ```text
-/// Expr { kind, ty: recomputed_ty }   // derived from children
-/// ```
-///
-/// # Mutations
-/// - Rewrites `Expr.ty` in place.
-/// - Recursively refreshes all reachable sub-expressions.
+/// Rewrites `Expr.ty` in place and recursively refreshes all reachable
+/// sub-expressions.
 fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
     let expr = package.get_expr(expr_id).clone();
     let new_ty = match expr.kind {
@@ -444,8 +406,6 @@ fn specialize_one(
     let cloned_input = cloner.clone_pat(&body_pkg, decl_snapshot.input, target);
     let cloned_impl = cloner.clone_callable_impl(&body_pkg, &decl_snapshot.implementation, target);
 
-    // Input is cloned BEFORE the body (above), so `local_map` always
-    // contains the mapping for the original parameter variable.
     let remapped_param_var = *cloner
         .local_map()
         .get(&param.param_var)
@@ -1176,7 +1136,7 @@ fn build_direct_target_callee_ty(
 /// outer type.
 ///
 /// A copy of this helper also lives in
-/// [`super::rewrite::apply_target_input_at_control_path`]; keep the two in
+/// `super::rewrite::apply_target_input_at_control_path`; keep the two in
 /// sync when changing controlled-layer handling. See the module-level note
 /// in `rewrite.rs` for why both copies exist.
 fn apply_target_input_at_control_path(
@@ -2385,13 +2345,13 @@ fn extract_stmt(source: &Package, stmt_id: qsc_fir::fir::StmtId, target: &mut Pa
 /// identical `extract_expr` in `monomorphize.rs`. The key difference is the
 /// `ExprKind::Closure` arm: defunctionalize treats it as a leaf because
 /// lambda-lifted items already live at package level and the
-/// [`FirCloner`](crate::cloner::FirCloner) resolves them via its fallback
-/// path (keeping the original `LocalItemId` in the target package).
+/// [`FirCloner`] resolves them via its fallback
+/// path, keeping the original `LocalItemId` in the target package.
 /// Defunctionalize does not perform type substitution on cloned bodies, so
 /// duplicating the lambda item would be wasteful.
 ///
-/// However, `StmtKind::Item` (named nested functions declared inside the
-/// HOF body) MUST be followed here
+/// `StmtKind::Item` named nested functions declared inside the HOF body MUST
+/// still be followed here.
 fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
     if target.exprs.contains_key(expr_id) {
         return;

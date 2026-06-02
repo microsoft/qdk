@@ -127,17 +127,15 @@ pub(super) fn select_return_slot_strategy(
 
 /// Returns true when a non-defaultable type can use an array-backed return slot.
 ///
-/// The array-backed slot stores `T` values inside `T[]` whose default is `[]`,
-/// so any type that doesn't otherwise have a classical default still gets a
-/// well-typed initializer. Eligibility requires both:
+/// The slot stores `T` inside `T[]`, whose `[]` default is always well-typed.
+/// Eligibility requires both:
 ///
 /// 1. `ty` has no classical default (otherwise [`ReturnSlotStrategy::Direct`]
-///    is preferred and this helper returns `false` so callers don't redundantly
-///    select the array-backed shape).
+///    is preferred, so this returns `false`).
 /// 2. `ty` is resolvable per [`arrow_scan_for_ty`] (not
-///    [`ArrowScan::Unknown`]). Arrow-containing types are accepted because
-///    the cached `fail`-bodied callable provides a well-typed bottom value
-///    for the array read fallback.
+///    [`ArrowScan::Unknown`]). Arrow-containing types qualify because the
+///    cached `fail`-bodied callable supplies a well-typed bottom value for
+///    the array-read fallback.
 pub(super) fn can_use_array_backed_return_slot(
     ty: &Ty,
     udt_pure_tys: &UdtPureTyCache,
@@ -152,18 +150,12 @@ pub(super) fn can_use_array_backed_return_slot(
 
 /// Conservatively scans a type for nested arrows.
 ///
-/// Walks tuples, arrays, and UDTs (via their pure types) looking for
-/// [`Ty::Arrow`] leaves. Results follow a three-way lattice ordered
-/// [`ArrowScan::ContainsArrow`] > [`ArrowScan::Unknown`] > [`ArrowScan::NoArrow`],
-/// combined by [`ArrowScan::combine`] so unresolved structure is preserved as
-/// `Unknown`, while arrow-bearing structure remains distinguishable and
-/// eligible for array-backed slots when no Direct default exists.
-///
-/// UDT recursion is broken using `visiting_udts`: a recursive cycle returns
-/// [`ArrowScan::Unknown`] rather than recursing indefinitely. Unresolved UDTs
-/// (missing pure types) also return [`ArrowScan::Unknown`], which causes
-/// [`can_use_array_backed_return_slot`] to reject the type so the flag
-/// strategy degrades gracefully into an unsupported-return-type diagnostic.
+/// Walks tuples, arrays, and UDTs (via their pure types) for [`Ty::Arrow`]
+/// leaves, combining results with [`ArrowScan::combine`]. UDT recursion is
+/// cycle-broken via `visiting_udts`, and unresolved or recursive UDTs return
+/// [`ArrowScan::Unknown`], which makes [`can_use_array_backed_return_slot`]
+/// reject the type so the strategy degrades into an unsupported-return-type
+/// diagnostic.
 fn arrow_scan_for_ty(
     ty: &Ty,
     udt_pure_tys: &UdtPureTyCache,

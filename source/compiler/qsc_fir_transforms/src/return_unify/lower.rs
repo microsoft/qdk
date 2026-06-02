@@ -107,14 +107,14 @@ fn resync_expr_ty_from_children(package: &mut Package, expr_id: ExprId) {
     }
 }
 
-/// Synthesized `LocalVarId`s minted by [`transform_block_with_flags`]
-/// that the simplify catalogue needs to recover by identity rather than
-/// by synthesized name.
+/// Synthesized `LocalVarId`s minted by [`transform_block_with_flags`] that
+/// the simplify catalogue recovers by identity rather than by synthesized
+/// name.
 ///
-/// The `__has_returned` flag id is not part of [`ReturnSlot`] (it lives
-/// in [`FlagContext::has_returned_var_id`]), so it is carried separately.
-/// `trailing_result` is `Some` only when a `__trailing_result` binding
-/// was emitted (i.e. the block had a trailing value to merge with).
+/// The `__has_returned` flag id is carried separately because it is not
+/// part of [`ReturnSlot`]. `trailing_result` is `Some` only when a
+/// `__trailing_result` binding was emitted, i.e. the block had a trailing
+/// value to merge.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct SynthSlots {
     pub(super) has_returned: LocalVarId,

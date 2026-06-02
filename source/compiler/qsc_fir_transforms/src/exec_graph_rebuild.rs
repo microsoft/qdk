@@ -12,8 +12,7 @@
 //! scratch by walking the FIR and emitting the same node sequences that the
 //! original lowerer would have produced.
 //!
-//! This pass must run after UDT erasure, defunctionalization, tuple comparison
-//! lowering, tuple-decompose, and argument promotion have removed expression forms that the
+//! It must run after those passes, which remove expression forms that the
 //! exec graph builder treats as eliminated at this stage.
 //!
 //! ## External Specs
@@ -60,9 +59,7 @@
 //!
 //! ## See Also
 //!
-//! - `qsc_lowerer::exec_graph` — The `ExecGraphBuilder` that emits graph
-//!   nodes. The rebuild pass re-uses this builder to ensure graph format
-//!   fidelity with the original lowering pass.
+//! - `qsc_lowerer::exec_graph` — the `ExecGraphBuilder` that emits graph nodes.
 
 #[cfg(test)]
 mod tests;
@@ -91,9 +88,8 @@ struct RangeUpdates {
 
 /// Applies collected range updates to package expressions and statements.
 ///
-/// Invoked once per specialization (not once at the end of the pass). Each
-/// call writes the ranges gathered for that spec back to the package
-/// before the next specialization begins rebuilding.
+/// Invoked once per specialization. Each call writes the ranges gathered for
+/// that spec back to the package before the next specialization rebuilds.
 fn apply_ranges(package: &mut Package, ranges: &RangeUpdates) {
     for (id, range) in &ranges.exprs {
         package
@@ -152,8 +148,8 @@ pub fn rebuild_exec_graphs(
 /// entry expression, and selected external callable specs.
 ///
 /// `external_specs` should contain only callable specs that earlier passes
-/// structurally mutated outside the target package. The same post-transform
-/// ordering requirements as [`rebuild_exec_graphs`] apply.
+/// structurally mutated outside the target package. Like all exec-graph
+/// rebuilding, this must run only after every FIR transform has completed.
 ///
 /// # Panics
 ///

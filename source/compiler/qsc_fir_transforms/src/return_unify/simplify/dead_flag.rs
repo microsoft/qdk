@@ -3,76 +3,53 @@
 
 //! Dead-flag elimination simplifier rule.
 //!
-//! Drops `__has_returned = true;` assignment statements whose value is
-//! never read on any downstream path within the simplifier's block of
-//! operation. The rule runs last in [`super::run_to_fixpoint`] so the
-//! structural rules ([`super::guard_clause`], [`super::both_branches`],
-//! [`super::bare_return`]) have already collapsed the trailing merge
-//! that originally consumed the flag — the leftover setter writes are
-//! then statically dead.
+//! Drops `__has_returned = true;` assignments whose value is never read on
+//! any downstream path within the block. The rule runs last in
+//! [`super::run_to_fixpoint`], after the structural rules
+//! ([`super::guard_clause`], [`super::both_branches`],
+//! [`super::bare_return`]) have collapsed the trailing merge that consumed
+//! the flag, leaving the setter writes statically dead.
 //!
 //! # Recognized shape
 //!
-//! Each candidate statement is `Semi(Assign(<flag_lhs>, _))` where
-//! `<flag_lhs>` peels (via [`super::extract_root_local`]) to the
-//! block's `__has_returned` local. The RHS is intentionally not
-//! constrained: any value written to the flag whose result is unread
-//! downstream is dead.
+//! Each candidate is `Semi(Assign(<flag_lhs>, _))` where `<flag_lhs>`
+//! peels (via [`super::extract_root_local`]) to the block's
+//! `__has_returned` local. The RHS is unconstrained: any write whose
+//! result is unread downstream is dead.
 //!
 //! # Recovering the flag local
 //!
-//! The flag local id is discovered by [`identify_has_returned_local`]:
+//! [`identify_has_returned_local`] uses two tiers:
 //!
-//! 1. **Primary**: if the block's trailing statement is the canonical
-//!    merge `Expr(If(cond, _, Some(_)))`, recover the flag from
-//!    `cond`'s `Var(Res::Local(_))` (mirrors
-//!    [`super::let_folding`]'s use of [`super::extract_local_read`]).
-//! 2. **Fallback**: scan the block's statements for a
-//!    `mutable __has_returned : Bool` binding by name. This path is
-//!    needed when the structural rules have already collapsed the
-//!    merge; the binding remains in the block as long as a slot setter
-//!    is still emitted upstream of the collapsed merge.
-//!
-//! The fallback uses the `"__has_returned"` name only as a last resort,
-//! never as the primary signal: the flag transform always emits both
-//! shapes, so the merge-cond path catches the common case without
-//! relying on the synthesized name.
+//! 1. **Primary**: recover the flag from the `Var(Res::Local(_))`
+//!    condition of the canonical trailing merge
+//!    `Expr(If(cond, _, Some(_)))`.
+//! 2. **Fallback**: match a `mutable __has_returned : Bool` binding by
+//!    [`SynthSlots`] id, for when the structural rules have already
+//!    collapsed the merge.
 //!
 //! # Downstream reader detection
 //!
 //! For each candidate at index `i`, [`downstream_has_flag_read`] walks
-//! the statements at indices `i+1..end` of the block, descending into
-//! every nested block reachable through `If`, `While`, `Block`, etc. A
-//! `Var(Res::Local(flag_id))` read anywhere in that subtree marks the
-//! candidate live. The LHS of any further `Assign(Var(flag_id), _)`
-//! statement is *not* counted as a read: a flag write's LHS is the
-//! target of the store, not a value read, and treating it as a read
-//! would falsely keep one dead setter alive whenever multiple dead
-//! setters cluster together.
+//! statements `i+1..end`, descending into nested blocks. The LHS of a
+//! later `Assign(Var(flag_id), _)` is *not* counted as a read — it is a
+//! store target — so clustered dead setters do not keep each other alive.
 //!
 //! # Closures need no special handling
 //!
-//! `return_unify` synthesizes `__has_returned` after HIR -> FIR
-//! lowering, but FIR lowering is also where closures are lifted and
-//! their capture lists are finalized. The flag's `LocalVarId` did not
-//! exist when those captures were computed, so no closure observed by
-//! this rule can possibly carry the flag in its `ExprKind::Closure`
-//! capture list. The lifted callable body referenced by a closure is a
-//! separate top-level item that cannot reach the enclosing block's
-//! locals except through its captures, so the flag is unreachable
-//! through that path too. The walker therefore treats closures as
-//! opaque leaves via [`super::push_children`], which neither recurses
-//! into the closure body nor inspects the captures.
+//! The flag's `LocalVarId` is minted after FIR lowering finalizes closure
+//! capture lists, so no closure can carry it in its capture list, and a
+//! closure's lifted body reaches enclosing locals only through its
+//! captures. The walker treats closures as opaque leaves via
+//! [`super::push_children`].
 //!
 //! # Safety
 //!
-//! `dead_flag` runs last in [`super::run_to_fixpoint`]'s iteration so
-//! no upstream rule can introduce a new flag reader after `dead_flag`
-//! has scanned for them in the same pass. The driver re-runs the
-//! catalogue from the top whenever any rule fires; if a future rule
-//! ordering change introduces a reader-inserting rule after
-//! `dead_flag`, the next iteration's `dead_flag` pass will re-scan and
-//! correctly refuse to drop the now-live setter.
+//! Running last means no upstream rule can introduce a new flag reader
+//! after `dead_flag` has scanned in the same pass. The driver re-runs the
+//! catalogue from the top whenever any rule fires, so a future
+//! reader-inserting rule placed after `dead_flag` would still be caught on
+//! the next iteration.
 
 use qsc_fir::{
     assigner::Assigner,
@@ -88,11 +65,9 @@ use crate::return_unify::lower::SynthSlots;
 
 /// Apply the dead-flag elimination rule to `block_id`.
 ///
-/// Returns `true` when at least one flag-set statement was removed.
-/// All eligible setters in the block are dropped in a single call;
-/// the driver does not need to re-invoke the rule for fixpoint on this
-/// rule alone, but the driver's outer loop guarantees a re-scan after
-/// any other rule that may have reshaped the block.
+/// Returns `true` when at least one flag-set statement was removed. All
+/// eligible setters are dropped in a single call; the driver's outer loop
+/// re-scans after any other rule reshapes the block.
 pub(super) fn apply(
     package: &mut Package,
     _assigner: &mut Assigner,
@@ -154,9 +129,9 @@ fn identify_has_returned_local(
         return Some(local);
     }
 
-    // Fallback: a `mutable __has_returned : Bool` binding in the block.
-    // Only used when the merge has already been collapsed by the
-    // structural rules.
+    // Fallback: a `mutable __has_returned : Bool` binding in the block,
+    // matched by `SynthSlots` id. Only used when the merge has already
+    // been collapsed by the structural rules.
     for &sid in stmts {
         let StmtKind::Local(Mutability::Mutable, pat_id, _) = package.get_stmt(sid).kind else {
             continue;
