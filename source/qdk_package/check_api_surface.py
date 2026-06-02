@@ -50,16 +50,6 @@ ROOT_PACKAGE = "qdk"
 # Modules to skip entirely (they are internal and not expected to have
 # a clean public surface).
 SKIP_MODULES: set[str] = {
-    "qdk._native",
-    "qdk._types",
-    "qdk._context",
-    "qdk._interpreter",
-    "qdk._ipython",
-    "qdk._fs",
-    "qdk._http",
-    "qdk._adaptive_bytecode",
-    "qdk._adaptive_pass",
-    "qdk._device",
     "qdk.telemetry",
     "qdk.telemetry_events",
 }
