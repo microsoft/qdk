@@ -100,19 +100,13 @@ pub(super) fn run_to_fixpoint(
             count_identical_branch_heads(package, &block.stmts),
         );
         if matches!(prev_measure, Some(prev) if measure >= prev) {
-            errors.push(super::Error::FixpointNotReached {
-                phase: "simplify",
-                block: block_id,
-            });
+            errors.push(super::Error::FixpointNotReached("simplify", block_id));
             return;
         }
         prev_measure = Some(measure);
     }
     // Hard cap reached without convergence.
-    errors.push(super::Error::FixpointNotReached {
-        phase: "simplify",
-        block: block_id,
-    });
+    errors.push(super::Error::FixpointNotReached("simplify", block_id));
 }
 
 /// Run all simplifier rules once and return whether any rule fired.

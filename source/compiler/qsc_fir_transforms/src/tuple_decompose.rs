@@ -132,10 +132,6 @@ use crate::EMPTY_EXEC_RANGE;
 ///   rewritten by [`rewrite_field_accesses`] into a direct
 ///   `Var(t_i)` reference (or `Field(Var(t_i), Path(..))` for nested
 ///   paths).
-/// - `AssignField(Var(t), Path(non-empty), value)` — a field-targeted
-///   reassignment, rewritten by [`rewrite_field_accesses`] into either
-///   `Assign(Var(t_i), value)` (single-index path) or
-///   `AssignField(Var(t_i), Path(..), value)` (nested path).
 /// - `Assign(Var(t), Tuple([e0, e1, ...]))` — a whole-tuple
 ///   reassignment whose RHS is a tuple literal, split by
 ///   [`rewrite_assign_tuples`] into per-element `Assign(Var(t_i), ei)`
@@ -215,12 +211,9 @@ fn collect_candidates_in_callable(
     candidates: &mut Vec<TupleDecomposeCandidate>,
 ) {
     match &decl.implementation {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             collect_candidates_in_spec_impl(store, package_id, owner_item, spec_impl, candidates);
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            collect_candidates_in_spec(store, package_id, owner_item, spec, candidates);
         }
     }
 }
@@ -440,8 +433,7 @@ fn decompose_candidate(
     );
 }
 
-/// Rewrites all `ExprKind::Field(Var(Local(old)), Path([i, ...]))` and
-/// `ExprKind::AssignField(Var(Local(old)), Path([i, ...]), value)` uses across
+/// Rewrites all `ExprKind::Field(Var(Local(old)), Path([i, ...]))` uses across
 /// the entire package so they target the decomposed scalar or nested aggregate
 /// for the first path segment.
 ///
@@ -498,92 +490,45 @@ fn rewrite_single_expr(
     elem_types: &[Ty],
 ) {
     let expr = package.exprs.get(expr_id).expect("expr should exist");
-    match expr.kind.clone() {
-        ExprKind::Field(inner_id, Field::Path(path)) => {
-            let span = expr.span;
-            let expr_ty = expr.ty.clone();
-            let inner = package
-                .exprs
-                .get(inner_id)
-                .expect("inner expr should exist");
-            if let ExprKind::Var(Res::Local(var_id), _) = &inner.kind
-                && *var_id == old_local
-                && !path.indices.is_empty()
-            {
-                let idx = path.indices[0];
-                if idx < new_locals.len() {
-                    let new_local = new_locals[idx];
-                    if path.indices.len() == 1 {
-                        let replacement_id = {
-                            let ty = elem_types[idx].clone();
-                            alloc_local_var_expr(package, assigner, new_local, ty, span)
-                        };
-                        replace_expr_references(package, owner_item, expr_id, replacement_id);
-                    } else {
-                        // Nested: t.i.j... -> Field(Var(t_i), Path([j, ...]))
-                        let remaining: Vec<usize> = path.indices[1..].to_vec();
-
-                        let new_inner_id = {
-                            let ty = elem_types[idx].clone();
-                            alloc_local_var_expr(package, assigner, new_local, ty, span)
-                        };
-                        let replacement_id = assigner.next_expr();
-                        package.exprs.insert(
-                            replacement_id,
-                            Expr {
-                                id: replacement_id,
-                                span,
-                                ty: expr_ty,
-                                kind: ExprKind::Field(
-                                    new_inner_id,
-                                    Field::Path(FieldPath { indices: remaining }),
-                                ),
-                                exec_graph_range: EMPTY_EXEC_RANGE,
-                            },
-                        );
-                        replace_expr_references(package, owner_item, expr_id, replacement_id);
-                    }
-                }
-            }
-        }
-        ExprKind::AssignField(record_id, Field::Path(path), value_id) => {
-            let span = expr.span;
-            let expr_ty = expr.ty.clone();
-            let record = package
-                .exprs
-                .get(record_id)
-                .expect("record expr should exist");
-            if let ExprKind::Var(Res::Local(var_id), _) = &record.kind
-                && *var_id == old_local
-                && !path.indices.is_empty()
-            {
-                let idx = path.indices[0];
-                if idx < new_locals.len() {
-                    let new_local = new_locals[idx];
-                    let new_record_id = {
+    if let ExprKind::Field(inner_id, Field::Path(ref path)) = expr.kind {
+        let span = expr.span;
+        let expr_ty = expr.ty.clone();
+        let inner = package
+            .exprs
+            .get(inner_id)
+            .expect("inner expr should exist");
+        if let ExprKind::Var(Res::Local(var_id), _) = &inner.kind
+            && *var_id == old_local
+            && !path.indices.is_empty()
+        {
+            let idx = path.indices[0];
+            if idx < new_locals.len() {
+                let new_local = new_locals[idx];
+                if path.indices.len() == 1 {
+                    let replacement_id = {
                         let ty = elem_types[idx].clone();
                         alloc_local_var_expr(package, assigner, new_local, ty, span)
                     };
+                    replace_expr_references(package, owner_item, expr_id, replacement_id);
+                } else {
+                    // Nested: t.i.j... -> Field(Var(t_i), Path([j, ...]))
+                    let remaining: Vec<usize> = path.indices[1..].to_vec();
 
-                    let replacement_id = assigner.next_expr();
-                    let replacement_kind = if path.indices.len() == 1 {
-                        ExprKind::Assign(new_record_id, value_id)
-                    } else {
-                        ExprKind::AssignField(
-                            new_record_id,
-                            Field::Path(FieldPath {
-                                indices: path.indices[1..].to_vec(),
-                            }),
-                            value_id,
-                        )
+                    let new_inner_id = {
+                        let ty = elem_types[idx].clone();
+                        alloc_local_var_expr(package, assigner, new_local, ty, span)
                     };
+                    let replacement_id = assigner.next_expr();
                     package.exprs.insert(
                         replacement_id,
                         Expr {
                             id: replacement_id,
                             span,
                             ty: expr_ty,
-                            kind: replacement_kind,
+                            kind: ExprKind::Field(
+                                new_inner_id,
+                                Field::Path(FieldPath { indices: remaining }),
+                            ),
                             exec_graph_range: EMPTY_EXEC_RANGE,
                         },
                     );
@@ -591,7 +536,6 @@ fn rewrite_single_expr(
                 }
             }
         }
-        _ => {}
     }
 }
 
@@ -653,9 +597,7 @@ fn replace_expr_in_expr(expr: &mut Expr, old_expr_id: ExprId, new_expr_id: ExprI
         | ExprKind::AssignOp(_, a, b)
         | ExprKind::BinOp(_, a, b)
         | ExprKind::Call(a, b)
-        | ExprKind::Index(a, b)
-        | ExprKind::AssignField(a, _, b)
-        | ExprKind::UpdateField(a, _, b) => {
+        | ExprKind::Index(a, b) => {
             replace_expr_id(a, old_expr_id, new_expr_id);
             replace_expr_id(b, old_expr_id, new_expr_id);
         }
@@ -699,6 +641,13 @@ fn replace_expr_in_expr(expr: &mut Expr, old_expr_id: ExprId, new_expr_id: ExprI
         // `Struct` is dead PostTupleDecompose: `check_expr_udt_erase_invariants`
         // panics on `Struct`, enforced PostTupleDecompose.
         | ExprKind::Struct(_, _, _)
+        // `AssignField`/`UpdateField` are dead PostUdtErase: `udt_erase` lowers
+        // every `Field::Path` form to `Assign(record, Tuple)`, and these nodes
+        // never carry any other field kind in reachable code (`Prim` is
+        // read-only, `Err` is error-recovery). `check_expr_udt_erase_invariants`
+        // panics on `Field::Path` in either, enforced PostUdtErase.
+        | ExprKind::AssignField(_, _, _)
+        | ExprKind::UpdateField(_, _, _)
         | ExprKind::Var(_, _) => {}
     }
 }
@@ -725,7 +674,13 @@ fn build_stmt_block_map_for_callable(
     map
 }
 
-/// Collects all block IDs reachable from a callable's implementation.
+/// Collects block IDs reachable from a callable's implementation.
+///
+/// For a `Spec` implementation this includes each specialization's root
+/// block plus every block nested within expressions. `Intrinsic` and
+/// `SimulatableIntrinsic` implementations contribute no spec-level root
+/// block; any blocks nested within a `SimulatableIntrinsic` body are still
+/// picked up by the expression walk.
 pub(crate) fn collect_all_block_ids_in_callable(
     package: &Package,
     item_id: LocalItemId,
@@ -739,15 +694,12 @@ pub(crate) fn collect_all_block_ids_in_callable(
     let mut block_ids = Vec::new();
     // Include spec-level blocks.
     match &decl.implementation {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             block_ids.push(spec_impl.body.block);
             for spec in functored_specs(spec_impl) {
                 block_ids.push(spec.block);
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            block_ids.push(spec.block);
         }
     }
     // Include nested blocks found via expression walking.
@@ -876,16 +828,20 @@ fn rewrite_assign_tuples(
         }
 
         // Insert the new stmts into the containing block after the original stmt.
-        if let Some(&block_id) = stmt_block_map.get(&stmt_id) {
-            let block = package
-                .blocks
-                .get_mut(block_id)
-                .expect("block should exist");
-            if let Some(pos) = block.stmts.iter().position(|&s| s == stmt_id) {
-                for (offset, new_id) in new_stmt_ids.into_iter().enumerate() {
-                    block.stmts.insert(pos + 1 + offset, new_id);
-                }
-            }
+        let block_id = stmt_block_map
+            .get(&stmt_id)
+            .expect("stmt_id is always valid");
+        let block = package
+            .blocks
+            .get_mut(*block_id)
+            .expect("block should exist");
+        let pos = block
+            .stmts
+            .iter()
+            .position(|&s| s == stmt_id)
+            .expect("stmt_id should be in block");
+        for (offset, new_id) in new_stmt_ids.into_iter().enumerate() {
+            block.stmts.insert(pos + 1 + offset, new_id);
         }
     }
 }

@@ -138,9 +138,8 @@ use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BlockId, CallableDecl, CallableImpl, ExprId, ExprKind, ItemId, ItemKind, Package,
-        PackageId, PackageLookup, PackageStore, Res, StmtId, StmtKind, StoreItemId,
-        StringComponent,
+        BlockId, CallableDecl, CallableImpl, ExprKind, ItemId, ItemKind, Package, PackageId,
+        PackageLookup, PackageStore, Res, StmtKind, StoreItemId,
     },
     ty::Ty,
 };
@@ -177,29 +176,28 @@ pub enum Error {
     /// Emitted when the simplifier or hoist fixpoint loop fails to reach a
     /// fixpoint within the per-block measure bound. The IR remains semantically
     /// valid, but the partial fold indicates a rule regression.
-    #[error("return-unification {phase} did not reach a fixpoint")]
+    #[error("return-unification {0} did not reach a fixpoint")]
     #[diagnostic(code("Qsc.ReturnUnify.FixpointNotReached"))]
     #[diagnostic(severity(Warning))]
     #[diagnostic(help(
         "this is an internal compiler diagnostic; please file an issue \
          including the source program that triggered it"
     ))]
-    FixpointNotReached { phase: &'static str, block: BlockId },
+    FixpointNotReached(&'static str, BlockId),
 
     /// A return appears inside a compound expression whose enclosing
     /// expression has a type with no classical default.
-    #[error("cannot hoist `return` from a compound position of type `{enclosing_ty}`")]
+    #[error("cannot hoist `return` from a compound position of type `{0}`")]
     #[diagnostic(code("Qsc.ReturnUnify.UnsupportedHoistContext"))]
     #[diagnostic(help(
         "the surrounding expression has a non-defaultable type; \
          move the `return` to a statement boundary, or restructure the \
          expression so it does not contain a `return`"
     ))]
-    UnsupportedHoistContext {
-        enclosing_ty: String,
-        #[label("compound expression with unsupported `return`")]
-        span: Span,
-    },
+    UnsupportedHoistContext(
+        String,
+        #[label("compound expression with unsupported `return`")] Span,
+    ),
 }
 
 impl Error {
@@ -574,133 +572,50 @@ fn check_normalize_supportable(
     block_id: BlockId,
     errors: &mut Vec<Error>,
 ) {
-    let mut seen = FxHashSet::default();
-    scan_block_for_unsupported_hoist(package, package_id, block_id, errors, &mut seen);
-}
-
-fn scan_block_for_unsupported_hoist(
-    package: &Package,
-    package_id: PackageId,
-    block_id: BlockId,
-    errors: &mut Vec<Error>,
-    seen: &mut FxHashSet<BlockId>,
-) {
-    if !seen.insert(block_id) {
-        return;
-    }
-    let block = package.get_block(block_id);
-    for &stmt_id in &block.stmts {
-        scan_stmt_for_unsupported_hoist(package, package_id, stmt_id, errors, seen);
-    }
-}
-
-fn scan_stmt_for_unsupported_hoist(
-    package: &Package,
-    package_id: PackageId,
-    stmt_id: StmtId,
-    errors: &mut Vec<Error>,
-    seen: &mut FxHashSet<BlockId>,
-) {
-    let stmt = package.get_stmt(stmt_id);
-    match &stmt.kind {
-        StmtKind::Expr(e) | StmtKind::Semi(e) => {
-            scan_expr_for_unsupported_hoist(package, package_id, *e, errors, seen);
+    // Single pre-order walk over the block. The shared walker visits every
+    // sub-expression (including those nested in local initializers) and treats
+    // `Closure` as a leaf, so closure bodies are scanned independently. During
+    // the walk we both run the `If`-expression check and collect nested block
+    // ids for the statement-level `Local` check below.
+    let mut block_ids = vec![block_id];
+    crate::walk_utils::for_each_expr_in_block(package, block_id, &mut |_id, expr| {
+        match &expr.kind {
+            // An `If` whose condition contains a `return` and whose type is
+            // non-Unit and non-defaultable cannot be hoisted (would panic in
+            // `normalize::hoist_in_cond`).
+            ExprKind::If(cond, _, _) => {
+                if detect::contains_return_in_expr(package, *cond)
+                    && expr.ty != Ty::UNIT
+                    && !is_type_defaultable(package, package_id, &expr.ty)
+                {
+                    errors.push(Error::UnsupportedHoistContext(
+                        format!("{}", expr.ty),
+                        expr.span,
+                    ));
+                }
+            }
+            ExprKind::Block(bid) | ExprKind::While(_, bid) => block_ids.push(*bid),
+            _ => {}
         }
-        StmtKind::Local(_, pat_id, init_id) => {
-            if detect::contains_return_in_expr(package, *init_id) {
+    });
+
+    // A `Local` whose initializer contains a `return` and whose pattern type is
+    // non-defaultable cannot be hoisted (would panic in
+    // `normalize::replace_local_init_with_default_and_emit`). This is a
+    // statement-level check, so iterate the root block plus every nested block.
+    for &bid in &block_ids {
+        for &stmt_id in &package.get_block(bid).stmts {
+            if let StmtKind::Local(_, pat_id, init_id) = &package.get_stmt(stmt_id).kind
+                && detect::contains_return_in_expr(package, *init_id)
+            {
                 let pat_ty = &package.get_pat(*pat_id).ty;
                 if !is_type_defaultable(package, package_id, pat_ty) {
-                    errors.push(Error::UnsupportedHoistContext {
-                        enclosing_ty: format!("{pat_ty}"),
-                        span: package.get_expr(*init_id).span,
-                    });
-                }
-            }
-            scan_expr_for_unsupported_hoist(package, package_id, *init_id, errors, seen);
-        }
-        StmtKind::Item(_) => {}
-    }
-}
-
-fn scan_expr_for_unsupported_hoist(
-    package: &Package,
-    package_id: PackageId,
-    expr_id: ExprId,
-    errors: &mut Vec<Error>,
-    seen: &mut FxHashSet<BlockId>,
-) {
-    let expr = package.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::If(cond, then_id, else_id) => {
-            if detect::contains_return_in_expr(package, *cond)
-                && expr.ty != Ty::UNIT
-                && !is_type_defaultable(package, package_id, &expr.ty)
-            {
-                errors.push(Error::UnsupportedHoistContext {
-                    enclosing_ty: format!("{}", expr.ty),
-                    span: expr.span,
-                });
-            }
-            scan_expr_for_unsupported_hoist(package, package_id, *cond, errors, seen);
-            scan_expr_for_unsupported_hoist(package, package_id, *then_id, errors, seen);
-            if let Some(else_id) = else_id {
-                scan_expr_for_unsupported_hoist(package, package_id, *else_id, errors, seen);
-            }
-        }
-        ExprKind::Block(block_id) => {
-            scan_block_for_unsupported_hoist(package, package_id, *block_id, errors, seen);
-        }
-        ExprKind::While(cond, body) => {
-            scan_expr_for_unsupported_hoist(package, package_id, *cond, errors, seen);
-            scan_block_for_unsupported_hoist(package, package_id, *body, errors, seen);
-        }
-        ExprKind::Return(inner) => {
-            scan_expr_for_unsupported_hoist(package, package_id, *inner, errors, seen);
-        }
-        ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::UnOp(_, e) => {
-            scan_expr_for_unsupported_hoist(package, package_id, *e, errors, seen);
-        }
-        ExprKind::ArrayRepeat(a, b)
-        | ExprKind::Assign(a, b)
-        | ExprKind::AssignOp(_, a, b)
-        | ExprKind::BinOp(_, a, b)
-        | ExprKind::Call(a, b)
-        | ExprKind::Index(a, b)
-        | ExprKind::AssignField(a, _, b)
-        | ExprKind::UpdateField(a, _, b) => {
-            scan_expr_for_unsupported_hoist(package, package_id, *a, errors, seen);
-            scan_expr_for_unsupported_hoist(package, package_id, *b, errors, seen);
-        }
-        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            scan_expr_for_unsupported_hoist(package, package_id, *a, errors, seen);
-            scan_expr_for_unsupported_hoist(package, package_id, *b, errors, seen);
-            scan_expr_for_unsupported_hoist(package, package_id, *c, errors, seen);
-        }
-        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
-            for &e in exprs {
-                scan_expr_for_unsupported_hoist(package, package_id, e, errors, seen);
-            }
-        }
-        ExprKind::Range(start, step, end) => {
-            for e in [start, step, end].into_iter().flatten() {
-                scan_expr_for_unsupported_hoist(package, package_id, *e, errors, seen);
-            }
-        }
-        ExprKind::Struct(_, copy, fields) => {
-            if let Some(c) = copy {
-                scan_expr_for_unsupported_hoist(package, package_id, *c, errors, seen);
-            }
-            for fa in fields {
-                scan_expr_for_unsupported_hoist(package, package_id, fa.value, errors, seen);
-            }
-        }
-        ExprKind::String(components) => {
-            for c in components {
-                if let StringComponent::Expr(e) = c {
-                    scan_expr_for_unsupported_hoist(package, package_id, *e, errors, seen);
+                    errors.push(Error::UnsupportedHoistContext(
+                        format!("{pat_ty}"),
+                        package.get_expr(*init_id).span,
+                    ));
                 }
             }
         }
-        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }

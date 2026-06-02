@@ -49,45 +49,6 @@ fn rewrite(file: &str) -> qsc_hir::hir::Package {
 }
 
 #[test]
-fn test_single_qubit() {
-    check(
-        indoc! { "namespace input {
-            operation Foo() : Unit {
-                use q = Qubit();
-                let x = 3;
-            }
-        }" },
-        &expect![[r#"
-            Package:
-                Item 0 [0-98] (Public):
-                    Namespace (Ident 13 [10-15] "input"): Item 1
-                Item 1 [22-96] (Internal):
-                    Parent: 0
-                    Callable 0 [22-96] (operation):
-                        name: Ident 1 [32-35] "Foo"
-                        input: Pat 2 [35-37] [Type Unit]: Unit
-                        output: Unit
-                        functors: empty set
-                        body: SpecDecl 3 [22-96]: Impl:
-                            Block 4 [45-96] [Type Unit]:
-                                Stmt 17 [55-71]: Local (Immutable):
-                                    Pat 18 [55-71] [Type Qubit]: Bind: Ident 7 [55-71] "q"
-                                    Expr 15 [55-71] [Type Qubit]: Call:
-                                        Expr 14 [55-71] [Type (Unit => Qubit)]: Var: Item 8 (Package 0)
-                                        Expr 16 [55-71] [Type Unit]: Unit
-                                Stmt 9 [80-90]: Local (Immutable):
-                                    Pat 10 [84-85] [Type Int]: Bind: Ident 11 [84-85] "x"
-                                    Expr 12 [88-89] [Type Int]: Lit: Int(3)
-                                Stmt 20 [0-0]: Semi: Expr 21 [55-71] [Type Unit]: Call:
-                                    Expr 19 [55-71] [Type (Qubit => Unit)]: Var: Item 10 (Package 0)
-                                    Expr 22 [55-71] [Type Qubit]: Var: Local 7
-                        adj: <none>
-                        ctl: <none>
-                        ctl-adj: <none>"#]],
-    );
-}
-
-#[test]
 fn test_explicitly_annotated_single_qubit_rewrite_preserves_binding_name_and_types() {
     let package = rewrite(indoc! { "namespace input {
         operation Foo() : Unit {

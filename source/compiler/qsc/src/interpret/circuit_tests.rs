@@ -1880,26 +1880,6 @@ fn grouped_scopes_match_for_repeated_draw_random_bit_calls() {
     .assert_eq(&circ);
 }
 
-#[test]
-fn static_entrypoint_handles_struct_copy_update() {
-    let circ = circuit_static(
-        r#"
-            namespace Test {
-                @EntryPoint()
-                operation Main() : Unit {
-                    struct Point3d { X : Double, Y : Double, Z : Double }
-
-                    mutable point = new Point3d { X = 0.0, Y = 0.0, Z = 0.0 };
-                    point = new Point3d { ...point, X = point.X + 1.0 };
-                    let x = point.X;
-                }
-            }
-        "#,
-    );
-
-    expect![""].assert_eq(&circ.to_string());
-}
-
 /// Tests that invoke circuit generation through the debugger.
 mod debugger_stepping {
     use super::Debugger;

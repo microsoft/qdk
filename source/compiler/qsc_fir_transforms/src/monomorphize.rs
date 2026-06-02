@@ -139,8 +139,8 @@ fn collect_rewrite_scope(
     // entry yet. Those new specializations may reference newly-cloned
     // closure items that are also unreachable from entry until call sites
     // are redirected.
-    let mut walked_items: FxHashSet<LocalItemId> = local_item_ids.iter().copied().collect();
-    walked_items.extend(new_item_ids.iter().copied());
+    let mut walked_items: FxHashSet<LocalItemId> = local_item_ids.into_iter().collect();
+    walked_items.extend(new_item_ids.iter());
 
     let mut scan_start = expr_ids.len();
     extend_expr_ids_in_local_callables(package, &new_item_ids, &mut expr_ids, &mut seen);
@@ -368,7 +368,7 @@ fn create_specializations(
 
     // Temporarily take the target package out of the store so we can hold
     // `&source_pkg` (for cross-package) and `&mut target_pkg` simultaneously.
-    let empty_pkg = empty_package();
+    let empty_pkg = Package::default();
     let mut target_pkg = std::mem::replace(store.get_mut(target_pkg_id), empty_pkg);
 
     let mut cloner = FirCloner::from_assigner(assigner);
@@ -388,10 +388,10 @@ fn create_specializations(
                 store.get(source_id.package)
             };
             let source_item = source_pkg.get_item(source_id.item);
-            let source_decl = match &source_item.kind {
-                ItemKind::Callable(decl) => decl.as_ref(),
-                _ => continue,
+            let ItemKind::Callable(source_decl) = &source_item.kind else {
+                panic!("expected StoreItemId {source_id} to refer to a callable");
             };
+            let source_decl = source_decl.as_ref();
             let body_pkg = extract_callable_body(source_pkg, source_decl);
             let decl_snapshot = source_decl.clone();
             (body_pkg, decl_snapshot)
@@ -512,18 +512,11 @@ fn create_specializations(
     (specializations, cloner.into_assigner())
 }
 
-/// Constructs an empty `Package` used as a scratch container for body
-/// extraction and for temporarily swapping out the target package during
-/// specialization.
-fn empty_package() -> Package {
-    Package::default()
-}
-
 /// Builds a standalone `Package` holding all nodes transitively referenced
 /// by a callable's body so that [`FirCloner`] can read from it without
 /// holding a reference to the original source package.
 fn extract_callable_body(source_pkg: &Package, decl: &CallableDecl) -> Package {
-    let mut body_pkg = empty_package();
+    let mut body_pkg = Package::default();
 
     // Input pattern.
     extract_pat(source_pkg, decl.input, &mut body_pkg);

@@ -172,6 +172,16 @@ use std::rc::Rc;
 /// (see [`create_projection_temp_binding`]).
 const ARG_PROMOTE_TMP_NAME: &str = "__arg_promote_tmp";
 
+/// Leaf-relative remap for a single promoted parameter: maps each positional
+/// sub-path within the parameter to the fresh scalar leaf local (and its type)
+/// that replaces it during the body field-read rewrite.
+type LeafRemap = FxHashMap<Vec<usize>, (LocalVarId, Ty)>;
+
+/// Per-promoted-parameter remap entry: the original parameter local, its full
+/// tuple type, and the [`LeafRemap`] used to rewrite the parameter's body field
+/// reads to its scalar leaves.
+type ParamLeafRemap = (LocalVarId, Ty, LeafRemap);
+
 /// Runs argument promotion on the entry-reachable portion of a package.
 ///
 /// # Before
@@ -790,16 +800,49 @@ fn param_is_promotable(uses: &[ParamUse]) -> Option<Vec<ExprId>> {
 /// Collects all `LocalItemId`s of callables in this package that appear as
 /// `Var(Res::Item(id))` with an `Arrow` type (i.e., used as a first-class
 /// value rather than as the callee of `Call`).
+///
+/// Traversal is delegated to the shared [`for_each_expr`] /
+/// [`for_each_expr_in_callable_impl`] walkers; only the first-class
+/// classification is specific to this pass. A direct call —
+/// `Call(Var(Item), _)` or a functor-applied direct call
+/// `Call(UnOp(_, Var(Item)), _)` — does not count its callee as first-class.
+/// Because the walk is pre-order, each `Call` is visited before its callee, so
+/// recording the direct-callee position first lets the later `Var` visit skip
+/// it.
 fn collect_first_class_callables(
     package: &Package,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
 ) -> FxHashSet<LocalItemId> {
     let mut first_class = FxHashSet::default();
+    let mut direct_callees: FxHashSet<ExprId> = FxHashSet::default();
+
+    let mut visit = |expr_id: ExprId, expr: &Expr| match &expr.kind {
+        ExprKind::Call(callee, _) => match &package.get_expr(*callee).kind {
+            ExprKind::Var(Res::Item(_), _) => {
+                direct_callees.insert(*callee);
+            }
+            ExprKind::UnOp(_, inner)
+                if matches!(
+                    package.get_expr(*inner).kind,
+                    ExprKind::Var(Res::Item(_), _)
+                ) =>
+            {
+                direct_callees.insert(*inner);
+            }
+            _ => {}
+        },
+        ExprKind::Var(Res::Item(item_id), _) if matches!(&expr.ty, Ty::Arrow(_)) => {
+            if item_id.package == package_id && !direct_callees.contains(&expr_id) {
+                first_class.insert(item_id.item);
+            }
+        }
+        _ => {}
+    };
 
     // Scan the entry expression.
     if let Some(entry_id) = package.entry {
-        scan_first_class_in_expr(package, package_id, entry_id, &mut first_class);
+        for_each_expr(package, entry_id, &mut visit);
     }
 
     // Scan every reachable callable body.
@@ -807,153 +850,12 @@ fn collect_first_class_callables(
         if item_id.package != package_id {
             continue;
         }
-        let item = package.get_item(item_id.item);
-        if let ItemKind::Callable(decl) = &item.kind {
-            scan_first_class_in_callable(package, package_id, decl, &mut first_class);
+        if let ItemKind::Callable(decl) = &package.get_item(item_id.item).kind {
+            for_each_expr_in_callable_impl(package, &decl.implementation, &mut visit);
         }
     }
 
     first_class
-}
-
-fn scan_first_class_in_callable(
-    package: &Package,
-    package_id: PackageId,
-    decl: &CallableDecl,
-    first_class: &mut FxHashSet<LocalItemId>,
-) {
-    match &decl.implementation {
-        CallableImpl::Intrinsic => {}
-        CallableImpl::Spec(spec_impl) => {
-            scan_first_class_in_block(package, package_id, spec_impl.body.block, first_class);
-            for spec in functored_specs(spec_impl) {
-                scan_first_class_in_block(package, package_id, spec.block, first_class);
-            }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            scan_first_class_in_block(package, package_id, spec.block, first_class);
-        }
-    }
-}
-
-fn scan_first_class_in_block(
-    package: &Package,
-    package_id: PackageId,
-    block_id: BlockId,
-    first_class: &mut FxHashSet<LocalItemId>,
-) {
-    let block = package.get_block(block_id);
-    for &stmt_id in &block.stmts {
-        let stmt = package.get_stmt(stmt_id);
-        match &stmt.kind {
-            StmtKind::Expr(e) | StmtKind::Semi(e) => {
-                scan_first_class_in_expr(package, package_id, *e, first_class);
-            }
-            StmtKind::Local(_, _, expr) => {
-                scan_first_class_in_expr(package, package_id, *expr, first_class);
-            }
-            StmtKind::Item(_) => {}
-        }
-    }
-}
-
-/// Scans an expression tree. A `Var(Res::Item(id))` with `Ty::Arrow` is
-/// considered first-class UNLESS it appears as the direct callee of a `Call`.
-fn scan_first_class_in_expr(
-    package: &Package,
-    package_id: PackageId,
-    expr_id: ExprId,
-    first_class: &mut FxHashSet<LocalItemId>,
-) {
-    let expr = package.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::Call(callee, args) => {
-            // The callee position is a direct call — don't mark it, but still
-            // recurse into the callee's sub-expressions, since a callee like
-            // Field(...) is not a direct Var.
-            let callee_expr = package.get_expr(*callee);
-            match &callee_expr.kind {
-                ExprKind::Var(Res::Item(_), _) => {
-                    // Direct call — skip marking, but recurse into args.
-                }
-                ExprKind::UnOp(_, inner) => {
-                    // Functor-applied call: check if inner is a direct item ref.
-                    let inner_expr = package.get_expr(*inner);
-                    if !matches!(inner_expr.kind, ExprKind::Var(Res::Item(_), _)) {
-                        // Not a direct functor application — recurse into callee.
-                        scan_first_class_in_expr(package, package_id, *callee, first_class);
-                    }
-                    // If inner IS a direct Var(Item), this is a direct functor-applied
-                    // call (e.g., Adjoint Foo(args)) — don't mark as first-class.
-                }
-                _ => {
-                    scan_first_class_in_expr(package, package_id, *callee, first_class);
-                }
-            }
-            scan_first_class_in_expr(package, package_id, *args, first_class);
-        }
-        ExprKind::Var(Res::Item(item_id), _) if matches!(&expr.ty, Ty::Arrow(_)) => {
-            if item_id.package == package_id {
-                first_class.insert(item_id.item);
-            }
-        }
-        // Recurse into all sub-expressions.
-        ExprKind::Array(es) | ExprKind::ArrayLit(es) | ExprKind::Tuple(es) => {
-            for &e in es {
-                scan_first_class_in_expr(package, package_id, e, first_class);
-            }
-        }
-        ExprKind::ArrayRepeat(a, b)
-        | ExprKind::Assign(a, b)
-        | ExprKind::AssignOp(_, a, b)
-        | ExprKind::BinOp(_, a, b)
-        | ExprKind::Index(a, b)
-        | ExprKind::AssignField(a, _, b)
-        | ExprKind::UpdateField(a, _, b) => {
-            scan_first_class_in_expr(package, package_id, *a, first_class);
-            scan_first_class_in_expr(package, package_id, *b, first_class);
-        }
-        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            scan_first_class_in_expr(package, package_id, *a, first_class);
-            scan_first_class_in_expr(package, package_id, *b, first_class);
-            scan_first_class_in_expr(package, package_id, *c, first_class);
-        }
-        ExprKind::Block(block_id) => {
-            scan_first_class_in_block(package, package_id, *block_id, first_class);
-        }
-        ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::Return(e) | ExprKind::UnOp(_, e) => {
-            scan_first_class_in_expr(package, package_id, *e, first_class);
-        }
-        ExprKind::If(cond, body, otherwise) => {
-            scan_first_class_in_expr(package, package_id, *cond, first_class);
-            scan_first_class_in_expr(package, package_id, *body, first_class);
-            if let Some(e) = otherwise {
-                scan_first_class_in_expr(package, package_id, *e, first_class);
-            }
-        }
-        ExprKind::Range(s, st, e) => {
-            for x in [s, st, e].into_iter().flatten() {
-                scan_first_class_in_expr(package, package_id, *x, first_class);
-            }
-        }
-        ExprKind::String(components) => {
-            for c in components {
-                if let qsc_fir::fir::StringComponent::Expr(e) = c {
-                    scan_first_class_in_expr(package, package_id, *e, first_class);
-                }
-            }
-        }
-        ExprKind::While(cond, block_id) => {
-            scan_first_class_in_expr(package, package_id, *cond, first_class);
-            scan_first_class_in_block(package, package_id, *block_id, first_class);
-        }
-        ExprKind::Hole
-        | ExprKind::Lit(_)
-        | ExprKind::Var(_, _)
-        | ExprKind::Closure(_, _)
-        // `Struct` is dead PostUdtErase: `udt_erase` lowers `Struct` to `Tuple`,
-        | ExprKind::Struct(_, _, _) => {}
-    }
 }
 
 /// Collects all `LocalItemId`s that are targets of `Closure(_, local_item_id)`
@@ -1051,7 +953,7 @@ fn promote_callable(
     // the leaf-relative map used to remap its body field reads.
     let mut leaf_pat_ids: Vec<PatId> = Vec::new();
     let mut leaf_entries: Vec<(Vec<usize>, Ty)> = Vec::new();
-    let mut remaps: Vec<(LocalVarId, Ty, FxHashMap<Vec<usize>, (LocalVarId, Ty)>)> = Vec::new();
+    let mut remaps: Vec<ParamLeafRemap> = Vec::new();
     let mut index_path: Vec<usize> = Vec::new();
     rebuild_input_leaves(
         package,
@@ -1122,6 +1024,7 @@ fn promote_callable(
 ///   `Discard` is kept as a single leaf, reusing the existing pattern node.
 /// - A `Tuple` recurses into each element and concatenates the children's
 ///   leaves, which is what flattens nested grouping.
+#[allow(clippy::too_many_arguments)]
 fn rebuild_input_leaves(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -1130,7 +1033,7 @@ fn rebuild_input_leaves(
     promotable: &FxHashSet<LocalVarId>,
     leaf_pat_ids: &mut Vec<PatId>,
     leaf_entries: &mut Vec<(Vec<usize>, Ty)>,
-    remaps: &mut Vec<(LocalVarId, Ty, FxHashMap<Vec<usize>, (LocalVarId, Ty)>)>,
+    remaps: &mut Vec<ParamLeafRemap>,
 ) {
     let pat = package.get_pat(pat_id);
     let pat_ty = pat.ty.clone();
@@ -1148,7 +1051,7 @@ fn rebuild_input_leaves(
             };
             leaf_pat_ids.extend(child_pat_ids);
 
-            let mut leaf_map: FxHashMap<Vec<usize>, (LocalVarId, Ty)> = FxHashMap::default();
+            let mut leaf_map: LeafRemap = FxHashMap::default();
             for (rel_path, leaf_local, leaf_ty) in &rel_leaves {
                 let mut full_path = index_path.clone();
                 full_path.extend_from_slice(rel_path);
@@ -1236,7 +1139,7 @@ fn rewrite_leaf_field_accesses(
     item_id: LocalItemId,
     old_local: LocalVarId,
     param_ty: &Ty,
-    leaf_map: &FxHashMap<Vec<usize>, (LocalVarId, Ty)>,
+    leaf_map: &LeafRemap,
     whole_value_reads: &[ExprId],
 ) {
     let expr_ids = collect_expr_ids_in_local_callables(&*package, &[item_id]);
@@ -1264,7 +1167,7 @@ fn reconstruct_whole_value_read(
     expr_id: ExprId,
     old_local: LocalVarId,
     param_ty: &Ty,
-    leaf_map: &FxHashMap<Vec<usize>, (LocalVarId, Ty)>,
+    leaf_map: &LeafRemap,
 ) {
     let expr = package.exprs.get(expr_id).expect("expr should exist");
     let ExprKind::Var(Res::Local(var_id), _) = &expr.kind else {
@@ -1306,7 +1209,7 @@ fn rewrite_single_leaf_field_expr(
     expr_id: ExprId,
     old_local: LocalVarId,
     param_ty: &Ty,
-    leaf_map: &FxHashMap<Vec<usize>, (LocalVarId, Ty)>,
+    leaf_map: &LeafRemap,
 ) {
     let expr = package.exprs.get(expr_id).expect("expr should exist");
     let ExprKind::Field(inner_id, Field::Path(path)) = expr.kind.clone() else {
@@ -1359,7 +1262,7 @@ fn build_leaf_tuple(
     assigner: &mut Assigner,
     param_ty: &Ty,
     prefix: &[usize],
-    leaf_map: &FxHashMap<Vec<usize>, (LocalVarId, Ty)>,
+    leaf_map: &LeafRemap,
 ) -> ExprId {
     if let Some((leaf_local, leaf_ty)) = leaf_map.get(prefix) {
         return create_local_var_expr(package, assigner, *leaf_local, leaf_ty);

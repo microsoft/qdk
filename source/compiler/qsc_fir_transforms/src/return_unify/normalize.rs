@@ -220,19 +220,13 @@ pub(super) fn hoist_returns_to_statement_boundary(
         changed_any = true;
         let measure = count_compound_position_returns(package, block_id);
         if matches!(prev_measure, Some(prev) if measure >= prev) {
-            errors.push(super::Error::FixpointNotReached {
-                phase: "hoist",
-                block: block_id,
-            });
+            errors.push(super::Error::FixpointNotReached("hoist", block_id));
             return changed_any;
         }
         prev_measure = Some(measure);
     }
     // Hard cap reached without convergence.
-    errors.push(super::Error::FixpointNotReached {
-        phase: "hoist",
-        block: block_id,
-    });
+    errors.push(super::Error::FixpointNotReached("hoist", block_id));
     changed_any
 }
 

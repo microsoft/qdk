@@ -201,13 +201,9 @@ impl Assigner {
         assigner.set_next_local(LocalVarId::from(max_local + 1));
 
         // LocalItemId — scan package.items keys
-        let max_item = package
-            .items
-            .iter()
-            .map(|(k, _)| -> usize { k.into() })
-            .max();
-        if let Some(max) = max_item {
-            assigner.set_next_item(LocalItemId::from(max + 1));
+        let max_item = package.items.iter().next_back();
+        if let Some((max, _)) = max_item {
+            assigner.set_next_item(max.successor());
         }
 
         assigner

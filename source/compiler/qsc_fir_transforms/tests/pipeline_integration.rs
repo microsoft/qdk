@@ -27,25 +27,6 @@ type LoweredOutput = (
     qsc_fir::assigner::Assigner,
 );
 
-const EXCESSIVE_SPECIALIZATIONS_SOURCE: &str = r#"
-    operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
-    @EntryPoint()
-    operation Main() : Unit {
-        use q = Qubit();
-        Apply(q1 => Rx(1.0, q1), q);
-        Apply(q1 => Rx(2.0, q1), q);
-        Apply(q1 => Rx(3.0, q1), q);
-        Apply(q1 => Rx(4.0, q1), q);
-        Apply(q1 => Rx(5.0, q1), q);
-        Apply(q1 => Rx(6.0, q1), q);
-        Apply(q1 => Rx(7.0, q1), q);
-        Apply(q1 => Rx(8.0, q1), q);
-        Apply(q1 => Rx(9.0, q1), q);
-        Apply(q1 => Rx(10.0, q1), q);
-        Apply(q1 => Rx(11.0, q1), q);
-    }
-"#;
-
 /// Compiles a Q# source string as an executable on top of core+std.
 fn compile_and_lower(source: &str) -> LoweredOutput {
     let (store, package_id) = compile_to_fir(source);
@@ -557,6 +538,24 @@ fn mixed_full_pipeline_semantic_regression_preserves_result() {
 
 #[test]
 fn excessive_specializations_warning_reaches_full_pipeline() {
+    const EXCESSIVE_SPECIALIZATIONS_SOURCE: &str = r#"
+        operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            Apply(q1 => Rx(1.0, q1), q);
+            Apply(q1 => Rx(2.0, q1), q);
+            Apply(q1 => Rx(3.0, q1), q);
+            Apply(q1 => Rx(4.0, q1), q);
+            Apply(q1 => Rx(5.0, q1), q);
+            Apply(q1 => Rx(6.0, q1), q);
+            Apply(q1 => Rx(7.0, q1), q);
+            Apply(q1 => Rx(8.0, q1), q);
+            Apply(q1 => Rx(9.0, q1), q);
+            Apply(q1 => Rx(10.0, q1), q);
+            Apply(q1 => Rx(11.0, q1), q);
+        }
+    "#;
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(EXCESSIVE_SPECIALIZATIONS_SOURCE);
 
     let result = run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);

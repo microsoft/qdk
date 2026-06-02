@@ -387,17 +387,8 @@ fn collect_structurally_mutated_specs(
                     }
                 }
             }
-            qsc_fir::fir::CallableImpl::SimulatableIntrinsic(spec) => {
-                push_if_spec_contains_mutated_expr(
-                    package,
-                    structurally_mutated_exprs,
-                    callable,
-                    CallableSpecKind::SimulatableIntrinsic,
-                    spec,
-                    &mut mutated_specs,
-                );
-            }
-            qsc_fir::fir::CallableImpl::Intrinsic => {}
+            qsc_fir::fir::CallableImpl::Intrinsic
+            | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
         }
     }
     mutated_specs

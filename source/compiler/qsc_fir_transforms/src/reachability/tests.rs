@@ -189,6 +189,25 @@ fn callable_only_in_unreachable_branch() {
 }
 
 #[test]
+fn callable_only_in_closure_body() {
+    check(
+        indoc! {"
+                namespace Test {
+                    function Other() : Unit {}
+                    @EntryPoint()
+                    function Main() : Unit {
+                        let f = () -> Other();
+                    }
+                }
+            "},
+        &expect![[r#"
+            <lambda>
+            Main
+            Other"#]],
+    );
+}
+
+#[test]
 fn lambda_in_entry_expression() {
     // Lambda defined and invoked directly in the entry expression.
     check(
