@@ -3065,12 +3065,27 @@ fn call_nested_inner_missing_close_paren() {
 fn call_with_struct_arg_missing_close_paren() {
     check(
         expr,
-        "foo(new Bar { x = 1 })",
+        "foo(new Bar { x = 1 }",
         &expect![[r#"
-            Expr _id_ [0-22]: Call:
+            Expr _id_ [0-21]: Call:
                 Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo")
-                Expr _id_ [3-22]: Paren: Expr _id_ [4-21]: Struct (Path _id_ [8-11] (Ident _id_ [8-11] "Bar")):
-                    FieldsAssign _id_ [14-19]: (Ident _id_ [14-15] "x") Expr _id_ [18-19]: Lit: Int(1)"#]],
+                Expr _id_ [3-21]: Paren: Expr _id_ [4-21]: Struct (Path _id_ [8-11] (Ident _id_ [8-11] "Bar")):
+                    FieldsAssign _id_ [14-19]: (Ident _id_ [14-15] "x") Expr _id_ [18-19]: Lit: Int(1)
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 21,
+                            hi: 21,
+                        },
+                    ),
+                ),
+            ]"#]],
     );
 }
 
