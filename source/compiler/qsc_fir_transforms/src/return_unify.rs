@@ -583,16 +583,15 @@ fn check_normalize_supportable(
             // An `If` whose condition contains a `return` and whose type is
             // non-Unit and non-defaultable cannot be hoisted (would panic in
             // `normalize::hoist_in_cond`).
-            ExprKind::If(cond, _, _) => {
+            ExprKind::If(cond, _, _)
                 if detect::contains_return_in_expr(package, *cond)
                     && expr.ty != Ty::UNIT
-                    && !is_type_defaultable(package, package_id, &expr.ty)
-                {
-                    errors.push(Error::UnsupportedHoistContext(
-                        format!("{}", expr.ty),
-                        expr.span,
-                    ));
-                }
+                    && !is_type_defaultable(package, package_id, &expr.ty) =>
+            {
+                errors.push(Error::UnsupportedHoistContext(
+                    format!("{}", expr.ty),
+                    expr.span,
+                ));
             }
             ExprKind::Block(bid) | ExprKind::While(_, bid) => block_ids.push(*bid),
             _ => {}

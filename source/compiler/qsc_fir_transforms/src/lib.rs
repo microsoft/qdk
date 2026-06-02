@@ -3,7 +3,7 @@
 
 //! FIR-to-FIR transformation passes for the Q# compiler.
 //!
-//! This crate defines the production FIR rewrite schedule that runs after FIR
+//! This crate defines the production FIR rewrite pipeline that runs after FIR
 //! lowering and before partial evaluation and codegen. The pipeline
 //! monomorphizes reachable callables, rewrites returns to a single-exit form,
 //! defunctionalizes callable values, erases UDTs, lowers non-empty tuple

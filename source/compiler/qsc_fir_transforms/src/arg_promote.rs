@@ -832,10 +832,12 @@ fn collect_first_class_callables(
             }
             _ => {}
         },
-        ExprKind::Var(Res::Item(item_id), _) if matches!(&expr.ty, Ty::Arrow(_)) => {
-            if item_id.package == package_id && !direct_callees.contains(&expr_id) {
-                first_class.insert(item_id.item);
-            }
+        ExprKind::Var(Res::Item(item_id), _)
+            if matches!(&expr.ty, Ty::Arrow(_))
+                && item_id.package == package_id
+                && !direct_callees.contains(&expr_id) =>
+        {
+            first_class.insert(item_id.item);
         }
         _ => {}
     };

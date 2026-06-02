@@ -74,11 +74,11 @@ fn operation_with_specializations_renders() {
                 adjoint {
                     X(q);
                 }
-                controlled {
-                    Controlled X(_local2, q);
+                controlled (ctls, ...) {
+                    Controlled X(ctls, q);
                 }
-                controlled adjoint {
-                    Controlled X(_local3, q);
+                controlled adjoint (ctls, ...) {
+                    Controlled X(ctls, q);
                 }
             }
             operation Main() : Unit {

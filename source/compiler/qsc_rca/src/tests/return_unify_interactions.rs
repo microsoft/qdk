@@ -67,7 +67,7 @@ fn flag_fallback_value_kind_after_dynamic_scope_return() {
             );
         }
         ComputeKind::Static => {
-            panic!("DynReturn body should be Dynamic after measurement-driven return, got Static",);
+            panic!("DynReturn body should be Dynamic after measurement-driven return, got Static");
         }
     }
 }

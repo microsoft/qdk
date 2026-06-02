@@ -1,6 +1,6 @@
 # Overview
 
-`qsc_fir_transforms` owns the production FIR-to-FIR rewrite schedule that runs after FIR lowering and before downstream consumers such as partial evaluation and backend code generation.
+`qsc_fir_transforms` owns the production FIR-to-FIR rewrite pipeline that runs after FIR lowering and before downstream consumers such as partial evaluation and backend code generation.
 
 The passes in this crate are ordered and staged as one pipeline. They are not intended to be individually sound in arbitrary combinations. Some intermediate results are only valid because later passes restore the structural guarantees that downstream code expects.
 
@@ -8,9 +8,9 @@ Most rewrites are entry-reachability-driven. They inspect the code that can be r
 
 ## Public entry point
 
-`run_pipeline_with_diagnostics` is the public production entry point. It runs the full rewrite schedule on one FIR package and returns pipeline diagnostics produced by `return_unify`, `defunctionalize`, or pinned-item validation. Warning-only diagnostics do not block successful `PostAll` output. Fatal diagnostics leave the FIR store at an intermediate state that must not be consumed as successful pipeline output.
+`run_pipeline_with_diagnostics` is the public production entry point. It runs the full rewrite pipeline on one FIR package and returns pipeline diagnostics produced by `return_unify`, `defunctionalize`, or pinned-item validation. Warning-only diagnostics do not block successful `PostAll` output. Fatal diagnostics leave the FIR store at an intermediate state that must not be consumed as successful pipeline output.
 
-`run_pipeline_to_with_diagnostics` exposes the same schedule up to a requested stage. Crate tests use it for stage cut points, and production codegen uses it with `PipelineStage::Full` plus pinned callable items. Pinned items must be existing callables; they are retained through item DCE and included in exec graph rebuild so callable-generation paths can keep using original callable IDs after defunctionalization specializes the entry call.
+`run_pipeline_to_with_diagnostics` exposes the same pipeline up to a requested stage. Crate tests use it for stage cut points, and production codegen uses it with `PipelineStage::Full` plus pinned callable items. Pinned items must be existing callables; they are retained through item DCE and included in exec graph rebuild so callable-generation paths can keep using original callable IDs after defunctionalization specializes the entry call.
 
 ## Pipeline
 
@@ -60,7 +60,7 @@ exec-graph-only validator and runs `PostAll` for the full pipeline.
 
 ## Module guide
 
-* `src/lib.rs` defines the production schedule, the stage cut points used by
+* `src/lib.rs` defines the production pipeline, the stage cut points used by
   crate tests, and the shared pipeline contract.
 * `src/monomorphize.rs`, `src/return_unify.rs`, `src/defunctionalize.rs`,
   `src/udt_erase.rs`, `src/tuple_compare_lower.rs`, `src/tuple_decompose.rs`,
@@ -77,7 +77,7 @@ exec-graph-only validator and runs `PostAll` for the full pipeline.
 * `src/pretty.rs` provides a FIR-to-Q# pretty-printer used by before/after
   snapshot tests for pass debugging.
 * `src/test_utils.rs` provides crate-local helpers that compile Q# snippets,
-  lower them to FIR, and run the authoritative schedule to an intermediate
+  lower them to FIR, and run the authoritative pipeline to an intermediate
   stage.
 
 ## Transformation shapes
@@ -105,7 +105,7 @@ The crate uses both pass-local unit tests and end-to-end integration tests.
   guarantees.
 * `tests/pipeline_integration.rs` compiles Q# snippets through the full
   pipeline, compares the public `run_pipeline_with_diagnostics` wrapper with
-  an explicit pass schedule, and preserves targeted regression cases.
+  an explicit pass pipeline, and preserves targeted regression cases.
 * The integration tests rely on the staged cut-points exposed by
   `run_pipeline_to_with_diagnostics` to assert per-stage behavior.
 

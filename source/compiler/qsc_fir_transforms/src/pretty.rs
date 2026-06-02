@@ -245,24 +245,22 @@ impl<'a> FirQSharpGen<'a> {
     fn local_names_for_callable(&self, decl: &CallableDecl) -> FxHashMap<LocalVarId, Rc<str>> {
         let mut local_names = FxHashMap::default();
         self.collect_pat_names(decl.input, &mut local_names);
-        if self.mode == RenderMode::Parseable {
-            match &decl.implementation {
-                CallableImpl::Intrinsic => {}
-                CallableImpl::Spec(spec) => {
-                    for spec in std::iter::once(&spec.body)
-                        .chain(spec.adj.iter())
-                        .chain(spec.ctl.iter())
-                        .chain(spec.ctl_adj.iter())
-                    {
-                        if let Some(input_pat) = spec.input {
-                            self.collect_pat_names(input_pat, &mut local_names);
-                        }
-                    }
-                }
-                CallableImpl::SimulatableIntrinsic(spec) => {
+        match &decl.implementation {
+            CallableImpl::Intrinsic => {}
+            CallableImpl::Spec(spec) => {
+                for spec in std::iter::once(&spec.body)
+                    .chain(spec.adj.iter())
+                    .chain(spec.ctl.iter())
+                    .chain(spec.ctl_adj.iter())
+                {
                     if let Some(input_pat) = spec.input {
                         self.collect_pat_names(input_pat, &mut local_names);
                     }
+                }
+            }
+            CallableImpl::SimulatableIntrinsic(spec) => {
+                if let Some(input_pat) = spec.input {
+                    self.collect_pat_names(input_pat, &mut local_names);
                 }
             }
         }
@@ -413,6 +411,11 @@ impl<'a> FirQSharpGen<'a> {
             return;
         }
         self.write(label);
+        if let ("controlled" | "controlled adjoint", Some(input_pat)) = (label, spec.input) {
+            self.write(" (");
+            self.emit_pat_bindings(self.control_pat(input_pat));
+            self.write(", ...)");
+        }
         self.emit_block(spec.block);
     }
 
