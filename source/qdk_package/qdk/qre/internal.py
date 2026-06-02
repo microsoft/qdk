@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Optional, Protocol, Union
+    from typing import ClassVar, Optional, Protocol, Union
 
     from ._architecture import Architecture
     from ._instruction import ISATransform
@@ -44,6 +44,18 @@ if TYPE_CHECKING:
 
         @property
         def application(self) -> "Application": ...
+
+    # ------------------------------------------------------------------
+    # DataclassProtocol
+    #   (runtime: _application.DataclassProtocol)
+    # ------------------------------------------------------------------
+    class DataclassProtocol(Protocol):
+        """Structural type satisfied by any ``@dataclass`` class.
+
+        Used as a constraint on :data:`TraceParameters`.
+        """
+
+        __dataclass_fields__: ClassVar[dict]
 
     # ------------------------------------------------------------------
     # InstructionSourceNodeReference
@@ -76,7 +88,7 @@ if TYPE_CHECKING:
         def expect_error_rate(self, arity: Optional[int] = None) -> float: ...
 
 else:
-    from ._application import ApplicationContext
+    from ._application import ApplicationContext, DataclassProtocol
     from ._instruction import (
         _InstructionSourceNodeReference as InstructionSourceNodeReference,
     )
@@ -84,6 +96,7 @@ else:
 
 __all__ = [
     "ApplicationContext",
+    "DataclassProtocol",
     "Instruction",
     "InstructionSourceNodeReference",
 ]

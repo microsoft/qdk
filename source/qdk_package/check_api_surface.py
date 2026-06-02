@@ -18,8 +18,8 @@ Types that are defined in a private module but re-exported through a
 public module's ``__all__`` are **not** flagged — they are considered
 public.
 
-Exit code 0  – no violations found.
-Exit code 1  – one or more violations found (details printed to stderr).
+Exit code 0  - no violations found.
+Exit code 1  - one or more violations found (details printed to stderr).
 
 Usage::
 
@@ -70,24 +70,6 @@ SKIP_MODULES: set[str] = {
 # __module__ paths (e.g. pathlib._local.Path, concurrent.futures._base.Future,
 # qiskit._accelerate.target.QubitProperties).
 OWNED_PREFIXES: tuple[str, ...] = ("qdk.",)
-
-# Symbols that are themselves known-OK despite having a private-looking
-# module path (e.g. TypeVar constraints that users never reference directly).
-# Format: frozenset of fully qualified "<module>.<qualname>" strings.
-KNOWN_EXCEPTIONS: frozenset[str] = frozenset()
-
-# Private types that are tolerated in the public API surface.  Unlike
-# KNOWN_EXCEPTIONS (which match by public-symbol FQN), these match by the
-# private type's own FQN.  Use this for typing-only artefacts that users
-# never import or reference directly.
-KNOWN_PRIVATE_TYPES: frozenset[str] = frozenset(
-    {
-        # DataclassProtocol is a TypeVar constraint on TraceParameters.  Users
-        # satisfy it implicitly by using @dataclass; they never import or
-        # reference the protocol itself.
-        "qdk.qre._application.DataclassProtocol",
-    }
-)
 
 
 # ---------------------------------------------------------------------------
@@ -234,14 +216,7 @@ def _check_annotation(
                 bare_name = ref_str.rsplit(".", 1)[-1]
                 if bare_name in public_type_names:
                     continue
-                # Check if this is a known-OK private type (by forward-ref string)
-                if ref_str in KNOWN_PRIVATE_TYPES:
-                    continue
-                fqn = f"{module_name}.{symbol_name}"
-                if fqn not in KNOWN_EXCEPTIONS:
-                    violations.append(
-                        Violation(module_name, symbol_name, context, ref_str)
-                    )
+                violations.append(Violation(module_name, symbol_name, context, ref_str))
         elif isinstance(leaf, type):
             # Skip types that are publicly re-exported
             if id(leaf) in public_type_ids:
@@ -255,12 +230,7 @@ def _check_annotation(
                 continue
             if _is_private_name(leaf_name) or _module_has_private_segment(leaf_mod):
                 ref = _type_fqn(leaf)
-                # Check if this is a known-OK private type (by FQN)
-                if ref in KNOWN_PRIVATE_TYPES:
-                    continue
-                fqn = f"{module_name}.{symbol_name}"
-                if fqn not in KNOWN_EXCEPTIONS:
-                    violations.append(Violation(module_name, symbol_name, context, ref))
+                violations.append(Violation(module_name, symbol_name, context, ref))
 
 
 def _check_callable(
