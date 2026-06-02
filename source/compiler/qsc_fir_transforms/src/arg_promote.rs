@@ -2382,9 +2382,6 @@ fn normalize_arg_to_expected_input(
     };
 
     if expected_items.len() == 1 && arg.ty == expected_items[0] {
-        if matches!(&arg.kind, ExprKind::Tuple(items) if items.len() == 1) {
-            return;
-        }
         wrap_arg_in_single_tuple(package, assigner, arg_id);
         return;
     }
