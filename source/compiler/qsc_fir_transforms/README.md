@@ -1,132 +1,51 @@
-# Overview
+# qsc_fir_transforms
 
-`qsc_fir_transforms` owns the production FIR-to-FIR rewrite pipeline that runs after FIR lowering and before downstream consumers such as partial evaluation and backend code generation.
+The production FIR-to-FIR rewrite pipeline. It runs after FIR lowering and before downstream consumers such as partial evaluation and backend code generation, producing FIR that is semantically equivalent to the input but easier for those consumers to handle.
 
-The passes in this crate are ordered and staged as one pipeline. They are not intended to be individually sound in arbitrary combinations. Some intermediate results are only valid because later passes restore the structural guarantees that downstream code expects.
+## What to know before diving in
 
-Most rewrites are entry-reachability-driven. They inspect the code that can be reached from the package entry expression and limit mutation accordingly. The main exception is UDT erasure, which is still reachability-scoped but operates at package granularity within the reachable package closure: it rewrites the target package plus any package that contains an entry-reachable callable, leaves unreachable packages untouched, and resolves UDT definitions from the whole store.
+- **It is one pipeline, not a toolbox of independent passes.** The passes are ordered and assume each other's output. Several intermediate states deliberately violate FIR invariants that later passes restore, so running a pass in isolation or reordering passes is generally unsound. Treat `run_pipeline_with_diagnostics` (and the staged `run_pipeline_to_with_diagnostics`) as the only supported way to invoke them.
 
-## Public entry point
+- **Rewrites are entry-reachability-driven.** Most passes inspect what is reachable from the package entry expression and only mutate that. UDT erasure is the main exception: it is still reachability-scoped but works at package granularity across the reachable package closure (target package plus any package with an entry-reachable callable; unreachable packages are left alone).
 
-`run_pipeline_with_diagnostics` is the public production entry point. It runs the full rewrite pipeline on one FIR package and returns pipeline diagnostics produced by `return_unify`, `defunctionalize`, or pinned-item validation. Warning-only diagnostics do not block successful `PostAll` output. Fatal diagnostics leave the FIR store at an intermediate state that must not be consumed as successful pipeline output.
+- **One `Assigner` is threaded through the whole pipeline.** Every pass that synthesizes FIR nodes allocates fresh IDs from a single shared `Assigner` so IDs never collide across stages. Do not construct a new `Assigner` mid-pipeline. The trailing metadata passes (`gc_unreachable`, `item_dce`, `exec_graph_rebuild`) don't get it because they only tombstone, delete, or rebuild derived data.
 
-`run_pipeline_to_with_diagnostics` exposes the same pipeline up to a requested stage. Crate tests use it for stage cut points, and production codegen uses it with `PipelineStage::Full` plus pinned callable items. Pinned items must be existing callables; they are retained through item DCE and included in exec graph rebuild so callable-generation paths can keep using original callable IDs after defunctionalization specializes the entry call.
+- **Synthesized nodes use the `EMPTY_EXEC_RANGE` sentinel.** New exprs/stmts carry an empty `exec_graph_range`; the final `exec_graph_rebuild` pass consumes that sentinel and recomputes the execution graph.
 
-## Pipeline
+- **Only consume output when there are no fatal diagnostics.** Fatal diagnostics (from `return_unify`, `defunctionalize`, or pinned-item validation) leave the store at an intermediate, invalid state. Warning-only diagnostics are preserved and do not block successful output.
 
-The authoritative pass order is:
+## Pass order
 
-1. `monomorphize`
-2. `return_unify`
-3. `defunctionalize`
-4. `udt_erase`
-5. `tuple_compare_lower`
-6. `tuple_decompose`
-7. `arg_promote`
-8. `gc_unreachable`
-9. `item_dce`
-10. `exec_graph_rebuild`
+1. `monomorphize` — specialize reachable generic callables to concrete types.
+2. `return_unify` — rewrite bodies to single-exit form, removing `Return` nodes while preserving path-local side effects (e.g. qubit release).
+3. `defunctionalize` — eliminate callable-valued expressions/closures; rewrite call sites to direct dispatch.
+4. `udt_erase` — replace UDT values and struct expressions with tuple/scalar form across the reachable package closure.
+5. `tuple_compare_lower` — lower equality/inequality on non-empty tuples to element-wise scalar comparisons.
+6. `tuple_decompose` — decompose tuple-valued locals whose uses are all field accesses.
+7. `arg_promote` — flatten tuple-valued callable parameters and update call sites.
 
-The passes have the following responsibilities:
+   Steps 6 and 7 iterate to a fixed point (convergence is guaranteed by a strictly-decreasing measure).
 
-1. `monomorphize` specializes reachable generic callables to the concrete types
-   used from the entry expression.
-2. `return_unify` rewrites callable bodies to a single-exit form by
-   eliminating all `ExprKind::Return` nodes while preserving path-local side
-   effects such as qubit release calls.
-3. `defunctionalize` eliminates callable-valued expressions and rewrites call
-   sites to direct callable references where possible.
-4. `udt_erase` replaces UDT-typed values and struct expressions in the
-   reachable package closure with their pure tuple or scalar representation.
-5. `tuple_compare_lower` lowers equality and inequality on non-empty tuples to
-   element-wise scalar comparisons.
-6. `tuple_decompose` iteratively decomposes tuple-valued locals when every use is a field
-   access or another decomposable aggregate update.
-7. `arg_promote` iteratively decomposes tuple-valued callable parameters and
-   updates reachable call sites.
-8. `gc_unreachable` tombstones orphaned blocks, stmts, exprs, and pats that
-   are no longer reachable from any callable body or entry expression.
-9. `item_dce` removes unreachable callable and type items left behind by
-    monomorphization and defunctionalization.
-10. `exec_graph_rebuild` recomputes exec-graph metadata after earlier passes
-   synthesize new FIR nodes, including selected external callable specs that
-   UDT erasure structurally mutated.
+8. `gc_unreachable` — tombstone orphaned arena nodes.
+9. `item_dce` — remove unreachable callable/type items; re-run `gc_unreachable` if anything was deleted.
+10. `exec_graph_rebuild` — recompute exec-graph metadata from the rewritten FIR.
 
-Invariant checks run after `monomorphize`, `return_unify`, `defunctionalize`,
-`udt_erase`, `tuple_compare_lower`, `tuple_decompose`, `arg_promote`, and
-`gc_unreachable`, then after `item_dce` at the `PostItemDce` cut point. After
-exec graph rebuild, the pipeline checks mutated external specs with an
-exec-graph-only validator and runs `PostAll` for the full pipeline.
+Invariant checks run after most passes. `run_pipeline_to_with_diagnostics` exposes each stage as a cut point used by tests and (with `PipelineStage::Full` plus pinned callable items) by production codegen.
 
-## Module guide
+## Where to look
 
-* `src/lib.rs` defines the production pipeline, the stage cut points used by
-  crate tests, and the shared pipeline contract.
-* `src/monomorphize.rs`, `src/return_unify.rs`, `src/defunctionalize.rs`,
-  `src/udt_erase.rs`, `src/tuple_compare_lower.rs`, `src/tuple_decompose.rs`,
-  `src/arg_promote.rs`, `src/gc_unreachable.rs`, `src/item_dce.rs`, and
-  `src/exec_graph_rebuild.rs` implement the ordered transform stages.
-* `src/invariants.rs` defines the staged structural checks that validate
-  intermediate and final pipeline states.
-* `src/reachability.rs` computes the entry-reachable callable set shared by
-   multiple passes.
-* `src/walk_utils.rs` provides traversal and use-collection helpers for
-  passes that rewrite FIR in place.
-* `src/cloner.rs` provides reusable deep-cloning support for passes that need
-  to synthesize FIR while preserving consistent ID remapping.
-* `src/pretty.rs` provides a FIR-to-Q# pretty-printer used by before/after
-  snapshot tests for pass debugging.
-* `src/test_utils.rs` provides crate-local helpers that compile Q# snippets,
-  lower them to FIR, and run the authoritative pipeline to an intermediate
-  stage.
-
-## Transformation shapes
-
-| Pass | Before | After |
-|------|--------|-------|
-| `monomorphize` | Generic callables with `Ty::Param` and non-empty generic-argument lists | Concrete callables; all `Ty::Param` resolved, generic-argument lists empty |
-| `return_unify` | Multiple `ExprKind::Return` nodes in callable bodies, including raw qubit-release return wrappers | Single-exit form; no `Return` nodes remain in reachable code, and path-local releases stay on their original paths |
-| `defunctionalize` | Arrow-typed parameters, closures, indirect callable dispatch | Direct dispatch only; no `ExprKind::Closure` or arrow-typed params in reachable code |
-| `udt_erase` | `Ty::Udt` values, `ExprKind::Struct`, `Field::Path` in update/assign | Pure tuple or scalar representations; no UDT surface in reachable package closure, with `Field::Path` allowed only for tuple-field reads |
-| `tuple_compare_lower` | `BinOp(Eq/Neq)` on non-empty tuple-typed operands | Element-wise scalar `AndL`/`OrL` chains with `Field` extractions |
-| `tuple_decompose` | Tuple-valued locals used only via field access | Decomposed scalar bindings; tuple binding replaced by per-field `PatKind::Bind` |
-| `arg_promote` | Tuple-valued callable parameters | Flattened scalar parameters; call sites pass individual fields |
-| `gc_unreachable` | Orphaned arena nodes (blocks, stmts, exprs, pats) from earlier rewrites | Tombstoned entries; only nodes reachable from package items or the entry expression survive |
-| `item_dce` | Unreachable callable/type items (original generics, dead closure items) | Items removed from `Package::items`; `gc_unreachable` re-runs if items were deleted |
-| `exec_graph_rebuild` | Stale `exec_graph_range` with `EMPTY_EXEC_RANGE` sentinels | Fresh exec graphs rebuilt from the rewritten target FIR tree and selected mutated external specs |
+- `src/lib.rs` — pipeline orchestration, stage cut points, and the cross-pass contracts above.
+- One file per pass (`src/monomorphize.rs`, `src/return_unify.rs`, …, `src/exec_graph_rebuild.rs`).
+- `src/invariants.rs` — staged structural checks.
+- `src/reachability.rs`, `src/walk_utils.rs`, `src/cloner.rs` — shared traversal, use-collection, and deep-cloning helpers.
+- `src/pretty.rs` — FIR-to-Q# pretty-printer used by before/after snapshot tests.
+- `src/test_utils.rs` — compile-and-run-to-stage helpers (re-exported under the `testutil` feature for external crates).
 
 ## Testing
 
-The crate uses both pass-local unit tests and end-to-end integration tests.
-
-* Unit tests live next to each pass and focus on localized rewrites,
-  invariants, and edge cases.
-* `src/invariants/tests.rs` adds mutation-style coverage for staged structural
-  guarantees.
-* `tests/pipeline_integration.rs` compiles Q# snippets through the full
-  pipeline, compares the public `run_pipeline_with_diagnostics` wrapper with
-  an explicit pass pipeline, and preserves targeted regression cases.
-* The integration tests rely on the staged cut-points exposed by
-  `run_pipeline_to_with_diagnostics` to assert per-stage behavior.
-
-## Test lanes
-
-The default test lane keeps deterministic tests enabled and excludes the slower
-semantic-equivalence proptests:
-
 ```bash
-cargo test -p qsc_fir_transforms
+cargo test -p qsc_fir_transforms                                  # default lane
+cargo test -p qsc_fir_transforms --features slow-proptest-tests   # + semantic-equivalence proptests
 ```
 
-Enable the slower proptest-backed semantic-equivalence suites with the
-`slow-proptest-tests` feature:
-
-```bash
-cargo test -p qsc_fir_transforms --features slow-proptest-tests
-```
-
-### External test helpers
-
-The `testutil` feature re-exports the staged pipeline helpers in
-`src/test_utils.rs` so external crates can drive the same compile-and-run-to-stage
-flow used by the in-crate tests.
+Pass-local unit tests sit next to each pass; `tests/pipeline_integration.rs` drives full-pipeline and per-stage behavior.
