@@ -328,7 +328,7 @@ impl ArgTy {
     }
 
     /// Applies the argument type to a parameter type, generating constraints and errors.
-    fn apply(&self, param: &Ty, call_span: Span) -> App {
+    fn apply(&self, param: &Ty) -> App {
         match (self, param) {
             // If `arg` is a hole, then it doesn't matter what the param is,
             // because the hole can be anything.
@@ -368,7 +368,7 @@ impl ArgTy {
                 let mut holes = Vec::new();
                 let mut constraints = Vec::new();
                 for (arg, param) in args.iter().zip(params) {
-                    let mut app = arg.apply(param, *tuple_span);
+                    let mut app = arg.apply(param);
                     constraints.append(&mut app.constraints);
                     errors.append(&mut app.errors);
                     if app.holes.len() > 1 {
@@ -1037,7 +1037,7 @@ fn check_call(callee: Ty, input: &ArgTy, output: Ty, span: Span) -> (Vec<Constra
     // generate constraints for the arg ty that correspond to any class constraints specified in
     // the parameters
 
-    let mut app = input.apply(&arrow.input.borrow(), span);
+    let mut app = input.apply(&arrow.input.borrow());
     let expected = if app.holes.len() > 1 {
         Ty::Arrow(Rc::new(Arrow {
             kind: arrow.kind,
