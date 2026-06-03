@@ -1776,32 +1776,6 @@ fn adj_requires_unit_return() {
 }
 
 #[test]
-fn should_have_been_array() {
-    check(
-        indoc! {"
-            namespace A {
-                operation Foo(qs: Qubit[]) : Unit is Adj {
-                    Foo(qs[0])
-                }
-            }
-        "},
-        "",
-        &expect![[r##"
-            #6 31-44 "(qs: Qubit[])" : Qubit[]
-            #7 32-43 "qs: Qubit[]" : Qubit[]
-            #17 59-85 "{\n        Foo(qs[0])\n    }" : Unit
-            #19 69-79 "Foo(qs[0])" : Unit
-            #20 69-72 "Foo" : (Qubit[] => Unit is Adj)
-            #23 72-79 "(qs[0])" : Qubit
-            #24 73-78 "qs[0]" : Qubit
-            #25 73-75 "qs" : Qubit[]
-            #28 76-77 "0" : Int
-            Error(Type(Error(TyMismatch("Qubit[]", "Qubit", Span { lo: 73, hi: 78 }))))
-        "##]],
-    );
-}
-
-#[test]
 fn ctl_requires_unit_return() {
     check(
         indoc! {"

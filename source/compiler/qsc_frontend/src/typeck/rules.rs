@@ -766,6 +766,8 @@ impl<'a> Context<'a> {
                 self.record(expr.id, Ty::Tuple(tys.iter().map(ArgTy::to_ty).collect()));
                 let span = expr.span;
                 self.diverge_if_map(
+                    // This seems like it could be the span of the (first?) divergent
+                    // tuple item, but the value doesn't seem to justify the complexity
                     |ty| ArgTy::Given(ty, span),
                     diverges,
                     converge(ArgTy::Tuple(tys)),
