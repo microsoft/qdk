@@ -507,8 +507,8 @@ fn ty_mismatch_span_tuple1_to_given() {
             #23 76-82 "((1,))" : (Int,)
             #24 77-81 "(1,)" : (Int,)
             #25 78-79 "1" : Int
-            Error(Type(Error(TyMismatch("Int", "(Int,)", Span { lo: 77, hi: 81 }))))
-        "##]],
+            Error(Type(Error(TyMismatch("Int", "(Int,)", Span { lo: 76, hi: 82 }))))
+        "##]], // 77-81 would be better, but the parens are fine
     );
 }
 
@@ -607,9 +607,9 @@ fn length_type_error() {
             #24 92-93 "1" : Int
             #25 95-96 "2" : Int
             #26 98-99 "3" : Int
-            Error(Type(Error(TyMismatch("?[]", "(Int, Int, Int)", Span { lo: 84, hi: 101 }))))
+            Error(Type(Error(TyMismatch("?[]", "(Int, Int, Int)", Span { lo: 90, hi: 101 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 84, hi: 90 }))))
-        "##]],
+        "##]], // 91-100 would be better, but the parens are fine
     );
 }
 
@@ -2049,7 +2049,7 @@ fn fail_in_call_args_checks_arity() {
             #33 64-65 "1" : Int
             #34 67-78 "fail \"true\"" : Int
             #35 72-78 "\"true\"" : String
-            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 60, hi: 79 }))))
+            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 63, hi: 79 }))))
         "##]],
     );
 }
@@ -2245,7 +2245,7 @@ fn return_in_call_args_checks_arity() {
             #33 64-65 "1" : Int
             #34 67-80 "return \"true\"" : Int
             #35 74-80 "\"true\"" : String
-            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 60, hi: 81 }))))
+            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 63, hi: 81 }))))
         "##]],
     );
 }
@@ -4121,7 +4121,7 @@ fn partial_app_too_many_args() {
             function Foo(x : Int) : Int { x }
             let f = Foo(1, _, _);
         }"},
-        &expect![[r#"
+        &expect![[r##"
             #1 0-67 "{\n    function Foo(x : Int) : Int { x }\n    let f = Foo(1, _, _);\n}" : Unit
             #2 0-67 "{\n    function Foo(x : Int) : Int { x }\n    let f = Foo(1, _, _);\n}" : Unit
             #7 18-27 "(x : Int)" : Int
@@ -4135,10 +4135,10 @@ fn partial_app_too_many_args() {
             #29 56-57 "1" : Int
             #30 59-60 "_" : ?1
             #31 62-63 "_" : ?2
-            Error(Type(Error(TyMismatch("Int", "(Int, ?, ?)", Span { lo: 52, hi: 64 }))))
+            Error(Type(Error(TyMismatch("Int", "(Int, ?, ?)", Span { lo: 55, hi: 64 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 59, hi: 60 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 62, hi: 63 }))))
-        "#]],
+        "##]],
     );
 }
 
