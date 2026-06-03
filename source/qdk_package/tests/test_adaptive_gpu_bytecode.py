@@ -876,6 +876,26 @@ def test_float_arith_negative_test(bin_op, lhs, rhs, expected):
     )
 
 
+# Dividing by zero with `frem` must fail gracefully (no crash, deterministic
+# result) rather than panicking the interpreter. The exact value is left
+# implementation-defined on the GPU: with strict IEEE semantics `8 frem 0` is
+# NaN, but GPUs using fast-math may yield a finite value for `x / 0`. So we only
+# assert that the program runs and every shot agrees.
+FREM_BY_ZERO_QIR = """
+  %a = frem double 8.0, 0.0
+  %flag = fcmp oeq double %a, %a
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_frem_by_zero_is_graceful():
+    body = build_arith_body(FREM_BY_ZERO_QIR)
+    qir = format_qir(body)
+    results = _run(qir, SHOTS)["shot_results"]
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert len(counts) == 1, f"Expected a deterministic result, got {counts}"
+
+
 # #########################################################################
 #  Type Conversion  (OP_ZEXT → OP_SITOFP)
 # #########################################################################
@@ -1043,6 +1063,20 @@ FPTOUI_LARGE_QIR = """
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_fptoui_large():
     check_arith_result(FPTOUI_LARGE_QIR, "1")
+
+
+FPTOUI_NEGATIVE_QIR = """
+  ; fptoui of a negative float is out of range for an unsigned int;
+  ; but we still round towards the nearest uint value, which is zero.
+  %neg = fsub double 0.0, 3.7
+  %i = fptoui double %neg to i64
+  %flag = icmp eq i64 %i, 0
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_fptoui_negative():
+    check_arith_result(FPTOUI_NEGATIVE_QIR, "1")
 
 
 # =========================================================================

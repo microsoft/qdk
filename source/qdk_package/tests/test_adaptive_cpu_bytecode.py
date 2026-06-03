@@ -873,6 +873,21 @@ def test_float_arith_negative_test(sim_type, bin_op, lhs, rhs, expected):
     )
 
 
+# Dividing by zero with `frem` must fail gracefully by producing NaN
+# (matching C's `fmod`) rather than crashing the interpreter. NaN never
+# compares equal to itself, so `fcmp one %a, %a` (not-equal) is true iff the
+# result is NaN.
+FREM_BY_ZERO_QIR = """
+  %a = frem double 8.0, 0.0
+  %flag = fcmp one double %a, %a
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_frem_by_zero_is_nan(sim_type):
+    check_arith_result(FREM_BY_ZERO_QIR, "1", sim_type=sim_type)
+
+
 # #########################################################################
 #  Type Conversion  (OP_ZEXT → OP_SITOFP)
 # #########################################################################
@@ -1037,6 +1052,20 @@ FPTOUI_LARGE_QIR = """
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_fptoui_large(sim_type):
     check_arith_result(FPTOUI_LARGE_QIR, "1", sim_type=sim_type)
+
+
+FPTOUI_NEGATIVE_QIR = """
+  ; fptoui of a negative float is out of range for an unsigned int;
+  ; but we still round towards the nearest uint value, which is zero.
+  %neg = fsub double 0.0, 3.7
+  %i = fptoui double %neg to i64
+  %flag = icmp eq i64 %i, 0
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_fptoui_negative(sim_type):
+    check_arith_result(FPTOUI_NEGATIVE_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
