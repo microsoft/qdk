@@ -280,8 +280,14 @@ impl<'a> Context<'a> {
                         let spans: Vec<_> = if let ExprKind::Tuple(items) = input_expr.kind.as_ref()
                         {
                             items.iter().map(|item| item.span).collect()
+                        } else if let ExprKind::Paren(inner) = input_expr.kind.as_ref() {
+                            if let ExprKind::Tuple(items) = inner.kind.as_ref() {
+                                items.iter().map(|item| item.span).collect()
+                            } else {
+                                panic!("unexpected syntax kind: {:?}", inner.kind)
+                            }
                         } else {
-                            vec![input_expr.span; tys.len()]
+                            panic!("unexpected syntax kind: {:?}", input_expr.kind)
                         };
                         Partial {
                             ty: ArgTy::Tuple(
