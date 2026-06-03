@@ -326,7 +326,7 @@ impl ArgTy {
     }
 
     /// Applies the argument type to a parameter type, generating constraints and errors.
-    fn apply(&self, param: &Ty, span: Span) -> App {
+    fn apply(&self, param: &Ty, call_span: Span) -> App {
         match (self, param) {
             // If `arg` is a hole, then it doesn't matter what the param is,
             // because the hole can be anything.
@@ -342,10 +342,6 @@ impl ArgTy {
                 }],
                 errors: Vec::new(),
             },
-            // If `arg` is a hole, then it doesn't matter what the param is,
-            // because the hole can be anything.
-            // However, we do know that the type of Arg must be Eq to the type of Param, so we
-            // add that to the constraints.
             (Self::Given(arg, arg_span), _) => App {
                 holes: Vec::new(),
                 constraints: vec![Constraint::Eq {
@@ -363,14 +359,14 @@ impl ArgTy {
                     errors.push(Error(ErrorKind::TyMismatch(
                         Ty::Tuple(params.clone()).display(),
                         self.to_ty().display(),
-                        span,
+                        call_span,
                     )));
                 }
 
                 let mut holes = Vec::new();
                 let mut constraints = Vec::new();
                 for (arg, param) in args.iter().zip(params) {
-                    let mut app = arg.apply(param, span);
+                    let mut app = arg.apply(param, call_span);
                     constraints.append(&mut app.constraints);
                     errors.append(&mut app.errors);
                     if app.holes.len() > 1 {
@@ -392,7 +388,7 @@ impl ArgTy {
                 constraints: vec![Constraint::Eq {
                     expected: param.clone(),
                     actual: self.to_ty(),
-                    span,
+                    span: call_span,
                 }],
                 errors: Vec::new(),
             },
@@ -402,7 +398,7 @@ impl ArgTy {
                 errors: vec![Error(ErrorKind::TyMismatch(
                     param.display(),
                     self.to_ty().display(),
-                    span,
+                    call_span,
                 ))],
             },
         }
