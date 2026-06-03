@@ -1831,14 +1831,30 @@ impl<'a> PartialEvaluator<'a> {
                     Err(_) => Err(EvalError::ArrayTooLarge(args_span).into()),
                 }
             }
-            "IntAsDouble" => {
-                let variable_id = self.resource_manager.next_var();
-                self.convert_value(&args_value, rir::Variable::new_double(variable_id))
-            }
-            "Truncate" => {
-                let variable_id = self.resource_manager.next_var();
-                self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
-            }
+            "IntAsDouble" => match args_value {
+                #[allow(clippy::cast_precision_loss)]
+                Value::Int(i) => Ok(Value::Double(i as f64)),
+                Value::Var(_) => {
+                    let variable_id = self.resource_manager.next_var();
+                    self.convert_value(&args_value, rir::Variable::new_double(variable_id))
+                }
+                _ => panic!(
+                    "Unexpected value type for IntAsDouble: {}",
+                    args_value.type_name()
+                ),
+            },
+            "Truncate" => match args_value {
+                #[allow(clippy::cast_possible_truncation)]
+                Value::Double(d) => Ok(Value::Int(d as i64)),
+                Value::Var(_) => {
+                    let variable_id = self.resource_manager.next_var();
+                    self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
+                }
+                _ => panic!(
+                    "Unexpected value type for Truncate: {}",
+                    args_value.type_name()
+                ),
+            },
             _ => self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
                 callable_decl,
