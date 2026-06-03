@@ -10,7 +10,7 @@
      phi   = arg(b) - arg(a), normalized to [0, 2 * PI)
 */
 
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
 import {
   BoxGeometry,
@@ -81,15 +81,99 @@ function colorsFor(isDark: boolean) {
   return isDark ? darkThemeColors : lightThemeColors;
 }
 
-const gateLaTeX = {
-  X: "\\begin{bmatrix} 0 & 1 \\\\ 1 & 0 \\end{bmatrix}",
-  Y: "\\begin{bmatrix} 0 & -i \\\\ i & 0 \\end{bmatrix}",
-  Z: "\\begin{bmatrix} 1 & 0 \\\\ 0 & -1 \\end{bmatrix}",
-  S: "\\begin{bmatrix} 1 & 0 \\\\ 0 & e^{i {\\pi \\over 2}} \\end{bmatrix}",
-  SA: "\\begin{bmatrix} 1 & 0 \\\\ 0 & e^{-i {\\pi \\over 2}} \\end{bmatrix}",
-  T: "\\begin{bmatrix} 1 & 0 \\\\ 0 & e^{i {\\pi \\over 4}} \\end{bmatrix}",
-  TA: "\\begin{bmatrix} 1 & 0 \\\\ 0 & e^{-i {\\pi \\over 4}} \\end{bmatrix}",
-  H: "{1 \\over \\sqrt{2}} \\begin{bmatrix} 1 & 1 \\\\ 1 & -1 \\end{bmatrix}",
+/**
+ * Axis names accepted by the renderer's animated rotation methods and by
+ * `BlochRenderer.snapTo`. Distinct from x/y/z labels in the visualization;
+ * these are the rotation primitives the renderer exposes.
+ */
+type RotationAxis = "X" | "Y" | "Z" | "H";
+
+/**
+ * Per-gate metadata used by both the visualization layer (to animate or
+ * snap the sphere) and the math layer (to display the LaTeX equation and
+ * update the basis-coefficient state vector). Keyed by the single-character
+ * gate code (see `VALID_GATE_CODES`).
+ *
+ * Keeping one table avoids the previous duplication where the same code was
+ * mentioned in a `switch` in the React component, a separate `gateLaTeX`
+ * dictionary, and the `cplx` matrix imports.
+ */
+const gateInfo: Record<
+  string,
+  {
+    /** Display name for the LaTeX equation header (e.g. "X", "S\u2020"). */
+    display: string;
+    /** The 2x2 matrix in the computational basis. */
+    matrix: typeof PauliX;
+    /** Pre-rendered LaTeX for the matrix used in the history pane. */
+    latex: string;
+    /** Which renderer rotation primitive to invoke. */
+    rotateAxis: RotationAxis;
+    /** Angle in radians (sign matters for adjoint variants). */
+    rotateAngle: number;
+  }
+> = {
+  X: {
+    display: "X",
+    matrix: PauliX,
+    latex: "\\begin{bmatrix} 0 & 1 \\\\ 1 & 0 \\end{bmatrix}",
+    rotateAxis: "X",
+    rotateAngle: Math.PI,
+  },
+  Y: {
+    display: "Y",
+    matrix: PauliY,
+    latex: "\\begin{bmatrix} 0 & -i \\\\ i & 0 \\end{bmatrix}",
+    rotateAxis: "Y",
+    rotateAngle: Math.PI,
+  },
+  Z: {
+    display: "Z",
+    matrix: PauliZ,
+    latex: "\\begin{bmatrix} 1 & 0 \\\\ 0 & -1 \\end{bmatrix}",
+    rotateAxis: "Z",
+    rotateAngle: Math.PI,
+  },
+  S: {
+    display: "S",
+    matrix: SGate,
+    latex:
+      "\\begin{bmatrix} 1 & 0 \\\\ 0 & e^{i {\\pi \\over 2}} \\end{bmatrix}",
+    rotateAxis: "Z",
+    rotateAngle: Math.PI / 2,
+  },
+  s: {
+    display: "S\u2020",
+    matrix: SGate.adjoint(),
+    latex:
+      "\\begin{bmatrix} 1 & 0 \\\\ 0 & e^{-i {\\pi \\over 2}} \\end{bmatrix}",
+    rotateAxis: "Z",
+    rotateAngle: -Math.PI / 2,
+  },
+  T: {
+    display: "T",
+    matrix: TGate,
+    latex:
+      "\\begin{bmatrix} 1 & 0 \\\\ 0 & e^{i {\\pi \\over 4}} \\end{bmatrix}",
+    rotateAxis: "Z",
+    rotateAngle: Math.PI / 4,
+  },
+  t: {
+    display: "T\u2020",
+    matrix: TGate.adjoint(),
+    latex:
+      "\\begin{bmatrix} 1 & 0 \\\\ 0 & e^{-i {\\pi \\over 4}} \\end{bmatrix}",
+    rotateAxis: "Z",
+    rotateAngle: -Math.PI / 4,
+  },
+  H: {
+    display: "H",
+    matrix: Hadamard,
+    latex:
+      "{1 \\over \\sqrt{2}} \\begin{bmatrix} 1 & 1 \\\\ 1 & -1 \\end{bmatrix}",
+    rotateAxis: "H",
+    rotateAngle: Math.PI,
+  },
 };
 
 // See https://gizma.com/easing/#easeInOutSine
@@ -453,6 +537,81 @@ class BlochRenderer {
     this.render();
   }
 
+  /**
+   * Apply a sequence of rotations instantly with no animation. The
+   * dotted trail showing the qubit's path through each rotation is
+   * reconstructed from the same interpolation points the animated path
+   * (`queueGate`) uses, so the visible result is identical to what the
+   * user would see if they had clicked the gates one at a time and
+   * waited for each animation to finish. Used by the "inspect history"
+   * UI and undo/redo paths where the user wants to see a specific past
+   * state without sitting through replay animations.
+   */
+  snapTo(steps: { axis: RotationAxis; angle: number }[]) {
+    // Cancel any in-flight animation so its render callback doesn't fight
+    // us by writing the in-progress quaternion back over our snap.
+    if (this.animationCallbackId) {
+      cancelAnimationFrame(this.animationCallbackId);
+      this.animationCallbackId = 0;
+    }
+    this.gateQueue.length = 0;
+    this.trail.clear();
+    // The rotation-axis indicator group is added to the qubit only while
+    // a gate is animating; detach it in case we're cancelling mid-flight.
+    this.qubit.remove(this.rotationAxis);
+
+    // Reset the underlying rotation model, then apply each step. We keep
+    // the AppliedGate returned by each call so we can rebuild the trail
+    // from its interpolation path -- otherwise navigating history would
+    // erase the dotted trace the user was following.
+    this.rotations.reset();
+    this.qubit.quaternion.identity();
+    for (const { axis, angle } of steps) {
+      let applied;
+      switch (axis) {
+        case "X":
+          applied = this.rotations.rotateX(angle);
+          break;
+        case "Y":
+          applied = this.rotations.rotateY(angle);
+          break;
+        case "Z":
+          applied = this.rotations.rotateZ(angle);
+          break;
+        case "H":
+          applied = this.rotations.rotateH(angle);
+          break;
+      }
+      // Same trackball construction as the animation loop in queueGate.
+      // We deliberately do not set val.ref here: these are throwaway
+      // visuals owned by the snap (cleared on the next snapTo), not the
+      // long-lived references the animation path uses to skip
+      // already-drawn points.
+      for (const val of applied.path) {
+        const trackGeo = new SphereGeometry(0.05, 16, 16);
+        const trackBall = new Mesh(
+          trackGeo,
+          new MeshBasicMaterial({ color: 0x808080 }),
+        );
+        trackBall.position.set(0, 5, 0);
+        trackBall.position.applyQuaternion(val.pos);
+        this.trail.add(trackBall);
+      }
+    }
+    // Apply the same age-based fade the animation loop applies on every
+    // frame so the trail looks the same whether it was drawn step by
+    // step or rebuilt in one shot.
+    this.trail.children.forEach((child, idx, arr) => {
+      const ball = child as Mesh;
+      const sat = easeOutSine((idx + 1) / arr.length);
+      const color = hslToRgb(0.6, sat, 0.5);
+      ball.material = new MeshBasicMaterial({ color });
+      ball.scale.setScalar(sat + 0.5);
+    });
+    this.qubit.quaternion.copy(this.rotations.currPosition);
+    this.render();
+  }
+
   render() {
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
@@ -552,14 +711,40 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // element happening to share the id can't hijack our state.
   const runGatesInputRef = useRef<HTMLInputElement>(null);
 
-  const [gateArray, setGateArray] = useState<string[]>([]);
-  const [state, setState] = useState(Ket0);
+  // The widget's interaction model is a time-travel history:
+  //
+  //   * `gates` is the canonical list of single-character gate codes that
+  //     have been applied to |0\u27e9, in order. It is the only durable state;
+  //     everything else (sphere position, displayed state vectors,
+  //     history rows) is derived from it.
+  //   * `cursor` is the current viewing position, in [0, gates.length].
+  //     0 means "at the initial |0\u27e9 state", gates.length means "at the
+  //     end of the applied sequence". Values in between put the widget
+  //     into *inspect mode*: the sphere shows that intermediate state
+  //     without truncating the future part of the sequence.
+  //   * `redoStack` holds gates discarded by Undo, in the order they would
+  //     be re-applied by Redo. It is cleared whenever a new gate is
+  //     applied (standard time-travel semantics).
+  //
+  // Inspect mode (cursor < gates.length) is signalled visually by a
+  // persistent banner, dimmed/italicised future rows, and disabled
+  // Undo/Redo buttons. Applying a new gate while inspecting commits the
+  // truncation (future rows become discarded). This mirrors how
+  // browsers and most editors handle "navigate back, then act".
+  const [gates, setGates] = useState<string[]>([]);
+  const [cursor, setCursor] = useState(0);
+  const [redoStack, setRedoStack] = useState<string[]>([]);
   const [rzAngle, setRzAngle] = useState(0);
-  let newState = state;
-  // Tracks the raw single-character gate codes actually applied to the
-  // sphere, in order. `gateArray` above stores LaTeX strings for display
-  // and isn't suitable for round-tripping through a URL.
-  const appliedGatesRef = useRef<string>("");
+
+  // Convert a gate-code sequence to the format `BlochRenderer.snapTo`
+  // expects. Keeping this as a small helper keeps the model/view seam
+  // narrow: the renderer never has to know about gate codes.
+  function gatesToSteps(codes: string[]) {
+    return codes.map((c) => ({
+      axis: gateInfo[c].rotateAxis,
+      angle: gateInfo[c].rotateAngle,
+    }));
+  }
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -568,22 +753,30 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const initialIsDark = ensureTheme() ?? false;
     const r = new BlochRenderer(canvasRef.current, initialIsDark);
     renderer.current = r;
-    // Replay any gates supplied via the URL on initial mount. We just call
-    // the regular `rotate` so the renderer animations, state vector, and
-    // history pane all stay in sync with the rest of the UI. Inputs are
-    // sanitized so a stale or hostile URL can't flood the animation queue
-    // or trigger `console.error` per character.
+    // Replay any gates supplied via the URL on initial mount. We bypass
+    // the regular `applyGate` path here for two reasons: (a) reading
+    // back state inside a tight setState loop hits stale-closure bugs,
+    // and (b) URL-driven mounts often have many gates and the renderer
+    // queue would visibly chew through them. Instead, seed `gates`
+    // directly and snap the renderer straight to the final state. The
+    // user can navigate back through the history pane to see each step.
     if (props.initialGates) {
-      const { gates, modified } = sanitizeGateSequence(props.initialGates);
+      const { gates: cleaned, modified } = sanitizeGateSequence(
+        props.initialGates,
+      );
       if (modified) {
         console.warn(
           `BlochSphere: ignored unknown gates or excess length in initialGates ` +
-            `(input length ${props.initialGates.length}, applied ${gates.length}). ` +
+            `(input length ${props.initialGates.length}, applied ${cleaned.length}). ` +
             `Valid gate codes are: ${VALID_GATE_CODES}.`,
         );
       }
-      for (const ch of gates) {
-        rotate(ch);
+      if (cleaned) {
+        const arr = cleaned.split("");
+        setGates(arr);
+        setCursor(arr.length);
+        r.snapTo(gatesToSteps(arr));
+        props.onGatesChanged?.(cleaned);
       }
     }
     // Wire live theme switches (e.g. user toggles VS Code light/dark while
@@ -599,148 +792,163 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     };
   }, []);
 
-  const getLaTeX = (
-    gateName: string,
-    gateMatrix: string,
-    oldState: string,
-    newState: string,
-  ) => `$$ ${gateName} | \\psi \\rangle_{${gateArray.length}} =
-  ${gateMatrix}
-  \\cdot ${oldState}
-  = ${newState}
-  $$`;
+  // Derived: per-step history entries (LaTeX strings) for the whole
+  // `gates` sequence, walking the matrix product forward from |0\u27e9.
+  // Computed in one pass instead of being mirrored in state, so the
+  // history rows can never disagree with the underlying gate list.
+  const historyEntries = useMemo(() => {
+    let prior = vec2(Ket0);
+    return gates.map((code, i) => {
+      const info = gateInfo[code];
+      const next = info.matrix.mulVec2(prior);
+      const latex = `$$ ${info.display} | \\psi \\rangle_{${i}} =
+        ${info.latex}
+        \\cdot ${prior.toLaTeX()}
+        = ${next.toLaTeX()}
+        $$`;
+      prior = next;
+      return latex;
+    });
+  }, [gates]);
 
-  function rotate(gate: string): void {
-    const priorState = vec2(newState);
-    if (renderer.current) {
-      switch (gate) {
-        case "X":
-          renderer.current.rotateX(Math.PI);
-          newState = PauliX.mulVec2(newState);
-          gateArray.push(
-            getLaTeX(
-              "X",
-              gateLaTeX.X,
-              priorState.toLaTeX(),
-              newState.toLaTeX(),
-            ),
-          );
-          break;
-        case "Y":
-          renderer.current.rotateY(Math.PI);
-          newState = PauliY.mulVec2(newState);
-          gateArray.push(
-            getLaTeX(
-              "Y",
-              gateLaTeX.Y,
-              priorState.toLaTeX(),
-              newState.toLaTeX(),
-            ),
-          );
-          break;
-        case "Z":
-          renderer.current.rotateZ(Math.PI);
-          newState = PauliZ.mulVec2(newState);
-          gateArray.push(
-            getLaTeX(
-              "Z",
-              gateLaTeX.Z,
-              priorState.toLaTeX(),
-              newState.toLaTeX(),
-            ),
-          );
-          break;
-        case "S":
-          renderer.current.rotateZ(Math.PI / 2);
-          newState = SGate.mulVec2(newState);
-          gateArray.push(
-            getLaTeX(
-              "S",
-              gateLaTeX.S,
-              priorState.toLaTeX(),
-              newState.toLaTeX(),
-            ),
-          );
-          break;
-        case "s":
-          renderer.current.rotateZ(-Math.PI / 2);
-          newState = SGate.adjoint().mulVec2(newState);
-          gateArray.push(
-            getLaTeX(
-              "S†",
-              gateLaTeX.SA,
-              priorState.toLaTeX(),
-              newState.toLaTeX(),
-            ),
-          );
-          break;
-        case "T":
-          renderer.current.rotateZ(Math.PI / 4);
-          newState = TGate.mulVec2(newState);
-          gateArray.push(
-            getLaTeX(
-              "T",
-              gateLaTeX.T,
-              priorState.toLaTeX(),
-              newState.toLaTeX(),
-            ),
-          );
-          break;
-        case "t":
-          renderer.current.rotateZ(-Math.PI / 4);
-          newState = TGate.adjoint().mulVec2(newState);
-          gateArray.push(
-            getLaTeX(
-              "T†",
-              gateLaTeX.TA,
-              priorState.toLaTeX(),
-              newState.toLaTeX(),
-            ),
-          );
-          break;
-        case "H":
-          renderer.current.rotateH(Math.PI);
-          newState = Hadamard.mulVec2(newState);
-          gateArray.push(
-            getLaTeX(
-              "H",
-              gateLaTeX.H,
-              priorState.toLaTeX(),
-              newState.toLaTeX(),
-            ),
-          );
-          break;
-        default:
-          console.error("Unknown gate: " + gate);
-          return;
-      }
+  const inInspectMode = cursor < gates.length;
+  const canUndo = !inInspectMode && cursor > 0;
+  const canRedo = !inInspectMode && redoStack.length > 0;
+
+  /**
+   * Apply a single new gate to the sequence. If the user is currently
+   * inspecting an earlier step, the future part of the sequence is
+   * truncated (matching browser back-button + new-navigation semantics),
+   * and the redo stack is cleared.
+   */
+  function applyGate(code: string) {
+    const info = gateInfo[code];
+    if (!info || !renderer.current) return;
+
+    // Truncate future steps if the user is mid-inspect, then snap the
+    // renderer there silently before kicking off the animated rotation
+    // for the newly-applied gate.
+    let base = gates;
+    if (cursor < gates.length) {
+      base = gates.slice(0, cursor);
+      renderer.current.snapTo(gatesToSteps(base));
     }
-    setState(newState);
-    setGateArray([...gateArray]);
-    appliedGatesRef.current += gate;
-    props.onGatesChanged?.(appliedGatesRef.current);
+    // Animate the new rotation using the existing queueGate path.
+    switch (info.rotateAxis) {
+      case "X":
+        renderer.current.rotateX(info.rotateAngle);
+        break;
+      case "Y":
+        renderer.current.rotateY(info.rotateAngle);
+        break;
+      case "Z":
+        renderer.current.rotateZ(info.rotateAngle);
+        break;
+      case "H":
+        renderer.current.rotateH(info.rotateAngle);
+        break;
+    }
+    const next = [...base, code];
+    setGates(next);
+    setCursor(next.length);
+    setRedoStack([]);
+    props.onGatesChanged?.(next.join(""));
+  }
+
+  /**
+   * Move the cursor to an arbitrary position in the existing sequence
+   * without modifying it. Used by clicks on history rows and the
+   * "Jump to latest" button. Snaps the renderer instantly (no animation
+   * noise) because the user is inspecting, not acting.
+   */
+  function navigateTo(pos: number) {
+    if (!renderer.current) return;
+    if (pos < 0 || pos > gates.length) return;
+    renderer.current.snapTo(gatesToSteps(gates.slice(0, pos)));
+    setCursor(pos);
+  }
+
+  /**
+   * Remove the most recently applied gate and push it onto the redo stack.
+   * Only valid when the cursor is at the end of the sequence; in inspect
+   * mode the button is disabled so the user has to commit (apply a gate)
+   * or leave inspect mode first.
+   */
+  function undo() {
+    if (!canUndo || !renderer.current) return;
+    const removed = gates[gates.length - 1];
+    const next = gates.slice(0, -1);
+    renderer.current.snapTo(gatesToSteps(next));
+    setGates(next);
+    setCursor(next.length);
+    setRedoStack([removed, ...redoStack]);
+    props.onGatesChanged?.(next.join(""));
+  }
+
+  /**
+   * Pop a gate from the redo stack and re-apply it. Snaps rather than
+   * animating to stay visually symmetric with undo.
+   */
+  function redo() {
+    if (!canRedo || !renderer.current) return;
+    const [restored, ...rest] = redoStack;
+    const next = [...gates, restored];
+    renderer.current.snapTo(gatesToSteps(next));
+    setGates(next);
+    setCursor(next.length);
+    setRedoStack(rest);
+    props.onGatesChanged?.(next.join(""));
   }
 
   function reset() {
-    setGateArray([]);
-    setState(vec2(Ket0));
-    if (renderer.current) {
-      renderer.current.reset();
-    }
-    appliedGatesRef.current = "";
+    setGates([]);
+    setCursor(0);
+    setRedoStack([]);
+    renderer.current?.reset();
     props.onGatesChanged?.("");
   }
 
-  function applyGates() {
+  function applyGatesFromTextbox() {
     const input = runGatesInputRef.current;
-    if (!input) return;
+    if (!input || !renderer.current) return;
     // Same defensive filter as the URL-replay path: a user pasting
     // arbitrary text shouldn't trigger `console.error` per character or
     // queue an unbounded number of animations.
-    const { gates } = sanitizeGateSequence(input.value);
-    for (const gate of gates) {
-      rotate(gate);
+    const { gates: cleaned } = sanitizeGateSequence(input.value);
+    if (!cleaned) return;
+
+    // Hand the work off to applyGate one character at a time would hit
+    // stale-closure issues (every call would see the same `gates` from
+    // the closure), so inline the same logic with a local accumulator.
+    let base = gates;
+    if (cursor < gates.length) {
+      base = gates.slice(0, cursor);
+      renderer.current.snapTo(gatesToSteps(base));
     }
+    const next = [...base];
+    for (const code of cleaned) {
+      const info = gateInfo[code];
+      if (!info) continue;
+      switch (info.rotateAxis) {
+        case "X":
+          renderer.current.rotateX(info.rotateAngle);
+          break;
+        case "Y":
+          renderer.current.rotateY(info.rotateAngle);
+          break;
+        case "Z":
+          renderer.current.rotateZ(info.rotateAngle);
+          break;
+        case "H":
+          renderer.current.rotateH(info.rotateAngle);
+          break;
+      }
+      next.push(code);
+    }
+    setGates(next);
+    setCursor(next.length);
+    setRedoStack([]);
+    props.onGatesChanged?.(next.join(""));
   }
 
   function sliderChange(e: Event) {
@@ -761,41 +969,108 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       <canvas ref={canvasRef} width="600" height="600"></canvas>
       <div
         class="qs-bloch-history"
-        style="font-size: 0.8em; position: absolute; left: 600px; top: 50px; height: 700px; min-width: 200px; overflow-y: scroll; display: flex; flex-direction: column; align-items: flex-start;"
+        style="font-size: 0.8em; position: absolute; left: 600px; top: 50px; height: 700px; min-width: 220px; display: flex; flex-direction: column;"
       >
-        {gateArray.map((str) => (
-          <div style="border-bottom: 1px dotted gray; text-align: left">
-            <Markdown markdown={str}></Markdown>
+        <div class="qs-bloch-history-title">History</div>
+        {inInspectMode && (
+          <div class="qs-bloch-history-banner">
+            Viewing step {cursor} of {gates.length} — apply a gate to discard
+            later steps.
+            <button
+              type="button"
+              style="margin-left: 8px;"
+              onClick={() => navigateTo(gates.length)}
+            >
+              Jump to latest
+            </button>
           </div>
-        ))}
+        )}
+        <div style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; align-items: stretch;">
+          <div
+            class={
+              "qs-bloch-history-item" +
+              (cursor === 0 ? " qs-bloch-history-item-current" : "")
+            }
+            title="Initial state |0⟩"
+            onClick={() => navigateTo(0)}
+          >
+            <Markdown
+              markdown={
+                "$$ | \\psi \\rangle_0 = \\begin{bmatrix} 1 \\\\ 0 \\end{bmatrix} $$"
+              }
+            ></Markdown>
+          </div>
+          {historyEntries.map((str, i) => {
+            const stepIndex = i + 1;
+            const classes = ["qs-bloch-history-item"];
+            if (stepIndex === cursor)
+              classes.push("qs-bloch-history-item-current");
+            if (stepIndex > cursor)
+              classes.push("qs-bloch-history-item-future");
+            return (
+              <div
+                class={classes.join(" ")}
+                title={`Go to step ${stepIndex}`}
+                onClick={() => navigateTo(stepIndex)}
+              >
+                <Markdown markdown={str}></Markdown>
+              </div>
+            );
+          })}
+        </div>
       </div>
       <div class="qs-gate-buttons">
-        <button type="button" onClick={() => rotate("X")}>
+        <button type="button" onClick={() => applyGate("X")}>
           X
         </button>
-        <button type="button" onClick={() => rotate("Y")}>
+        <button type="button" onClick={() => applyGate("Y")}>
           Y
         </button>
-        <button type="button" onClick={() => rotate("Z")}>
+        <button type="button" onClick={() => applyGate("Z")}>
           Z
         </button>
-        <button type="button" onClick={() => rotate("H")}>
+        <button type="button" onClick={() => applyGate("H")}>
           H
         </button>
-        <button type="button" onClick={() => rotate("S")}>
+        <button type="button" onClick={() => applyGate("S")}>
           S
         </button>
-        <button type="button" onClick={() => rotate("s")}>
+        <button type="button" onClick={() => applyGate("s")}>
           S†
         </button>
-        <button type="button" onClick={() => rotate("T")}>
+        <button type="button" onClick={() => applyGate("T")}>
           T
         </button>
-        <button type="button" onClick={() => rotate("t")}>
+        <button type="button" onClick={() => applyGate("t")}>
           T†
         </button>
 
-        <button style="margin: 0 8px;" type="button" onClick={reset}>
+        <button
+          style="margin-left: 8px;"
+          type="button"
+          onClick={undo}
+          disabled={!canUndo}
+          title={
+            inInspectMode
+              ? "Jump to latest to edit the sequence"
+              : "Undo last gate"
+          }
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          onClick={redo}
+          disabled={!canRedo}
+          title={
+            inInspectMode
+              ? "Jump to latest to edit the sequence"
+              : "Redo last undone gate"
+          }
+        >
+          Redo
+        </button>
+        <button style="margin-left: 8px;" type="button" onClick={reset}>
           Reset
         </button>
       </div>
@@ -809,7 +1084,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         <button
           style="margin-left: 8px; padding: 0 4px"
           type="button"
-          onClick={applyGates}
+          onClick={applyGatesFromTextbox}
         >
           Run
         </button>

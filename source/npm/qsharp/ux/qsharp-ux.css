@@ -552,6 +552,56 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   border: 1px solid var(--qdk-widget-outline);
 }
 
+/* Sticky title bar at the top of the history pane. Stays visible while
+   the user scrolls through a long sequence so they always know which
+   pane they're in. */
+.qs-bloch-history-title {
+  font-weight: bold;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-menu-fill);
+}
+
+/* Banner shown when the user is inspecting an earlier step in the
+   sequence. Calls out that future rows will be discarded if a new gate
+   is applied, and offers a one-click escape back to the latest state. */
+.qs-bloch-history-banner {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-menu-fill-hover);
+  font-size: 0.95em;
+}
+
+/* Each entry in the history list. Clickable to navigate; hover hints
+   at this affordance via the menu-hover token. */
+.qs-bloch-history-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+}
+.qs-bloch-history-item:hover {
+  background: var(--qdk-menu-fill-hover);
+}
+
+/* The row matching the current cursor position. Highlighted so the
+   user can tell at a glance where the sphere is "stopped". */
+.qs-bloch-history-item-current {
+  background: var(--qdk-menu-fill-selected);
+}
+.qs-bloch-history-item-current:hover {
+  /* Keep the selected highlight visible on hover instead of letting
+     the hover background paint over it. */
+  background: var(--qdk-menu-fill-selected);
+}
+
+/* Rows after the cursor when inspecting an earlier step. Dimmed and
+   italicised to signal they are "future" steps that will be lost if
+   the user applies a new gate from this position. */
+.qs-bloch-history-item-future {
+  opacity: 0.5;
+  font-style: italic;
+}
+
 .qs-estimatesOverview-saveIcon {
   cursor: pointer;
   width: 3em;

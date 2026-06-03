@@ -111,10 +111,28 @@ into the main product. Items are not ordered by priority.
 - [ ] **Empty state.** First-time users see a blank gray rectangle next to
       the sphere with no hint that gates produce history. Add a placeholder
       line.
-- [ ] **Undo / step-back.** Only `Reset` exists today (nuke everything).
-      A simple "Undo last gate" is much cheaper than the full replay
-      slider mentioned in the top-of-file TODO and would meaningfully
-      improve usability.
+- [x] **Time-travel history with undo/redo.** The history pane now has a
+      sticky "History" title bar and each row is clickable to navigate the
+      sphere to that point in the sequence. Two distinct interaction modes:
+  - **Edit mode** (cursor at end of sequence): `Undo` and `Redo` buttons
+    are enabled. `Undo` pops the last gate onto a redo stack; `Redo`
+    re-applies it. Applying any new gate clears the redo stack.
+  - **Inspect mode** (cursor inside the sequence): a banner appears
+    explaining that future steps will be discarded if a new gate is
+    applied, with a "Jump to latest" escape hatch. Future rows are
+    rendered dimmed + italic so the user can see what's at risk. `Undo`
+    and `Redo` are disabled with tooltips pointing the user back to the
+    latest step.
+
+    Single source of truth: `gates: string[]` plus `cursor` plus
+    `redoStack`. All visible state (sphere position, LaTeX history
+    rows, button enablement) is derived. The renderer gained a
+    `snapTo(steps)` primitive that cancels in-flight animations and
+    jumps directly to a state by walking the existing `rotations`
+    model — no replay, no trail noise. Gate metadata (matrix, LaTeX,
+    rotation axis, rotation angle) was consolidated into a single
+    `gateInfo` table that drives both the math and the renderer,
+    eliminating three parallel switch statements.
 
 ## Widget — nice-to-have
 
