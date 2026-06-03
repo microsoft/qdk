@@ -105,7 +105,7 @@ fn fail_ry() {
     let _result = run_internal(
         SourceMap::new([("test.qs".into(), code.into())], Some(expr.into())),
         |msg| {
-            expect![[r#"{"result":{"code":"Qsc.TypeCk.TyMismatch","errors":[{"diagnostic":{"code":"Qsc.TypeCk.TyMismatch","message":"type error: expected (Double, Qubit), found Qubit","range":{"end":{"character":18,"line":3},"start":{"character":12,"line":3}},"severity":"error"},"document":"test.qs","stack":null}],"message":"type error: expected (Double, Qubit), found Qubit","range":{"end":{"character":18,"line":3},"start":{"character":12,"line":3}},"severity":"error"},"success":false,"type":"Result"}"#]].assert_eq(msg);
+            expect![[r#"{"result":{"code":"Qsc.TypeCk.TyMismatch","errors":[{"diagnostic":{"code":"Qsc.TypeCk.TyMismatch","message":"type error: expected (Double, Qubit), found Qubit","range":{"end":{"character":17,"line":3},"start":{"character":15,"line":3}},"severity":"error"},"document":"test.qs","stack":null}],"message":"type error: expected (Double, Qubit), found Qubit","range":{"end":{"character":17,"line":3},"start":{"character":15,"line":3}},"severity":"error"},"success":false,"type":"Result"}"#]].assert_eq(msg);
             count.set(count.get() + 1);
         },
         1,
