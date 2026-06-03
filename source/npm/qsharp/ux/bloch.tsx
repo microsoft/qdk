@@ -255,7 +255,16 @@ function createLabels(isDark: boolean): Sprite[] {
   return [xLabel, yLabel, zLabel];
 }
 
-const rotationTimeMs = 100;
+// Default duration of a single gate animation, in milliseconds. The
+// component exposes a live speed slider that overwrites
+// `BlochRenderer.rotationTimeMs` directly; the rAF loop re-reads the
+// value every frame so changes take effect mid-animation.
+//
+// Tuned by feel: 333ms (~3 gates/sec at 1x) is slow enough to actually
+// follow each rotation visually. The slider runs 0.25x..4x, so users
+// who want the original snappy 100ms-per-gate feel can dial it up to
+// ~3.3x.
+const DEFAULT_ROTATION_TIME_MS = 333;
 
 class BlochRenderer {
   scene: Scene;
@@ -266,7 +275,16 @@ class BlochRenderer {
   trail: Group;
   rotationAxis: Group;
   animationCallbackId = 0;
-  gateQueue: AppliedGate[] = [];
+  // Per-renderer override for animation speed. Public so the React
+  // component can mutate it from the speed slider without going through
+  // a setter -- there is no derived state to keep in sync.
+  rotationTimeMs = DEFAULT_ROTATION_TIME_MS;
+  // Animation queue. Each entry wraps an `AppliedGate` (which carries the
+  // interpolation path used by the animation loop) with an optional
+  // `onComplete` callback fired the moment that gate's animation ends.
+  // The play loop relies on this callback to chain to the next gate; the
+  // one-off `applyGate` path doesn't need it.
+  gateQueue: { gate: AppliedGate; onComplete?: () => void }[] = [];
   rotations: Rotations;
   // Stored so setTheme() can mutate the sphere material and swap out the
   // axis label sprites when light/dark changes after construction.
@@ -429,23 +447,25 @@ class BlochRenderer {
     this.render();
   }
 
-  queueGate(gate: AppliedGate) {
-    this.gateQueue.push(gate);
+  queueGate(gate: AppliedGate, onComplete?: () => void) {
+    this.gateQueue.push({ gate, onComplete });
     if (this.animationCallbackId) return; // Queue is already running
 
     // Close over these values for the running queue
-    let currentGate: AppliedGate | undefined;
+    let currentEntry:
+      | { gate: AppliedGate; onComplete?: () => void }
+      | undefined;
     let startTime = 0;
 
     const processQueue = () => {
-      if (!currentGate) {
-        currentGate = this.gateQueue.shift();
-        if (!currentGate) {
+      if (!currentEntry) {
+        currentEntry = this.gateQueue.shift();
+        if (!currentEntry) {
           // Queue was empty. Done
           this.animationCallbackId = 0;
           return;
         } else {
-          const axisInLocal = this.qubit.worldToLocal(currentGate.axis);
+          const axisInLocal = this.qubit.worldToLocal(currentEntry.gate.axis);
           this.rotationAxis.lookAt(axisInLocal);
           this.qubit.add(this.rotationAxis);
           startTime = performance.now();
@@ -453,14 +473,14 @@ class BlochRenderer {
       }
 
       // Calculate the percent of rotation time elapsed from start to now
-      const x = (performance.now() - startTime) / rotationTimeMs;
+      const x = (performance.now() - startTime) / this.rotationTimeMs;
 
       // Ease the rotation
       const t = x < 1 ? easeInOutSine(x) : 1;
 
       // Rotate the qubit to the correct position
       const currentRotation = this.rotations.getRotationAtPercent(
-        currentGate,
+        currentEntry.gate,
         t,
       );
 
@@ -496,11 +516,17 @@ class BlochRenderer {
 
       this.render();
 
-      // If that gate is done, unset it
+      // If that gate is done, unset it and fire the completion callback.
+      // The callback may queue another gate (that's exactly how the play
+      // loop chains): in that case `queueGate` sees a live
+      // `animationCallbackId` and just appends to the queue, and the
+      // rAF we schedule below will pick it up next frame.
       if (t >= 1) {
-        currentGate = undefined;
+        const finishedCb = currentEntry.onComplete;
+        currentEntry = undefined;
         this.qubit.remove(this.rotationAxis);
         this.render();
+        finishedCb?.();
       }
 
       this.animationCallbackId = requestAnimationFrame(processQueue);
@@ -508,6 +534,31 @@ class BlochRenderer {
 
     // Kick off processing
     processQueue();
+  }
+
+  /**
+   * Animate a single gate by axis + angle, optionally invoking
+   * `onComplete` when the rotation finishes. This is the seam the play
+   * loop in the React component uses to chain gates without having to
+   * know about `AppliedGate` / `Rotations`.
+   */
+  animateStep(axis: RotationAxis, angle: number, onComplete?: () => void) {
+    let applied: AppliedGate;
+    switch (axis) {
+      case "X":
+        applied = this.rotations.rotateX(angle);
+        break;
+      case "Y":
+        applied = this.rotations.rotateY(angle);
+        break;
+      case "Z":
+        applied = this.rotations.rotateZ(angle);
+        break;
+      case "H":
+        applied = this.rotations.rotateH(angle);
+        break;
+    }
+    this.queueGate(applied, onComplete);
   }
 
   rotateX(angle: number) {
@@ -736,6 +787,39 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [rzAngle, setRzAngle] = useState(0);
 
+  // Playback state for the media-player-style controls. Stored both as
+  // React state (drives button labels and disabled flags) and as a ref
+  // (read from inside animation-completion callbacks, which capture
+  // their value at call time so plain state would go stale).
+  //
+  // `animatingToIndexRef` tracks the history index the in-flight
+  // animation is heading toward, so that Pause can snap there cleanly
+  // instead of leaving the sphere mid-rotation. Null when nothing is
+  // animating.
+  const [isPlaying, setIsPlaying] = useState(false);
+  const isPlayingRef = useRef(false);
+  const animatingToIndexRef = useRef<number | null>(null);
+
+  // Playback speed multiplier. 1× is the original 100ms-per-gate
+  // default; 0.25× → 400ms, 4× → 25ms. We push the value straight into
+  // `renderer.current.rotationTimeMs` on change so live-dragging the
+  // slider during a Play actually affects the in-flight animation
+  // (the rAF loop re-reads the field every frame). A small visual jump
+  // is possible when the speed changes mid-rotation -- elapsed-time
+  // arithmetic doesn't carry over -- but it's not worth the extra
+  // state-tracking machinery to smooth out, given the slider is mainly
+  // used between gates.
+  const [speed, setSpeed] = useState(1);
+
+  function speedChange(e: Event) {
+    const slider = e.target as HTMLInputElement;
+    const next = parseFloat(slider.value);
+    setSpeed(next);
+    if (renderer.current) {
+      renderer.current.rotationTimeMs = DEFAULT_ROTATION_TIME_MS / next;
+    }
+  }
+
   // Convert a gate-code sequence to the format `BlochRenderer.snapTo`
   // expects. Keeping this as a small helper keeps the model/view seam
   // narrow: the renderer never has to know about gate codes.
@@ -812,8 +896,159 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }, [gates]);
 
   const inInspectMode = cursor < gates.length;
-  const canUndo = !inInspectMode && cursor > 0;
-  const canRedo = !inInspectMode && redoStack.length > 0;
+  const canUndo = !inInspectMode && cursor > 0 && !isPlaying;
+  const canRedo = !inInspectMode && redoStack.length > 0 && !isPlaying;
+  // Playback affordances. These cover the media-control row; everything
+  // is derived from `cursor` / `gates` / `isPlaying` so the buttons can
+  // never disagree with what the sphere is actually doing.
+  const atStart = cursor === 0;
+  const atEnd = cursor >= gates.length;
+  const canStepBack = !atStart;
+  const canStepForward = !atEnd;
+  const canPlay = gates.length > 0;
+
+  /**
+   * Cancel any in-flight playback animation and land cleanly on a
+   * history step. Called by Pause directly, and called as a guard by
+   * every editing or seeking action so the user can never "edit while
+   * playing" or end up with the cursor stuck mid-rotation. No-op when
+   * already stopped, so it is always safe to call.
+   *
+   * When called as a Pause (no follow-up seek), we snap forward to the
+   * destination of the in-flight gate -- treating Pause as "finish the
+   * current step, then stop". When called as a guard before another
+   * seek (passed `snapToTarget=false`), we skip that snap because the
+   * caller is about to snap somewhere else anyway.
+   */
+  function stopPlayback(snapToTarget = true) {
+    if (!isPlayingRef.current) return;
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+    const targetIdx = animatingToIndexRef.current;
+    animatingToIndexRef.current = null;
+    if (snapToTarget && targetIdx !== null && renderer.current) {
+      renderer.current.snapTo(gatesToSteps(gates.slice(0, targetIdx)));
+      setCursor(targetIdx);
+    }
+  }
+
+  /**
+   * Animate one gate from the current sequence and, when the animation
+   * completes, advance the cursor and chain to the next gate if play is
+   * still active. Defined as a closure inside the component so it can
+   * read `gates` and the refs directly; the recursive chain captures
+   * `pos` per gate, so each callback knows which step it just finished.
+   */
+  function playFromIndex(pos: number) {
+    if (!renderer.current) return;
+    const code = gates[pos];
+    const info = gateInfo[code];
+    if (!info) {
+      // Defensive: malformed gate code shouldn't be possible (the input
+      // paths all run through sanitizeGateSequence), but if one slips
+      // through we end playback cleanly rather than calling rotateX on
+      // undefined.
+      stopPlayback(false);
+      return;
+    }
+    animatingToIndexRef.current = pos + 1;
+    renderer.current.animateStep(info.rotateAxis, info.rotateAngle, () => {
+      // We may have been paused while this gate was animating; in that
+      // case Pause already advanced the cursor and we should not chain.
+      // The ref check is belt-and-suspenders: snapTo cancels the rAF, so
+      // in practice this callback won't fire after a pause -- but if it
+      // ever does (e.g. callback fires the same tick pause clicks), we
+      // bail.
+      animatingToIndexRef.current = null;
+      if (!isPlayingRef.current) return;
+      const next = pos + 1;
+      setCursor(next);
+      if (next < gates.length) {
+        playFromIndex(next);
+      } else {
+        isPlayingRef.current = false;
+        setIsPlaying(false);
+      }
+    });
+  }
+
+  /**
+   * Begin (or restart) playback from the current cursor through the end
+   * of the sequence. If the cursor is already at the end, treat the
+   * click as a Replay: snap to the start and play from there. Disabled
+   * with no effect if the sequence is empty.
+   */
+  function play() {
+    if (isPlayingRef.current || gates.length === 0 || !renderer.current) {
+      return;
+    }
+    let startIdx = cursor;
+    if (cursor >= gates.length) {
+      // Replay: rewind to the start, then play.
+      renderer.current.snapTo([]);
+      setCursor(0);
+      startIdx = 0;
+    }
+    isPlayingRef.current = true;
+    setIsPlaying(true);
+    playFromIndex(startIdx);
+  }
+
+  function pause() {
+    stopPlayback(true);
+  }
+
+  function stepBack() {
+    if (cursor === 0 || !renderer.current) return;
+    stopPlayback(false);
+    const target = cursor - 1;
+    const r = renderer.current;
+    // Make sure the renderer's pose and `rotations.currPosition` are
+    // exactly at `cursor` before we animate. If a play just got
+    // cancelled by stopPlayback they could otherwise be one gate ahead.
+    r.snapTo(gatesToSteps(gates.slice(0, cursor)));
+    // Animate the inverse of the last applied gate: same axis, negated
+    // angle. For each gate primitive (X/Y/Z/H plus the angle-bearing
+    // S/T variants), rotating by -angle around the same local axis is
+    // the true inverse, so the qubit retraces the gate's arc backward
+    // and lands exactly on the pose at `target`.
+    //
+    // Side effect during the animation: queueGate adds new trackballs
+    // along the reverse path. Because the reverse traces the same arc
+    // as the forward gate, those new dots visually overlap the existing
+    // trail dots, so the user just sees the qubit gliding back along the
+    // existing path. We clean them up in `onComplete` below by snapping
+    // -- snapTo wipes the trail and rebuilds it for `[0..target-1]`.
+    const info = gateInfo[gates[cursor - 1]];
+    r.animateStep(info.rotateAxis, -info.rotateAngle, () => {
+      r.snapTo(gatesToSteps(gates.slice(0, target)));
+      setCursor(target);
+    });
+  }
+
+  function stepForward() {
+    if (cursor >= gates.length || !renderer.current) return;
+    stopPlayback(false);
+    const target = cursor + 1;
+    const r = renderer.current;
+    // Same guard as stepBack: align the renderer with `cursor` before
+    // animating, so a half-finished play doesn't carry over.
+    r.snapTo(gatesToSteps(gates.slice(0, cursor)));
+    const info = gateInfo[gates[cursor]];
+    r.animateStep(info.rotateAxis, info.rotateAngle, () => {
+      setCursor(target);
+    });
+  }
+
+  function jumpToStart() {
+    stopPlayback(false);
+    navigateTo(0);
+  }
+
+  function jumpToEnd() {
+    stopPlayback(false);
+    navigateTo(gates.length);
+  }
 
   /**
    * Apply a single new gate to the sequence. If the user is currently
@@ -824,6 +1059,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function applyGate(code: string) {
     const info = gateInfo[code];
     if (!info || !renderer.current) return;
+    // Editing always stops playback first. We pass snapToTarget=false
+    // because we're about to either snap (truncate-on-inspect path) or
+    // start a fresh animation immediately -- the renderer's queue gets
+    // cleared either way.
+    stopPlayback(false);
 
     // Truncate future steps if the user is mid-inspect, then snap the
     // renderer there silently before kicking off the animated rotation
@@ -833,21 +1073,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       base = gates.slice(0, cursor);
       renderer.current.snapTo(gatesToSteps(base));
     }
-    // Animate the new rotation using the existing queueGate path.
-    switch (info.rotateAxis) {
-      case "X":
-        renderer.current.rotateX(info.rotateAngle);
-        break;
-      case "Y":
-        renderer.current.rotateY(info.rotateAngle);
-        break;
-      case "Z":
-        renderer.current.rotateZ(info.rotateAngle);
-        break;
-      case "H":
-        renderer.current.rotateH(info.rotateAngle);
-        break;
-    }
+    renderer.current.animateStep(info.rotateAxis, info.rotateAngle);
     const next = [...base, code];
     setGates(next);
     setCursor(next.length);
@@ -864,6 +1090,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function navigateTo(pos: number) {
     if (!renderer.current) return;
     if (pos < 0 || pos > gates.length) return;
+    // Any deliberate seek (history-row click, jump button) implicitly
+    // pauses playback. We pass snapToTarget=false because we're about
+    // to snap to `pos` ourselves a couple of lines down.
+    stopPlayback(false);
     renderer.current.snapTo(gatesToSteps(gates.slice(0, pos)));
     setCursor(pos);
   }
@@ -876,6 +1106,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
    */
   function undo() {
     if (!canUndo || !renderer.current) return;
+    stopPlayback(false);
     const removed = gates[gates.length - 1];
     const next = gates.slice(0, -1);
     renderer.current.snapTo(gatesToSteps(next));
@@ -891,6 +1122,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
    */
   function redo() {
     if (!canRedo || !renderer.current) return;
+    stopPlayback(false);
     const [restored, ...rest] = redoStack;
     const next = [...gates, restored];
     renderer.current.snapTo(gatesToSteps(next));
@@ -901,6 +1133,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   function reset() {
+    stopPlayback(false);
     setGates([]);
     setCursor(0);
     setRedoStack([]);
@@ -911,6 +1144,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function applyGatesFromTextbox() {
     const input = runGatesInputRef.current;
     if (!input || !renderer.current) return;
+    stopPlayback(false);
     // Same defensive filter as the URL-replay path: a user pasting
     // arbitrary text shouldn't trigger `console.error` per character or
     // queue an unbounded number of animations.
@@ -929,20 +1163,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     for (const code of cleaned) {
       const info = gateInfo[code];
       if (!info) continue;
-      switch (info.rotateAxis) {
-        case "X":
-          renderer.current.rotateX(info.rotateAngle);
-          break;
-        case "Y":
-          renderer.current.rotateY(info.rotateAngle);
-          break;
-        case "Z":
-          renderer.current.rotateZ(info.rotateAngle);
-          break;
-        case "H":
-          renderer.current.rotateH(info.rotateAngle);
-          break;
-      }
+      renderer.current.animateStep(info.rotateAxis, info.rotateAngle);
       next.push(code);
     }
     setGates(next);
@@ -972,6 +1193,97 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         style="font-size: 0.8em; position: absolute; left: 600px; top: 50px; height: 700px; min-width: 220px; display: flex; flex-direction: column;"
       >
         <div class="qs-bloch-history-title">History</div>
+        {/*
+          Media-player-style transport controls. Layout left-to-right:
+          jump-to-start, step-back, play/pause/replay, step-forward,
+          jump-to-end. Step/jump buttons are seek-only (no animation) so
+          they feel "instant"; the centre button is the only animated
+          path and is also where Pause is wired. We render unicode media
+          glyphs so the bar reads as the standard transport control even
+          without colour or icons.
+        */}
+        <div class="qs-bloch-media-controls" role="group" aria-label="Playback">
+          <button
+            type="button"
+            onClick={jumpToStart}
+            disabled={!canStepBack}
+            title="Jump to start"
+            aria-label="Jump to start"
+          >
+            ⏮
+          </button>
+          <button
+            type="button"
+            onClick={stepBack}
+            disabled={!canStepBack}
+            title="Step back"
+            aria-label="Step back"
+          >
+            ⏪
+          </button>
+          {isPlaying ? (
+            <button
+              type="button"
+              onClick={pause}
+              title="Pause"
+              aria-label="Pause"
+            >
+              ⏸
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={play}
+              disabled={!canPlay}
+              title={atEnd ? "Replay from start" : "Play from here"}
+              aria-label={atEnd ? "Replay from start" : "Play"}
+            >
+              {/* Show the circular-arrow "replay" glyph when the cursor
+                  is at the end of the sequence, so users see at a glance
+                  that clicking will rewind first. Otherwise show the
+                  standard play triangle. */}
+              {atEnd ? "\u21BB" : "\u23F5"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={stepForward}
+            disabled={!canStepForward}
+            title="Step forward"
+            aria-label="Step forward"
+          >
+            ⏩
+          </button>
+          <button
+            type="button"
+            onClick={jumpToEnd}
+            disabled={!canStepForward}
+            title="Jump to end"
+            aria-label="Jump to end"
+          >
+            ⏭
+          </button>
+        </div>
+        {/*
+          Speed slider. Lives directly below the transport bar so the two
+          playback controls read as one cluster. Slider value IS the
+          speed multiplier (higher = faster) which matches the natural
+          mental model; the renderer translates it back to milliseconds.
+        */}
+        <div class="qs-bloch-speed-control">
+          <label for="qs-bloch-speed-slider">Speed</label>
+          <input
+            id="qs-bloch-speed-slider"
+            type="range"
+            min="0.25"
+            max="4"
+            step="0.05"
+            value={speed}
+            onInput={speedChange}
+            aria-label="Animation speed"
+          />
+          <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
+        </div>
         {inInspectMode && (
           <div class="qs-bloch-history-banner">
             Viewing step {cursor} of {gates.length} — apply a gate to discard
@@ -1020,28 +1332,60 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         </div>
       </div>
       <div class="qs-gate-buttons">
-        <button type="button" onClick={() => applyGate("X")}>
+        <button
+          type="button"
+          onClick={() => applyGate("X")}
+          disabled={isPlaying}
+        >
           X
         </button>
-        <button type="button" onClick={() => applyGate("Y")}>
+        <button
+          type="button"
+          onClick={() => applyGate("Y")}
+          disabled={isPlaying}
+        >
           Y
         </button>
-        <button type="button" onClick={() => applyGate("Z")}>
+        <button
+          type="button"
+          onClick={() => applyGate("Z")}
+          disabled={isPlaying}
+        >
           Z
         </button>
-        <button type="button" onClick={() => applyGate("H")}>
+        <button
+          type="button"
+          onClick={() => applyGate("H")}
+          disabled={isPlaying}
+        >
           H
         </button>
-        <button type="button" onClick={() => applyGate("S")}>
+        <button
+          type="button"
+          onClick={() => applyGate("S")}
+          disabled={isPlaying}
+        >
           S
         </button>
-        <button type="button" onClick={() => applyGate("s")}>
+        <button
+          type="button"
+          onClick={() => applyGate("s")}
+          disabled={isPlaying}
+        >
           S†
         </button>
-        <button type="button" onClick={() => applyGate("T")}>
+        <button
+          type="button"
+          onClick={() => applyGate("T")}
+          disabled={isPlaying}
+        >
           T
         </button>
-        <button type="button" onClick={() => applyGate("t")}>
+        <button
+          type="button"
+          onClick={() => applyGate("t")}
+          disabled={isPlaying}
+        >
           T†
         </button>
 
@@ -1051,9 +1395,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           onClick={undo}
           disabled={!canUndo}
           title={
-            inInspectMode
-              ? "Jump to latest to edit the sequence"
-              : "Undo last gate"
+            isPlaying
+              ? "Pause to edit the sequence"
+              : inInspectMode
+                ? "Jump to latest to edit the sequence"
+                : "Undo last gate"
           }
         >
           Undo
@@ -1063,14 +1409,22 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           onClick={redo}
           disabled={!canRedo}
           title={
-            inInspectMode
-              ? "Jump to latest to edit the sequence"
-              : "Redo last undone gate"
+            isPlaying
+              ? "Pause to edit the sequence"
+              : inInspectMode
+                ? "Jump to latest to edit the sequence"
+                : "Redo last undone gate"
           }
         >
           Redo
         </button>
-        <button style="margin-left: 8px;" type="button" onClick={reset}>
+        <button
+          style="margin-left: 8px;"
+          type="button"
+          onClick={reset}
+          disabled={isPlaying}
+          title={isPlaying ? "Pause to reset" : "Clear the entire history"}
+        >
           Reset
         </button>
       </div>
@@ -1080,11 +1434,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           type="text"
           size={60}
           placeholder="Enter gates then tab away"
+          disabled={isPlaying}
         />
         <button
           style="margin-left: 8px; padding: 0 4px"
           type="button"
           onClick={applyGatesFromTextbox}
+          disabled={isPlaying}
         >
           Run
         </button>

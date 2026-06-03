@@ -562,6 +562,60 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   background: var(--qdk-menu-fill);
 }
 
+/* Media-player-style transport bar below the history title. Sized so
+   the row of five glyph buttons sits comfortably between the title and
+   the history items, and so the inspect-mode banner (when present)
+   pushes down below it rather than wedging between. */
+.qs-bloch-media-controls {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-menu-fill);
+}
+.qs-bloch-media-controls button {
+  /* Square-ish, font-size scaled up so the unicode media glyphs
+     (U+23E9 .. U+23EF range) render at a legible size. The default
+     button font often hands those glyphs to a fallback face that
+     renders them tiny. */
+  flex: 1;
+  min-width: 28px;
+  height: 24px;
+  padding: 0;
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+.qs-bloch-media-controls button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* Speed slider row immediately below the transport controls. Same
+   background so the two controls read as a single playback cluster.
+   The slider gets `flex: 1` so it expands to fill the pane width;
+   the label and readout stay a fixed size. */
+.qs-bloch-speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-menu-fill);
+  font-size: 0.95em;
+}
+.qs-bloch-speed-control input[type="range"] {
+  flex: 1;
+  min-width: 60px;
+}
+.qs-bloch-speed-readout {
+  /* Fixed width so the layout doesn't jitter as the readout cycles
+     through "0.25x" .. "4.00x" while dragging. */
+  min-width: 3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Banner shown when the user is inspecting an earlier step in the
    sequence. Calls out that future rows will be discarded if a new gate
    is applied, and offers a one-click escape back to the latest state. */
