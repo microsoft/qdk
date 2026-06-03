@@ -168,9 +168,7 @@ fn count_compound_returns_in_expr(package: &Package, expr_id: ExprId) -> usize {
             .map(|&e| count_compound_returns_in_expr(package, e))
             .sum(),
         ExprKind::Struct(_, copy, fields) => {
-            let copy_count = copy
-                .map(|c| count_compound_returns_in_expr(package, c))
-                .unwrap_or(0);
+            let copy_count = copy.map_or(0, |c| count_compound_returns_in_expr(package, c));
             let fields_count: usize = fields
                 .iter()
                 .map(|fa| count_compound_returns_in_expr(package, fa.value))

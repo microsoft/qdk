@@ -89,6 +89,7 @@ pub fn rir_to_circuit(
 
 /// Recursively traverses the structured control flow, pushing operations and measurement results
 /// to the builder as it goes.
+#[allow(clippy::too_many_arguments)]
 fn build_operation_list(
     variable_tracker: &mut VariableTracker,
     program_rir: &Program,
@@ -207,6 +208,7 @@ fn build_operation_list(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_operations_in_block(
     builder: &mut impl OperationReceiver,
     state: &mut VariableTracker,
