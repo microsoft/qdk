@@ -12,15 +12,15 @@
 //!
 //! - **It is one ordered pipeline, not a toolbox of independent passes.**
 //!   Everything runs through [`run_pipeline_with_diagnostics`] in a fixed
-//!   order: monomorphize → return_unify → defunctionalize → udt_erase →
-//!   tuple_compare_lower → tuple_decompose → arg_promote → gc_unreachable →
-//!   item_dce → exec_graph_rebuild. Individual passes are *not* sound or
+//!   order: ``monomorphize`` → ``return_unify`` → ``defunctionalize`` → ``udt_erase`` →
+//!   ``tuple_compare_lower`` → ``tuple_decompose`` → ``arg_promote`` → ``gc_unreachable`` →
+//!   ``item_dce`` → ``exec_graph_rebuild``. Individual passes are *not* sound or
 //!   invariant-preserving on their own. A pass deliberately leaves FIR that
 //!   violates invariants a later pass relies on (e.g. defunctionalization is
-//!   cleaned up by udt_erase and tuple_compare_lower). Do not reorder, remove,
+//!   cleaned up by ``udt_erase`` and ``tuple_compare_lower``). Do not reorder, remove,
 //!   or run passes in isolation without understanding the chain.
 //!
-//! - **tuple_decompose ↔ arg_promote run to a fixed point.** These two passes
+//! - **``tuple_decompose`` ↔ ``arg_promote`` run to a fixed point.** These two passes
 //!   iterate until convergence (capped; see the hard-cap constant below), so
 //!   changes to either must preserve the strictly-decreasing measure that
 //!   guarantees termination.
@@ -28,13 +28,13 @@
 //! - **One [`Assigner`] is threaded through the whole pipeline.** Passes that
 //!   synthesize FIR nodes allocate fresh IDs from this single shared counter so
 //!   IDs never collide across stages. Never construct a new [`Assigner`]
-//!   mid-pipeline. The trailing metadata passes (`gc_unreachable`, `item_dce`,
-//!   `exec_graph_rebuild`) don't take it because they only tombstone, delete,
+//!   mid-pipeline. The trailing metadata passes (``gc_unreachable``, ``item_dce``,
+//!   ``exec_graph_rebuild``) don't take it because they only tombstone, delete,
 //!   or rebuild derived data and synthesize nothing.
 //!
-//! - **Synthesized nodes use the `EMPTY_EXEC_RANGE` sentinel.** New
+//! - **Synthesized nodes use the ``EMPTY_EXEC_RANGE`` sentinel.** New
 //!   [`Expr`](qsc_fir::fir::Expr)/[`Stmt`](qsc_fir::fir::Stmt) nodes get an
-//!   empty `exec_graph_range`; the final [`exec_graph_rebuild`] pass rebuilds
+//!   empty ``exec_graph_range``; the final ``exec_graph_rebuild`` pass rebuilds
 //!   the execution graph from the rewritten FIR.
 //!
 //! - **Only consume the result when there are no fatal diagnostics.** On a
