@@ -49,7 +49,11 @@ import {
 } from "./cplx.js";
 import { Markdown } from "./renderers.js";
 import { detectThemeChange, ensureTheme } from "./themeObserver.js";
-import { sanitizeGateSequence, VALID_GATE_CODES } from "./blochGates.js";
+import {
+  MAX_GATE_SEQUENCE_LENGTH,
+  sanitizeGateSequence,
+  VALID_GATE_CODES,
+} from "./blochGates.js";
 
 import rzOps from "../rz-array.json";
 
@@ -756,11 +760,6 @@ export interface BlochSphereProps {
 export function BlochSphere(props: BlochSphereProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<BlochRenderer | null>(null);
-  // Ref to the "Run gates" textbox. Using a ref (instead of a global
-  // `document.getElementById`) keeps the widget self-contained: two Bloch
-  // sphere instances on the same page won't collide, and an unrelated
-  // element happening to share the id can't hijack our state.
-  const runGatesInputRef = useRef<HTMLInputElement>(null);
 
   // The widget's interaction model is a time-travel history:
   //
@@ -819,6 +818,39 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       renderer.current.rotationTimeMs = DEFAULT_ROTATION_TIME_MS / next;
     }
   }
+
+  // Live-editor state for the gate-string textbox.
+  //
+  //   * `draft === null` means the textbox is canonical -- it displays
+  //     whatever the current `gates.join("")` is and updates
+  //     automatically when gate buttons / undo / etc. change `gates`.
+  //   * `draft !== null` means the user has been typing and the textbox
+  //     value has diverged from `gates`. We hold the typed value here
+  //     verbatim (no sanitization) so the per-char validation marker
+  //     can show exactly what the user typed. Sanitization happens on
+  //     commit.
+  //
+  // Commit (Enter or Run button): sanitize the draft, replace `gates`
+  // wholesale, snap the sphere to start, and play through to the end
+  // -- treating the textbox as "this is the program, please run it".
+  // The redo stack is cleared, since editing invalidates undone history
+  // the same way applying a new gate does.
+  const [draft, setDraft] = useState<string | null>(null);
+  const displayValue = draft ?? gates.join("");
+  const hasUnsavedDraft = draft !== null && draft !== gates.join("");
+  // Sanitized draft drives what commit() would actually apply, and also
+  // what the char-count readout shows. Computed eagerly so the readout
+  // matches what's about to happen, not the raw text the user typed.
+  const sanitizedDraft = sanitizeGateSequence(displayValue).gates;
+  const draftHasInvalid = displayValue
+    .split("")
+    .some((c) => !VALID_GATE_CODES.includes(c));
+  // Either failure mode disables Run and paints the input red: the
+  // sanitizer would silently drop something the user typed, and we'd
+  // rather they fix it explicitly than press Run and wonder why their
+  // sequence got shorter.
+  const isDraftInvalid =
+    draftHasInvalid || displayValue.length > MAX_GATE_SEQUENCE_LENGTH;
 
   // Convert a gate-code sequence to the format `BlochRenderer.snapTo`
   // expects. Keeping this as a small helper keeps the model/view seam
@@ -1078,6 +1110,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setGates(next);
     setCursor(next.length);
     setRedoStack([]);
+    // Discard any uncommitted draft -- the gate button click is itself
+    // an explicit edit, and leaving the draft in place would leave the
+    // textbox showing a different program than the one now in `gates`.
+    setDraft(null);
     props.onGatesChanged?.(next.join(""));
   }
 
@@ -1113,6 +1149,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setGates(next);
     setCursor(next.length);
     setRedoStack([removed, ...redoStack]);
+    // Drop any pending draft so the textbox stays consistent with the
+    // sequence we just shortened.
+    setDraft(null);
     props.onGatesChanged?.(next.join(""));
   }
 
@@ -1129,6 +1168,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setGates(next);
     setCursor(next.length);
     setRedoStack(rest);
+    // Drop any pending draft so the textbox stays consistent with the
+    // sequence we just re-extended.
+    setDraft(null);
     props.onGatesChanged?.(next.join(""));
   }
 
@@ -1137,51 +1179,89 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setGates([]);
     setCursor(0);
     setRedoStack([]);
+    // Reset means "go back to a blank program"; the draft should match.
+    setDraft(null);
     renderer.current?.reset();
     props.onGatesChanged?.("");
   }
 
   function applyGatesFromTextbox() {
-    const input = runGatesInputRef.current;
-    if (!input || !renderer.current) return;
+    // The Run button (and the Enter key on the textbox) commit the
+    // current displayed value. Treat this as "the textbox is a
+    // program, please run it": replace gates wholesale, clear redo,
+    // snap to the start, and play through to the end. The user
+    // explicitly asked for replay semantics here -- even if the
+    // sanitized result equals the existing gates list, we still snap
+    // and play, because they pressed Run.
+    if (!renderer.current) return;
     stopPlayback(false);
-    // Same defensive filter as the URL-replay path: a user pasting
-    // arbitrary text shouldn't trigger `console.error` per character or
-    // queue an unbounded number of animations.
-    const { gates: cleaned } = sanitizeGateSequence(input.value);
-    if (!cleaned) return;
-
-    // Hand the work off to applyGate one character at a time would hit
-    // stale-closure issues (every call would see the same `gates` from
-    // the closure), so inline the same logic with a local accumulator.
-    let base = gates;
-    if (cursor < gates.length) {
-      base = gates.slice(0, cursor);
-      renderer.current.snapTo(gatesToSteps(base));
-    }
-    const next = [...base];
-    for (const code of cleaned) {
-      const info = gateInfo[code];
-      if (!info) continue;
-      renderer.current.animateStep(info.rotateAxis, info.rotateAngle);
-      next.push(code);
-    }
-    setGates(next);
-    setCursor(next.length);
+    const cleaned = sanitizedDraft;
+    const arr = cleaned.split("");
+    setGates(arr);
     setRedoStack([]);
-    props.onGatesChanged?.(next.join(""));
+    setDraft(null);
+    props.onGatesChanged?.(cleaned);
+    // Snap to start, then chain the play loop manually -- we can't go
+    // through `play()` here because it reads `gates` from the closure
+    // (which still has the pre-commit value until the next render).
+    renderer.current.snapTo([]);
+    setCursor(0);
+    if (arr.length === 0) return;
+    isPlayingRef.current = true;
+    setIsPlaying(true);
+    // Inline mini play loop: same shape as playFromIndex, but reads
+    // `arr` from the local closure so we don't have to wait for React
+    // to flush the gates update.
+    const chain = (pos: number) => {
+      if (!renderer.current) return;
+      const code = arr[pos];
+      const info = gateInfo[code];
+      if (!info) {
+        isPlayingRef.current = false;
+        setIsPlaying(false);
+        return;
+      }
+      animatingToIndexRef.current = pos + 1;
+      renderer.current.animateStep(info.rotateAxis, info.rotateAngle, () => {
+        animatingToIndexRef.current = null;
+        if (!isPlayingRef.current) return;
+        const next = pos + 1;
+        setCursor(next);
+        if (next < arr.length) {
+          chain(next);
+        } else {
+          isPlayingRef.current = false;
+          setIsPlaying(false);
+        }
+      });
+    };
+    chain(0);
+  }
+
+  function draftKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      applyGatesFromTextbox();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setDraft(null);
+    }
+  }
+
+  function draftInput(e: Event) {
+    const input = e.target as HTMLInputElement;
+    setDraft(input.value);
   }
 
   function sliderChange(e: Event) {
     const slider = e.target as HTMLInputElement;
     const angleIdx = Math.round(parseFloat(slider.value) * 200) % 1256;
-    // Pre-fill the Run textbox with the H/T-only decomposition for this
-    // Rz angle so the user can hit Run to see it animate. The label next
-    // to the slider is rendered straight from `rzAngle` state in JSX
-    // below; no DOM mutation needed.
-    if (runGatesInputRef.current) {
-      runGatesInputRef.current.value = rzOps[angleIdx];
-    }
+    // Push the Rz decomposition into the live gate-string textbox as
+    // a draft. The user can review it, edit it, and press Run/Enter to
+    // replace gates and replay. We don't apply it directly because the
+    // textbox is now the authoritative "program" input -- having the
+    // slider rewrite `gates` silently would be confusing.
+    setDraft(rzOps[angleIdx]);
     setRzAngle(parseFloat(slider.value));
   }
 
@@ -1428,22 +1508,99 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           Reset
         </button>
       </div>
-      <div style="margin-top: 12px">
-        <input
-          ref={runGatesInputRef}
-          type="text"
-          size={60}
-          placeholder="Enter gates then tab away"
-          disabled={isPlaying}
-        />
-        <button
-          style="margin-left: 8px; padding: 0 4px"
-          type="button"
-          onClick={applyGatesFromTextbox}
-          disabled={isPlaying}
+      <div class="qs-bloch-gate-editor">
+        <div class="qs-bloch-gate-editor-row">
+          <input
+            class={
+              "qs-bloch-gate-editor-input" +
+              (isDraftInvalid ? " qs-bloch-gate-editor-input-invalid" : "")
+            }
+            size={60}
+            value={displayValue}
+            onInput={draftInput}
+            onKeyDown={draftKeyDown}
+            placeholder="Type gates here (X Y Z H S s T t), Enter to run"
+            disabled={isPlaying}
+            spellcheck={false}
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            aria-label="Gate program"
+            aria-invalid={isDraftInvalid}
+          />
+          <button
+            style="margin-left: 8px; padding: 0 8px"
+            type="button"
+            onClick={applyGatesFromTextbox}
+            disabled={isPlaying || isDraftInvalid}
+            title={
+              isDraftInvalid
+                ? "Fix invalid input before running"
+                : "Apply this gate string and replay from the start"
+            }
+          >
+            Run
+          </button>
+        </div>
+        {/*
+          Per-character validation feedback. Mirrors `displayValue` as a
+          row of styled chars: valid gate codes render plain, invalid
+          chars (anything outside `VALID_GATE_CODES`) get a red
+          wavy underline, and chars beyond MAX_GATE_SEQUENCE_LENGTH also
+          render as invalid to flag that they'll be dropped on Run.
+        */}
+        <div
+          class={
+            "qs-bloch-gate-editor-feedback" +
+            (hasUnsavedDraft ? " qs-bloch-gate-editor-unsaved" : "")
+          }
+          aria-hidden="true"
         >
-          Run
-        </button>
+          <span class="qs-bloch-gate-editor-chars">
+            {displayValue.split("").map((c, i) => {
+              const valid =
+                VALID_GATE_CODES.includes(c) && i < MAX_GATE_SEQUENCE_LENGTH;
+              return (
+                <span
+                  class={
+                    valid
+                      ? "qs-bloch-gate-char"
+                      : "qs-bloch-gate-char qs-bloch-gate-char-invalid"
+                  }
+                >
+                  {c === " " ? "\u00B7" : c}
+                </span>
+              );
+            })}
+          </span>
+          <span class="qs-bloch-gate-editor-status">
+            {hasUnsavedDraft && (
+              <span
+                class="qs-bloch-gate-editor-unsaved-indicator"
+                title="Unsaved changes \u2014 press Enter or Run to apply, Esc to discard"
+              >
+                — ● unsaved
+              </span>
+            )}
+            <span
+              class={
+                draftHasInvalid ||
+                displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                  ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
+                  : "qs-bloch-gate-editor-count"
+              }
+              title={
+                draftHasInvalid
+                  ? `Invalid characters will be dropped on Run. Valid codes: ${VALID_GATE_CODES}`
+                  : displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                    ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap; excess will be dropped on Run`
+                    : ""
+              }
+            >
+              {sanitizedDraft.length} / {MAX_GATE_SEQUENCE_LENGTH}
+            </span>
+          </span>
+        </div>
       </div>
       <div style="margin-top: 8px">
         <input

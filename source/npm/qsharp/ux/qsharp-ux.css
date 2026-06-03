@@ -656,6 +656,94 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-style: italic;
 }
 
+/* Live gate-string editor. Sits below the canvas and provides the
+   "see the program you're building" textbox. The input proper looks
+   like any other text field; the per-char feedback row below it shows
+   the same string broken into spans so we can mark invalid chars and
+   a small status line shows the unsaved-draft indicator and char
+   count. The visible char row is intentionally offset and slightly
+   smaller so it reads as a hint rather than a duplicate. */
+.qs-bloch-gate-editor {
+  font-family: var(--qdk-font-family-monospace);
+}
+.qs-bloch-gate-editor-row {
+  display: flex;
+  align-items: center;
+}
+.qs-bloch-gate-editor-input {
+  font-family: var(--qdk-font-family-monospace);
+  font-size: 1em;
+  padding: 4px 6px;
+  flex: 0 1 auto;
+}
+/* Invalid-draft state: red outline (and matching focus ring) so the
+   user can tell at a glance that Run is disabled because of what's
+   currently typed. We use `outline` rather than `border` so we don't
+   shift the layout when the state toggles. */
+.qs-bloch-gate-editor-input-invalid {
+  outline: 2px solid var(--qdk-text-error, #d83b01);
+  outline-offset: -1px;
+}
+.qs-bloch-gate-editor-input-invalid:focus {
+  outline: 2px solid var(--qdk-text-error, #d83b01);
+  outline-offset: -1px;
+}
+.qs-bloch-gate-editor-feedback {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 4px;
+  /* Align the char row with the input contents (the input has 6px of
+     left padding plus its border). Without this the per-char display
+     drifts a couple of pixels left of the input text and the visual
+     correspondence breaks down. */
+  padding: 0 7px;
+  font-size: 0.85em;
+  min-height: 1.4em;
+}
+.qs-bloch-gate-editor-chars {
+  flex: 1;
+  /* Preserve whitespace so spaces (rendered as middle-dots) line up
+     with the input's own spaces. */
+  white-space: pre;
+  letter-spacing: 0.05em;
+  color: var(--qdk-host-foreground);
+  opacity: 0.7;
+}
+.qs-bloch-gate-char {
+  /* Plain char; no extra styling so valid sequences look quiet. */
+}
+.qs-bloch-gate-char-invalid {
+  /* Wavy red underline matches the standard "this is wrong, but
+     keep typing" affordance from spell-checkers and editors. We use
+     text-decoration rather than a background colour so the char
+     itself stays legible against either light or dark themes. */
+  text-decoration: underline wavy var(--qdk-text-error, #d83b01);
+  text-decoration-skip-ink: none;
+}
+.qs-bloch-gate-editor-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.qs-bloch-gate-editor-unsaved-indicator {
+  color: var(--qdk-text-warning, #b58900);
+  font-style: italic;
+}
+.qs-bloch-gate-editor-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.qs-bloch-gate-editor-count-warn {
+  /* When the sanitized version is shorter than the typed value,
+     emphasise the count so the user notices that "Run" won't apply
+     everything they see. */
+  color: var(--qdk-text-error, #d83b01);
+  opacity: 1;
+  font-weight: bold;
+}
+
 .qs-estimatesOverview-saveIcon {
   cursor: pointer;
   width: 3em;
