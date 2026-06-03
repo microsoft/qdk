@@ -489,6 +489,106 @@ fn int_as_double_error() {
 }
 
 #[test]
+fn ty_mismatch_span_tuple1_to_given() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F(a : Int) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F((1,))",
+        &expect![[r##"
+            #6 36-45 "(a : Int)" : Int
+            #7 37-44 "a : Int" : Int
+            #15 55-62 "{ 1.0 }" : Double
+            #17 57-60 "1.0" : Double
+            #18 65-82 "Namespace.F((1,))" : Double
+            #19 65-76 "Namespace.F" : (Int -> Double)
+            #23 76-82 "((1,))" : (Int,)
+            #24 77-81 "(1,)" : (Int,)
+            #25 78-79 "1" : Int
+            Error(Type(Error(TyMismatch("Int", "(Int,)", Span { lo: 77, hi: 81 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn ty_mismatch_span_given_to_tuple1() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F((a : Int,)) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F(1)",
+        &expect![[r##"
+            #6 36-48 "((a : Int,))" : (Int,)
+            #7 37-47 "(a : Int,)" : (Int,)
+            #8 38-45 "a : Int" : Int
+            #16 58-65 "{ 1.0 }" : Double
+            #18 60-63 "1.0" : Double
+            #19 68-82 "Namespace.F(1)" : Double
+            #20 68-79 "Namespace.F" : ((Int,) -> Double)
+            #24 79-82 "(1)" : Int
+            #25 80-81 "1" : Int
+            Error(Type(Error(TyMismatch("(Int,)", "Int", Span { lo: 80, hi: 81 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn ty_mismatch_span_tuple1_to_tuple1() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F((a : Int,)) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F((1.,))",
+        &expect![[r##"
+            #6 36-48 "((a : Int,))" : (Int,)
+            #7 37-47 "(a : Int,)" : (Int,)
+            #8 38-45 "a : Int" : Int
+            #16 58-65 "{ 1.0 }" : Double
+            #18 60-63 "1.0" : Double
+            #19 68-86 "Namespace.F((1.,))" : Double
+            #20 68-79 "Namespace.F" : ((Int,) -> Double)
+            #24 79-86 "((1.,))" : (Double,)
+            #25 80-85 "(1.,)" : (Double,)
+            #26 81-83 "1." : Double
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 81, hi: 83 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn ty_mismatch_span_tuple2_to_tuple2() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F((a : Int, b: Int)) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F((1.,2))",
+        &expect![[r##"
+            #6 36-55 "((a : Int, b: Int))" : (Int, Int)
+            #7 37-54 "(a : Int, b: Int)" : (Int, Int)
+            #8 38-45 "a : Int" : Int
+            #13 47-53 "b: Int" : Int
+            #21 65-72 "{ 1.0 }" : Double
+            #23 67-70 "1.0" : Double
+            #24 75-94 "Namespace.F((1.,2))" : Double
+            #25 75-86 "Namespace.F" : ((Int, Int) -> Double)
+            #29 86-94 "((1.,2))" : (Double, Int)
+            #30 87-93 "(1.,2)" : (Double, Int)
+            #31 88-90 "1." : Double
+            #32 91-92 "2" : Int
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 88, hi: 90 }))))
+        "##]],
+    );
+}
+
+#[test]
 fn length_type_error() {
     check(
         indoc! {"
