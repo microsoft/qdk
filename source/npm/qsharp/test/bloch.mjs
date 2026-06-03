@@ -21,6 +21,11 @@ import {
   Rotations,
   compare,
 } from "../dist/cplx.js";
+import {
+  VALID_GATE_CODES,
+  MAX_GATE_SEQUENCE_LENGTH,
+  sanitizeGateSequence,
+} from "../dist/ux/blochGates.js";
 import { Vector3 } from "three";
 
 describe("Gate combos", () => {
@@ -262,5 +267,56 @@ describe("It has correct path entries", () => {
 
     const after99Percent = qubit.getRotationAtPercent(qubit.gates[0], 0.99);
     assert(after99Percent.path.length === 64);
+  });
+});
+
+describe("sanitizeGateSequence", () => {
+  it("passes through a valid sequence unchanged", () => {
+    const r = sanitizeGateSequence("XYZHSsTt");
+    assert.strictEqual(r.gates, "XYZHSsTt");
+    assert.strictEqual(r.modified, false);
+  });
+
+  it("returns empty for falsy input", () => {
+    for (const v of ["", undefined, null]) {
+      const r = sanitizeGateSequence(v);
+      assert.strictEqual(r.gates, "");
+      assert.strictEqual(r.modified, false);
+    }
+  });
+
+  it("strips unknown characters and reports modification", () => {
+    // Includes a mix of clearly invalid chars (space, punctuation, digit,
+    // unicode) interleaved with valid gates. Note that lowercase `s` and
+    // `t` are themselves valid (S† and T†), so this string deliberately
+    // avoids them.
+    const r = sanitizeGateSequence("X y Z h<br>1\u2603");
+    assert.strictEqual(r.gates, "XZ");
+    assert.strictEqual(r.modified, true);
+  });
+
+  it("preserves case-sensitive variants (S vs s, T vs t)", () => {
+    const r = sanitizeGateSequence("SsTtSsTt");
+    assert.strictEqual(r.gates, "SsTtSsTt");
+    assert.strictEqual(r.modified, false);
+  });
+
+  it("caps length at MAX_GATE_SEQUENCE_LENGTH", () => {
+    const overflow = "X".repeat(MAX_GATE_SEQUENCE_LENGTH + 5);
+    const r = sanitizeGateSequence(overflow);
+    assert.strictEqual(r.gates.length, MAX_GATE_SEQUENCE_LENGTH);
+    assert.strictEqual(r.modified, true);
+  });
+
+  it("counts both filtering and capping toward modified", () => {
+    // Mostly noise with a few valid gates that don't exceed the cap;
+    // length still differs from the input, so modified is true.
+    const r = sanitizeGateSequence("..X..Y..Z..");
+    assert.strictEqual(r.gates, "XYZ");
+    assert.strictEqual(r.modified, true);
+  });
+
+  it("VALID_GATE_CODES contains exactly the supported gates", () => {
+    assert.strictEqual(VALID_GATE_CODES, "XYZHSsTt");
   });
 });

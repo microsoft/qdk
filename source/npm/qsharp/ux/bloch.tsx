@@ -49,6 +49,7 @@ import {
 } from "./cplx.js";
 import { Markdown } from "./renderers.js";
 import { detectThemeChange, ensureTheme } from "./themeObserver.js";
+import { sanitizeGateSequence, VALID_GATE_CODES } from "./blochGates.js";
 
 import rzOps from "../rz-array.json";
 
@@ -531,8 +532,9 @@ class BlochRenderer {
 export interface BlochSphereProps {
   /** Sequence of single-character gate codes to replay on mount. Each
    * character must be one of the gate keys understood by `rotate` (X, Y, Z,
-   * H, S, s, T, t). Typically populated from a URL parameter so that a
-   * shared link reproduces the same sphere state. */
+   * H, S, s, T, t); see `VALID_GATE_CODES`. Unknown characters are silently
+   * dropped and the total length is capped (`MAX_GATE_SEQUENCE_LENGTH`),
+   * so it is safe to pass straight from an untrusted URL parameter. */
   initialGates?: string;
   /** Called whenever the applied-gate sequence changes (gate applied, gates
    * applied in bulk via Run, or reset). The argument is the full sequence
@@ -563,9 +565,19 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     renderer.current = r;
     // Replay any gates supplied via the URL on initial mount. We just call
     // the regular `rotate` so the renderer animations, state vector, and
-    // history pane all stay in sync with the rest of the UI.
+    // history pane all stay in sync with the rest of the UI. Inputs are
+    // sanitized so a stale or hostile URL can't flood the animation queue
+    // or trigger `console.error` per character.
     if (props.initialGates) {
-      for (const ch of props.initialGates) {
+      const { gates, modified } = sanitizeGateSequence(props.initialGates);
+      if (modified) {
+        console.warn(
+          `BlochSphere: ignored unknown gates or excess length in initialGates ` +
+            `(input length ${props.initialGates.length}, applied ${gates.length}). ` +
+            `Valid gate codes are: ${VALID_GATE_CODES}.`,
+        );
+      }
+      for (const ch of gates) {
         rotate(ch);
       }
     }
@@ -716,8 +728,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   function applyGates() {
     const input = document.getElementById("run_gates") as HTMLInputElement;
-    const text = input.value;
-    for (const gate of text) {
+    // Same defensive filter as the URL-replay path: a user pasting
+    // arbitrary text shouldn't trigger `console.error` per character or
+    // queue an unbounded number of animations.
+    const { gates } = sanitizeGateSequence(input.value);
+    for (const gate of gates) {
       rotate(gate);
     }
   }

@@ -36,35 +36,50 @@ into the main product. Items are not ordered by priority.
 
 ## Widget correctness — must-fix before PR
 
-- [ ] **WebGL resource leak on unmount.** `BlochRenderer` is created in a
-      `useEffect` with no cleanup. Navigating away from the Bloch view (or
-      closing/reopening the VS Code webview) leaves the `WebGLRenderer`,
-      `OrbitControls`, geometries, materials, textures, and live
-      `requestAnimationFrame` loop alive. Browsers cap concurrent WebGL
-      contexts (~8–16); enough navigation triggers
-      "Too many active WebGL contexts". Need `cancelAnimationFrame`,
-      `renderer.dispose()`, `controls.dispose()`, and a scene traversal
-      disposing geometries/materials/textures.
-- [ ] **Theme sensitivity.** `isLight` is computed from
-      `data-vscode-theme-kind` and never read. Sphere color, label color
-      (`#606080` baked into the canvas texture), and the history pane
-      background (`#eee`) are identical in every theme. In VS Code dark
-      themes the labels are nearly invisible and the white history pane
-      blares. Branch on `isLight` for label color, history pane background,
-      and probably the sphere emissive color; watch the attribute via a
-      `MutationObserver` so live theme switches are picked up.
+- [x] **WebGL resource leak on unmount.** `BlochRenderer` now exposes
+      `dispose()`, called from the React `useEffect` cleanup. It cancels
+      any in-flight animation frame, disposes the OrbitControls, walks
+      the scene disposing every geometry/material/map, releases label
+      sprite textures, and calls `WebGLRenderer.dispose()`. The
+      `themeObserver.detectThemeChange` helper was also updated to
+      return a disposer; the widget calls it on unmount so the
+      `MutationObserver` goes away too.
+- [x] **Theme sensitivity.** Replaced the dead `isLight` block with
+      `lightThemeColors` / `darkThemeColors` palettes selected via
+      `colorsFor(isDark)`. `BlochRenderer` takes `isDark` in its
+      constructor and exposes `setTheme(isDark)` which mutates sphere /
+      marker / line materials and directional light in place and
+      regenerates the canvas-textured label sprites (text color is
+      baked into the canvas, so swap is cheapest). The React component
+      uses `ensureTheme()` for the initial value and
+      `detectThemeChange(document.body, r.setTheme)` for live switches.
+      The history pane swapped its hard-coded `background: #eee` for a
+      new `.qs-bloch-history` CSS class pulling
+      `var(--qdk-background-accent)` / `var(--qdk-host-foreground)` /
+      `var(--qdk-widget-outline)` from the shared QDK theme tokens.
 - [ ] **`document.getElementById("run_gates" | "rz_button")`.** Two Bloch
       widgets on a page would collide, and any external collision silently
       hijacks our state. Replace with refs to a self-contained subtree.
-- [ ] **Validate `?gates` URL input.** A malicious/stale link with
-      `?gates=AAAAAAAA…` (10k chars) will `console.error` per char _and_
-      push 10k animations onto the queue. Filter to the known gate-code
-      whitelist (`X Y Z H S s T t`) and cap length.
-- [ ] **Dead code.** Remove `fontMap` / `weightMap` leftovers from the
-      deleted `FontLoader` path. Remove the top-of-file
-      `/* eslint-disable @typescript-eslint/no-unused-vars */` once the
-      genuine unused vars are gone. Prune stale TODO comments at the top
-      that refer to dropped features.
+- [x] **Validate `?gates` URL input.** Extracted `VALID_GATE_CODES`
+      (`"XYZHSsTt"`), `MAX_GATE_SEQUENCE_LENGTH` (256), and
+      `sanitizeGateSequence()` into a tiny standalone
+      `ux/blochGates.ts` module so it has no three.js / preact / JSON
+      dependencies and can be unit-tested directly under Node. Both the
+      URL-replay path on mount and the in-widget Run textbox now route
+      through the sanitizer; the URL path logs a single `console.warn`
+      naming the valid codes when anything is dropped, and the textbox
+      silently filters. Added 7 unit tests covering pass-through,
+      falsy input, unknown-char stripping, S/s and T/t case
+      preservation, length cap, mixed filter+cap modification flag,
+      and the `VALID_GATE_CODES` constant.
+- [x] **Dead code.** Removed the top-of-file
+      `/* eslint-disable @typescript-eslint/no-unused-vars */` and the
+      two real unused vars it was masking (`Vector3` import, `e: Event`
+      parameter on `applyGates`). Removed `fontMap` / `weightMap`
+      leftovers from the `FontLoader` path. Replaced the long stale TODO
+      comment block with a short note pointing readers to this file;
+      kept the basis-coefficient → Bloch-angle math note since it's the
+      only piece worth inline.
 
 ## Widget UX — should-fix
 
