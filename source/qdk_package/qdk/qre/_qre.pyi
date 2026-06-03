@@ -794,7 +794,7 @@ class _ProvenanceGraph:
         space: Optional[int | _IntFunction] = None,
         length: Optional[int | _IntFunction] = None,
         error_rate: float | _FloatFunction = ...,
-        **kwargs: int,
+        **kwargs: Optional[int],
     ) -> int: ...
     def add_instruction(
         self,
@@ -806,7 +806,7 @@ class _ProvenanceGraph:
         space: Optional[int | _IntFunction] = None,
         length: Optional[int | _IntFunction] = None,
         error_rate: float | _FloatFunction = ...,
-        **kwargs: int,
+        **kwargs: Optional[int],
     ) -> int:
         """
         Add an instruction to the provenance graph with no transform or

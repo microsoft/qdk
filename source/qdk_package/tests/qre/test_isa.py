@@ -83,6 +83,14 @@ def test_instruction_properties():
     assert instr_with_distance.has_property(DISTANCE) is True
     assert instr_with_distance.get_property_or(DISTANCE, 5) == 9
 
+    # Test instruction with None value (should be treated as not having the property)
+    instr_with_none_distance = _make_instruction(
+        T, 1, 1, 1000, None, None, 1e-8, {"distance": None}
+    )
+    assert instr_with_none_distance.get_property(DISTANCE) is None
+    assert instr_with_none_distance.has_property(DISTANCE) is False
+    assert instr_with_none_distance.get_property_or(DISTANCE, 5) == 5
+
     # Test instruction with invalid property name
     with pytest.raises(ValueError, match="Unknown property 'invalid_prop'"):
         _make_instruction(T, 1, 1, 1000, None, None, 1e-8, {"invalid_prop": 42})
