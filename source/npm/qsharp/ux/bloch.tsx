@@ -1272,7 +1272,22 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         class="qs-bloch-history"
         style="font-size: 0.8em; position: absolute; left: 600px; top: 50px; height: 700px; min-width: 220px; display: flex; flex-direction: column;"
       >
-        <div class="qs-bloch-history-title">History</div>
+        <div class="qs-bloch-history-title">
+          <span>History</span>
+          {gates.length > 0 && (
+            <span
+              class="qs-bloch-history-step-counter"
+              aria-live="polite"
+              title={
+                inInspectMode
+                  ? "Viewing an earlier step. Apply a gate to discard later steps."
+                  : "Current step / total steps"
+              }
+            >
+              Step {cursor} / {gates.length}
+            </span>
+          )}
+        </div>
         {/*
           Media-player-style transport controls. Layout left-to-right:
           jump-to-start, step-back, play/pause/replay, step-forward,
@@ -1364,19 +1379,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           />
           <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
         </div>
-        {inInspectMode && (
-          <div class="qs-bloch-history-banner">
-            Viewing step {cursor} of {gates.length} — apply a gate to discard
-            later steps.
-            <button
-              type="button"
-              style="margin-left: 8px;"
-              onClick={() => navigateTo(gates.length)}
-            >
-              Jump to latest
-            </button>
-          </div>
-        )}
         <div style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; align-items: stretch;">
           <div
             class={

@@ -554,18 +554,32 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 /* Sticky title bar at the top of the history pane. Stays visible while
    the user scrolls through a long sequence so they always know which
-   pane they're in. */
+   pane they're in. The step counter sits on the right and only renders
+   once the user has applied at least one gate, so an empty history
+   just reads "History". */
 .qs-bloch-history-title {
   font-weight: bold;
   padding: 6px 8px;
   border-bottom: 1px solid var(--qdk-widget-outline);
   background: var(--qdk-menu-fill);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Step counter pinned to the right of the history title bar. Lighter
+   weight than the title itself so it reads as a subordinate piece of
+   metadata, not a competing heading. */
+.qs-bloch-history-step-counter {
+  font-weight: normal;
+  font-size: 0.9em;
+  opacity: 0.75;
 }
 
 /* Media-player-style transport bar below the history title. Sized so
    the row of five glyph buttons sits comfortably between the title and
-   the history items, and so the inspect-mode banner (when present)
-   pushes down below it rather than wedging between. */
+   the history items. */
 .qs-bloch-media-controls {
   display: flex;
   gap: 4px;
@@ -614,16 +628,6 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   min-width: 3em;
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-/* Banner shown when the user is inspecting an earlier step in the
-   sequence. Calls out that future rows will be discarded if a new gate
-   is applied, and offers a one-click escape back to the latest state. */
-.qs-bloch-history-banner {
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--qdk-widget-outline);
-  background: var(--qdk-menu-fill-hover);
-  font-size: 0.95em;
 }
 
 /* Each entry in the history list. Clickable to navigate; hover hints
