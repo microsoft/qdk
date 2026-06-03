@@ -99,6 +99,68 @@ M edits and qubit reorders) is closed: B2's `_applyClassicalRefRemap`
 
 ---
 
+## [Test coverage audit](CIRCUIT_EDITOR_TODO.md#test-coverage-audit--pr-readiness) — PR readiness
+
+A snapshot of where coverage stands at the close of the
+re-architecture campaign, focused on what's worth landing before
+the PR opens.
+
+**Current totals.** 293 tests across 14 `.mjs` files in
+[test/circuit-editor/](../../test/circuit-editor/) — all passing —
+plus 21 snapshot fixtures in
+[test/circuits-cases/](../../test/circuits-cases/).
+
+**Strongest areas.**
+
+- Data layer (`circuitModel`, `location`, `viewState`) — direct
+  unit tests, no JSDOM.
+- Action layer — [`circuitActions.test.mjs`](../../test/circuit-editor/circuitActions.test.mjs)
+  (126 tests) is the crown jewel; pins every move / control /
+  extend-cascade / classical-ref-remap / clone-move path along
+  with the M5 / B5 / B6 gates.
+- Utilities — [`utils.test.mjs`](../../test/circuit-editor/utils.test.mjs)
+  (32 tests) covers wire-pick, parse-wire-Ys, sibling-wire
+  enumeration, child-target derivation, and find helpers.
+
+**Highest-value gaps** (full per-module table in the TODO):
+
+| Surface                                           | Status                                                                                                                                                                                 |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Sqore.rebaseViewState` (B11 consumer side)       | ❌ No direct test for the `sqore-prev-location` stamp consumption.                                                                                                                     |
+| `operationPrompts.ts` (B2 / B3 wrappers)          | ❌ No tests for the confirm-cancel path or the mixed-shape prompt text.                                                                                                                |
+| `contextMenu.ts` (M5 / M7 / B5 UI gates)          | ❌ No menu-DOM test harness. Predicates in `circuitActions.ts` ARE covered, but the menu wiring isn't pinned.                                                                          |
+| `dragController.ts` (929 lines, 10 tests)         | ⚠️ Thin. Toolbox-drag, drop commit, shift-extend wiring, horizontal control-drag commit untested.                                                                                      |
+| `draggable.ts` (800 lines, 0 direct tests)        | ⚠️ Indirect via `dropzones.test.mjs` + snapshots. Worth a dead-code pass before writing new tests — several helpers may be superseded by `LayoutMap` consumers in `dragController.ts`. |
+| `gateFormatter.ts` group-control geometry (M2/B9) | ⚠️ Snapshot-only — four edge cases (control above / below / in gap / on sub-box wire) aren't individually pinned.                                                                      |
+| `isValidAngleExpression` (Edit Argument flow)     | ❌ No direct test; `evaluateAngleExpression` is covered indirectly by the state-viz suite.                                                                                             |
+
+**Cut line for the PR** (~5 cheap items, each ~1 day):
+
+1. `Sqore.rebaseViewState` unit tests (identity preserved /
+   identity lost + stamp present / stamp absent).
+2. `_deleteOperationWithConfirmation` cancel-path test.
+3. `_moveOperationWithConfirmation` cascade-count message tests
+   (pure-survivors, pure-invalidated, mixed).
+4. `isValidAngleExpression` direct tests.
+5. `dragController` horizontal control-drag commit-path test.
+
+Deferred follow-ups (not blocking PR):
+
+- **Context-menu DOM-test harness** — single shared JSDOM
+  investment covers M5 / M7 / B5 / Edit Argument with ~6–10
+  tests. Worth it eventually; not worth standing up for any
+  single milestone.
+- **Renderer geometry tests** for
+  `_renderQuantumGroupControls` — would catch the M6
+  rendering rule's eventual landing without snapshot churn.
+- **`draggable.ts` audit** — dead-code pass vs. targeted tests.
+
+See [the full audit in the TODO](CIRCUIT_EDITOR_TODO.md#test-coverage-audit--pr-readiness)
+for the per-module table, milestone-grouped gap list, and
+working principles.
+
+---
+
 ## [Planned features (in priority order)](CIRCUIT_EDITOR_TODO.md#planned-in-priority-order)
 
 |                                                                                                                     | Feature                                                              | Status                                                                                                                                                                                                 |
