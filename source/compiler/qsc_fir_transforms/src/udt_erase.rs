@@ -1,79 +1,35 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! UDT erasure pass.
+//! UDT erasure pass — runs after defunctionalization, before tuple-compare
+//! lowering. A standard ML-family type-erasure technique.
 //!
-//! Replaces every `Ty::Udt` in the entry-reachable package closure with its
-//! pure tuple or scalar type (via `get_pure_ty()`) and converts
-//! `ExprKind::Struct` construction expressions into tuple or scalar
-//! expressions. Also eliminates UDT constructor calls (`ExprKind::Call`
-//! whose callee is an `ItemKind::Ty` item) and lowers
-//! `ExprKind::UpdateField` and `ExprKind::AssignField` with `Field::Path`
-//! into explicit tuple constructions with field extractions. Additionally,
-//! lowers `ExprKind::Field` read access expressions on scalar-erased
-//! single-field newtypes. After this pass, no `Ty::Udt`, `ExprKind::Struct`,
-//! UDT constructor call, UDT-targeted `UpdateField`/`AssignField`, or
-//! `Field::Path` on non-tuple types remains in the target package or in any
-//! package that contains an entry-reachable callable.
+//! Replaces every `Ty::Udt` with its pure tuple/scalar type (`get_pure_ty()`)
+//! and rewrites UDT-shaped expressions into plain tuples/scalars. `Struct`
+//! construction becomes `Tuple`, UDT constructor calls become the underlying
+//! value, and `UpdateField`/`AssignField`/`Field` with `Field::Path` become
+//! explicit tuple constructions with field extractions (single-field newtype
+//! reads collapse to the inner value). Must run before partial eval and codegen,
+//! which inspect reachable cross-package FIR but do not support UDTs or
+//! `ExprKind::Struct`.
 //!
-//! Establishes [`crate::invariants::InvariantLevel::PostUdtErase`].
+//! # What to know before diving in
 //!
-//! This must run before partial evaluation and backend code generation, which
-//! may inspect reachable cross-package FIR but do not support UDT types or
-//! `ExprKind::Struct` in the code they consume.
-//!
-//! UDT erasure is a standard type-erasure technique common in ML-family
-//! compilers and functional languages targeting lower-level IRs.
-//!
-//! # Input patterns
-//!
-//! - `ExprKind::Struct(Udt, copy_opt, fields)` — UDT construction (with or
-//!   without a copy-update source).
-//! - `ExprKind::UpdateField(record, Field::Path, replace)` / `AssignField`
-//!   — field-path-based record updates.
-//! - Any expression, pattern, block, or callable signature carrying a
-//!   `Ty::Udt`.
-//!
-//! # Rewrites
-//!
-//! Construction of `newtype Pair = (Int, Int); new Pair { First = 1, Second = 2 }`:
-//!
-//! ```text
-//! // Before
-//! Struct(Pair, None, [First = 1, Second = 2])
-//!
-//! // After
-//! Tuple([1, 2])
-//! ```
-//!
-//! Copy-update `new Pair { ...src, First = 9 }`:
-//!
-//! ```text
-//! // Before
-//! Struct(Pair, Some(src), [First = 9])
-//!
-//! // After
-//! Tuple([9, Field(src, Path([1]))])
-//! ```
-//!
-//! Update-field `record w/ ::First <- 9`:
-//!
-//! ```text
-//! // Before
-//! UpdateField(record, Path([0]), 9)
-//!
-//! // After
-//! Tuple([9, Field(record, Path([1]))])
-//! ```
-//!
-//! # Notes
-//!
-//! - Scope: the target package and every package reachable from its entry
-//!   expression are mutated in place. Cross-package UDT resolution still
-//!   uses the whole store via the UDT cache.
+//! - **Establishes [`crate::invariants::InvariantLevel::PostUdtErase`]:** no
+//!   `Ty::Udt`, `ExprKind::Struct`, UDT constructor call, UDT-targeted
+//!   `UpdateField`/`AssignField`, or `Field::Path` on non-tuple types remains.
+//! - **Whole-closure scope — the pipeline outlier.** Unlike every other pass
+//!   (which rewrites the entry package only), this mutates the target package
+//!   *and every package reachable from its entry*, because entry-reachable
+//!   paths cross into library callables. UDT definitions are resolved from the
+//!   whole store via the UDT cache.
+//! - **Feeds [`crate::exec_graph_rebuild`].** Returns
+//!   `Vec<CallableSpecId>` (`structurally_mutated_specs`) — the specs whose
+//!   structure changed. The pipeline driver filters these to cross-package
+//!   entries and forwards them as the `external_specs` whose exec graphs must
+//!   be rebuilt; this pass is their sole producer.
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
-//!   [`crate::exec_graph_rebuild`] rebuilds correct exec graphs at the end
-//!   of the pipeline.
+//!   [`crate::exec_graph_rebuild`] rebuilds exec graphs later.
 
 #[cfg(test)]
 mod tests;

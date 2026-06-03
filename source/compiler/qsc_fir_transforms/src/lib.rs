@@ -3,48 +3,49 @@
 
 //! FIR-to-FIR transformation passes for the Q# compiler.
 //!
-//! This crate defines the production FIR rewrite pipeline that runs after FIR
-//! lowering and before partial evaluation and codegen. The pipeline
-//! monomorphizes reachable callables, rewrites returns to a single-exit form,
-//! defunctionalizes callable values, erases UDTs, lowers non-empty tuple
-//! equality and inequality, scalarizes tuple locals and parameters, and
-//! rebuilds execution-graph metadata. The result is semantically equivalent to
-//! the input but more amenable to partial evaluation and codegen.
+//! This crate runs the production FIR rewrite pipeline after FIR lowering and
+//! before partial evaluation and codegen. The output is semantically
+//! equivalent to the input but lowered into forms that partial evaluation and
+//! codegen can consume.
 //!
-//! The passes are not meant to run independently; they are ordered and
-//! orchestrated by [`run_pipeline_with_diagnostics`], because individual passes
-//! are not designed to be sound or to preserve FIR invariants on their own. For
-//! example, defunctionalization produces FIR that violates invariants expected
-//! by later passes, but the subsequent UDT erasure and tuple comparison
-//! lowering restore those invariants before tuple-decompose.
+//! # What to know before diving in
 //!
-//! Several passes reuse [`cloner::FirCloner`] for deep-cloning FIR subtrees,
-//! while others rewrite nodes in place or rebuild derived structures from
-//! scratch.
+//! - **It is one ordered pipeline, not a toolbox of independent passes.**
+//!   Everything runs through [`run_pipeline_with_diagnostics`] in a fixed
+//!   order: monomorphize → return_unify → defunctionalize → udt_erase →
+//!   tuple_compare_lower → tuple_decompose → arg_promote → gc_unreachable →
+//!   item_dce → exec_graph_rebuild. Individual passes are *not* sound or
+//!   invariant-preserving on their own. A pass deliberately leaves FIR that
+//!   violates invariants a later pass relies on (e.g. defunctionalization is
+//!   cleaned up by udt_erase and tuple_compare_lower). Do not reorder, remove,
+//!   or run passes in isolation without understanding the chain.
 //!
-//! # Cross-pass contracts
+//! - **tuple_decompose ↔ arg_promote run to a fixed point.** These two passes
+//!   iterate until convergence (capped; see the hard-cap constant below), so
+//!   changes to either must preserve the strictly-decreasing measure that
+//!   guarantees termination.
 //!
-//! - **Single [`Assigner`] continuity.** The pipeline constructs one
-//!   [`Assigner`] from the input package and threads it through every pass
-//!   that synthesizes new FIR nodes (`monomorphize`, `return_unify`,
-//!   `defunctionalize`, `udt_erase`, `tuple_compare_lower`, `tuple_decompose`,
-//!   `arg_promote`). Each pass allocates fresh IDs against that shared
-//!   counter so synthesized nodes from earlier stages stay disjoint from
-//!   IDs allocated later. Passes must not construct a fresh [`Assigner`]
-//!   mid-pipeline. The trailing passes `gc_unreachable`, `item_dce`, and
-//!   `exec_graph_rebuild` do not receive the [`Assigner`] because they only
-//!   tombstone, delete, or rebuild derived metadata and never synthesize
-//!   new FIR nodes that need fresh IDs.
-//! - **`EMPTY_EXEC_RANGE` sentinel.** Passes that synthesize new
-//!   [`fir::Expr`](qsc_fir::fir::Expr) or [`fir::Stmt`](qsc_fir::fir::Stmt)
-//!   nodes attach `EMPTY_EXEC_RANGE` as their `exec_graph_range`. The final
-//!   [`exec_graph_rebuild`] pass consumes that sentinel and repopulates the
-//!   execution graph from the rewritten FIR.
-//! - **Pipeline result consumption.** Fatal diagnostics mean the FIR store may
-//!   be left at an intermediate stage that does not satisfy the requested
-//!   invariant boundary. Callers must only consume the transformed FIR when the
-//!   fatal error list is empty. Non-fatal warnings are preserved by
-//!   [`PipelineResult`] and do not block successful output.
+//! - **One [`Assigner`] is threaded through the whole pipeline.** Passes that
+//!   synthesize FIR nodes allocate fresh IDs from this single shared counter so
+//!   IDs never collide across stages. Never construct a new [`Assigner`]
+//!   mid-pipeline. The trailing metadata passes (`gc_unreachable`, `item_dce`,
+//!   `exec_graph_rebuild`) don't take it because they only tombstone, delete,
+//!   or rebuild derived data and synthesize nothing.
+//!
+//! - **Synthesized nodes use the `EMPTY_EXEC_RANGE` sentinel.** New
+//!   [`Expr`](qsc_fir::fir::Expr)/[`Stmt`](qsc_fir::fir::Stmt) nodes get an
+//!   empty `exec_graph_range`; the final [`exec_graph_rebuild`] pass rebuilds
+//!   the execution graph from the rewritten FIR.
+//!
+//! - **Only consume the result when there are no fatal diagnostics.** On a
+//!   fatal error the FIR store may be stuck at an intermediate stage that does
+//!   not satisfy any invariant boundary. [`PipelineResult`] carries non-fatal
+//!   warnings, which do not block successful output.
+//!
+//! - **Implementation helpers.** Several passes deep-clone FIR subtrees via
+//!   [`cloner::FirCloner`]; others rewrite in place or rebuild derived
+//!   structures from scratch. [`invariants`] checks the structural contracts
+//!   between stages.
 
 pub(crate) mod cloner;
 pub(crate) mod fir_builder;

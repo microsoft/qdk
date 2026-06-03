@@ -1,57 +1,29 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Monomorphization pass.
+//! Monomorphization pass — the first pass in the pipeline.
 //!
-//! Eliminates all generic callable references in entry-reachable code by
-//! creating concrete specializations for each unique `(callable, generic_args)`
-//! pair and rewriting call sites to use those specializations.
+//! Replaces every generic callable reference in entry-reachable code with a
+//! concrete specialization, one per unique `(callable, generic_args)` pair,
+//! and rewrites call sites to use it. `Identity(42)` becomes
+//! `Call(Var(Identity<Int>, []), 42)` with a freshly cloned `Identity<Int>`
+//! callable inserted into the target package.
 //!
-//! Establishes [`crate::invariants::InvariantLevel::PostMono`]: no `Ty::Param`
-//! remains in reachable code and every `ExprKind::Var` node carries an empty
-//! generic-argument list.
+//! # What to know before diving in
 //!
-//! The algorithm operates in three phases. Discovery walks all entry-reachable
-//! code collecting every concrete generic reference. Specialization processes
-//! these references via a worklist: for each `(callable, args)` pair it clones
-//! the callable body, substitutes type parameters with concrete types, and
-//! scans the result for transitive generic references that are fed back into
-//! the worklist. Rewrite then redirects all call sites to the newly created
-//! specialized callables. As a sub-step of Rewrite, `collect_rewrite_scope`
-//! transitively walks closure items reachable from the new specializations so
-//! generic call sites in lifted lambdas are not missed.
-//!
-//! # Input patterns
-//!
-//! - `ExprKind::Var(Res::Item(id), [GenericArg::Ty(Int)])` — a generic call
-//!   site whose arguments are fully concrete.
-//! - `CallableDecl` with non-empty `generics` — a generic callable that will
-//!   be cloned once per distinct concrete instantiation.
-//!
-//! # Rewrites
-//!
-//! Given `function Identity<'T>(x : 'T) : 'T { x }` invoked as `Identity(42)`:
-//!
-//! ```text
-//! // Before
-//! Call(Var(Identity, [Ty(Int)]), 42)
-//!
-//! // After
-//! Call(Var(Identity<Int>, []), 42)
-//! ```
-//!
-//! A new `Identity<Int>` callable is inserted into the target package with
-//! all `Ty::Param` nodes substituted for `Int`, and the call site loses its
-//! generic-argument list.
-//!
-//! # Notes
-//!
-//! - Identity instantiations (`[Param(0), Param(1), ...]`) are skipped; they
-//!   would produce a duplicate identical to the original generic callable.
-//! - Intrinsics whose call sites use concrete generic arguments have their
-//!   argument lists cleared in place (no new callable is synthesized).
-//! - Cross-package references are cloned into the target package so the
-//!   specialized bodies are self-contained.
+//! - **Establishes [`crate::invariants::InvariantLevel::PostMono`]:** no
+//!   `Ty::Param` and no non-empty `ExprKind::Var` generic-argument lists
+//!   remain in reachable code.
+//! - **Three phases:** *Discovery* collects concrete generic references;
+//!   *Specialization* drives a worklist that clones each body, substitutes
+//!   type params, and feeds back transitive generic references it finds;
+//!   *Rewrite* redirects call sites and (via `collect_rewrite_scope`) walks
+//!   closure items so generic call sites in lifted lambdas are not missed.
+//! - **Special cases:** identity instantiations (`[Param(0), ...]`) are
+//!   skipped (they would duplicate the original); intrinsics get their
+//!   argument lists cleared in place with no new callable; cross-package
+//!   references are cloned into the target package so bodies are
+//!   self-contained.
 
 #[cfg(test)]
 mod tests;

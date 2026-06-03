@@ -1,44 +1,27 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Item-level dead code elimination.
+//! Item-level dead code elimination — runs after GC, before exec graph
+//! rebuild.
 //!
-//! After monomorphization and defunctionalization, many items become
-//! unreachable: original generic callables replaced by monomorphized copies,
-//! closure items fully specialized, etc. These unreachable items remain in
-//! [`Package::items`](qsc_fir::fir::Package). This pass removes them.
-//!
-//! # Separation from `gc_unreachable`
-//!
-//! [`gc_unreachable`](crate::gc_unreachable) operates on arena nodes (blocks,
-//! stmts, exprs, pats) within a single package. Item-level reachability is
-//! cross-package (library items may be referenced from user code), so it
-//! requires a [`PackageStore`](qsc_fir::fir::PackageStore) for the
-//! reachability walk. This is why item DCE is a separate pass.
-//!
-//! # `StmtKind::Item` edge case
-//!
-//! `StmtKind::Item(local_item_id)` stmts declare items inside blocks. If item
-//! DCE removes an item but its declaring `StmtKind::Item` stmt is still in a
-//! reachable block, `invariants::check_id_references` will panic. The
-//! pipeline mitigates this by re-running `gc_unreachable` after item DCE when
-//! any items are removed — this tombstones the arena nodes (blocks, stmts,
-//! exprs, pats) that belonged to the deleted items' bodies. The
-//! `StmtKind::Item` stmts themselves survive as dangling references, which is
-//! safe because `check_id_references` explicitly allows them post-DCE and
-//! `exec_graph_rebuild` ignores `StmtKind::Item` stmts.
-//!
-//! # Transformation shape
-//!
-//! **Before:** `Package::items` contains unreachable callable items (original
+//! Removes items from [`Package::items`](qsc_fir::fir::Package) that became
+//! unreachable after monomorphization and defunctionalization (original
 //! generics replaced by monomorphized copies, fully-specialized closure items)
-//! and dead type items left after UDT erasure. Callers may supply either
-//! entry-rooted reachability or seed-expanded reachability for validated pinned
-//! callables.
+//! plus dead type items left after UDT erasure.
 //!
-//! **After:** Unreachable items are removed from `Package::items`. If any
-//! items were removed, `gc_unreachable` re-runs to tombstone their arena
-//! nodes.
+//! # What to know before diving in
+//!
+//! - **Separate from [`gc_unreachable`](crate::gc_unreachable) because
+//!   reachability is cross-package.** Library items may be referenced from user
+//!   code, so this needs a [`PackageStore`](qsc_fir::fir::PackageStore) for the
+//!   walk, whereas `gc_unreachable` works on a single package's arena nodes.
+//! - **`StmtKind::Item` edge case.** Removing an item whose declaring
+//!   `StmtKind::Item` stmt sits in a still-reachable block would trip
+//!   `invariants::check_id_references`. The pipeline mitigates by re-running
+//!   `gc_unreachable` after item DCE when anything was removed, tombstoning the
+//!   deleted items' arena nodes. The `StmtKind::Item` stmts survive as harmless
+//!   dangling references (allowed post-DCE; ignored by `exec_graph_rebuild`).
+//! - Accepts entry-rooted or seed-expanded (pinned-callable) reachability.
 
 #[cfg(test)]
 mod tests;

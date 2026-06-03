@@ -1,65 +1,32 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Rebuilds exec graphs for reachable target-package callables, selected
-//! mutated external callable specs, and the entry expression.
+//! Exec graph rebuild pass — the final pass in the pipeline.
 //!
-//! After earlier FIR transforms synthesize new expressions or statements with
-//! empty ranges, the exec graphs on `SpecDecl` and
-//! `Package.entry_exec_graph` are stale. In practice this includes return
-//! unification, defunctionalization, UDT erasure, tuple-compare lowering,
-//! tuple-decompose, and argument promotion. This pass reconstructs every graph from
-//! scratch by walking the FIR and emitting the same node sequences that the
-//! original lowerer would have produced.
+//! Reconstructs exec graphs from scratch for reachable target-package
+//! callables, the entry expression, and selected mutated external specs. After
+//! earlier passes synthesize nodes with `EMPTY_EXEC_RANGE` sentinels (return
+//! unify, defunctionalize, UDT erase, tuple-compare lower, tuple-decompose,
+//! argument promote), the `SpecDecl` and `Package.entry_exec_graph` graphs are
+//! stale; this pass walks the FIR and re-emits the same node sequences the
+//! original lowerer would produce.
 //!
-//! It must run after those passes, which remove expression forms that the
-//! exec graph builder treats as eliminated at this stage.
+//! # What to know before diving in
 //!
-//! ## External Specs
-//!
-//! The `external_specs` argument identifies callable specializations in
-//! packages other than the target package whose bodies were structurally
-//! mutated by earlier passes. The sole producer of these entries is
-//! [`crate::udt_erase::erase_udts`]: UDT erasure operates over the reachable
-//! package closure (not just the target package), so it can rewrite library
-//! callables when an entry-reachable code path crosses package boundaries.
-//! Every other pass operates on the entry-only target package, so no other
-//! pass needs to register cross-package spec mutations. After UDT erasure,
-//! `lib.rs` filters the returned `Vec<CallableSpecId>` to cross-package
-//! entries and forwards the result here so this pass can refresh exec graphs
-//! on the affected external specs.
-//!
-//! ## Transformation Shape
-//!
-//! **Before:** Callable specs and the entry expression carry stale
-//! `exec_graph_range` values — often `EMPTY_EXEC_RANGE` sentinels inserted
-//! by earlier passes. The exec graph vectors may reference deleted or
-//! renumbered nodes.
-//!
-//! **After:** Every reachable callable spec and the entry expression has a
-//! freshly built exec graph. Ranges on individual `Expr` and `Stmt` nodes
-//! index into the rebuilt vectors.
-//!
-//! ## Borrow-Splitting Strategy
-//!
-//! The rebuild cannot hold both `&Package` (for reading expressions) and
-//! `&mut Package` (for writing exec graphs) simultaneously. This is solved
-//! by accumulating deferred writes in `RangeUpdates`: during the read-only
-//! graph-building walk, expression and statement ranges are recorded as
-//! `(ExprId, Range<ExecGraphIdx>)` and `(StmtId, Range<ExecGraphIdx>)`
-//! pairs. After building completes and the immutable borrow ends,
-//! `apply_ranges` writes each range back to the corresponding `Expr` or
-//! `Stmt` under a mutable borrow.
-//!
-//! ## `ExecGraphBuilder` Delegation
-//!
-//! Graph nodes are emitted via `ExecGraphBuilder` from `qsc_lowerer`, which
-//! maintains paired no-debug and debug node vectors. This ensures the rebuilt
-//! graphs match the format produced by the original lowering pass.
-//!
-//! ## See Also
-//!
-//! - `qsc_lowerer::exec_graph` — the `ExecGraphBuilder` that emits graph nodes.
+//! - **Must run last.** It relies on earlier passes having removed the
+//!   expression forms the exec-graph builder treats as eliminated.
+//! - **External specs come only from UDT erasure.** The `external_specs`
+//!   argument lists cross-package specs whose bodies were structurally mutated.
+//!   Because [`crate::udt_erase`] is the only pass that rewrites across the
+//!   package closure, it is the sole producer; `lib.rs` filters its returned
+//!   specs to cross-package entries and forwards them here. Every other pass
+//!   touches only the entry package.
+//! - **Borrow-splitting via deferred writes.** The rebuild cannot hold
+//!   `&Package` (to read exprs) and `&mut Package` (to write graphs) at once,
+//!   so ranges are accumulated in `RangeUpdates` during the read-only walk and
+//!   written back by `apply_ranges` afterward.
+//! - **Delegates to `ExecGraphBuilder`** from `qsc_lowerer` (paired no-debug /
+//!   debug node vectors) so rebuilt graphs match the original lowering format.
 
 #[cfg(test)]
 mod tests;

@@ -1,48 +1,26 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! FIR arena garbage collection.
+//! FIR arena garbage collection — runs after argument promotion, before item
+//! DCE (and again after item DCE).
 //!
-//! Removes unreachable blocks, stmts, exprs, and pats from
-//! a package's [`IndexMap`](qsc_data_structures::index_map::IndexMap) arenas
-//! by tombstoning entries that are not reachable from any callable spec body
-//! or the package entry expression.
+//! Tombstones blocks, stmts, exprs, and pats in a package's `IndexMap` arenas
+//! that are no longer reachable from any callable spec body or the entry
+//! expression — the orphans left behind by the rewrite passes (return unify,
+//! defunctionalize, UDT erase, tuple-decompose, argument promote). Items are
+//! never removed (that is [`item_dce`](crate::item_dce)'s job).
 //!
-//! # When to run
+//! # What to know before diving in
 //!
-//! After all FIR transforms that create/orphan arena nodes have completed
-//! and before [`exec_graph_rebuild`](crate::exec_graph_rebuild) reconstructs
-//! execution graphs from the surviving FIR tree.
-//!
-//! # Correctness contract
-//!
-//! The sweep phase tombstones complete unreachable subgraphs: if a node is
-//! unreachable, all of its descendants are also unreachable (because the
-//! only paths to descendants go through ancestors). The mark phase records
-//! every node it visits via the [`Visitor`] trait. The combination guarantees
-//! that no surviving node references a tombstoned node, so
-//! [`PackageLookup::get_*(..)`](qsc_fir::fir::PackageLookup) calls remain
-//! safe.
-//!
-//! # Transformation shape
-//!
-//! **Before:** Package arenas contain orphaned blocks, stmts, exprs, and pats
-//! left behind by earlier rewrite passes (return unify, defunctionalize, UDT
-//! erase, tuple-decompose, argument promote).
-//!
-//! **After:** Only nodes reachable from callable bodies and the entry
-//! expression survive. Orphaned entries are tombstoned in the `IndexMap`.
-//!
-//! # Signature
-//!
-//! [`gc_unreachable`] takes `&mut Package` directly rather than the
-//! `(store, package_id, &mut assigner)` tuple used by the synthesizing
-//! passes because it never allocates fresh IDs — it only tombstones
-//! existing arena entries — and therefore does not need access to the
-//! pipeline-global [`Assigner`](qsc_fir::assigner::Assigner). This matches
-//! the tail-pass exception called out in [`crate`]: passes that only
-//! delete, tombstone, or rebuild derived metadata do not receive the
-//! shared `Assigner`.
+//! - **Mark-and-sweep correctness.** The mark phase records every node a
+//!   [`Visitor`] walk visits; the sweep tombstones whole unreachable subgraphs
+//!   (an unreachable node's descendants are also unreachable). Together this
+//!   guarantees no surviving node references a tombstoned one, keeping
+//!   [`PackageLookup`] `get_*` calls safe.
+//! - **Takes `&mut Package`, not the `Assigner` tuple.** It only tombstones
+//!   existing entries and never allocates fresh IDs, so — like the other
+//!   tail metadata passes — it does not receive the pipeline-global
+//!   [`Assigner`](qsc_fir::assigner::Assigner).
 
 #[cfg(test)]
 mod tests;

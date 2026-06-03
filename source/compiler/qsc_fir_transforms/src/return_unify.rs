@@ -1,122 +1,39 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Return unification pass.
+//! Return unification pass — runs after monomorphization, before
+//! defunctionalization.
 //!
-//! Eliminates all `ExprKind::Return` nodes in reachable callable bodies,
-//! ensuring every such callable has exactly one exit point — the trailing
-//! expression of its top-level block. Unreachable callables are left as-is;
-//! see the rationale block above [`unify_returns`] for why this is safe.
+//! Eliminates every `ExprKind::Return` in reachable callable bodies so each
+//! callable has a single exit point: the trailing expression of its top-level
+//! block. Unreachable callables are left untouched (see the rationale above
+//! [`unify_returns`]).
 //!
-//! Establishes [`crate::invariants::InvariantLevel::PostReturnUnify`]
-//! (additionally) on top of [`crate::invariants::InvariantLevel::PostMono`]:
-//! no `ExprKind::Return` remains in reachable code.
+//! # What to know before diving in
 //!
-//! # Pipeline position
-//!
-//! This pass runs after monomorphization (types are concrete) and before
-//! defunctionalization. Synthesized expressions use `EMPTY_EXEC_RANGE`; the
-//! [`crate::exec_graph_rebuild`] pass rebuilds correct exec graphs afterward.
-//! See [`crate::run_pipeline_to_impl`] for the full ordering.
-//!
-//! # Architecture
-//!
-//! This pass implements the "flag-lowering everywhere" design: every
-//! return-bearing block is lowered through uniform mutable-flag and
-//! return-slot scaffolding, then folded back into structured form by the
-//! named rewrite catalogue in [`simplify`].
-//!
-//! The approach follows LLVM's `UnifyFunctionExitNodes` + `SimplifyCFG`:
-//! lower once into single-exit form, then recover structure with named,
-//! individually-tested rules. FIR is a tree IR, so an auxiliary boolean
-//! flag and value slot stand in for LLVM's PHI-based unification. The
-//! formal basis is Böhm–Jacopini (1966): bounded mutable state suffices to
-//! express arbitrary control flow as a structured program.
-//!
-//! The pass uses a three-phase pipeline per callable block:
-//!
-//! 1. **Normalize** ([`normalize::hoist_returns_to_statement_boundary`]):
-//!    Hoist any `Return` in a compound position to its enclosing statement
-//!    boundary. Afterward every `Return` is either a bare `Semi(Return(_))`
-//!    / `Expr(Return(_))` or nested inside an `If`, `While`, or `Block`
-//!    statement.
-//!
-//! 2. **Transform** ([`transform_block_with_flags`]):
-//!    Eliminate all `Return` nodes via flag lowering, introducing the
-//!    `__has_returned` and `__ret_val` mutable slots. Every return path
-//!    writes the slot and flag; a single merge expression at the tail
-//!    reads them.
-//!
-//! 3. **Simplify** ([`simplify::run_to_fixpoint`]):
-//!    Run the named rewrite catalogue (`guard_clause`, `both_branches`,
-//!    `bare_return`, `let_folding`, `dead_flag`, `dead_local`) to fold the
-//!    canonical flag-output shapes back into structured form.
-//!
-//! # Contract
-//!
-//! The pass runs post-monomorphization and pre-defunctionalization. Output
-//! guarantees enforced by [`crate::invariants::InvariantLevel::PostReturnUnify`]:
-//!
-//! * **No `Return` nodes** in reachable code — checked by
-//!   `crate::invariants::check_no_returns`.
-//! * **No non-Unit `Semi`-terminated block tails** — checked by
-//!   `crate::invariants::check_non_unit_block_tails`.
-//! * **`LocalVarId` consistency** — every `LocalVarId` referenced in a
-//!   callable body is bound in that body's scope.
-//!
-//! # Callable-body arity contract
-//!
-//! RCA depends on the callable-body arity remaining stable across this
-//! pass. This pass never introduces or removes top-level callable
-//! parameters; it only rewrites block bodies. The flag/slot allocations
-//! become `Local` bindings inside the body's outermost block, not
-//! parameters of the enclosing callable.
-//!
-//! # Input patterns
-//!
-//! - `Return(value)` appearing inside conditional or loop blocks.
-//!
-//! # Rewrites
-//!
-//! Flag-based rewrite of a return inside a while loop:
-//!
-//! ```text
-//! // Before
-//! mutable r = 0;
-//! while cond {
-//!     if done { return r; }
-//!     r += 1;
-//! }
-//!
-//! // After
-//! mutable __has_returned = false;
-//! mutable __ret_val = 0;
-//! mutable r = 0;
-//! while not __has_returned and cond {
-//!     if done {
-//!         __ret_val = r;
-//!         __has_returned = true;
-//!     } else {
-//!         r += 1;
-//!     }
-//! }
-//! if __has_returned { __ret_val } else { () }
-//! ```
-//!
-//! # Error reporting
-//!
-//! [`unify_returns`] returns `Vec<Error>` rather than panicking. The known
-//! user-reachable error is [`Error::UnsupportedEarlyReturnType`]: flag
-//! lowering cannot synthesize a return slot for unresolved or unsupported
-//! return types. Defaultable return types use a direct `__ret_val : T` slot;
-//! non-defaultable return types with resolvable structure use an array-backed
-//! `T[]` slot. Unsupported shapes produce a user-facing diagnostic, and
-//! processing continues for remaining callables.
-//!
-//! # Qubit release interaction
-//!
-//! Qubit-release handling is intrinsic to `return_unify`; the historical
-//! `release_hoist` pre-pass was folded in.
+//! - **Establishes [`crate::invariants::InvariantLevel::PostReturnUnify`]:**
+//!   no `Return` nodes and no non-Unit `Semi`-terminated block tails in
+//!   reachable code, with consistent `LocalVarId` binding.
+//! - **"Flag-lowering everywhere" design (LLVM `UnifyFunctionExitNodes` +
+//!   `SimplifyCFG`).** Because FIR is a tree IR, returns are lowered into a
+//!   `__has_returned` boolean flag plus a `__ret_val` slot (standing in for
+//!   LLVM's PHI nodes), then structure is recovered by named, individually
+//!   tested rewrite rules. Three phases per block: **Normalize**
+//!   ([`normalize::hoist_returns_to_statement_boundary`]) hoists returns to
+//!   statement boundaries; **Transform** ([`transform_block_with_flags`])
+//!   eliminates returns via the flag/slot; **Simplify**
+//!   ([`simplify::run_to_fixpoint`]) folds the canonical shapes back into
+//!   structured form.
+//! - **Callable arity is preserved.** RCA depends on it: flag/slot allocations
+//!   are body-local `Local` bindings, never new top-level parameters.
+//! - **Error handling, not panics.** Returns `Vec<Error>`; the user-reachable
+//!   case is [`Error::UnsupportedEarlyReturnType`] (no return slot can be
+//!   synthesized for unsupported types — defaultable types use a `T` slot,
+//!   resolvable non-defaultable types use a `T[]` slot). Processing continues
+//!   for the remaining callables.
+//! - **Qubit release is folded in** (the historical `release_hoist` pre-pass).
+//! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
+//!   [`crate::exec_graph_rebuild`] repairs exec graphs later.
 
 mod continuation;
 mod detect;

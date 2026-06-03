@@ -1,70 +1,34 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tuple comparison lowering pass.
+//! Tuple comparison lowering pass — runs after UDT erasure, before
+//! tuple-decompose.
 //!
 //! Rewrites `BinOp(Eq/Neq)` on non-empty tuple-typed operands into
-//! element-wise scalar comparisons joined by `AndL`/`OrL`.
+//! element-wise scalar comparisons joined by `AndL`/`OrL`. Nested tuple
+//! operands recurse through `lower_single_cmp` before being folded.
 //!
-//! Establishes [`crate::invariants::InvariantLevel::PostTupleCompLower`]:
-//! no `BinOp(Eq/Neq)` remains on tuple-typed operands in reachable code.
+//! # What to know before diving in
 //!
-//! # Pipeline position
-//!
-//! Runs after UDT erasure (which converts structs to tuples) and before
-//! tuple-decompose (which decomposes tuple-typed locals into scalars). This ordering
-//! is critical: tuple-decompose cannot decompose bindings that have whole-value uses
-//! such as tuple equality, so this pass eliminates those uses first.
-//!
-//! # Input patterns
-//!
-//! - `BinOp(Eq | Neq, lhs, rhs)` where both operands are non-empty
-//!   `Ty::Tuple`.
-//!
-//! # Rewrites
-//!
-//! ```text
-//! // Before
-//! BinOp(Eq, (a, b, c), (x, y, z))
-//!
-//! // After
-//! AndL(AndL(Eq(a, x), Eq(b, y)), Eq(c, z))
-//! ```
-//!
-//! Nested tuple operands recurse through `lower_single_cmp` so element
-//! comparisons are themselves lowered before being folded.
-//!
-//! # Notes
-//!
-//! - Synthesized expressions use `EMPTY_EXEC_RANGE`. The
-//!   [`crate::exec_graph_rebuild`] pass runs afterward and rebuilds correct
-//!   exec graphs for the entire package, including the synthesized
-//!   `AndL`/`OrL` nodes **and** any synthesized `Field(..)` accesses produced
-//!   by `extract_or_field`.
-//! - Empty tuples (`Ty::Tuple([])`, i.e. Unit) are intentionally excluded
-//!   from this rewrite. With no elements there is no element-wise
-//!   comparison to fold and no neutral identity to seed the join, so
-//!   `lower_single_cmp` returns early when the operand element list is
-//!   empty. Whole-Unit equality is left for downstream passes to handle
-//!   directly.
-//!
-//! ## Cross-pass contract with tuple-decompose
-//!
-//! When the LHS or RHS of a tuple comparison is itself a tuple literal
-//! (`ExprKind::Tuple(es)`), `extract_or_field` returns the element
-//! `ExprId`s **directly from `es`** rather than synthesizing fresh
-//! `Field(..)` expressions. The same element `ExprId` can therefore appear
-//! in both the LHS and RHS comparison subtrees produced by this pass, and
-//! a single element `ExprId` can be referenced more than once across the
-//! lowered comparison.
-//!
-//! [`crate::tuple_decompose`] runs immediately after this pass, and its
-//! `replace_expr_references` walks every reachable expression edge in the
-//! owning callable and rewrites matching `ExprId` edges. That walk must
-//! tolerate the aliased `ExprId`s this pass leaves behind: rewriting one
-//! occurrence must not break the others, and the original aggregate node
-//! is allowed to become dead once all of its parent edges have been
-//! redirected. See the mirror note in [`crate::tuple_decompose`].
+//! - **Establishes [`crate::invariants::InvariantLevel::PostTupleCompLower`]:**
+//!   no `BinOp(Eq/Neq)` on tuple operands remains in reachable code.
+//! - **Ordering is load-bearing.** It must run before tuple-decompose, which
+//!   cannot decompose a binding that has a whole-value use such as tuple
+//!   equality; this pass removes those uses first.
+//! - **Empty tuples (Unit) are excluded** — no elements means no element-wise
+//!   comparison and no identity to seed the join, so `lower_single_cmp`
+//!   returns early. Whole-Unit equality is left for downstream passes.
+//! - **Aliased `ExprId`s by design (cross-pass contract).** When a comparison
+//!   operand is itself a tuple literal, `extract_or_field` reuses the literal's
+//!   element `ExprId`s directly instead of synthesizing `Field(..)` nodes, so a
+//!   single element `ExprId` can appear under multiple parent edges. The
+//!   immediately-following [`crate::tuple_decompose`] `replace_expr_references`
+//!   walk must tolerate this: redirecting one occurrence must not break the
+//!   others, and the original aggregate may become dead once all parents are
+//!   redirected. See the mirror note in [`crate::tuple_decompose`].
+//! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
+//!   [`crate::exec_graph_rebuild`] rebuilds exec graphs (including the
+//!   synthesized `AndL`/`OrL` and `Field(..)` nodes) later.
 
 #[cfg(test)]
 mod tests;

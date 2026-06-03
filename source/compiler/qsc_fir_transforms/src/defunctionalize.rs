@@ -1,84 +1,41 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Defunctionalization pass.
+//! Defunctionalization pass — runs after return unification, before UDT
+//! erasure.
 //!
 //! Eliminates all callable-valued expressions — arrow-typed locals, closures,
-//! and functor-applied callable values — in entry-reachable code through a
-//! dispatch-free specialization approach. Unlike classical defunctionalization,
-//! which introduces a tagged union and an `apply` function, this implementation
-//! directly specializes each higher-order function (HOF) call site where a
-//! concrete callable argument is known at compile time. Single-bound tuple
-//! parameters whose type contains callable values are supported via a split
-//! locator model that tracks the top-level parameter slot separately from the
-//! nested tuple field path.
+//! and functor-applied callable values — in entry-reachable code. Required for
+//! QIR, which mandates direct calls to known callees.
 //!
-//! Establishes [`crate::invariants::InvariantLevel::PostDefunc`]: no
-//! `ExprKind::Closure` remains in reachable code, no arrow-typed callable
-//! parameters remain in reachable declarations, and all indirect dispatch
-//! is rewritten to direct dispatch.
+//! # What to know before diving in
 //!
-//! Each iteration of the fixpoint loop runs the following steps in order:
-//!
-//! - The pre-pass promotes single-use callable locals within their owner
-//!   scopes and replaces identity closures `(args) => f(args)` with direct
-//!   references to `f`.
-//! - Analysis discovers callable-typed parameters in HOFs and collects call
-//!   sites where those HOFs are invoked with concrete callable arguments.
-//! - Specialization clones each HOF for each concrete argument
-//!   combination, replacing the callable parameter reference with a direct
-//!   call to the concrete callee. A deduplication map keyed by [`types::SpecKey`]
-//!   ensures identical specializations are created only once.
-//! - Rewrite redirects original call sites to invoke the specialized clones,
-//!   removes the callable argument from the argument tuple, and threads closure
-//!   captures as extra arguments.
-//! - Closure tracking records which closure targets were consumed by
-//!   specialization in this iteration so subsequent iterations recognize their
-//!   producer expressions as dead.
-//! - Closure cleanup is convergence-critical: it replaces consumed closure
-//!   expressions outside call-argument subtrees with `Tuple([])`, so the
-//!   remaining-callable-value tally no longer counts them as work and the
-//!   fixpoint can terminate.
-//!
-//! These steps iterate until no reachable closures or arrow-typed parameters
-//! remain in the target package. The iteration limit is dynamically scaled on
-//! the first pass; see the const doc on [`MAX_ITERATIONS`] for the exact
-//! recomputation. If convergence is not reached within the limit,
-//! [`Error::FixpointNotReached`] is appended — but only when no other
-//! diagnostics have already fired this pass, so a fatal earlier error is not
-//! buried under a generic non-convergence report.
-//!
-//! In the future, this pass could be extended to support tagged-union-style
-//! defunctionalization for cases where specialization does not converge,
-//! but the current approach is required for QIR generation because the QIR
-//! specification requires direct calls to known callees.
-//!
-//! # Input patterns
-//!
-//! - `operation Apply(op : Qubit => Unit, q : Qubit) { op(q); }` — an arrow
-//!   parameter consumed by a HOF.
-//! - `Apply(H, q)` — a call site binding the arrow parameter to a concrete
-//!   global callable.
-//! - `Apply(q => Y(q), q)` — a call site binding the arrow parameter to a
-//!   lambda.
-//!
-//! # Rewrites
-//!
-//! ```text
-//! // Before
-//! operation Apply(op : Qubit => Unit, q : Qubit) { op(q); }
-//! Apply(q => Y(q), target);
-//!
-//! // After (closure identity peephole collapses the lambda to `Y`)
-//! operation Apply_specialized_Y(q : Qubit) { Y(q); }
-//! Apply_specialized_Y(target);
-//! ```
-//!
-//! # Notes
-//!
-//! - Synthesized expressions use `EMPTY_EXEC_RANGE`; the
-//!   [`crate::exec_graph_rebuild`] pass repairs them at the end of the
-//!   pipeline.
+//! - **Specialization, not classical defunctionalization.** Instead of a
+//!   tagged union plus an `apply` dispatcher, each higher-order-function (HOF)
+//!   call site whose concrete callable argument is known at compile time gets
+//!   its own specialized clone of the HOF with the callable parameter replaced
+//!   by a direct call. `Apply(q => Y(q), target)` becomes a call to a
+//!   `Apply_specialized_Y` clone. Single-bound tuple parameters containing
+//!   callable values are handled via a split locator (top-level slot + nested
+//!   field path).
+//! - **Establishes [`crate::invariants::InvariantLevel::PostDefunc`]:** no
+//!   `ExprKind::Closure`, no arrow-typed parameters, and all dispatch is
+//!   direct in reachable code.
+//! - **Fixpoint loop.** Each iteration runs: pre-pass (promote single-use
+//!   callable locals, collapse identity closures `(a) => f(a)` to `f`) →
+//!   analysis (find callable params + concrete call sites) → specialize (clone
+//!   per concrete arg combo, deduped by [`types::SpecKey`]) → rewrite (redirect
+//!   call sites, drop the callable arg, thread captures as extra args) →
+//!   closure tracking/cleanup. **Closure cleanup is convergence-critical:** it
+//!   replaces consumed closures with `Tuple([])` so they stop counting as
+//!   work. The iteration cap is scaled dynamically; see [`MAX_ITERATIONS`].
+//!   Non-convergence appends [`Error::FixpointNotReached`] only if no other
+//!   diagnostic fired (so a real earlier error is not buried).
+//! - **Diagnostics:** [`Error::ExcessiveSpecializations`] is a non-fatal
+//!   warning; other errors are fatal because the intermediate FIR may violate
+//!   downstream invariants.
+//! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
+//!   [`crate::exec_graph_rebuild`] repairs exec graphs later.
 
 mod analysis;
 mod prepass;

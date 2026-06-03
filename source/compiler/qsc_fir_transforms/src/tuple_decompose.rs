@@ -1,100 +1,39 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tuple decomposition pass.
+//! Tuple decomposition pass — runs after tuple-compare lowering; iterates with
+//! `arg_promote` to a fixed point (see [`crate`]).
 //!
 //! Replaces local variables of tuple type with individual scalar variables,
-//! eliminating intermediate tuple allocations and field-access overhead.
+//! eliminating intermediate tuple allocations and field-access overhead. This
+//! is the local-variable counterpart to [`crate::arg_promote`] (which does the
+//! same at parameter boundaries) and is modeled on LLVM's "scalar replacement
+//! of aggregates", but operates only on Q# tuples, not arrays or memory.
 //!
-//! This is the local-variable counterpart to the `arg_promote` pass, which
-//! performs the analogous flattening at callable parameter boundaries. It is
-//! modeled on LLVM's "scalar replacement of aggregates", but operates
-//! exclusively on Q# tuples, not arrays or memory.
+//! # What to know before diving in
 //!
-//! Establishes [`crate::invariants::InvariantLevel::PostTupleDecompose`]:
-//! synthesized local tuple patterns agree with the tuple types they
-//! decompose.
-//!
-//! ## Prerequisites
-//!
-//! The `tuple_compare_lower` pass must run before tuple-decompose. It rewrites
-//! equality and inequality on non-empty tuples into element-wise scalar
-//! comparisons, which eliminates whole-value uses that would otherwise
-//! prevent decomposition.
-//!
-//! ## Decomposition
-//!
-//! For each entry-reachable callable, the pass:
-//! - Identifies local bindings whose type is a non-empty `Ty::Tuple(...)`
-//!   and whose every use is `ExprKind::Field`, `ExprKind::AssignField`, or
-//!   `ExprKind::Assign(Var, Tuple)` (whole-tuple reassignment with a
-//!   tuple-literal RHS).
-//! - Decomposes those bindings in-place: `PatKind::Bind(t)` becomes
-//!   `PatKind::Tuple([Bind(t_0), Bind(t_1), ...])`, field accesses become
-//!   direct variable references, and whole-tuple assignments are split into
-//!   per-element assignments.
-//!
-//! The eligibility criterion is conservative: a binding is decomposed only
-//! when *all* of its uses are field-only accesses or decomposable tuple
-//! assignments. If the variable is ever passed as a whole value (e.g., as
-//! an argument, a return value, or a closure capture), it is left intact.
-//!
-//! ## Iterative fixed-point
-//!
-//! The pass runs iteratively to a fixed point. Each iteration peels one
-//! level of nesting: `Bind(t: (A, B))` → `Tuple([Bind(t_0: A), Bind(t_1: B)])`.
-//! When `A` is itself a tuple (e.g., `(Int, Int)`), the next iteration
-//! discovers `Bind(t_0: (Int, Int))` as a new candidate and decomposes it
-//! further. The loop terminates when no new candidates remain.
-//!
-//! # Input patterns
-//!
-//! - `let t = (a, b, c);` where every later reference is `t::0`, `t::1`,
-//!   `t::2`, `t = (a', b', c')`, or `t::0 = a'`.
-//!
-//! # Rewrites
-//!
-//! ```text
-//! // Before
-//! let t = (a, b, c);
-//! let x = t::1;
-//! t = (a', b', c');
-//!
-//! // After
-//! let (t_0, t_1, t_2) = (a, b, c);
-//! let x = t_1;
-//! (t_0, t_1, t_2) = (a', b', c');
-//! ```
-//!
-//! # Notes
-//!
+//! - **Establishes [`crate::invariants::InvariantLevel::PostTupleDecompose`]:**
+//!   synthesized local tuple patterns agree with the tuple types they
+//!   decompose.
+//! - **Conservative eligibility.** A `Bind` of non-empty `Ty::Tuple` is
+//!   decomposed only when *every* use is `Field`, `AssignField`, or
+//!   `Assign(Var, Tuple)` (whole-tuple reassignment with a tuple literal). If
+//!   the value is ever passed whole (argument, return, closure capture), it is
+//!   left intact. `Bind(t)` becomes `Tuple([Bind(t_0), Bind(t_1), ...])`, field
+//!   accesses become direct var refs, and whole-tuple assigns split per element.
+//! - **Iterative fixed point.** Each iteration peels one nesting level; a
+//!   newly exposed tuple-typed leaf (`t_0: (Int, Int)`) is decomposed on the
+//!   next round. Terminates when no candidates remain. `tuple_compare_lower`
+//!   must run first to remove whole-value comparison uses.
+//! - **Aliased `ExprId`s from `tuple_compare_lower` (cross-pass contract).**
+//!   The preceding pass can leave a single element `ExprId` under multiple
+//!   parent edges. `replace_expr_references` (used by `rewrite_field_accesses`)
+//!   redirects parent edges by walking every reachable edge in the owning
+//!   callable rather than shared-mutating child nodes, so redirecting one edge
+//!   does not corrupt the others. See the mirror note in
+//!   [`crate::tuple_compare_lower`].
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
-//!   [`crate::exec_graph_rebuild`] rebuilds correct exec graphs at the end
-//!   of the pipeline.
-//!
-//! ## Cross-pass contract with `tuple_compare_lower`
-//!
-//! [`crate::tuple_compare_lower`] runs immediately before this pass. When
-//! it lowers a tuple equality whose operand is a tuple literal, it reuses
-//! the literal's element `ExprId`s directly inside both the LHS and RHS
-//! comparison subtrees rather than allocating fresh `Field(..)` nodes.
-//! That leaves aliased `ExprId`s in the FIR: a single element `ExprId`
-//! may appear under multiple parent edges in the owning callable.
-//!
-//! The internal `replace_expr_references` helper used by
-//! [`rewrite_field_accesses`] redirects every parent edge that points at
-//! the old projection `ExprId` to its scalarized replacement by walking
-//! every reachable statement, block, and expression edge in the owning
-//! callable rather than mutating shared nodes in place.
-//! [`rewrite_assign_tuples`] likewise mutates the matched
-//! `Assign(Var, Tuple)` expression in place and appends fresh per-element
-//! `Assign` statements without touching the element subtrees themselves.
-//! Neither rewriter shared-mutates an element node, so aliased `ExprId`s
-//! produced by `tuple_compare_lower` remain consistent after rewriting:
-//! redirecting one parent edge does not corrupt other parent edges that
-//! share the same child `ExprId`, and the old aggregate node is allowed
-//! to become dead once all of its parents have been redirected. See the
-//! mirror note in [`crate::tuple_compare_lower`].
+//!   [`crate::exec_graph_rebuild`] rebuilds exec graphs later.
 
 #[cfg(test)]
 mod tests;

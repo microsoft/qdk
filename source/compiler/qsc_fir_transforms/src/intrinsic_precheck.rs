@@ -1,10 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Pre-pass validation for intrinsic callable signatures.
+//! Intrinsic signature pre-pass — runs before any structural rewrite.
 //!
-//! Rejects intrinsic callables whose parameter or return types contain tuples
-//! or user-defined types, which are not supported after UDT erasure and tuple-decompose.
+//! Rejects reachable intrinsic callables whose parameter or return types
+//! contain non-empty tuples or user-defined types, which cannot survive UDT
+//! erasure and tuple-decompose (an intrinsic has no body to rewrite). A failure
+//! is fatal and short-circuits the pipeline with
+//! [`Error::UnsupportedParamType`] / [`Error::UnsupportedReturnType`] before any
+//! other pass runs.
 
 #[cfg(test)]
 mod tests;

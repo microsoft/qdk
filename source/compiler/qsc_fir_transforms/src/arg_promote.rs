@@ -1,145 +1,44 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Argument promotion pass.
+//! Argument promotion pass — runs after tuple-decompose, before
+//! unreachable-node GC; iterates with tuple-decompose to a fixed point (see
+//! [`crate`]). Named after LLVM's `ArgumentPromotion`, but operates on tuple
+//! aggregates rather than pointers.
 //!
-//! Decomposes tuple-typed parameters of callable declarations into individual
-//! scalar parameters, eliminating intermediate tuple allocations at call sites
-//! and field-access overhead in callable bodies.
+//! Decomposes tuple-typed callable parameters into individual scalar
+//! parameters, eliminating tuple allocations at call sites and field-access
+//! overhead in bodies. `Foo(p : (Int, Qubit))` becomes
+//! `Foo(p_0 : Int, p_1 : Qubit)` and call sites pass fields directly.
 //!
-//! Establishes [`crate::invariants::InvariantLevel::PostArgPromote`]:
-//! synthesized callable input tuple patterns agree with their
-//! input types.
+//! # What to know before diving in
 //!
-//! For each entry-reachable callable, the pass:
-//! - Identifies parameters bound via `PatKind::Bind(p)` with `Ty::Tuple(...)`
-//!   that have at least one field access and no use that blocks promotion.
-//!   Standalone whole-value reads of the parameter do not block promotion;
-//!   they are reconstructed from the scalar leaves during the body rewrite.
-//! - Verifies the callable is not used as a first-class value, referenced
-//!   as a closure target, or otherwise left indirectly dispatched.
-//!   First-class and closure-target detection together cover the
-//!   partial-application cases.
-//! - Decomposes the binding in `CallableDecl.input` and rewrites field
-//!   accesses in all specialization bodies.
-//! - Rewrites all call sites to pass individual fields instead of the whole
-//!   tuple/struct argument.
-//!
-//! Callables that appear as first-class values (a `Var(Res::Item(_))` with
-//! `Ty::Arrow` outside the direct callee position of a `Call`) or as closure
-//! targets in reachable code are disqualified, because their parameter layout
-//! must remain stable for indirect invocation.
-//!
-//! The pass iterates to a fixed point, peeling one level of tuple nesting
-//! per iteration, like tuple-decompose.
-//!
-//! # Pipeline position
-//!
-//! This pass runs after tuple-decompose and before unreachable-node GC. At this point,
-//! tuple-heavy parameter shapes are already simplified by earlier passes, and
-//! argument promotion can rewrite callable signatures and direct call sites
-//! without fighting major later structural rewrites.
-//!
-//! # Architecture
-//!
-//! One fixed-point iteration performs:
-//!
-//! 1. **Reachability scan** ([`collect_reachable_from_entry`]):
-//!    Limit work to entry-reachable callables.
-//! 2. **Eligibility analysis** ([`check_candidates`]):
-//!    Find tuple-typed `PatKind::Bind` inputs that have at least one field
-//!    access and no promotion-blocking use across every specialization.
-//! 3. **Safety filters** ([`collect_first_class_callables`],
-//!    [`collect_closure_targets`]):
-//!    Exclude callables used as first-class values or closure targets.
-//! 4. **Signature/body rewrite** ([`promote_callable`]):
-//!    Replace promoted bind patterns with tuple patterns over fresh scalar
-//!    locals and rewrite body uses to read those locals.
-//! 5. **Call-site rewrite** ([`rewrite_call_sites`]):
-//!    Rewrite direct call arguments to match promoted input shapes.
-//!
-//! After the fixed point converges, [`normalize_call_arg_types`] performs a
-//! package-wide call-shape normalization pass to ensure argument expression
-//! types exactly match callable input types (for example,
-//! `T` to `(T,)` wrapping for single-element tuple inputs).
-//!
-//! # Input patterns
-//!
-//! - `operation Foo(p : (Int, Qubit)) { use(p::0); apply(p::1); }` — a
-//!   tuple-typed parameter whose every use is a field projection.
-//!
-//! # Rewrites
-//!
-//! ```text
-//! // Before
-//! operation Foo(p : (Int, Qubit)) { use(p::0); apply(p::1); }
-//! Foo((42, q));
-//!
-//! // After
-//! operation Foo(p_0 : Int, p_1 : Qubit) { use(p_0); apply(p_1); }
-//! Foo(42, q);
-//! ```
-//!
-//! Nested fixed-point example:
-//!
-//! ```text
-//! // Before
-//! operation Foo(p : ((Int, Bool), Qubit)) : Unit {
-//!     let x = p::0::0;
-//!     let b = p::0::1;
-//!     let q = p::1;
-//!     if b { X(q); }
-//! }
-//!
-//! // After first promotion pass
-//! operation Foo(p_0 : (Int, Bool), p_1 : Qubit) : Unit {
-//!     let x = p_0::0;
-//!     let b = p_0::1;
-//!     let q = p_1;
-//!     if b { X(q); }
-//! }
-//!
-//! // After fixed-point convergence
-//! operation Foo(p_0_0 : Int, p_0_1 : Bool, p_1 : Qubit) : Unit {
-//!     let x = p_0_0;
-//!     let b = p_0_1;
-//!     let q = p_1;
-//!     if b { X(q); }
-//! }
-//! ```
-//!
-//! Single-element tuple call-shape normalization example:
-//!
-//! ```text
-//! // Callable input after prior rewrites/promotions
-//! operation UseOne(p : (Qubit[],)) : Unit { ... }
-//!
-//! // Call expression before normalization (type mismatch)
-//! UseOne(qs);              // arg type: Qubit[]
-//!
-//! // Call expression after normalization
-//! UseOne((qs,));           // arg type: (Qubit[],)
-//! ```
-//!
-//! # Notes
-//!
+//! - **Establishes [`crate::invariants::InvariantLevel::PostArgPromote`]:**
+//!   synthesized input tuple patterns agree with their input types.
+//! - **Eligibility + safety filters.** A tuple `PatKind::Bind` parameter is
+//!   promoted when it has at least one field access and no promotion-blocking
+//!   use (whole-value reads are fine — they are reconstructed from the scalar
+//!   leaves). The callable must **not** be used as a first-class value (a
+//!   `Var(Res::Item)` with `Ty::Arrow` outside a `Call` callee position) or as
+//!   a closure target, since indirect dispatch requires a stable parameter
+//!   layout (this also covers partial-application cases).
+//! - **Per iteration:** reachability scan → eligibility analysis
+//!   ([`check_candidates`]) → safety filters
+//!   ([`collect_first_class_callables`], [`collect_closure_targets`]) →
+//!   signature/body rewrite ([`promote_callable`]) → call-site rewrite
+//!   ([`rewrite_call_sites`]). Peels one tuple nesting level per round, like
+//!   tuple-decompose.
+//! - **Post-convergence normalization.** [`normalize_call_arg_types`] runs once
+//!   after the fixed point to make argument expression types exactly match
+//!   callable input types (e.g. `T` → `(T,)` wrapping for single-element tuple
+//!   inputs). Run once, not per round, to avoid `(T,)` churn polluting change
+//!   detection.
+//! - **Functor-applied callees** (`Adjoint`/`Controlled`) are handled directly:
+//!   [`resolve_direct_item_callee`] unwraps the `UnOp` functor wrappers and
+//!   [`rewrite_controlled_call_site`] preserves the control-tuple layers and
+//!   evaluation order.
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
-//!   [`crate::exec_graph_rebuild`] rebuilds correct exec graphs at the end
-//!   of the pipeline.
-//! - Functor-applied callees (`Adjoint`, `Controlled`) are handled directly:
-//!   [`resolve_direct_item_callee`] unwraps `UnOp(Functor::Adj)` and
-//!   `UnOp(Functor::Ctl)` wrappers (counting controlled depth) to find the
-//!   underlying item callee, and [`rewrite_controlled_call_site`] rewrites
-//!   the payload while preserving the surrounding control-tuple layers and
-//!   their evaluation order.
-//!
-//! # References
-//!
-//! This pass is named after LLVM's `ArgumentPromotion` pass (also
-//! `argpromotion`), which promotes pointer arguments to pass-by-value.
-//! This Q# variant operates on tuple aggregates rather than pointers.
-//!
-//! <https://llvm.org/docs/Passes.html#argpromotion-promote-by-reference-arguments-to-scalars>
+//!   [`crate::exec_graph_rebuild`] rebuilds exec graphs later.
 
 #[cfg(test)]
 mod tests;
