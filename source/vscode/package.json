@@ -295,8 +295,7 @@
           "when": "resourceLangId == qsharp"
         },
         {
-          "command": "qsharp-vscode.showBloch",
-          "when": "resourceLangId == qsharp"
+          "command": "qsharp-vscode.showBloch"
         },
         {
           "command": "qsharp-vscode.showCircuit",
