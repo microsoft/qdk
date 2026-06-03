@@ -1860,6 +1860,7 @@ as engineering archaeology rather than re-inlined here.
 | M3  | [B10](#b10-control-drag-on-a-group-moves-the-whole-group-instead-of-just-the-control---shipped-pending-user-confirmation)                              | Drag semantics: control-leg drag rewires just the leg (not the whole group); drop on body wire swaps via `_swapWiresInSubtree`.                                                                               |
 | M4  | [B11](#b11-control-drag-on-a-group-expanded-groups-blocked--classically-controlled-groups-re-expand-on-every-move---shipped-pending-user-confirmation) | Drag init on expanded groups + ViewState transfer across `moveOperation`'s deep-clone via `sqore-prev-location` stamp.                                                                                        |
 | M5  | [see below](#m5-refuse-addremove-control-on-multi-target-ops--groups--shipped)                                                                         | Refuse `addControl` / `removeControl` on any op with `children != null` or `targets.length > 1` (incl. multi-qubit measurements). Action layer + context menu both gated. Pre-existing controls render.       |
+| M7  | [see below](#m7-hide-toggle-adjoint-on-groups--shipped)                                                                                                | Hide "Toggle Adjoint" on every group (`children != null`). Adjoint authoring on groups is deferred — see M8. Leaf unitaries are unaffected.                                                                   |
 
 (B8 — clone-move of a multi-wire group rewriting `.targets` —
 shipped in parallel but isn't gated on having controls; it's a
@@ -1934,6 +1935,109 @@ pins five contracts:
 The previously-shipped "addControl on a classically-controlled
 GROUP succeeds" test was replaced by item 1 above — its old
 positive contract is incompatible with M5 by design.
+
+##### M7: hide Toggle Adjoint on groups — shipped
+
+**What changed.** The context-menu builder in
+[contextMenu.ts](editor/contextMenu.ts) now omits the "Toggle
+Adjoint" entry on every op that has `children` (i.e. every
+group). Leaf unitaries are unaffected. Implementation is a
+single inline check (`selectedOperation.children == null`) — no
+action-layer helper, no walk of the subtree.
+
+**Why now.** A first cut tried to be precise: walk the group's
+subtree and only hide the affordance when the subtree contains a
+measurement or Reset (ket) — both irreversible, so the group's
+overall transformation isn't unitary and has no mathematical
+adjoint. That ships in one commit and looks right in tests, but
+even for groups whose subtree IS adjointable the editor still
+needs to figure out how the group-level `isAdjoint` flag is
+supposed to propagate into the children for the emitted Q# to
+match the original semantics. Q# expresses adjoint as
+`Adjoint Foo()` at the call site, but the editor's "group" is
+typically an `operation` boundary or an inline `within ... apply`
+block — propagating `isAdjoint` through that boundary correctly
+(reverse child order, apply `Adjoint` to each adjointable child,
+keep the rest in place if they're self-adjoint) is a chunk of
+emitter work, not a one-line render-time flip. Until that
+emitter work lands, "Toggle Adjoint" on a group is a UI flag
+with no defined semantics.
+
+Same posture as M5: rather than ship a half-answered semantic
+behind a flag, narrow the editor's authoring surface and defer
+the group case to a planned future milestone (see M8 below).
+
+**What still works.**
+
+- Leaf unitaries (no `children`) always keep "Toggle Adjoint",
+  regardless of gate name. Today's behavior unchanged.
+- The action / data layer doesn't refuse `isAdjoint = true` on
+  groups — this restriction is UI-affordance-only. Loaded
+  `.qsc` files with an adjointed group still parse and render
+  (the renderer paints the adjoint dagger as before); the user
+  just can't toggle the flag from the editor surface. That
+  preserves round-tripping for any pre-existing data.
+
+**What's blocked.**
+
+- Right-clicking the body of any group (including pure-unitary
+  groups) no longer offers "Toggle Adjoint".
+
+**Tests.** No new tests. The restriction lives entirely in the
+context-menu builder (one inline check on `children`); the
+action layer is untouched. There is no JSDOM / context-menu
+test harness today, and adding one just for this single guard
+isn't worth the scaffolding. M8 will bring action-layer support
+and tests with it.
+
+##### M8 (deferred): adjoint authoring on groups
+
+**Why deferred.** Two intertwined sub-problems:
+
+1. **Adjointability check.** A group can only be adjointed when
+   its subtree is composed entirely of adjointable operations.
+   Measurement and Reset (ket) are the obvious blockers; the
+   long tail is custom gates whose underlying Q# `operation`
+   declaration may or may not carry an `is Adj` characteristic.
+   The editor needs a reliable way to know whether a child is
+   adjointable without re-running Q# semantic analysis on every
+   edit.
+2. **Adjoint propagation into the emitter.** Setting
+   `isAdjoint = true` on a group implies "reverse the order of
+   children and adjoint each one." For a top-level `operation`
+   group this can be expressed via `Adjoint Foo(...)` at the
+   call site, which is cheap. For an inline `within ... apply`
+   block or a structural `for` / `if` group, the emitter has to
+   reverse the child sequence and emit `Adjoint` per child,
+   which interacts with classical-control conditions, loop
+   iteration order, and the `within ... apply` block's own
+   adjoint rule. None of that is plumbed today.
+
+The visual change is trivial — flip the dagger overlay on the
+group's box, same as today's leaf-op rendering — but the
+semantics on the round-trip side are not. Same posture as M6:
+ship the restriction, document the deferred work, revisit when
+either Q# semantic information is already available at edit
+time (e.g. via the language service's symbol table for custom
+gates) or the emitter is being reworked for some other reason.
+
+**Acceptance criteria for M8.**
+
+1. Action-layer predicate `_isGroupAdjointable(op)` that walks
+   the subtree and returns true iff every leaf op is
+   adjointable. Surfaces a clear reason string for the UI
+   ("this group contains a measurement on q0" etc.) when it
+   returns false.
+2. Context-menu Toggle Adjoint affordance restored on groups
+   when the predicate passes. Greyed-out (not hidden) with a
+   tooltip when it fails, so the user can see why.
+3. Emitter support: setting `isAdjoint` on a group reverses
+   child order and applies `Adjoint` to each adjointable child
+   in the emitted Q#. Existing tests for
+   `within ... apply` adjoint semantics must still pass.
+4. Round-trip test: `.qs` with an `Adjoint Foo()` call → `.qsc`
+   with the group's `isAdjoint = true` → emitted `.qs` matches
+   the original.
 
 ##### M6 (deferred): quantum-control rendering on multi-target bodies
 
@@ -2101,7 +2205,9 @@ landed. Some are flagged out-of-scope in shipped milestones above.
 | M3: control-leg drag semantics                                        | ✅ Shipped (pending confirm)                                                                           |
 | M4: drag init + ViewState across moves                                | ✅ Shipped (pending confirm)                                                                           |
 | M5: refuse add/remove control on multi-target ops & groups            | ✅ Shipped (pending confirm)                                                                           |
+| M7: hide Toggle Adjoint on every group                                | ✅ Shipped (pending confirm)                                                                           |
 | M6: unified quantum-control rendering on multi-target bodies (Opt. C) | ❌ Deferred — design documented, implementation a future PR                                            |
+| M8: adjoint authoring on groups (predicate + emitter propagation)     | ❌ Deferred — design documented, implementation a future PR                                            |
 | `qubitUseCounts` on single-leg rewire                                 | ❌ Open                                                                                                |
 | Classical-condition editing                                           | ❌ Deferred (editor-authoring)                                                                         |
 | Toolbox control element                                               | ❌ Open (design TBD)                                                                                   |

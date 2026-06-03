@@ -110,6 +110,19 @@ const addContextMenuToHostElem = (
       // control-render paths are unaffected.
       const allowControlAuthoring = !_isMultiTargetOrGroup(selectedOperation);
 
+      // Groups (any op with `children`) don't get "Toggle Adjoint"
+      // today. Authoring the adjoint of a group has several open
+      // questions — e.g. groups whose subtree contains a
+      // measurement or Reset (ket) aren't adjointable at all, and
+      // groups whose subtree IS adjointable still need the adjoint
+      // marker to propagate sensibly through the children for the
+      // emitted Q# to be correct. Until that work lands, the
+      // editor refuses the gesture on every group; leaf unitaries
+      // continue to get the Toggle Adjoint option. See the
+      // "Controls on Groups" section of CIRCUIT_EDITOR_TODO.md for
+      // the parallel deferral on quantum controls.
+      const allowAdjoint = selectedOperation.children == null;
+
       const addControlOption = _createContextMenuItem("Add Control", () => {
         if (selectedOperation.kind !== "unitary") return;
         circuitEvents._startAddingControl(selectedOperation);
@@ -150,7 +163,9 @@ const addContextMenuToHostElem = (
         }
         contextMenu.appendChild(deleteOption);
       } else {
-        contextMenu.appendChild(adjointOption);
+        if (allowAdjoint) {
+          contextMenu.appendChild(adjointOption);
+        }
         if (allowControlAuthoring) {
           contextMenu.appendChild(addControlOption);
         }

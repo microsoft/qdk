@@ -181,6 +181,15 @@ overhaul to land first. Ship order:
   unified rendering rule (Option C: per-control connector to
   nearest sub-box edge) for quantum controls on multi-target
   bodies.
+- **[Adjoint authoring on groups](CIRCUIT_EDITOR_TODO.md#m8-deferred-adjoint-authoring-on-groups)** —
+  The context-menu "Toggle Adjoint" entry is hidden on every
+  group (any op with `children`). Leaf unitaries still get it.
+  Pre-existing adjointed groups in loaded `.qsc` files still
+  parse and render (the dagger overlay paints as before); the
+  user just can't toggle the flag from the editor surface.
+  Lifted by the deferred **M8** milestone, which ships an
+  adjointability predicate plus emitter support for propagating
+  the group-level `isAdjoint` flag into the child sequence.
 
 ---
 
