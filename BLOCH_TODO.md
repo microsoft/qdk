@@ -57,9 +57,15 @@ into the main product. Items are not ordered by priority.
       new `.qs-bloch-history` CSS class pulling
       `var(--qdk-background-accent)` / `var(--qdk-host-foreground)` /
       `var(--qdk-widget-outline)` from the shared QDK theme tokens.
-- [ ] **`document.getElementById("run_gates" | "rz_button")`.** Two Bloch
-      widgets on a page would collide, and any external collision silently
-      hijacks our state. Replace with refs to a self-contained subtree.
+- [x] **`document.getElementById("run_gates" | "rz_button")`.** Replaced
+      with a single `useRef<HTMLInputElement>` for the Run textbox (the
+      slider also writes into it, so a real handle is needed) and
+      eliminated the `rz_button` lookup entirely by deriving the label
+      straight from `rzAngle` state in JSX (`Rz({rzAngle})`). The
+      widget is now self-contained: two instances on a page can't
+      collide, and an unrelated element on the host page sharing the
+      old ids can't hijack our state. Type-check, eslint, prettier,
+      and all 33 unit tests still pass.
 - [x] **Validate `?gates` URL input.** Extracted `VALID_GATE_CODES`
       (`"XYZHSsTt"`), `MAX_GATE_SEQUENCE_LENGTH` (256), and
       `sanitizeGateSequence()` into a tiny standalone

@@ -546,6 +546,11 @@ export interface BlochSphereProps {
 export function BlochSphere(props: BlochSphereProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<BlochRenderer | null>(null);
+  // Ref to the "Run gates" textbox. Using a ref (instead of a global
+  // `document.getElementById`) keeps the widget self-contained: two Bloch
+  // sphere instances on the same page won't collide, and an unrelated
+  // element happening to share the id can't hijack our state.
+  const runGatesInputRef = useRef<HTMLInputElement>(null);
 
   const [gateArray, setGateArray] = useState<string[]>([]);
   const [state, setState] = useState(Ket0);
@@ -727,7 +732,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   function applyGates() {
-    const input = document.getElementById("run_gates") as HTMLInputElement;
+    const input = runGatesInputRef.current;
+    if (!input) return;
     // Same defensive filter as the URL-replay path: a user pasting
     // arbitrary text shouldn't trigger `console.error` per character or
     // queue an unbounded number of animations.
@@ -740,11 +746,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function sliderChange(e: Event) {
     const slider = e.target as HTMLInputElement;
     const angleIdx = Math.round(parseFloat(slider.value) * 200) % 1256;
-    const button = document.getElementById("rz_button") as HTMLSpanElement;
-    button.textContent = `Rz(${slider.value})`;
-
-    const input = document.getElementById("run_gates") as HTMLInputElement;
-    input.value = rzOps[angleIdx];
+    // Pre-fill the Run textbox with the H/T-only decomposition for this
+    // Rz angle so the user can hit Run to see it animate. The label next
+    // to the slider is rendered straight from `rzAngle` state in JSX
+    // below; no DOM mutation needed.
+    if (runGatesInputRef.current) {
+      runGatesInputRef.current.value = rzOps[angleIdx];
+    }
     setRzAngle(parseFloat(slider.value));
   }
 
@@ -793,7 +801,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       </div>
       <div style="margin-top: 12px">
         <input
-          id="run_gates"
+          ref={runGatesInputRef}
           type="text"
           size={60}
           placeholder="Enter gates then tab away"
@@ -816,11 +824,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           value={rzAngle}
           onInput={sliderChange}
         />
-        <span
-          style="margin: 0 12px; font-style: italic; font-size: 1.2em;"
-          id="rz_button"
-        >
-          Rz(0)
+        <span style="margin: 0 12px; font-style: italic; font-size: 1.2em;">
+          Rz({rzAngle})
         </span>
       </div>
     </div>
