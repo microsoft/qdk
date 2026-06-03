@@ -266,22 +266,21 @@ impl<'a> Context<'a> {
             ExprKind::Block(block) => self.infer_block(block),
             ExprKind::Call(callee, input) => {
                 let callee = self.infer_expr(callee);
-                let input_expr = &**input;
-                let input = if has_holes(input_expr) {
-                    self.infer_hole_tuple_arg(input_expr)
+                let input = &**input;
+                let input = if has_holes(input) {
+                    self.infer_hole_tuple_arg(input)
                 } else {
-                    let ty = self.infer_expr(input_expr);
+                    let ty = self.infer_expr(input);
                     // If the outermost element is a tuple, we must wrap it in an `ArgTy::Tuple`.
                     if let Partial {
                         ty: Ty::Tuple(tys),
                         diverges,
                     } = ty
                     {
-                        let spans: Vec<_> = if let ExprKind::Tuple(items) = input_expr.kind.as_ref()
-                        {
+                        let spans: Vec<_> = if let ExprKind::Tuple(items) = input.kind.as_ref() {
                             items.iter().map(|item| item.span).collect()
                         } else {
-                            vec![input_expr.span; tys.len()]
+                            vec![input.span; tys.len()]
                         };
                         Partial {
                             ty: ArgTy::Tuple(
@@ -293,10 +292,10 @@ impl<'a> Context<'a> {
                             diverges,
                         }
                     } else {
-                        let arg_span = if let ExprKind::Paren(inner) = input_expr.kind.as_ref() {
+                        let arg_span = if let ExprKind::Paren(inner) = input.kind.as_ref() {
                             inner.span
                         } else {
-                            input_expr.span
+                            input.span
                         };
                         Partial {
                             ty: ArgTy::Given(ty.ty, arg_span),
