@@ -312,7 +312,7 @@ pub(super) enum ArgTy {
     /// A given argument.
     Given(Ty, Span),
     /// A list of arguments. This corresponds literally to tuple syntax, not to any expression of a tuple type.
-    Tuple(Vec<ArgTy>),
+    Tuple(Vec<ArgTy>, Span),
 }
 
 impl ArgTy {
@@ -321,7 +321,9 @@ impl ArgTy {
         match self {
             Self::Hole(ty, span) => Self::Hole(f(ty), span),
             Self::Given(ty, span) => Self::Given(f(ty), span),
-            Self::Tuple(items) => Self::Tuple(items.into_iter().map(|i| i.map(f)).collect()),
+            Self::Tuple(items, span) => {
+                Self::Tuple(items.into_iter().map(|i| i.map(f)).collect(), span)
+            }
         }
     }
 
@@ -353,20 +355,20 @@ impl ArgTy {
             },
             // if both the arg and the param are tuples, then we must check
             // the types of each element in the tuple and generate iterative applications.
-            (Self::Tuple(args), Ty::Tuple(params)) => {
+            (Self::Tuple(args, tuple_span), Ty::Tuple(params)) => {
                 let mut errors = Vec::new();
                 if args.len() != params.len() {
                     errors.push(Error(ErrorKind::TyMismatch(
                         Ty::Tuple(params.clone()).display(),
                         self.to_ty().display(),
-                        call_span,
+                        *tuple_span,
                     )));
                 }
 
                 let mut holes = Vec::new();
                 let mut constraints = Vec::new();
                 for (arg, param) in args.iter().zip(params) {
-                    let mut app = arg.apply(param, call_span);
+                    let mut app = arg.apply(param, *tuple_span);
                     constraints.append(&mut app.constraints);
                     errors.append(&mut app.errors);
                     if app.holes.len() > 1 {
@@ -383,22 +385,22 @@ impl ArgTy {
                 }
             }
 
-            (Self::Tuple(_), Ty::Infer(_)) => App {
+            (Self::Tuple(_, tuple_span), Ty::Infer(_)) => App {
                 holes: Vec::new(),
                 constraints: vec![Constraint::Eq {
                     expected: param.clone(),
                     actual: self.to_ty(),
-                    span: call_span,
+                    span: *tuple_span,
                 }],
                 errors: Vec::new(),
             },
-            (Self::Tuple(_), _) => App {
+            (Self::Tuple(_, tuple_span), _) => App {
                 holes: Vec::new(),
                 constraints: Vec::new(),
                 errors: vec![Error(ErrorKind::TyMismatch(
                     param.display(),
                     self.to_ty().display(),
-                    call_span,
+                    *tuple_span,
                 ))],
             },
         }
@@ -407,7 +409,7 @@ impl ArgTy {
     pub(super) fn to_ty(&self) -> Ty {
         match self {
             ArgTy::Hole(ty, _) | ArgTy::Given(ty, _) => ty.clone(),
-            ArgTy::Tuple(items) => Ty::Tuple(items.iter().map(Self::to_ty).collect()),
+            ArgTy::Tuple(items, _) => Ty::Tuple(items.iter().map(Self::to_ty).collect()),
         }
     }
 }

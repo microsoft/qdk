@@ -295,6 +295,7 @@ impl<'a> Context<'a> {
                                     .zip(spans)
                                     .map(|(ty, span)| ArgTy::Given(ty, span))
                                     .collect(),
+                                input_expr.span,
                             ),
                             diverges,
                         }
@@ -770,7 +771,7 @@ impl<'a> Context<'a> {
                     // tuple item, but the value doesn't seem to justify the complexity
                     |ty| ArgTy::Given(ty, span),
                     diverges,
-                    converge(ArgTy::Tuple(tys)),
+                    converge(ArgTy::Tuple(tys, span)),
                 )
             }
             _ => {
