@@ -9,7 +9,7 @@ mod openqasm;
 mod qsharp;
 #[cfg(test)]
 mod tests;
-mod text_edits;
+pub(crate) mod text_edits;
 
 use crate::{
     compilation::{Compilation, CompilationKind, source_position_to_package_offset},
