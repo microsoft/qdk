@@ -92,7 +92,7 @@ class ISAContext:
         error_rate: float | _FloatFunction = 0.0,
         transform: ISATransform | None = None,
         source: list[Instruction] | None = None,
-        **kwargs: int,
+        **kwargs: Optional[int],
     ) -> int:
         """
         Create an instruction and add it to the provenance graph.
@@ -137,7 +137,8 @@ class ISAContext:
             source: List of source ``Instruction`` objects consumed by the
                 transform.
             **kwargs: Additional properties (e.g. ``distance=9``). Ignored
-                when passing an existing ``Instruction``.
+                when passing an existing ``Instruction``, or when the value is
+                ``None``.
 
         Returns:
             The node index in the provenance graph.
@@ -203,7 +204,7 @@ def _make_instruction(
     space: int | _IntFunction | None,
     length: int | _IntFunction | None,
     error_rate: float | _FloatFunction,
-    properties: dict[str, int],
+    properties: dict[str, Optional[int]],
 ) -> Instruction:
     """Build an ``Instruction`` from keyword arguments."""
     if arity is not None:
@@ -236,6 +237,8 @@ def _make_instruction(
         )
 
     for key, value in properties.items():
+        if value is None:
+            continue
         prop_key = property_name_to_key(key)
         if prop_key is None:
             raise ValueError(f"Unknown property '{key}'.")

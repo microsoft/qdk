@@ -503,6 +503,9 @@ fn build_instruction(
     // Apply additional properties from kwargs
     if let Some(kw) = kwargs {
         for (key, value) in kw {
+            if value.is_none() {
+                continue; // Ignore properties with None value
+            }
             let key_str: String = key.extract()?;
             let prop_key =
                 qre::property_name_to_key(&key_str.to_ascii_uppercase()).ok_or_else(|| {
@@ -1623,8 +1626,6 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
         SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
         ACCELERATION,
-        ATOM_SPACING,
-        VELOCITY,
         NUM_TS_PER_ROTATION,
         EXPECTED_SHOTS,
         RUNTIME_SINGLE_SHOT,
@@ -1641,9 +1642,13 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         LOSS,
         LOGICAL_CYCLE_TIME,
         CODE_CYCLE_TIME,
+        ATOM_SPACING,
+        DATA_QUBIT_SPACING,
+        VELOCITY,
         ASSUMPTIONS,
         FEASIBILITY,
         TARGET_YEAR,
+        BLOCK_SIZE,
     );
 
     m.add_submodule(&property_keys)?;
