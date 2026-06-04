@@ -870,12 +870,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const r = new BlochRenderer(canvasRef.current, initialIsDark);
     renderer.current = r;
     // Replay any gates supplied via the URL on initial mount. We bypass
-    // the regular `applyGate` path here for two reasons: (a) reading
-    // back state inside a tight setState loop hits stale-closure bugs,
-    // and (b) URL-driven mounts often have many gates and the renderer
-    // queue would visibly chew through them. Instead, seed `gates`
-    // directly and snap the renderer straight to the final state. The
-    // user can navigate back through the history pane to see each step.
+    // the regular `applyGate` path here because reading back state
+    // inside a tight setState loop hits stale-closure bugs. Instead,
+    // seed `gates` directly and position the cursor at the start so
+    // the widget opens on |0⟩ in inspect mode -- the user can then
+    // press Play (or step-forward) to watch the supplied program
+    // execute, rather than being shown only the final state. The
+    // history pane and transport controls let them scrub freely.
     if (props.initialGates) {
       const { gates: cleaned, modified } = sanitizeGateSequence(
         props.initialGates,
@@ -890,8 +891,12 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       if (cleaned) {
         const arr = cleaned.split("");
         setGates(arr);
-        setCursor(arr.length);
-        r.snapTo(gatesToSteps(arr));
+        // Cursor at 0 puts the widget in inspect mode on the initial
+        // |0⟩ state; the renderer is already there by default so no
+        // snapTo is needed. `onGatesChanged` still fires so the parent
+        // sees the full sequence -- only the visible step starts at
+        // the beginning rather than the end.
+        setCursor(0);
         props.onGatesChanged?.(cleaned);
       }
     }
