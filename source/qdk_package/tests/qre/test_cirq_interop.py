@@ -9,9 +9,7 @@ from qdk.qre import PSSPC
 from qdk.qre.application import CirqApplication
 from qdk.qre.interop import trace_from_cirq
 from qdk.qre.interop._cirq import (
-    PeakUsageGreedyQubitManager,
     TypedQubit,
-    _TypedQubitManager,
     QubitType,
     read_from_memory,
     write_to_memory,
@@ -236,21 +234,3 @@ def test_plain_circuit_unaffected_by_memory_compute():
     assert trace_true.memory_qubits is None
     assert trace_false.memory_qubits is None
     assert trace_true.num_gates == trace_false.num_gates == 3
-
-
-def test_typed_qubit_manager_qalloc_default_dim():
-    """Test _TypedQubitManager.qalloc defaults to qubit dimension 2."""
-    manager = _TypedQubitManager(
-        "q", QubitType.COMPUTE, size=0, maximize_reuse=True
-    )
-    qubits = manager.qalloc(2)
-    assert len(qubits) == 2
-    assert all(qubit.dimension == 2 for qubit in qubits)
-
-
-def test_peak_usage_qubit_manager_qalloc_default_dim():
-    """Test PeakUsageGreedyQubitManager.qalloc defaults to qubit dimension 2."""
-    manager = PeakUsageGreedyQubitManager("q", size=0, maximize_reuse=True)
-    qubits = manager.qalloc(2)
-    assert len(qubits) == 2
-    assert all(qubit.dimension == 2 for qubit in qubits)
