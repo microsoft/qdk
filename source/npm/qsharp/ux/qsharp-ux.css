@@ -617,6 +617,36 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   border: 1px solid var(--qdk-widget-outline);
 }
 
+/* Overlay in the top-left corner of the sphere canvas showing the
+   current Bloch-sphere spherical coordinates (theta, phi). Sits above
+   the WebGL canvas, doesn't intercept pointer events so OrbitControls
+   still works, and pulls colors from the shared QDK tokens so the
+   text stays legible against either palette. */
+.qs-bloch-coords {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  pointer-events: none;
+  color: var(--qdk-host-foreground);
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: 1.05em;
+  line-height: 1.35;
+  opacity: 0.9;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+/* The Greek letters render with the expected lowercase glyph (theta as
+   a circle with a horizontal bar) when drawn in a serif/UI font rather
+   than the editor's monospace font, which on some platforms swaps in
+   the script variant. Italics match how these symbols appear in math
+   typesetting. */
+.qs-bloch-coords-greek {
+  font-style: italic;
+  font-family: var(--vscode-font-family, serif);
+}
+
 /* Sticky title bar at the top of the history pane. Stays visible while
    the user scrolls through a long sequence so they always know which
    pane they're in. The step counter sits on the right and only renders

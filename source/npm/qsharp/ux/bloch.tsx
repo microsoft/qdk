@@ -29,6 +29,7 @@ import {
   SphereGeometry,
   Sprite,
   SpriteMaterial,
+  Vector3,
   WebGLRenderer,
   WireframeGeometry,
 } from "three";
@@ -932,6 +933,47 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     });
   }, [gates]);
 
+  // Current Bloch-sphere spherical coordinates (theta, phi) for the qubit
+  // state after applying the first `cursor` gates. Derived by re-walking
+  // the gate list through a throwaway `Rotations` instance so the overlay
+  // can never drift out of sync with the renderer. We don't follow the
+  // inter-step animation here on purpose: the overlay shows the discrete
+  // post-step state, matching what the LaTeX history pane shows.
+  //
+  // Three.js axes are not the Bloch axes the user sees on the diagram:
+  //   axis label X is drawn at three.js (0, 0, 6.4)  -> Bloch x = three.js z
+  //   axis label Y is drawn at three.js (6.4, 0, 0)  -> Bloch y = three.js x
+  //   axis label Z is drawn at three.js (0, 6.4, 0)  -> Bloch z = three.js y
+  // The state vector starts pointing along three.js +Y (i.e. Bloch +z),
+  // which is the |0> north pole.
+  const blochAngles = useMemo(() => {
+    const rot = new Rotations();
+    for (let i = 0; i < cursor; i++) {
+      const info = gateInfo[gates[i]];
+      switch (info.rotateAxis) {
+        case "X":
+          rot.rotateX(info.rotateAngle);
+          break;
+        case "Y":
+          rot.rotateY(info.rotateAngle);
+          break;
+        case "Z":
+          rot.rotateZ(info.rotateAngle);
+          break;
+        case "H":
+          rot.rotateH(info.rotateAngle);
+          break;
+      }
+    }
+    const tip = new Vector3(0, 1, 0).applyQuaternion(rot.currPosition);
+    const blochZ = Math.max(-1, Math.min(1, tip.y));
+    const theta = Math.acos(blochZ);
+    // phi is undefined at the poles; flag it so the overlay can hide it.
+    const polar = Math.abs(blochZ) > 0.999999;
+    const phi = polar ? 0 : Math.atan2(tip.x, tip.z);
+    return { theta, phi, polar };
+  }, [gates, cursor]);
+
   const inInspectMode = cursor < gates.length;
   const canUndo = !inInspectMode && cursor > 0 && !isPlaying;
   const canRedo = !inInspectMode && redoStack.length > 0 && !isPlaying;
@@ -1273,6 +1315,20 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   return (
     <div class="qs-bloch" style="position: relative;">
       <canvas ref={canvasRef} width="600" height="600"></canvas>
+      <div class="qs-bloch-coords" aria-hidden="true">
+        <span>
+          <span class="qs-bloch-coords-greek">θ</span>
+          {" = "}
+          {((blochAngles.theta * 180) / Math.PI).toFixed(1)}°
+        </span>
+        <span>
+          <span class="qs-bloch-coords-greek">φ</span>
+          {" = "}
+          {blochAngles.polar
+            ? "n/a"
+            : `${((blochAngles.phi * 180) / Math.PI).toFixed(1)}\u00b0`}
+        </span>
+      </div>
       <div
         class="qs-bloch-history"
         style="font-size: 0.8em; position: absolute; left: 600px; top: 50px; height: 700px; min-width: 220px; display: flex; flex-direction: column;"
