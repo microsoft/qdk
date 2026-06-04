@@ -1379,11 +1379,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           />
           <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
         </div>
-        <div style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; align-items: stretch;">
+        <div style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;">
           <div
             class={
               "qs-bloch-history-item" +
-              (cursor === 0 ? " qs-bloch-history-item-current" : "")
+              (cursor === 0 ? " qs-bloch-history-item-current" : "") +
+              (historyEntries.length === 0
+                ? " qs-bloch-history-item-latest"
+                : "")
             }
             title="Initial state |0⟩"
             onClick={() => navigateTo(0)}
@@ -1401,6 +1404,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               classes.push("qs-bloch-history-item-current");
             if (stepIndex > cursor)
               classes.push("qs-bloch-history-item-future");
+            // Pin the bottom-most row so the latest step stays visible
+            // when the rest of the history scrolls. See the CSS rule
+            // for `.qs-bloch-history-item-latest` for the mechanics.
+            if (i === historyEntries.length - 1)
+              classes.push("qs-bloch-history-item-latest");
             return (
               <div
                 class={classes.join(" ")}
@@ -1517,7 +1525,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               "qs-bloch-gate-editor-input" +
               (isDraftInvalid ? " qs-bloch-gate-editor-input-invalid" : "")
             }
-            size={60}
             value={displayValue}
             onInput={draftInput}
             onKeyDown={draftKeyDown}
@@ -1531,7 +1538,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             aria-invalid={isDraftInvalid}
           />
           <button
-            style="margin-left: 8px; padding: 0 8px"
+            style="margin-left: 8px; margin-right: 8px; padding: 0 8px"
             type="button"
             onClick={applyGatesFromTextbox}
             disabled={isPlaying || isDraftInvalid}

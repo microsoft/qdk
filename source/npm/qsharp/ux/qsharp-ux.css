@@ -577,9 +577,11 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   opacity: 0.75;
 }
 
-/* Media-player-style transport bar below the history title. Sized so
-   the row of five glyph buttons sits comfortably between the title and
-   the history items. */
+/* Media-player-style transport bar below the history title. The row
+   spans the full pane width so its background and border line up with
+   the rest of the pane, but the buttons inside sit at a fixed size on
+   the left and don't stretch when the pane grows wider to accommodate
+   long LaTeX history rows. */
 .qs-bloch-media-controls {
   display: flex;
   gap: 4px;
@@ -591,9 +593,9 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   /* Square-ish, font-size scaled up so the unicode media glyphs
      (U+23E9 .. U+23EF range) render at a legible size. The default
      button font often hands those glyphs to a fallback face that
-     renders them tiny. */
-  flex: 1;
-  min-width: 28px;
+     renders them tiny. Fixed width (no flex stretch) keeps the
+     cluster compact when the pane is wider than the buttons need. */
+  width: 36px;
   height: 24px;
   padding: 0;
   font-size: 1.1em;
@@ -607,8 +609,9 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 /* Speed slider row immediately below the transport controls. Same
    background so the two controls read as a single playback cluster.
-   The slider gets `flex: 1` so it expands to fill the pane width;
-   the label and readout stay a fixed size. */
+   The row spans the full pane width so its background lines up with
+   the rest of the pane, but the slider inside stays at a fixed width
+   and doesn't stretch when the pane grows wider. */
 .qs-bloch-speed-control {
   display: flex;
   align-items: center;
@@ -619,8 +622,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-size: 0.95em;
 }
 .qs-bloch-speed-control input[type="range"] {
-  flex: 1;
-  min-width: 60px;
+  width: 120px;
 }
 .qs-bloch-speed-readout {
   /* Fixed width so the layout doesn't jitter as the readout cycles
@@ -654,10 +656,39 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 /* Rows after the cursor when inspecting an earlier step. Dimmed and
    italicised to signal they are "future" steps that will be lost if
-   the user applies a new gate from this position. */
+   the user applies a new gate from this position. The opacity is
+   scoped to the row's children (rather than the row itself) so the
+   pinned "latest" row keeps its opaque background -- otherwise rows
+   scrolling underneath bleed through when the cursor is upstream of
+   the latest. */
 .qs-bloch-history-item-future {
-  opacity: 0.5;
   font-style: italic;
+}
+.qs-bloch-history-item-future > * {
+  opacity: 0.5;
+}
+
+/* The bottom-most row in the history list -- pinned to the bottom of
+   the scroll viewport via `position: sticky` so the most recent state
+   stays visible while older rows scroll above it. When the list is
+   short enough to fit in the panel, sticky has no effect and the row
+   sits in its natural place at the end of the flow. Needs an opaque
+   background (matching the pane) so rows scrolling underneath are
+   visually occluded, and a top border to separate the pinned row
+   from whichever row last scrolled past it. */
+.qs-bloch-history-item-latest {
+  position: sticky;
+  bottom: 0;
+  background: var(--qdk-background-accent);
+  border-top: 1px solid var(--qdk-widget-outline);
+  z-index: 1;
+}
+/* When the pinned row also happens to be the current cursor row,
+   keep the selected highlight instead of the plain pane background.
+   Class order in the JSX doesn't guarantee specificity order, so we
+   call this out explicitly. */
+.qs-bloch-history-item-latest.qs-bloch-history-item-current {
+  background: var(--qdk-menu-fill-selected);
 }
 
 /* Live gate-string editor. Sits below the canvas and provides the
@@ -666,9 +697,17 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    the same string broken into spans so we can mark invalid chars and
    a small status line shows the unsaved-draft indicator and char
    count. The visible char row is intentionally offset and slightly
-   smaller so it reads as a hint rather than a duplicate. */
+   smaller so it reads as a hint rather than a duplicate.
+
+   Capped at the canvas width (600px) so the editor and its feedback
+   row don't run into the history panel on the right or stretch to the
+   far edge of the page. */
 .qs-bloch-gate-editor {
   font-family: var(--qdk-font-family-monospace);
+  max-width: 600px;
+  /* Breathing room between the gate-button toolbar above and the
+     textbox row, so the two groups read as separate clusters. */
+  margin-top: 8px;
 }
 .qs-bloch-gate-editor-row {
   display: flex;
@@ -678,7 +717,11 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-family: var(--qdk-font-family-monospace);
   font-size: 1em;
   padding: 4px 6px;
-  flex: 0 1 auto;
+  /* Grow to fill the available width up to the editor's max-width,
+     but shrink down to a sensible minimum on narrow viewports. The
+     Run button next to it stays at its natural width. */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 /* Invalid-draft state: red outline (and matching focus ring) so the
    user can tell at a glance that Run is disabled because of what's
@@ -708,11 +751,15 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 .qs-bloch-gate-editor-chars {
   flex: 1;
   /* Preserve whitespace so spaces (rendered as middle-dots) line up
-     with the input's own spaces. */
+     with the input's own spaces. Allow shrink below natural width so
+     a long sequence doesn't push the count off the right edge. */
   white-space: pre;
   letter-spacing: 0.05em;
   color: var(--qdk-host-foreground);
   opacity: 0.7;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .qs-bloch-gate-char {
   /* Plain char; no extra styling so valid sequences look quiet. */
