@@ -103,6 +103,32 @@ fn qualified_unresolved_name_is_skipped() {
 }
 
 #[test]
+fn name_in_multiple_namespaces_offers_one_import_each() {
+    // The same unqualified name exists in two namespaces, neither of which is open,
+    // so a separate import action is offered for each (sorted by namespace name).
+    check_import_titles(
+        "namespace NsA {
+            operation Collide() : Unit {}
+            export Collide;
+        }
+        namespace NsB {
+            operation Collide() : Unit {}
+            export Collide;
+        }
+        namespace Test {
+            operation Main() : Unit {
+                Collide();
+            }
+        }",
+        &expect![[r#"
+            [
+                "Import NsA.Collide",
+                "Import NsB.Collide",
+            ]"#]],
+    );
+}
+
+#[test]
 fn import_edit_inserts_at_namespace_start() {
     let source = "namespace Test {
             operation Main() : Unit {
