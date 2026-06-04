@@ -9,10 +9,12 @@ Each Context instance has its own interpreter and code namespace, allowing multi
 independent Q# environments to coexist.
 """
 
+import json
 import sys
 import types
 import weakref
 from dataclasses import make_dataclass
+from pathlib import PurePath, PureWindowsPath
 from time import monotonic
 from typing import (
     Any,
@@ -46,6 +48,7 @@ from ._native import (  # type: ignore
     TypeIR,
     TypeKind,
     UdtValue,
+    compile_visual_circuit_to_qsharp,
 )
 from ._types import (
     BitFlipNoise,
@@ -80,6 +83,88 @@ def ipython_helper():
             from IPython.display import display
     except NameError:
         pass
+
+
+def _path_stem(path: str) -> str:
+    path_type = PureWindowsPath if "\\" in path else PurePath
+    stem = path_type(path).stem
+    return stem or "circuit"
+
+
+def _visual_circuit_signature(circuit_json: str, index: int) -> tuple[int, str, int]:
+    try:
+        data = json.loads(circuit_json)
+    except json.JSONDecodeError as err:
+        raise QSharpError(f"Failed to parse visual circuit JSON: {err}") from err
+
+    circuits = data.get("circuits") if isinstance(data, dict) else None
+    if not isinstance(circuits, list) or len(circuits) == 0:
+        raise QSharpError("Visual circuit files must contain at least one circuit.")
+
+    if not isinstance(index, int) or isinstance(index, bool):
+        raise QSharpError("Visual circuit index must be an integer.")
+    if index < 0 or index >= len(circuits):
+        raise QSharpError(
+            f"Visual circuit index {index} is out of range for {len(circuits)} circuits."
+        )
+
+    circuit = circuits[index]
+    if not isinstance(circuit, dict):
+        raise QSharpError("Visual circuit JSON contains an invalid circuit.")
+
+    qubits = circuit.get("qubits", [])
+    if not isinstance(qubits, list):
+        raise QSharpError("Visual circuit JSON contains an invalid qubit register.")
+
+    result_count = 0
+    for qubit in qubits:
+        if not isinstance(qubit, dict):
+            raise QSharpError("Visual circuit JSON contains an invalid qubit.")
+        num_results = qubit.get("numResults", 0)
+        if (
+            not isinstance(num_results, int)
+            or isinstance(num_results, bool)
+            or num_results < 0
+        ):
+            raise QSharpError("Visual circuit JSON contains an invalid result count.")
+        result_count += num_results
+
+    if result_count == 0:
+        return len(qubits), "Unit", len(circuits)
+    if result_count == 1:
+        return len(qubits), "Result", len(circuits)
+    return len(qubits), "Result[]", len(circuits)
+
+
+def _visual_circuit_wrapper_source(
+    operation_name: str, wrapper_name: str, qubit_count: int, return_type: str
+) -> str:
+    if qubit_count == 0:
+        allocation = ""
+        call = f"{operation_name}()"
+        reset = ""
+    else:
+        allocation = f"    use qs = Qubit[{qubit_count}];\n"
+        call = f"{operation_name}(qs)"
+        reset = "    ResetAll(qs);\n"
+
+    if return_type == "Unit":
+        return (
+            f"operation {wrapper_name}() : Unit {{\n"
+            f"{allocation}"
+            f"    {call};\n"
+            f"{reset}"
+            "}\n"
+        )
+
+    return (
+        f"operation {wrapper_name}() : {return_type} {{\n"
+        f"{allocation}"
+        f"    let result = {call};\n"
+        f"{reset}"
+        "    return result;\n"
+        "}\n"
+    )
 
 
 def make_class_rec(qsharp_type: TypeIR) -> type:
@@ -154,6 +239,7 @@ class Context:
     code: Any
     _disposed: bool
     _is_global_context: bool
+    _loaded_circuit_count: int
 
     def __init__(
         self,
@@ -189,6 +275,7 @@ class Context:
         self._disposed = False
         self._is_global_context = _is_global_context
         self._target_profile = target_profile
+        self._loaded_circuit_count = 0
 
         if _is_global_context:
             self.code = code
@@ -465,6 +552,47 @@ class Context:
             return
         if getattr(struct_type, "_qdk_context") is not self:
             raise QSharpError("This struct belongs to a different Context. ")
+
+    def load_circuit(self, path: str, *, index: int = 0) -> Callable:
+        """
+        Loads a visual circuit file as a callable in this context.
+
+        :param path: Path to a ``.qsc`` visual circuit file.
+        :keyword index: Index of the circuit to return when the file contains
+            multiple circuits. Defaults to ``0``.
+        :return: A zero-argument Q# callable that allocates the circuit qubits,
+            applies the visual circuit, resets the qubits, and returns any
+            measurement results.
+        :rtype: Callable
+        :raises QSharpError: If the file cannot be read or converted to Q#.
+        """
+        from ._fs import read_file, resolve
+
+        resolved_path = resolve(".", path)
+        try:
+            _, circuit_json = read_file(resolved_path)
+        except Exception as err:
+            raise QSharpError(f"Error reading visual circuit file {resolved_path}.") from err
+
+        qubit_count, return_type, circuit_count = _visual_circuit_signature(
+            circuit_json, index
+        )
+        unique_name = f"{_path_stem(resolved_path)}_{self._loaded_circuit_count}"
+        self._loaded_circuit_count += 1
+
+        operation_name, generated_source = compile_visual_circuit_to_qsharp(
+            unique_name, circuit_json
+        )
+        circuit_operation_name = (
+            operation_name if circuit_count == 1 else f"{operation_name}{index}"
+        )
+        wrapper_name = f"{circuit_operation_name}_Entry"
+        wrapper_source = _visual_circuit_wrapper_source(
+            circuit_operation_name, wrapper_name, qubit_count, return_type
+        )
+
+        self.eval(f"{generated_source}\n{wrapper_source}")
+        return getattr(self.code, wrapper_name)
 
     def eval(
         self,

@@ -15,7 +15,7 @@ use crate::{
     interop::{
         circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
         create_filesystem_from_py, get_operation_name, get_output_semantics, get_program_type,
-        get_search_path, resource_estimate_qasm_program, run_qasm_program,
+        get_search_path, resource_estimate_qasm_program, run_qasm_program, sanitize_name,
     },
     interpreter::data_interop::{
         PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
@@ -45,7 +45,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
-    circuit::TracerConfig,
+    circuit::{TracerConfig, circuits_to_qsharp},
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -152,6 +152,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_visual_circuit_to_qsharp, m)?)?;
     Ok(())
 }
 
@@ -1127,6 +1128,18 @@ fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
         Err(PyException::new_err(
             "callable must be either a GlobalCallable or a Closure",
         ))
+    }
+}
+
+#[pyfunction]
+pub fn compile_visual_circuit_to_qsharp(
+    file_name: &str,
+    circuit_json: &str,
+) -> PyResult<(String, String)> {
+    let operation_name = sanitize_name(file_name);
+    match circuits_to_qsharp(&operation_name, circuit_json) {
+        Ok(source) => Ok((operation_name, source)),
+        Err(error) => Err(QSharpError::new_err(error)),
     }
 }
 
