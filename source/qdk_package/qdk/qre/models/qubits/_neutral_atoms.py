@@ -58,6 +58,13 @@ class NeutralAtom(Architecture):
             during transport or placement.
         max_velocity: The maximum atom transport velocity (in m/s).
         max_acceleration: The maximum atom transport acceleration (in m/s^2).
+        surface_code_two_qubit_time_factor: A factor by which to multiply the time of
+            two-qubit gates when performing syndrome extraction in a surface code.
+        surface_code_one_qubit_time_factor: A factor by which to multiply the time of
+            one-qubit gates when performing syndrome extraction in a surface code.
+        target_year: If set, this target year is assigned to the 2-qubit gates
+            in the provided ISA.  This can be used by transforms that select
+            gates based on target year.
 
     References:
 
