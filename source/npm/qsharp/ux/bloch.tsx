@@ -1552,11 +1552,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           </button>
         </div>
         {/*
-          Per-character validation feedback. Mirrors `displayValue` as a
-          row of styled chars: valid gate codes render plain, invalid
-          chars (anything outside `VALID_GATE_CODES`) get a red
-          wavy underline, and chars beyond MAX_GATE_SEQUENCE_LENGTH also
-          render as invalid to flag that they'll be dropped on Run.
+          Gate-count breakdown for the sanitized draft. Shows one
+          chip per gate type used (in canonical X Y Z H S S† T T†
+          order), then a T-count callout. T-count is a meaningful
+          quantum-cost metric for fault-tolerant implementations -- T
+          and T† gates are the expensive primitives -- so surfacing it
+          live gives users a quick sense of "how heavy" their program
+          is, especially after the Rz slider expands a single rotation
+          into a dozens-of-gates decomposition.
         */}
         <div
           class={
@@ -1565,22 +1568,47 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           }
           aria-hidden="true"
         >
-          <span class="qs-bloch-gate-editor-chars">
-            {displayValue.split("").map((c, i) => {
-              const valid =
-                VALID_GATE_CODES.includes(c) && i < MAX_GATE_SEQUENCE_LENGTH;
+          <span class="qs-bloch-gate-editor-breakdown">
+            {(() => {
+              const counts: Record<string, number> = {};
+              for (const ch of sanitizedDraft) {
+                counts[ch] = (counts[ch] ?? 0) + 1;
+              }
+              const chips = [];
+              for (const code of VALID_GATE_CODES) {
+                const n = counts[code] ?? 0;
+                if (n === 0) continue;
+                chips.push(
+                  <span
+                    key={code}
+                    class="qs-bloch-gate-editor-chip"
+                    title={`${n}× ${gateInfo[code].display}`}
+                  >
+                    <span class="qs-bloch-gate-editor-chip-name">
+                      {gateInfo[code].display}
+                    </span>
+                    <span class="qs-bloch-gate-editor-chip-count">{n}</span>
+                  </span>,
+                );
+              }
+              const tCount = (counts["T"] ?? 0) + (counts["t"] ?? 0);
+              if (chips.length === 0) {
+                return <span class="qs-bloch-gate-editor-empty">no gates</span>;
+              }
               return (
-                <span
-                  class={
-                    valid
-                      ? "qs-bloch-gate-char"
-                      : "qs-bloch-gate-char qs-bloch-gate-char-invalid"
-                  }
-                >
-                  {c === " " ? "\u00B7" : c}
-                </span>
+                <>
+                  {chips}
+                  {tCount > 0 && (
+                    <span
+                      class="qs-bloch-gate-editor-tcount"
+                      title="T-count: number of T and T† gates. T gates are the expensive primitive in fault-tolerant quantum computing."
+                    >
+                      T-count: {tCount}
+                    </span>
+                  )}
+                </>
               );
-            })}
+            })()}
           </span>
           <span class="qs-bloch-gate-editor-status">
             {hasUnsavedDraft && (

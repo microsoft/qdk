@@ -748,29 +748,55 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-size: 0.85em;
   min-height: 1.4em;
 }
-.qs-bloch-gate-editor-chars {
+/* Gate breakdown row: one chip per gate type used in the sanitized
+   draft, followed by a T-count callout. Wraps to a second line if it
+   would otherwise push the status block off the right edge. The
+   status block on the right (unsaved indicator + char count) stays
+   pinned via its own `flex-shrink: 0`. */
+.qs-bloch-gate-editor-breakdown {
   flex: 1;
-  /* Preserve whitespace so spaces (rendered as middle-dots) line up
-     with the input's own spaces. Allow shrink below natural width so
-     a long sequence doesn't push the count off the right edge. */
-  white-space: pre;
-  letter-spacing: 0.05em;
-  color: var(--qdk-host-foreground);
-  opacity: 0.7;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: var(--qdk-host-foreground);
+  opacity: 0.85;
 }
-.qs-bloch-gate-char {
-  /* Plain char; no extra styling so valid sequences look quiet. */
+.qs-bloch-gate-editor-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--qdk-menu-fill);
+  border: 1px solid var(--qdk-widget-outline);
 }
-.qs-bloch-gate-char-invalid {
-  /* Wavy red underline matches the standard "this is wrong, but
-     keep typing" affordance from spell-checkers and editors. We use
-     text-decoration rather than a background colour so the char
-     itself stays legible against either light or dark themes. */
-  text-decoration: underline wavy var(--qdk-text-error, #d83b01);
-  text-decoration-skip-ink: none;
+.qs-bloch-gate-editor-chip-name {
+  font-family: var(--qdk-font-family-monospace);
+  font-weight: 600;
+}
+.qs-bloch-gate-editor-chip-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+/* T-count callout. Italicised and lightly tinted so it reads as
+   secondary metadata, not another chip. T-count is the standard
+   quantum-cost metric in fault-tolerant designs since T gates are
+   the expensive primitive; surfacing it lets users see at a glance
+   how heavy their program is. */
+.qs-bloch-gate-editor-tcount {
+  margin-left: 4px;
+  font-style: italic;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+/* Placeholder shown when the sanitized draft contains no gates
+   (empty input, or whitespace-only). Quieter than the chips so it
+   doesn't compete visually. */
+.qs-bloch-gate-editor-empty {
+  font-style: italic;
+  opacity: 0.5;
 }
 .qs-bloch-gate-editor-status {
   display: flex;
