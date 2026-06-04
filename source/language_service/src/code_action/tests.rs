@@ -161,9 +161,7 @@ fn import_edit_inserts_at_namespace_start() {
 
 #[test]
 fn notebook_unresolved_term_offers_import() {
-    let compilation = compile_notebook_with_fake_stdlib(
-        [("cell1", "Fake();")].into_iter(),
-    );
+    let compilation = compile_notebook_with_fake_stdlib([("cell1", "Fake();")].into_iter());
     let range = whole_document_range("Fake();");
     let actions = code_action::get_code_actions(&compilation, "cell1", range, Encoding::Utf8);
     let titles: Vec<String> = actions
