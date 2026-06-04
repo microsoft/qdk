@@ -1266,7 +1266,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   return (
-    <div style="position: relative;">
+    <div class="qs-bloch" style="position: relative;">
       <canvas ref={canvasRef} width="600" height="600"></canvas>
       <div
         class="qs-bloch-history"
@@ -1538,7 +1538,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             aria-invalid={isDraftInvalid}
           />
           <button
-            style="margin-left: 8px; margin-right: 8px; padding: 0 8px"
+            style="margin-left: 8px; margin-right: 8px; padding: 0 12px; height: 25px"
             type="button"
             onClick={applyGatesFromTextbox}
             disabled={isPlaying || isDraftInvalid}

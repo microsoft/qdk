@@ -541,6 +541,71 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   height: 25px;
 }
 
+/* ---- Bloch widget: themed form controls ----
+   Browser-default <button>, <input type="text">, and <input type="range">
+   styling looks badly out of place on a dark theme (white inputs on a
+   dark pane, light buttons with chrome borders). The rules below give
+   every interactive control inside the Bloch widget a consistent set
+   of theme-token colors so they swap correctly with VS Code / Jupyter
+   theme changes.
+
+   We scope by `[class^="qs-bloch"]` and `.qs-gate-buttons` rather than
+   bare `button { ... }` so this stays a local override and never
+   leaks into katas, circuits, or other widgets that style their own
+   buttons. */
+.qs-bloch-history button,
+.qs-bloch-gate-editor button,
+.qs-gate-buttons button {
+  background: var(--qdk-menu-fill);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.qs-bloch-history button:hover:not(:disabled),
+.qs-bloch-gate-editor button:hover:not(:disabled),
+.qs-gate-buttons button:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-history button:focus-visible,
+.qs-bloch-gate-editor button:focus-visible,
+.qs-gate-buttons button:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-history button:disabled,
+.qs-bloch-gate-editor button:disabled,
+.qs-gate-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Themed text input. Matches the pane background and foreground so
+   the textbox blends in rather than dropping a white plate onto a
+   dark widget. */
+.qs-bloch-gate-editor input[type="text"] {
+  background: var(--qdk-host-background);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+}
+.qs-bloch-gate-editor input[type="text"]:focus {
+  outline: none;
+  border-color: var(--qdk-focus-border, var(--qdk-atom-fill));
+}
+
+/* Themed range sliders. `accent-color` is the simplest cross-browser
+   knob for the thumb + track tint; both Chromium and Firefox honour
+   it on <input type="range">. We use the menu-selected fill so the
+   slider thumb stands out against the menu background of its row. */
+.qs-bloch-history input[type="range"],
+.qs-bloch-gate-editor input[type="range"],
+.qs-bloch input[type="range"] {
+  accent-color: var(--qdk-menu-fill-selected);
+}
+/* End Bloch themed form controls */
+
 /* Bloch sphere widget: the gate-history pane sitting to the right of the
    3D canvas. Uses the shared QDK theme tokens so the pane swaps colors
    along with VS Code / playground theme changes. The 3D canvas itself
@@ -581,13 +646,16 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    spans the full pane width so its background and border line up with
    the rest of the pane, but the buttons inside sit at a fixed size on
    the left and don't stretch when the pane grows wider to accommodate
-   long LaTeX history rows. */
+   long LaTeX history rows. Background uses the pane-accent token
+   rather than the menu-fill token so the themed buttons (which are
+   filled with menu-fill) stand out against the row instead of
+   blending in. */
 .qs-bloch-media-controls {
   display: flex;
   gap: 4px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--qdk-widget-outline);
-  background: var(--qdk-menu-fill);
+  background: var(--qdk-background-accent);
 }
 .qs-bloch-media-controls button {
   /* Square-ish, font-size scaled up so the unicode media glyphs
@@ -608,17 +676,18 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 }
 
 /* Speed slider row immediately below the transport controls. Same
-   background so the two controls read as a single playback cluster.
-   The row spans the full pane width so its background lines up with
-   the rest of the pane, but the slider inside stays at a fixed width
-   and doesn't stretch when the pane grows wider. */
+   background as the transport bar so the two controls read as a
+   single playback cluster. The row spans the full pane width so its
+   background lines up with the rest of the pane, but the slider
+   inside stays at a fixed width and doesn't stretch when the pane
+   grows wider. */
 .qs-bloch-speed-control {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--qdk-widget-outline);
-  background: var(--qdk-menu-fill);
+  background: var(--qdk-background-accent);
   font-size: 0.95em;
 }
 .qs-bloch-speed-control input[type="range"] {
