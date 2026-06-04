@@ -761,6 +761,12 @@ export interface BlochSphereProps {
 export function BlochSphere(props: BlochSphereProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<BlochRenderer | null>(null);
+  // Scrollable container holding the history rows. We keep a ref so we
+  // can pull the currently-active row into view whenever the cursor
+  // moves (e.g. during playback). Doing it manually instead of via
+  // `Element.scrollIntoView` so we only ever move the history pane and
+  // never accidentally scroll the page.
+  const historyScrollRef = useRef<HTMLDivElement>(null);
 
   // The widget's interaction model is a time-travel history:
   //
@@ -932,6 +938,53 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       return latex;
     });
   }, [gates]);
+
+  // Keep the currently-active history row in view as `cursor` advances
+  // (most visibly during playback). We scroll the history container
+  // directly via `scrollTo` instead of `Element.scrollIntoView` --
+  // `scrollIntoView` walks up the ancestor chain and will scroll the
+  // page itself once the history pane has bottomed out (e.g. when the
+  // active row is near the end of a long sequence). Driving
+  // `container.scrollTop` keeps the scrolling strictly local to the
+  // history pane.
+  //
+  // The bottom of the visible band is partially covered by the sticky
+  // `.qs-bloch-history-item-latest` row (the pinned final step), so we
+  // subtract its height -- otherwise the active row could slip behind
+  // the sticky row and look stuck. When we do scroll, we aim to center
+  // the active row in the (visible band minus the sticky overlap) so
+  // long sequences keep the active step in the middle of the pane.
+  useEffect(() => {
+    const container = historyScrollRef.current;
+    if (!container) return;
+    const active = container.querySelector<HTMLElement>(
+      ".qs-bloch-history-item-current",
+    );
+    if (!active) return;
+    // The sticky latest row only overlaps when the active row isn't
+    // *also* the latest one -- otherwise it's the same element.
+    const sticky = container.querySelector<HTMLElement>(
+      ".qs-bloch-history-item-latest",
+    );
+    const stickyOverlap =
+      sticky && sticky !== active ? sticky.offsetHeight : 0;
+    const visibleHeight = container.clientHeight - stickyOverlap;
+    const cTop = container.scrollTop;
+    const cBottom = cTop + visibleHeight;
+    const aTop = active.offsetTop;
+    const aBottom = aTop + active.offsetHeight;
+    if (aTop < cTop || aBottom > cBottom) {
+      // Target scrollTop that centers the active row inside the
+      // visible band. Clamp to the container's scrollable range so we
+      // don't ask for a negative offset (active row near the very top)
+      // or overshoot past the end (active row near the bottom of a
+      // short list).
+      const desired = aTop - (visibleHeight - active.offsetHeight) / 2;
+      const maxScroll = container.scrollHeight - container.clientHeight;
+      const target = Math.max(0, Math.min(maxScroll, desired));
+      container.scrollTo({ top: target, behavior: "smooth" });
+    }
+  }, [cursor, gates]);
 
   // Current Bloch-sphere spherical coordinates (theta, phi) for the qubit
   // state after applying the first `cursor` gates. Derived by re-walking
@@ -1440,7 +1493,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           />
           <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
         </div>
-        <div style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;">
+        <div
+          ref={historyScrollRef}
+          style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;"
+        >
           <div
             class={
               "qs-bloch-history-item" +
