@@ -12,6 +12,16 @@
         }
       },
       "developmentDependency": false
+    },
+    {
+      "component": {
+        "type": "npm",
+        "npm": {
+          "name": "three",
+          "version": "0.184.0"
+        }
+      },
+      "developmentDependency": false
     }
   ]
 }

@@ -93,6 +93,16 @@ into the main product. Items are not ordered by priority.
       "Enter gates then tab away" but tab doesn't trigger anything; Enter
       doesn't submit (no `<form>`); the input doesn't clear after Run, so a
       second click re-applies the same gates.
+
+      _Update:_ mostly resolved. The textbox is now a live draft synced to
+      `gates` (typing replaces the sequence on Enter or Run click), the
+      placeholder is `"Type gates here (X Y Z H S s T t), Enter to run"`,
+      Enter commits via `onKeyDown`, Esc discards the unsaved draft, and
+      `sanitizeGateSequence()` runs on every commit. Still open: decide
+      whether to clear the box on Run (currently it keeps the sequence so
+      the user can see what was committed), and confirm Tab semantics are
+      acceptable.
+
 - [ ] **Rz slider is indirect.** Moving the slider populates the text box
       with a pre-baked gate string; the user has to then click Run. People
       reasonably expect the slider to rotate the sphere directly. Either
@@ -117,12 +127,14 @@ into the main product. Items are not ordered by priority.
   - **Edit mode** (cursor at end of sequence): `Undo` and `Redo` buttons
     are enabled. `Undo` pops the last gate onto a redo stack; `Redo`
     re-applies it. Applying any new gate clears the redo stack.
-  - **Inspect mode** (cursor inside the sequence): a banner appears
-    explaining that future steps will be discarded if a new gate is
-    applied, with a "Jump to latest" escape hatch. Future rows are
-    rendered dimmed + italic so the user can see what's at risk. `Undo`
-    and `Redo` are disabled with tooltips pointing the user back to the
-    latest step.
+  - **Inspect mode** (cursor inside the sequence): future rows are
+    rendered dimmed so the user can see what's at risk if they apply a
+    new gate, and `Undo` / `Redo` are disabled with tooltips pointing
+    the user back to the latest step. (The earlier explanatory banner
+    - explicit "Jump to latest" button were dropped in favor of
+      clicking the latest row, which proved less noisy in practice. The
+      step counter in the title bar — e.g. `5 / 8` — communicates the
+      same mode information.)
 
     Single source of truth: `gates: string[]` plus `cursor` plus
     `redoStack`. All visible state (sphere position, LaTeX history
@@ -134,6 +146,43 @@ into the main product. Items are not ordered by priority.
     `gateInfo` table that drives both the math and the renderer,
     eliminating three parallel switch statements.
 
+## Polish landed since last update
+
+These items aren't on the original TODO but were done as part of the same
+push. Listed here so the file isn't silently out of date.
+
+- [x] **Transport-style playback bar.** Jump-to-start / step-back /
+      play-pause-replay / step-forward / jump-to-end glyph buttons under
+      the sphere, plus an animation-speed range slider with a `1.00×`
+      readout. Replaces the `play` text button; works in both edit and
+      inspect mode. Replay glyph swaps in automatically when the cursor
+      is at the end of the sequence.
+- [x] **Live gate-string textbox.** Editing the textbox builds a draft;
+      Enter / Run commits via `sanitizeGateSequence`, Esc discards.
+      A small "unsaved changes" indicator + character count sit under
+      the input. Run is disabled when there are no committed gates and
+      nothing to play.
+- [x] **Gate breakdown chips.** Under the textbox we show one chip per
+      distinct gate code with a count, plus a "T-count: N" chip so
+      learners can see the synthesis cost of their sequence at a glance.
+- [x] **History pane reshape.** Step counter (`5 / 8`) moved into the
+      sticky title bar; latest row pinned to the bottom of the scroll
+      area (sticky positioning) so it stays visible during long
+      sequences; future-row dim styling scoped to children so the
+      sticky row itself doesn't fade out.
+- [x] **Themed form controls.** Buttons, text inputs, and range sliders
+      scoped to `.qs-bloch*` selectors now pull from the QDK theme
+      tokens (`--qdk-background-accent`, `--qdk-host-foreground`,
+      `--qdk-widget-outline`, `accent-color`) so the widget matches
+      both VS Code light/dark themes and the playground palette.
+- [x] **URL-load starts at step 0.** When the widget is opened with
+      `?gates=...`, the sequence is loaded into `gates` but the cursor
+      stays at 0 (initial |0⟩ state, inspect mode). Previously the
+      sphere jumped straight to the final state, hiding the
+      step-by-step story the URL was meant to share.
+- [x] **Bloch angle overlay (θ, φ).** See "Show current state
+      succinctly" above.
+
 ## Widget — nice-to-have
 
 - [ ] **WebGL fallback.** If `WebGLRenderer` construction throws (no GPU /
@@ -144,6 +193,16 @@ into the main product. Items are not ordered by priority.
       the gate history. A small fixed pane showing the current $|\psi\rangle$
       and Bloch angles (θ, φ) would be more useful than scrolling history
       to find the last line.
+
+      _Update:_ Bloch angles half done. A `θ` / `φ` overlay now sits in
+      the top-left corner of the sphere canvas (`.qs-bloch-coords`),
+      derived from `gates.slice(0, cursor)` via a throwaway `Rotations`
+      instance so it can't drift from the renderer. Updates per discrete
+      step during playback (not per animation frame); shows `n/a` for
+      `φ` at the poles where it's undefined. Still open: a fixed
+      $|\psi\rangle$ readout (basis-coefficient form), separate from
+      the scrolling history.
+
 - [ ] **Localization.** Hard-coded English everywhere. The VS Code
       extension has `vscode.l10n.t(...)`; webview-side strings can be
       threaded through too.
@@ -178,8 +237,14 @@ into the main product. Items are not ordered by priority.
 
 ## Compliance
 
-- [ ] **Check `cgmanifest.json` / 3rd-party-license requirements** for three.js
+- [x] **Check `cgmanifest.json` / 3rd-party-license requirements** for three.js
       if we end up shipping it inside the VS Code extension.
+
+      _Resolved:_ Added an `npm` registration for `three@0.184.0` (MIT) to
+      `cgmanifest.json`. `@types/three` is dev-only (stripped at build) and
+      doesn't need a runtime registration. No project-level NOTICE /
+      ThirdPartyNotices file exists in this repo \u2014 Component Governance
+      generates downstream notices from the manifest.
 
 ## Cleanup
 
