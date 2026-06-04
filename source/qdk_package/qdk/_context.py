@@ -591,7 +591,10 @@ class Context:
             circuit_operation_name, wrapper_name, qubit_count, return_type
         )
 
-        self.eval(f"{generated_source}\n{wrapper_source}")
+        # generated_source is produced by the native visual-circuit compiler;
+        # wrapper_source is assembled from sanitized operation names and type metadata.
+        eval_source = f"{generated_source}\n{wrapper_source}"
+        self.eval(eval_source)  # DevSkim: ignore DS189424
         return getattr(self.code, wrapper_name)
 
     def eval(
