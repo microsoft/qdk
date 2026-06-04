@@ -125,8 +125,8 @@ fn compile_no_hoist_return_unified(source: &str) -> NoHoistReturnUnifyResult {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    let errors = super::unify_returns(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let errors = super::unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),
         "direct no-hoist return_unify produced errors: {errors:?}\n// before direct no-hoist return_unify\n{before}"
@@ -438,8 +438,8 @@ pub(crate) fn check_simplify_rule_q(
     expect: &Expect,
 ) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    let errors = super::unify_returns_without_simplify(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let errors = super::unify_returns_without_simplify(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),
         "unify_returns_without_simplify produced errors: {errors:?}"
@@ -448,7 +448,8 @@ pub(crate) fn check_simplify_rule_q(
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     let block_id = find_body_block_id(store.get(pkg_id), callable_name);
     let slots = synth_slots_for_block(store.get(pkg_id), block_id);
-    let fired = apply_rule(store.get_mut(pkg_id), &mut assigner, block_id, &slots);
+    let assigner = assigners.get_mut(&store, pkg_id);
+    let fired = apply_rule(store.get_mut(pkg_id), assigner, block_id, &slots);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
 
     expect.assert_eq(&format!(
@@ -803,8 +804,8 @@ fn check_idempotency(source: &str) {
     let before = format!("{:?}", Assigner::from_package(store.get(pkg_id)));
 
     // Run unify_returns a second time.
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    let errors = super::unify_returns(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let errors = super::unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),
         "second unify_returns pass produced errors: {errors:?}"

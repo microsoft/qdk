@@ -30,13 +30,14 @@ use super::types::{
 use crate::EMPTY_EXEC_RANGE;
 use crate::cloner::FirCloner;
 use crate::fir_builder::functored_specs;
+use crate::package_assigners::PackageAssigners;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident, Item,
     ItemId, ItemKind, LocalItemId, LocalVarId, NodeId, Package, PackageId, PackageLookup,
-    PackageStore, Pat, PatId, PatKind, Res, UnOp, Visibility,
+    PackageStore, Pat, PatId, PatKind, Res, StoreItemId, UnOp, Visibility,
 };
 use qsc_fir::ty::{Arrow, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -80,23 +81,22 @@ fn resolve_callable_arg_label(store: &PackageStore, arg: &ConcreteCallable) -> S
 /// Specializes higher-order functions for each concrete callable argument
 /// discovered during analysis.
 ///
-/// Returns a map from `SpecKey` to the `LocalItemId` of the newly created
-/// specialized callable in the target package.
+/// Returns a map from `SpecKey` to the `StoreItemId` of the newly created
+/// specialized callable in its owning package.
 pub(super) fn specialize(
     store: &mut PackageStore,
-    package_id: PackageId,
     analysis: &AnalysisResult,
-    assigner: &mut Assigner,
-) -> (FxHashMap<SpecKey, LocalItemId>, Vec<Error>) {
-    let mut dedup: FxHashMap<SpecKey, LocalItemId> = FxHashMap::default();
+    assigners: &mut PackageAssigners,
+) -> (FxHashMap<SpecKey, StoreItemId>, Vec<Error>) {
+    let mut dedup: FxHashMap<SpecKey, StoreItemId> = FxHashMap::default();
     let mut errors: Vec<Error> = Vec::new();
     let mut recursion_guard: FxHashSet<SpecKey> = FxHashSet::default();
 
-    // Build a lookup from LocalItemId → CallableParam for quick access.
+    // Build a lookup from StoreItemId → CallableParam for quick access.
     // Use entry().or_insert() to keep the first (lowest-index) param per
     // callable, ensuring deterministic behavior when a callable has multiple
     // arrow params.
-    let mut param_lookup: FxHashMap<LocalItemId, &CallableParam> = FxHashMap::default();
+    let mut param_lookup: FxHashMap<StoreItemId, &CallableParam> = FxHashMap::default();
     for p in &analysis.callable_params {
         param_lookup.entry(p.callable_id).or_insert(p);
     }
@@ -113,42 +113,53 @@ pub(super) fn specialize(
         // call-site span so the user gets an actionable diagnostic instead of
         // the generic `FixpointNotReached` convergence error.
         if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
-            let package = store.get(package_id);
+            let package = store.get(call_site.call_pkg_id);
             let span = package.get_expr(call_site.call_expr_id).span;
             errors.push(Error::DynamicCallable(span));
             continue;
         }
 
-        // Skip cross-package HOFs that were NOT cloned into the user
-        // package by monomorphization. Cross-package HOFs that WERE cloned
-        // (e.g. generic std lib callables monomorphized with concrete types)
-        // now exist in the user package's items map and should be processed.
-        if call_site.hof_item_id.package != package_id {
-            let pkg = store.get(package_id);
-            if !pkg.items.contains_key(call_site.hof_item_id.item) {
+        // Cross-package HOFs that were relocated into their owning package by
+        // monomorphization (e.g. generic std lib callables monomorphized with
+        // concrete types) are specialized in place in that owning package.
+        // Confirm the HOF item actually exists in its declared package before
+        // proceeding.
+        let hof_store_id = StoreItemId {
+            package: call_site.hof_item_id.package,
+            item: call_site.hof_item_id.item,
+        };
+        {
+            let pkg = store.get(hof_store_id.package);
+            if !pkg.items.contains_key(hof_store_id.item) {
                 continue;
             }
         }
 
         // Recursive specialization guard.
         if recursion_guard.contains(&spec_key) {
-            let package = store.get(package_id);
+            let package = store.get(call_site.call_pkg_id);
             let span = package.get_expr(call_site.call_expr_id).span;
             errors.push(Error::RecursiveSpecialization(span));
             continue;
         }
         recursion_guard.insert(spec_key.clone());
 
-        let hof_local_item = call_site.hof_item_id.item;
-
         // Look up the callable parameter for this HOF.
-        let Some(param) = param_lookup.get(&hof_local_item).copied() else {
+        let Some(param) = param_lookup.get(&hof_store_id).copied() else {
             recursion_guard.remove(&spec_key);
             continue;
         };
 
-        // Clone the HOF and produce a specialized callable.
-        let new_item_id = specialize_one(store, package_id, call_site, param, assigner);
+        // Clone the HOF and produce a specialized callable. The spec is
+        // allocated into the call site's owning package via that package's
+        // own assigner, mirroring the monomorphize Phase 2 specialize-in-place
+        // pattern.
+        let call_pkg_id = call_site.call_pkg_id;
+        let new_item_id = assigners.with_package(store, call_pkg_id, |store, assigner| {
+            let mut assigner = assigner;
+            let result = specialize_one(store, call_pkg_id, call_site, param, &mut assigner);
+            (assigner, result)
+        });
 
         if let Some(id) = new_item_id {
             dedup.insert(spec_key.clone(), id);
@@ -160,18 +171,18 @@ pub(super) fn specialize(
     // Count specializations per HOF and emit a warning when the threshold
     // is exceeded. Group dedup entries by the HOF callable_id embedded in
     // each SpecKey.
-    let mut specs_per_hof: FxHashMap<LocalItemId, usize> = FxHashMap::default();
+    let mut specs_per_hof: FxHashMap<StoreItemId, usize> = FxHashMap::default();
     for key in dedup.keys() {
         *specs_per_hof.entry(key.hof_id).or_default() += 1;
     }
     for (hof_id, count) in &specs_per_hof {
         if *count > EXCESSIVE_SPECIALIZATION_THRESHOLD {
-            let package = store.get(package_id);
-            let item = package.get_item(*hof_id);
+            let package = store.get(hof_id.package);
+            let item = package.get_item(hof_id.item);
             let (name, span) = if let ItemKind::Callable(decl) = &item.kind {
                 (decl.name.name.to_string(), decl.name.span)
             } else {
-                (format!("Item({hof_id})"), Span::default())
+                (format!("Item({})", hof_id.item), Span::default())
             };
             errors.push(Error::ExcessiveSpecializations(name, *count, span));
         }
@@ -367,7 +378,7 @@ fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
 
 /// Clones a HOF callable, transforms its body to replace the callable
 /// parameter with the concrete callee, and inserts the specialized callable
-/// into the package. Returns the `LocalItemId` of the new item.
+/// into the package. Returns the `StoreItemId` of the new item.
 #[allow(clippy::too_many_lines)]
 fn specialize_one(
     store: &mut PackageStore,
@@ -375,7 +386,7 @@ fn specialize_one(
     call_site: &CallSite,
     param: &CallableParam,
     assigner: &mut Assigner,
-) -> Option<LocalItemId> {
+) -> Option<StoreItemId> {
     // Extract needed data from the source package.
     // The HOF may live in a different package (e.g. the standard library),
     // so use hof_item_id.package rather than the target package_id.
@@ -422,6 +433,7 @@ fn specialize_one(
         param.field_path.clone(),
         remapped_param_var,
         param.param_ty.clone(),
+        param.hof_input_is_tuple,
     );
 
     let hof_name: Rc<str> = Rc::from(format!("{}{{{arg_label}}}", decl_snapshot.name.name));
@@ -504,7 +516,10 @@ fn specialize_one(
     };
     target.items.insert(new_item_id, new_item);
 
-    Some(new_item_id)
+    Some(StoreItemId {
+        package: package_id,
+        item: new_item_id,
+    })
 }
 
 /// Transforms all specialization bodies in a callable implementation,
@@ -1227,13 +1242,19 @@ fn transform_closure_param_capture(
     };
 
     // Step 2: Create a synthetic CallableParam for the closure target's captured param.
+    let closure_target_uses_tuple =
+        matches!(package.get_pat(target_decl.input).kind, PatKind::Tuple(_));
     let closure_param = CallableParam::new(
-        closure_target,
+        StoreItemId {
+            package: package_id,
+            item: closure_target,
+        },
         target_decl.input,
         capture_idx,
         Vec::new(),
         capture_param_var,
         param.param_ty.clone(),
+        closure_target_uses_tuple,
     );
 
     // Step 3: Transform the target callable's body to replace uses of the

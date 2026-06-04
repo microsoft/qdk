@@ -50,10 +50,10 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::functored_specs;
+use crate::package_assigners::PackageAssigners;
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use qsc_fir::{
-    assigner::Assigner,
     fir::{
         BlockId, CallableDecl, CallableImpl, ExprKind, ItemId, ItemKind, Package, PackageId,
         PackageLookup, PackageStore, Res, StmtKind, StoreItemId,
@@ -332,9 +332,9 @@ fn build_scoped_udt_pure_ty_cache(
 pub fn unify_returns(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) -> Vec<Error> {
-    unify_returns_impl(store, package_id, assigner, /* run_simplify */ true)
+    unify_returns_impl(store, package_id, assigners, /* run_simplify */ true)
 }
 
 /// Test-only variant of [`unify_returns`] that stops after
@@ -346,15 +346,15 @@ pub fn unify_returns(
 pub(crate) fn unify_returns_without_simplify(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) -> Vec<Error> {
-    unify_returns_impl(store, package_id, assigner, /* run_simplify */ false)
+    unify_returns_impl(store, package_id, assigners, /* run_simplify */ false)
 }
 
 fn unify_returns_impl(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
     run_simplify: bool,
 ) -> Vec<Error> {
     let reachable = collect_reachable_from_entry(store, package_id);
@@ -362,16 +362,21 @@ fn unify_returns_impl(
     let mut errors = Vec::new();
 
     let mut arrow_default_cache = ArrowDefaultCache::default();
-    let local_reachable: Vec<_> = reachable
-        .iter()
-        .filter(|id| id.package == package_id)
-        .map(|id| id.item)
-        .collect();
+    // Process every reachable callable across the entire package closure, not
+    // just those in the entry package. return_unify rewrites bodies/specs only
+    // (no cross-package call-site coupling), so each callable is unified
+    // independently. Synthesized flag/slot locals are allocated against the
+    // OWNING package's assigner so foreign-package arenas stay collision-free.
+    let reachable_callables: Vec<StoreItemId> = reachable.iter().copied().collect();
 
-    for item_id in local_reachable {
+    for store_id in reachable_callables {
+        let owning_pkg = store_id.package;
+        let item_id = store_id.item;
         let callable = {
-            let package = store.get(package_id);
-            let item = package.get_item(item_id);
+            let package = store.get(owning_pkg);
+            let Some(item) = package.items.get(item_id) else {
+                continue;
+            };
             match &item.kind {
                 ItemKind::Callable(callable) => callable.clone(),
                 _ => continue,
@@ -385,10 +390,10 @@ fn unify_returns_impl(
         // default, which would otherwise panic in normalize.
         let pre_check_error_count = errors.len();
         for &block_id in &body_blocks {
-            if !contains_return_in_block(store.get(package_id), block_id) {
+            if !contains_return_in_block(store.get(owning_pkg), block_id) {
                 continue;
             }
-            check_normalize_supportable(store.get(package_id), package_id, block_id, &mut errors);
+            check_normalize_supportable(store.get(owning_pkg), owning_pkg, block_id, &mut errors);
         }
         if errors[pre_check_error_count..]
             .iter()
@@ -397,8 +402,9 @@ fn unify_returns_impl(
             continue;
         }
 
+        let assigner = assigners.get_mut(store, owning_pkg);
         for block_id in body_blocks {
-            if !contains_return_in_block(store.get(package_id), block_id) {
+            if !contains_return_in_block(store.get(owning_pkg), block_id) {
                 continue;
             }
 
@@ -406,9 +412,9 @@ fn unify_returns_impl(
             // statement boundary so flag lowering only sees bare returns or
             // returns inside statement-carrying Block/If/While.
             normalize::hoist_returns_to_statement_boundary(
-                store.get_mut(package_id),
+                store.get_mut(owning_pkg),
                 assigner,
-                package_id,
+                owning_pkg,
                 block_id,
                 &mut errors,
             );
@@ -426,11 +432,11 @@ fn unify_returns_impl(
                 continue;
             };
 
-            let package = store.get_mut(package_id);
+            let package = store.get_mut(owning_pkg);
             let slots = transform_block_with_flags(
                 package,
                 assigner,
-                package_id,
+                owning_pkg,
                 block_id,
                 &return_ty,
                 &udt_pure_tys,

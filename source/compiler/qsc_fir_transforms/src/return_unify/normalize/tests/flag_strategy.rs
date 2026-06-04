@@ -53,9 +53,6 @@ fn adjoint_spec_hoist_in_call_arg() {
                 Adjoint Outer(1, q);
                 __quantum__rt__qubit_release(q);
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -102,9 +99,6 @@ fn controlled_spec_hoist_in_call_arg() {
                 Controlled Outer([c], (1, q));
                 __quantum__rt__qubit_release(_generated_ident_55);
                 __quantum__rt__qubit_release(_generated_ident_53);
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -159,9 +153,6 @@ fn controlled_adjoint_spec_hoist_in_call_arg() {
                 Controlled Adjoint Outer([c], (1, q));
                 __quantum__rt__qubit_release(_generated_ident_73);
                 __quantum__rt__qubit_release(_generated_ident_71);
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

@@ -2,11 +2,10 @@
 // Licensed under the MIT License.
 
 use super::*;
-use crate::test_utils::{PipelineStage, assert_pipeline_succeeded};
 use crate::walk_utils;
 use qsc_fir::fir::{
     CallableImpl, CallableKind, ExprId, ExprKind, Field, FieldPath, ItemKind, LocalItemId,
-    LocalVarId, PackageLookup, PatId, PatKind, Res, SpecDecl, StmtKind, StoreItemId,
+    LocalVarId, PackageLookup, PatId, PatKind, Res, SpecDecl, StmtKind,
 };
 use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, ParamId, Prim};
 
@@ -484,82 +483,6 @@ pub(super) fn inject_callable_output_type(
         }
     }
     panic!("callable '{callable_name}' not found");
-}
-
-pub(super) fn external_copy_update_spec_id(
-    external_callable: StoreItemId,
-) -> crate::CallableSpecId {
-    crate::CallableSpecId::new(external_callable, crate::CallableSpecKind::Body)
-}
-
-pub(super) fn compile_external_copy_update_to_exec_graph_rebuild()
--> (PackageStore, qsc_fir::fir::PackageId, StoreItemId) {
-    let lib_source = r#"
-        namespace TestLib {
-            struct Pair { Fst: Int, Snd: Int }
-            function MakeUpdated() : Pair {
-                let p = new Pair { Fst = 1, Snd = 2 };
-                new Pair { ...p, Fst = 42 }
-            }
-            export Pair, MakeUpdated;
-        }
-    "#;
-    let user_source = r#"
-        import TestLib.*;
-
-        @EntryPoint()
-        function Main() : (Int, Int) {
-            let r = MakeUpdated();
-            (r.Fst, r.Snd)
-        }
-    "#;
-    let (mut store, pkg_id) =
-        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
-    let result = crate::run_pipeline_to_with_diagnostics(
-        &mut store,
-        pkg_id,
-        PipelineStage::ExecGraphRebuild,
-        &[],
-    );
-    assert_pipeline_succeeded("external UDT copy-update pipeline", &result);
-    let external_callable = crate::test_utils::find_library_callable(&store, pkg_id, "MakeUpdated");
-    (store, pkg_id, external_callable)
-}
-
-pub(super) fn clear_external_body_exec_graph(
-    store: &mut PackageStore,
-    external_callable: StoreItemId,
-) {
-    let package = store.get_mut(external_callable.package);
-    let item = package
-        .items
-        .get_mut(external_callable.item)
-        .expect("external callable should exist");
-    let ItemKind::Callable(decl) = &mut item.kind else {
-        panic!("external item should be callable");
-    };
-    let CallableImpl::Spec(spec_impl) = &mut decl.implementation else {
-        panic!("external callable should have a body spec");
-    };
-    spec_impl.body.exec_graph = Default::default();
-}
-
-pub(super) fn clear_external_copy_update_field_range(
-    store: &mut PackageStore,
-    external_callable: StoreItemId,
-) {
-    let package = store.get_mut(external_callable.package);
-    let field_expr = package
-        .exprs
-        .values_mut()
-        .find(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::Field(_, Field::Path(path)) if path.indices.as_slice() == [1]
-            )
-        })
-        .expect("external UDT copy-update should synthesize a field read");
-    field_expr.exec_graph_range = crate::EMPTY_EXEC_RANGE;
 }
 
 pub(super) fn call_input_ty(

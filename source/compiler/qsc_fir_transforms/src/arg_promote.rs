@@ -47,7 +47,8 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::EMPTY_EXEC_RANGE;
-use crate::fir_builder::{decompose_binding_to_leaves, functored_specs, reachable_local_callables};
+use crate::fir_builder::{decompose_binding_to_leaves, functored_specs};
+use crate::package_assigners::PackageAssigners;
 use crate::reachability::collect_reachable_from_entry;
 use crate::tuple_decompose::collect_all_block_ids_in_callable;
 use crate::walk_utils::{
@@ -119,10 +120,10 @@ type ParamLeafRemap = (LocalVarId, Ty, LeafRemap);
 pub fn arg_promote(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) -> bool {
-    let changed = promote_to_fixed_point(store, package_id, assigner);
-    normalize_reachable_call_arg_types(store, package_id, assigner);
+    let changed = promote_to_fixed_point(store, package_id, assigners);
+    normalize_reachable_call_arg_types(store, package_id, assigners);
     changed
 }
 
@@ -138,17 +139,17 @@ pub fn arg_promote(
 pub(crate) fn promote_to_fixed_point(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) -> bool {
     let mut changed = false;
     loop {
-        changed |= normalize_param_destructuring(store, package_id, assigner);
+        changed |= normalize_param_destructuring(store, package_id, assigners);
         let candidates = find_promotion_candidates(store, package_id);
         if candidates.is_empty() {
             break;
         }
         changed = true;
-        apply_promotions(store, package_id, assigner, &candidates);
+        apply_promotions(store, package_id, assigners, &candidates);
     }
     changed
 }
@@ -156,6 +157,8 @@ pub(crate) fn promote_to_fixed_point(
 /// A pending rewrite of a tuple-destructuring `let` into positional
 /// field projections, collected under a shared borrow before mutation.
 struct DestructureRewrite {
+    /// The package that owns the callable body being rewritten.
+    owner_pkg: PackageId,
     /// The block containing the destructuring statement.
     block_id: BlockId,
     /// The destructuring `let` statement to rewrite in place.
@@ -217,28 +220,31 @@ struct DestructureRewrite {
 fn normalize_param_destructuring(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) -> bool {
     let reachable = collect_reachable_from_entry(store, package_id);
-    let package = store.get(package_id);
-    let local_item_ids: Vec<LocalItemId> =
-        reachable_local_callables(package, package_id, &reachable)
-            .map(|(id, _)| id)
-            .collect();
 
     // Note: the entry callable is intentionally *not* excluded here. This pass
     // only rewrites body-local `let (a, b) = local;` destructures into positional
     // projections; it never reshapes `decl.input`. The entry input ABI is
     // protected solely by the exclusion in `find_promotion_candidates`, which is
     // the only place `decl.input` is flattened.
+    //
+    // The scan is closure-wide: every reachable callable across every package is
+    // inspected, and each rewrite records its owning package so the mutation is
+    // applied with that package's own assigner.
     let mut rewrites: Vec<DestructureRewrite> = Vec::new();
-    for item_id in local_item_ids {
-        let item = package.get_item(item_id);
+    for store_id in &reachable {
+        let owner_pkg = store_id.package;
+        let package = store.get(owner_pkg);
+        let Some(item) = package.items.get(store_id.item) else {
+            continue;
+        };
         let ItemKind::Callable(_) = &item.kind else {
             continue;
         };
 
-        for block_id in collect_all_block_ids_in_callable(package, item_id) {
+        for block_id in collect_all_block_ids_in_callable(package, store_id.item) {
             let block = package.get_block(block_id);
             for &stmt_id in &block.stmts {
                 let stmt = package.get_stmt(stmt_id);
@@ -263,6 +269,7 @@ fn normalize_param_destructuring(
                     _ => continue,
                 }
                 rewrites.push(DestructureRewrite {
+                    owner_pkg,
                     block_id,
                     stmt_id,
                     mutability: *mutability,
@@ -278,9 +285,20 @@ fn normalize_param_destructuring(
         return false;
     }
 
-    let package = store.get_mut(package_id);
-    for rewrite in rewrites {
-        apply_destructure_rewrite(package, assigner, &rewrite);
+    // Apply grouped by owning package so each package's new locals are allocated
+    // from its own assigner watermark.
+    let mut owner_pkgs: Vec<PackageId> = Vec::new();
+    for rewrite in &rewrites {
+        if !owner_pkgs.contains(&rewrite.owner_pkg) {
+            owner_pkgs.push(rewrite.owner_pkg);
+        }
+    }
+    for owner_pkg in owner_pkgs {
+        let assigner = assigners.get_mut(store, owner_pkg);
+        let package = store.get_mut(owner_pkg);
+        for rewrite in rewrites.iter().filter(|r| r.owner_pkg == owner_pkg) {
+            apply_destructure_rewrite(package, assigner, rewrite);
+        }
     }
     true
 }
@@ -446,21 +464,28 @@ fn find_promotion_candidates(
     package_id: PackageId,
 ) -> Vec<ArgPromoCandidate> {
     let reachable = collect_reachable_from_entry(store, package_id);
-    let package = store.get(package_id);
 
-    let entry_item = resolve_entry_callable_item(package, package_id);
-    let first_class = collect_first_class_callables(package, package_id, &reachable);
-    let closure_targets = collect_closure_targets(package, package_id, &reachable);
+    let entry_item = resolve_entry_callable_item(store.get(package_id), package_id);
+    let first_class = collect_first_class_callables(store, package_id, &reachable);
+    let closure_targets = collect_closure_targets(store, package_id, &reachable);
 
     let mut candidates: Vec<ArgPromoCandidate> = Vec::new();
-    for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
+    for store_id in &reachable {
+        let owner = *store_id;
+        let package = store.get(owner.package);
+        let Some(item) = package.items.get(owner.item) else {
+            continue;
+        };
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
         // The entry-point callable's input is the program's externally-visible
         // ABI and must never be flattened, regardless of its input shape.
         // This is a forward looking check as all inputs are currently `Unit`
-        if Some(item_id) == entry_item {
+        if Some(owner) == entry_item {
             continue;
         }
-        if first_class.contains(&item_id) || closure_targets.contains(&item_id) {
+        if first_class.contains(&owner) || closure_targets.contains(&owner) {
             continue;
         }
         // Skip intrinsics entirely: their signatures must stay tuple-shaped and
@@ -472,34 +497,31 @@ fn find_promotion_candidates(
         ) {
             continue;
         }
-        candidates.extend(check_candidates(package, package_id, item_id, decl));
+        candidates.extend(check_candidates(package, owner, decl));
     }
     candidates
 }
 
 /// Applies a batch of promotion candidates: decomposes parameters, rewrites
 /// bodies, and rewrites call sites scoped to reachable expressions.
+///
+/// Promotion is **atomic across the reachable package closure** within a single
+/// round (DD-03): every promoted signature is rewritten in its owning package,
+/// then *all* call sites — in every reachable package body — are rewritten
+/// against the same set of promotions before the round returns. This keeps each
+/// promoted callable's arity and parameter types in lockstep with its call
+/// sites, even when callers and callees live in different packages.
 fn apply_promotions(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
     candidates: &[ArgPromoCandidate],
 ) {
-    let reachable = collect_reachable_from_entry(store, package_id);
-    let package = store.get(package_id);
-    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
-        .map(|(id, _)| id)
-        .collect();
-    let reachable_expr_ids =
-        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
-
-    let package = store.get_mut(package_id);
-
     // Group candidates by their declaring callable so each callable's entire
     // input is flattened exactly once, dissolving all inter-parameter
     // grouping, and preserve first-seen order for deterministic ID allocation.
-    let mut order: Vec<LocalItemId> = Vec::new();
-    let mut groups: FxHashMap<LocalItemId, Vec<&ArgPromoCandidate>> = FxHashMap::default();
+    let mut order: Vec<StoreItemId> = Vec::new();
+    let mut groups: FxHashMap<StoreItemId, Vec<&ArgPromoCandidate>> = FxHashMap::default();
     for candidate in candidates {
         if !groups.contains_key(&candidate.item_id) {
             order.push(candidate.item_id);
@@ -507,47 +529,119 @@ fn apply_promotions(
         groups.entry(candidate.item_id).or_default().push(candidate);
     }
 
+    // Phase 1: promote each callable's signature/body in its OWNING package,
+    // grouped by package so each package's fresh ids come from its own assigner.
+    let mut owner_pkgs: Vec<PackageId> = Vec::new();
+    for store_id in &order {
+        if !owner_pkgs.contains(&store_id.package) {
+            owner_pkgs.push(store_id.package);
+        }
+    }
     let mut promotions: Vec<PromotionResult> = Vec::new();
-    for item_id in order {
-        let cands = &groups[&item_id];
-        if let Some(result) = promote_callable(package, assigner, item_id, cands) {
-            promotions.push(result);
+    for owner_pkg in owner_pkgs {
+        let assigner = assigners.get_mut(store, owner_pkg);
+        let package = store.get_mut(owner_pkg);
+        for store_id in order.iter().filter(|s| s.package == owner_pkg) {
+            let cands = &groups[store_id];
+            if let Some(result) = promote_callable(package, assigner, *store_id, cands) {
+                promotions.push(result);
+            }
         }
     }
 
-    if !promotions.is_empty() {
-        rewrite_call_sites(
-            package,
-            package_id,
-            assigner,
-            promotions,
-            &reachable_expr_ids,
-        );
+    if promotions.is_empty() {
+        return;
+    }
+
+    // Phase 2 (same round, atomic): rewrite every reachable call site against the
+    // promotions just applied. Scan all reachable package bodies — a promoted
+    // callable in one package may be called from another — so no call site is
+    // left with a stale tuple argument shape.
+    let promoted_map: FxHashMap<StoreItemId, PromotionResult> =
+        promotions.into_iter().map(|p| (p.item_id, p)).collect();
+
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let mut caller_pkgs: Vec<PackageId> = Vec::new();
+    for store_id in &reachable {
+        if !caller_pkgs.contains(&store_id.package) {
+            caller_pkgs.push(store_id.package);
+        }
+    }
+    for caller_pkg in caller_pkgs {
+        let local_item_ids: Vec<LocalItemId> = reachable
+            .iter()
+            .filter(|s| s.package == caller_pkg)
+            .map(|s| s.item)
+            .collect();
+        let package = store.get(caller_pkg);
+        let reachable_expr_ids = if caller_pkg == package_id {
+            collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids)
+        } else {
+            collect_expr_ids_in_local_callables(package, &local_item_ids)
+        };
+        let assigner = assigners.get_mut(store, caller_pkg);
+        let package = store.get_mut(caller_pkg);
+        rewrite_call_sites(package, assigner, &promoted_map, &reachable_expr_ids);
     }
 }
 
 /// Normalizes call-argument types across all reachable call sites after
 /// promotion has converged.
+///
+/// Runs once after the whole-closure fixed point (Step 5.3): the expected input
+/// type of every reachable callable is snapshotted up front (keyed by
+/// `StoreItemId`, so foreign callees resolve correctly), then each reachable
+/// package body is normalized against that snapshot with the package's own
+/// assigner.
 pub(crate) fn normalize_reachable_call_arg_types(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) {
     let reachable = collect_reachable_from_entry(store, package_id);
-    let package = store.get(package_id);
-    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
-        .map(|(id, _)| id)
-        .collect();
-    let reachable_expr_ids =
-        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
-    let package = store.get_mut(package_id);
-    normalize_call_arg_types(package, package_id, assigner, &reachable_expr_ids);
+
+    // Snapshot every reachable callable's current input type, package-qualified,
+    // so a direct call to a foreign promoted callee resolves to the callee's own
+    // (already-promoted) input shape rather than the caller package's arena.
+    let mut callable_inputs: FxHashMap<StoreItemId, Ty> = FxHashMap::default();
+    for store_id in &reachable {
+        let package = store.get(store_id.package);
+        if let Some(item) = package.items.get(store_id.item)
+            && let ItemKind::Callable(decl) = &item.kind
+        {
+            callable_inputs.insert(*store_id, package.get_pat(decl.input).ty.clone());
+        }
+    }
+
+    let mut caller_pkgs: Vec<PackageId> = Vec::new();
+    for store_id in &reachable {
+        if !caller_pkgs.contains(&store_id.package) {
+            caller_pkgs.push(store_id.package);
+        }
+    }
+    for caller_pkg in caller_pkgs {
+        let local_item_ids: Vec<LocalItemId> = reachable
+            .iter()
+            .filter(|s| s.package == caller_pkg)
+            .map(|s| s.item)
+            .collect();
+        let package = store.get(caller_pkg);
+        let reachable_expr_ids = if caller_pkg == package_id {
+            collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids)
+        } else {
+            collect_expr_ids_in_local_callables(package, &local_item_ids)
+        };
+        let assigner = assigners.get_mut(store, caller_pkg);
+        let package = store.get_mut(caller_pkg);
+        normalize_call_arg_types(package, &callable_inputs, assigner, &reachable_expr_ids);
+    }
 }
 
 /// A candidate for argument promotion.
 struct ArgPromoCandidate {
-    /// The `LocalItemId` of the callable.
-    item_id: LocalItemId,
+    /// The `StoreItemId` of the callable (package-qualified so candidates from
+    /// foreign reachable packages never alias entry-package `LocalItemId`s).
+    item_id: StoreItemId,
     /// The `LocalVarId` bound by the parameter.
     local_id: LocalVarId,
     /// Expression ids of the parameter's standalone whole-value reads. These
@@ -561,8 +655,8 @@ struct ArgPromoCandidate {
 /// rewritten to pass the flattened arguments.
 #[derive(Clone)]
 struct PromotionResult {
-    /// The callable's `LocalItemId`.
-    item_id: LocalItemId,
+    /// The callable's `StoreItemId` (package-qualified).
+    item_id: StoreItemId,
     /// One entry per scalar leaf of the callable's flattened input: the
     /// positional path of the leaf in the original (nested) input type and
     /// the leaf's type. The path projects the leaf from the original
@@ -577,12 +671,11 @@ struct PromotionResult {
 /// became eligible after a previous pass peeled an outer tuple level.
 fn check_candidates(
     package: &Package,
-    _package_id: PackageId,
-    item_id: LocalItemId,
+    owner: StoreItemId,
     decl: &CallableDecl,
 ) -> Vec<ArgPromoCandidate> {
     let mut candidates = Vec::new();
-    find_param_binds_in_pat(package, item_id, decl, decl.input, &mut candidates);
+    find_param_binds_in_pat(package, owner, decl, decl.input, &mut candidates);
     candidates
 }
 
@@ -590,7 +683,7 @@ fn check_candidates(
 /// tuple-typed `PatKind::Bind` nodes (see [`param_is_promotable`]).
 fn find_param_binds_in_pat(
     package: &Package,
-    item_id: LocalItemId,
+    owner: StoreItemId,
     decl: &CallableDecl,
     pat_id: PatId,
     candidates: &mut Vec<ArgPromoCandidate>,
@@ -604,7 +697,7 @@ fn find_param_binds_in_pat(
                 let uses = classify_param_uses(package, decl, local_id);
                 if let Some(whole_value_reads) = param_is_promotable(&uses) {
                     candidates.push(ArgPromoCandidate {
-                        item_id,
+                        item_id: owner,
                         local_id,
                         whole_value_reads,
                     });
@@ -613,7 +706,7 @@ fn find_param_binds_in_pat(
         }
         PatKind::Tuple(sub_pats) => {
             for &sub_pat_id in sub_pats {
-                find_param_binds_in_pat(package, item_id, decl, sub_pat_id, candidates);
+                find_param_binds_in_pat(package, owner, decl, sub_pat_id, candidates);
             }
         }
         PatKind::Discard => {}
@@ -709,85 +802,123 @@ fn param_is_promotable(uses: &[ParamUse]) -> Option<Vec<ExprId>> {
 /// recording the direct-callee position first lets the later `Var` visit skip
 /// it.
 fn collect_first_class_callables(
-    package: &Package,
+    store: &PackageStore,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
-) -> FxHashSet<LocalItemId> {
+) -> FxHashSet<StoreItemId> {
     let mut first_class = FxHashSet::default();
-    let mut direct_callees: FxHashSet<ExprId> = FxHashSet::default();
 
-    let mut visit = |expr_id: ExprId, expr: &Expr| match &expr.kind {
-        ExprKind::Call(callee, _) => match &package.get_expr(*callee).kind {
-            ExprKind::Var(Res::Item(_), _) => {
-                direct_callees.insert(*callee);
-            }
-            ExprKind::UnOp(_, inner)
-                if matches!(
-                    package.get_expr(*inner).kind,
-                    ExprKind::Var(Res::Item(_), _)
-                ) =>
-            {
-                direct_callees.insert(*inner);
-            }
-            _ => {}
-        },
-        ExprKind::Var(Res::Item(item_id), _)
-            if matches!(&expr.ty, Ty::Arrow(_))
-                && item_id.package == package_id
-                && !direct_callees.contains(&expr_id) =>
-        {
-            first_class.insert(item_id.item);
+    // Distinct packages owning reachable items, scanned independently because
+    // the `direct_callees` set is keyed by `ExprId`, which is only unique within
+    // a single package's arena.
+    let mut pkgs: Vec<PackageId> = Vec::new();
+    for store_id in reachable {
+        if !pkgs.contains(&store_id.package) {
+            pkgs.push(store_id.package);
         }
-        _ => {}
-    };
-
-    // Scan the entry expression.
-    if let Some(entry_id) = package.entry {
-        for_each_expr(package, entry_id, &mut visit);
     }
 
-    // Scan every reachable callable body.
-    for item_id in reachable {
-        if item_id.package != package_id {
-            continue;
+    for pkg in pkgs {
+        let package = store.get(pkg);
+        let mut direct_callees: FxHashSet<ExprId> = FxHashSet::default();
+
+        let mut visit = |expr_id: ExprId, expr: &Expr| match &expr.kind {
+            ExprKind::Call(callee, _) => match &package.get_expr(*callee).kind {
+                ExprKind::Var(Res::Item(_), _) => {
+                    direct_callees.insert(*callee);
+                }
+                ExprKind::UnOp(_, inner)
+                    if matches!(
+                        package.get_expr(*inner).kind,
+                        ExprKind::Var(Res::Item(_), _)
+                    ) =>
+                {
+                    direct_callees.insert(*inner);
+                }
+                _ => {}
+            },
+            // Record the first-class use against the referenced item's *own*
+            // package; a foreign callable used as a first-class value must not be
+            // promoted regardless of which package body it appears in.
+            ExprKind::Var(Res::Item(item_id), _)
+                if matches!(&expr.ty, Ty::Arrow(_)) && !direct_callees.contains(&expr_id) =>
+            {
+                first_class.insert(StoreItemId {
+                    package: item_id.package,
+                    item: item_id.item,
+                });
+            }
+            _ => {}
+        };
+
+        // Scan the entry expression (entry package only).
+        if pkg == package_id
+            && let Some(entry_id) = package.entry
+        {
+            for_each_expr(package, entry_id, &mut visit);
         }
-        if let ItemKind::Callable(decl) = &package.get_item(item_id.item).kind {
-            for_each_expr_in_callable_impl(package, &decl.implementation, &mut visit);
+
+        // Scan every reachable callable body in this package.
+        for store_id in reachable.iter().filter(|s| s.package == pkg) {
+            if let ItemKind::Callable(decl) = &package.get_item(store_id.item).kind {
+                for_each_expr_in_callable_impl(package, &decl.implementation, &mut visit);
+            }
         }
     }
 
     first_class
 }
 
-/// Collects all `LocalItemId`s that are targets of `Closure(_, local_item_id)`
-/// in the entry-reachable portion of the current package.
+/// Collects all callables that are targets of `Closure(_, local_item_id)` in
+/// the entry-reachable portion of the package closure. A closure target
+/// resolves in the package that contains the `Closure` expression, so the
+/// recorded `StoreItemId` uses that containing package.
 fn collect_closure_targets(
-    package: &Package,
+    store: &PackageStore,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
-) -> FxHashSet<LocalItemId> {
+) -> FxHashSet<StoreItemId> {
     let mut targets = FxHashSet::default();
 
-    if let Some(entry_id) = package.entry {
-        for_each_expr(package, entry_id, &mut |_expr_id, expr| {
-            if let ExprKind::Closure(_, local_item_id) = &expr.kind {
-                targets.insert(*local_item_id);
-            }
-        });
+    let mut pkgs: Vec<PackageId> = Vec::new();
+    for store_id in reachable {
+        if !pkgs.contains(&store_id.package) {
+            pkgs.push(store_id.package);
+        }
     }
 
-    for item_id in reachable {
-        if item_id.package != package_id {
-            continue;
-        }
+    for pkg in pkgs {
+        let package = store.get(pkg);
 
-        let item = package.get_item(item_id.item);
-        if let ItemKind::Callable(decl) = &item.kind {
-            for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_expr_id, expr| {
+        if pkg == package_id
+            && let Some(entry_id) = package.entry
+        {
+            for_each_expr(package, entry_id, &mut |_expr_id, expr| {
                 if let ExprKind::Closure(_, local_item_id) = &expr.kind {
-                    targets.insert(*local_item_id);
+                    targets.insert(StoreItemId {
+                        package: pkg,
+                        item: *local_item_id,
+                    });
                 }
             });
+        }
+
+        for store_id in reachable.iter().filter(|s| s.package == pkg) {
+            let item = package.get_item(store_id.item);
+            if let ItemKind::Callable(decl) = &item.kind {
+                for_each_expr_in_callable_impl(
+                    package,
+                    &decl.implementation,
+                    &mut |_expr_id, expr| {
+                        if let ExprKind::Closure(_, local_item_id) = &expr.kind {
+                            targets.insert(StoreItemId {
+                                package: pkg,
+                                item: *local_item_id,
+                            });
+                        }
+                    },
+                );
+            }
         }
     }
 
@@ -834,11 +965,11 @@ fn collect_closure_targets(
 fn promote_callable(
     package: &mut Package,
     assigner: &mut Assigner,
-    item_id: LocalItemId,
+    item_id: StoreItemId,
     candidates: &[&ArgPromoCandidate],
 ) -> Option<PromotionResult> {
     let input_pat_id = {
-        let item = package.get_item(item_id);
+        let item = package.get_item(item_id.item);
         let ItemKind::Callable(decl) = &item.kind else {
             return None;
         };
@@ -880,7 +1011,7 @@ fn promote_callable(
 
     // Refresh every specialization input pattern's tuple type so the wrapper
     // control layers (e.g. `(ctls, payload)`) pick up the flattened payload.
-    refresh_spec_input_types(package, item_id);
+    refresh_spec_input_types(package, item_id.item);
 
     // Remap each promoted parameter's body field reads to its scalar leaves;
     // interior whole-tuple reads are reconstructed as nested leaf tuples.
@@ -895,7 +1026,7 @@ fn promote_callable(
         rewrite_leaf_field_accesses(
             package,
             assigner,
-            item_id,
+            item_id.item,
             *old_local,
             param_ty,
             leaf_map,
@@ -1255,27 +1386,18 @@ fn navigate_tuple_ty<'a>(ty: &'a Ty, path: &[usize]) -> &'a Ty {
 /// - Allocates field-projection and tuple `Expr` nodes through `assigner`.
 fn rewrite_call_sites(
     package: &mut Package,
-    package_id: PackageId,
     assigner: &mut Assigner,
-    promotions: Vec<PromotionResult>,
+    promoted_map: &FxHashMap<StoreItemId, PromotionResult>,
     reachable_expr_ids: &[ExprId],
 ) {
-    // Build a set of promoted item IDs for quick lookup.
-    let promoted_map: FxHashMap<LocalItemId, PromotionResult> =
-        promotions.into_iter().map(|p| (p.item_id, p)).collect();
-
     // Collect all call-site ExprIds that target a promoted callable.
-    let call_sites: Vec<(ExprId, LocalItemId, usize)> = reachable_expr_ids
+    let call_sites: Vec<(ExprId, StoreItemId, usize)> = reachable_expr_ids
         .iter()
         .filter_map(|&expr_id| {
             let expr = package.exprs.get(expr_id)?;
             if let ExprKind::Call(callee_id, _) = &expr.kind {
-                let callee = resolve_promoted_direct_item_callee(
-                    package,
-                    package_id,
-                    *callee_id,
-                    &promoted_map,
-                )?;
+                let callee =
+                    resolve_promoted_direct_item_callee(package, *callee_id, promoted_map)?;
                 return Some((expr_id, callee.item_id, callee.controlled_depth));
             }
             None
@@ -1302,7 +1424,7 @@ fn rewrite_call_sites(
 
 #[derive(Clone, Copy)]
 struct DirectItemCallee {
-    item_id: LocalItemId,
+    item_id: StoreItemId,
     controlled_depth: usize,
 }
 
@@ -1310,30 +1432,32 @@ struct DirectItemCallee {
 /// wrappers around the direct item reference.
 fn resolve_promoted_direct_item_callee(
     package: &Package,
-    package_id: PackageId,
     callee_id: ExprId,
-    promoted: &FxHashMap<LocalItemId, PromotionResult>,
+    promoted: &FxHashMap<StoreItemId, PromotionResult>,
 ) -> Option<DirectItemCallee> {
-    let callee = resolve_direct_item_callee(package, package_id, callee_id)?;
+    let callee = resolve_direct_item_callee(package, callee_id)?;
     promoted.contains_key(&callee.item_id).then_some(callee)
 }
 
 /// Resolves a callee expression to a target-package item, unwrapping adjoint
 /// and controlled functor applications while counting controlled layers.
-fn resolve_direct_item_callee(
-    package: &Package,
-    package_id: PackageId,
-    callee_id: ExprId,
-) -> Option<DirectItemCallee> {
+///
+/// The resolved [`StoreItemId`] preserves the callee's own package, so a direct
+/// call to a foreign (e.g. library) callable is resolved across package
+/// boundaries — required for cross-package call-site rewriting after promotion.
+fn resolve_direct_item_callee(package: &Package, callee_id: ExprId) -> Option<DirectItemCallee> {
     let mut current = callee_id;
     let mut controlled_depth = 0usize;
 
     loop {
         let expr = package.exprs.get(current)?;
         match &expr.kind {
-            ExprKind::Var(Res::Item(item_id), _) if item_id.package == package_id => {
+            ExprKind::Var(Res::Item(item_id), _) => {
                 return Some(DirectItemCallee {
-                    item_id: item_id.item,
+                    item_id: StoreItemId {
+                        package: item_id.package,
+                        item: item_id.item,
+                    },
                     controlled_depth,
                 });
             }
@@ -1349,7 +1473,7 @@ fn resolve_direct_item_callee(
     }
 }
 
-/// Resolves the entry-point callable's [`LocalItemId`] from `package.entry`.
+/// Resolves the entry-point callable's [`StoreItemId`] from `package.entry`.
 ///
 /// The entry callable's input is the program's externally-visible ABI and must
 /// never be flattened by argument promotion. The entry expression is a direct
@@ -1357,10 +1481,10 @@ fn resolve_direct_item_callee(
 /// so adjoint/controlled functor wrappers are unwrapped. Returns `None` when
 /// there is no entry expression or it is not a direct call, leaving behavior
 /// unchanged in those cases.
-fn resolve_entry_callable_item(package: &Package, package_id: PackageId) -> Option<LocalItemId> {
+fn resolve_entry_callable_item(package: &Package, _package_id: PackageId) -> Option<StoreItemId> {
     let entry_id = package.entry?;
     if let ExprKind::Call(callee_id, _) = &package.get_expr(entry_id).kind {
-        resolve_direct_item_callee(package, package_id, *callee_id).map(|c| c.item_id)
+        resolve_direct_item_callee(package, *callee_id).map(|c| c.item_id)
     } else {
         None
     }
@@ -2108,7 +2232,7 @@ fn rebuild_controlled_arg_layers(
 /// - Does not rewrite callee declarations; only argument expression shape.
 fn normalize_call_arg_types(
     package: &mut Package,
-    package_id: PackageId,
+    callable_inputs: &FxHashMap<StoreItemId, Ty>,
     assigner: &mut Assigner,
     reachable_expr_ids: &[ExprId],
 ) {
@@ -2119,7 +2243,7 @@ fn normalize_call_arg_types(
             let ExprKind::Call(callee_id, arg_id) = expr.kind else {
                 return None;
             };
-            resolve_expected_input(package, package_id, callee_id)
+            resolve_expected_input(package, callable_inputs, callee_id)
                 .map(|expected_input| (arg_id, expected_input))
         })
         .collect();
@@ -2131,18 +2255,16 @@ fn normalize_call_arg_types(
 
 fn resolve_expected_input(
     package: &Package,
-    package_id: PackageId,
+    callable_inputs: &FxHashMap<StoreItemId, Ty>,
     callee_id: ExprId,
 ) -> Option<Ty> {
-    if let Some(callee) = resolve_direct_item_callee(package, package_id, callee_id) {
-        let item = package.items.get(callee.item_id)?;
-        if let ItemKind::Callable(decl) = &item.kind {
-            let input_ty = package.get_pat(decl.input).ty.clone();
-            return Some(apply_controlled_input_layers(
-                input_ty,
-                callee.controlled_depth,
-            ));
-        }
+    if let Some(callee) = resolve_direct_item_callee(package, callee_id)
+        && let Some(input_ty) = callable_inputs.get(&callee.item_id)
+    {
+        return Some(apply_controlled_input_layers(
+            input_ty.clone(),
+            callee.controlled_depth,
+        ));
     }
 
     let callee = package.get_expr(callee_id);

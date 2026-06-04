@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use super::*;
+use crate::package_assigners::PackageAssigners;
 use crate::test_utils::{
     PipelineStage, check_semantic_equivalence, compile_and_run_pipeline_to,
     compile_and_run_pipeline_to_with_errors, compile_to_fir, find_callable, format_pat,
@@ -9,7 +10,6 @@ use crate::test_utils::{
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, CallableImpl, ExprId, ExprKind, Field, FieldPath, Functor, ItemKind, LocalVarId,
     Mutability, PackageLookup, PatKind, Res, StmtKind, UnOp,
@@ -479,12 +479,11 @@ fn callable_input_binding_names(
 }
 
 fn closure_target_names(store: &PackageStore, pkg_id: PackageId) -> Vec<String> {
-    let package = store.get(pkg_id);
     let reachable = crate::reachability::collect_reachable_from_entry(store, pkg_id);
-    let mut names = super::collect_closure_targets(package, pkg_id, &reachable)
+    let mut names = super::collect_closure_targets(store, pkg_id, &reachable)
         .iter()
         .map(|item_id| {
-            let item = package.get_item(*item_id);
+            let item = store.get(item_id.package).get_item(item_id.item);
             let ItemKind::Callable(decl) = &item.kind else {
                 panic!("closure target should be callable");
             };
@@ -1246,8 +1245,8 @@ fn arg_promote_is_idempotent_for_reconstructed_body() {
             }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(
         first, second,
@@ -1278,8 +1277,8 @@ fn promoted_whole_value_reads_leave_no_dangling_param_var() {
         find_pat_binding_id_by_name(package, loop_callable.input, "p")
             .expect("Loop should bind a parameter named p before promotion")
     };
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let loop_callable = find_callable(package, "Loop");
@@ -1969,8 +1968,8 @@ fn controlled_adjoint_specializations_promote_without_dangling_param_var() {
         find_pat_binding_id_by_name(package, foo_callable.input, "p")
             .expect("Foo should bind a parameter named p before promotion")
     };
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let foo_callable = find_callable(package, "Foo");
@@ -2220,8 +2219,8 @@ fn simulatable_intrinsic_tuple_parameter_is_not_promoted() {
 
     let (mut store, pkg_id) = compile_to_fir(source);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     // Signature unchanged: parameter stays a single whole binding.
@@ -2247,8 +2246,8 @@ fn regular_intrinsic_tuple_parameter_is_not_promoted() {
 
     let (mut store, pkg_id) = compile_to_fir(source);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     // Parameter stays a single whole binding; the tuple was not decomposed.
@@ -2272,8 +2271,8 @@ fn intrinsic_nested_tuple_parameter_is_not_promoted() {
     fn assert_nested_tuple_param_untouched(source: &str, callable: &str, expected_call: &str) {
         let (mut store, pkg_id) = compile_to_fir(source);
 
-        let mut assigner = Assigner::from_package(store.get(pkg_id));
-        arg_promote(&mut store, pkg_id, &mut assigner);
+        let mut assigners = PackageAssigners::entry(&store, pkg_id);
+        arg_promote(&mut store, pkg_id, &mut assigners);
 
         let package = store.get(pkg_id);
         // Signature unchanged: the parameter stays a single whole binding, not
@@ -2363,8 +2362,8 @@ fn shared_nested_field_aliases_are_rewritten_with_fresh_inner_nodes() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     force_shared_nested_field_inner_expr(&mut store, pkg_id, "Sum", "o");
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let result = extract_field_access_shapes(&store, pkg_id, "Sum");
     assert!(
@@ -2388,8 +2387,8 @@ fn closure_targets_are_excluded_from_promotion() {
     let (mut store, pkg_id) = compile_to_fir(source);
     assert_eq!(closure_target_names(&store, pkg_id), vec!["<lambda>"]);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     assert_eq!(
@@ -2405,8 +2404,8 @@ fn arg_promote_is_idempotent() {
             function Main() : Int { Foo(new Pair { X = 1, Y = 2 }) }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "arg_promote should be idempotent");
 }
@@ -2427,8 +2426,8 @@ fn arg_promote_preserves_invariants() {
 fn render_before_after_arg_promote(source: &str) -> (String, String) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
@@ -3005,8 +3004,8 @@ fn flat_abi_is_idempotent_on_already_flattened_callable() {
             function Main() : Int { Foo((1, (2, (3, 4)))) }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(
         first, second,

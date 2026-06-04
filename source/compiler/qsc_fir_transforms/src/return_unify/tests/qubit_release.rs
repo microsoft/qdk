@@ -389,9 +389,6 @@ fn qubit_arrays_should_be_able_to_be_threaded_through_early_return() {
                 }
 
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],

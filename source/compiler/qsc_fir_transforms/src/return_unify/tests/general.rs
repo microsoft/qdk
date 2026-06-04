@@ -228,12 +228,6 @@ fn both_branches_return_with_qubit_scope() {
                 };
                 __ret_val
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -565,12 +559,6 @@ fn return_bool_in_dynamic_branch() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -685,12 +673,6 @@ fn return_unit_after_side_effects() {
                     ()
                 }
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -751,9 +733,6 @@ fn bare_return_with_dead_code() {
                     }
                 }
 
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -998,12 +977,6 @@ fn return_after_dynamic_branch_with_dead_code() {
                 } else {
                     ()
                 }
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

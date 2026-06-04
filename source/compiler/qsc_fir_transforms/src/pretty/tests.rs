@@ -88,9 +88,6 @@ fn operation_with_specializations_renders() {
                     __quantum__rt__qubit_release(q);
                 }
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]], // snapshot populated by UPDATE_EXPECT=1

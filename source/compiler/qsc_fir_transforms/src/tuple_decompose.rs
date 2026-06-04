@@ -41,9 +41,8 @@ mod tests;
 #[cfg(test)]
 mod semantic_equivalence_tests;
 
-use crate::fir_builder::{
-    alloc_local_var_expr, decompose_binding, functored_specs, reachable_local_callables,
-};
+use crate::fir_builder::{alloc_local_var_expr, decompose_binding, functored_specs};
+use crate::package_assigners::PackageAssigners;
 use crate::reachability::collect_reachable_from_entry;
 use crate::walk_utils::{collect_expr_ids_in_local_callables, collect_uses_in_block};
 use qsc_data_structures::span::Span;
@@ -99,18 +98,34 @@ use crate::EMPTY_EXEC_RANGE;
 pub fn tuple_decompose(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) -> bool {
     let mut changed = false;
     loop {
         let reachable = collect_reachable_from_entry(store, package_id);
-        let package = store.get(package_id);
 
-        // Collect candidates across all reachable callables.
+        // Collect candidates across every reachable callable, including
+        // callables that live in foreign (library) packages. tuple_decompose
+        // only rewrites local `Bind` patterns inside a callable body — it never
+        // touches signatures or call sites — so widening to foreign bodies has
+        // no cross-package ABI hazard. Each candidate records its owning
+        // package so the apply step uses that package's arena and assigner.
         let mut all_candidates: Vec<TupleDecomposeCandidate> = Vec::new();
-
-        for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
-            collect_candidates_in_callable(store, package_id, item_id, decl, &mut all_candidates);
+        for store_id in &reachable {
+            let owner_pkg = store_id.package;
+            let package = store.get(owner_pkg);
+            let Some(item) = package.items.get(store_id.item) else {
+                continue;
+            };
+            if let ItemKind::Callable(decl) = &item.kind {
+                collect_candidates_in_callable(
+                    store,
+                    owner_pkg,
+                    store_id.item,
+                    decl,
+                    &mut all_candidates,
+                );
+            }
         }
 
         if all_candidates.is_empty() {
@@ -118,10 +133,24 @@ pub fn tuple_decompose(
         }
         changed = true;
 
-        // Apply decomposition.
-        let package = store.get_mut(package_id);
+        // Apply decomposition grouped by owning package, so fresh locals are
+        // allocated through that package's assigner (foreign packages own an
+        // independent id space). Distinct owning packages are visited in
+        // first-seen order for determinism.
+        let mut owner_pkgs: Vec<PackageId> = Vec::new();
         for candidate in &all_candidates {
-            decompose_candidate(package, assigner, candidate);
+            if !owner_pkgs.contains(&candidate.owner_pkg) {
+                owner_pkgs.push(candidate.owner_pkg);
+            }
+        }
+        for owner_pkg in owner_pkgs {
+            assigners.with_package(store, owner_pkg, |store, mut assigner| {
+                let package = store.get_mut(owner_pkg);
+                for candidate in all_candidates.iter().filter(|c| c.owner_pkg == owner_pkg) {
+                    decompose_candidate(package, &mut assigner, candidate);
+                }
+                (assigner, ())
+            });
         }
     }
     changed
@@ -139,6 +168,8 @@ struct TupleDecomposeCandidate {
     name: Rc<str>,
     /// The callable item that owns this local binding.
     owner_item: LocalItemId,
+    /// The package that owns the callable holding this local binding.
+    owner_pkg: PackageId,
 }
 
 /// Scans a callable's body for tuple-decompose candidates.
@@ -195,6 +226,7 @@ fn collect_candidates_in_spec(
                 elem_types: binding.elem_types,
                 name: binding.name,
                 owner_item,
+                owner_pkg: package_id,
             });
         }
     }

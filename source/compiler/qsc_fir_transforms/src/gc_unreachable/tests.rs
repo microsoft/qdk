@@ -7,7 +7,7 @@
 // much beyond targeted snapshots that create known orphan patterns.
 
 use crate::PipelineStage;
-use crate::test_utils::compile_and_run_pipeline_to;
+use crate::test_utils::{compile_and_run_pipeline_to, compile_and_run_pipeline_to_with_library};
 use indoc::indoc;
 
 /// Counts total live entries across all four arena types.
@@ -229,5 +229,95 @@ fn entry_only_reachable_item_survives_dead_sibling_removed() {
     assert!(
         store.get(pkg_id).blocks.get(dead_block).is_none(),
         "dead sibling `Dead` body block must be tombstoned by GC"
+    );
+}
+
+/// Locates the FIR package id of the separately-compiled library package by
+/// finding the package (other than the user package) that defines the given
+/// namespace. The fixture uses a uniquely-named namespace so this never
+/// collides with core/std.
+fn library_package_id(
+    store: &qsc_fir::fir::PackageStore,
+    user_pkg: qsc_fir::fir::PackageId,
+    namespace: &str,
+) -> qsc_fir::fir::PackageId {
+    for (id, package) in store {
+        if id == user_pkg {
+            continue;
+        }
+        let defines_namespace = package.items.values().any(|item| {
+            matches!(&item.kind, qsc_fir::fir::ItemKind::Namespace(name, _)
+                if name.name.as_ref() == namespace)
+        });
+        if defines_namespace {
+            return id;
+        }
+    }
+    panic!("could not locate the {namespace} library package in the store");
+}
+
+#[test]
+fn gc_removes_foreign_package_return_unify_orphans() {
+    // A multi-return callable defined in a LIBRARY package and reached from the
+    // user entry point is rewritten by return_unify in its OWNING (foreign)
+    // package, leaving orphaned stmts/exprs behind there. The closure-wide node
+    // GC in `run_pipeline_to_impl` must tombstone those foreign-package orphans,
+    // not just orphans in the entry package.
+    let lib_source = indoc! {r#"
+        namespace TestLib {
+            function Choose(cond : Bool) : Int {
+                if cond {
+                    return 1;
+                }
+                return 2;
+            }
+            export Choose;
+        }
+    "#};
+    let user_source = indoc! {r#"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int {
+            Choose(true)
+        }
+    "#};
+
+    // Before node GC: `PipelineStage::ArgPromote` runs return_unify (which
+    // rewrites the reachable library callable in place) but stops before the
+    // closure-wide GC. The library package therefore still holds the
+    // return_unify orphans, so a manual GC over it reclaims them. This guards
+    // against a vacuous test where the fixture produces no foreign orphans.
+    let (mut pre_gc_store, pre_user_pkg) = compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        PipelineStage::ArgPromote,
+    );
+    let pre_lib_pkg = library_package_id(&pre_gc_store, pre_user_pkg, "TestLib");
+    let pre_gc_removed = super::gc_unreachable(pre_gc_store.get_mut(pre_lib_pkg));
+    assert!(
+        pre_gc_removed > 0,
+        "library package should hold return_unify orphans before node GC runs"
+    );
+
+    // After node GC: `PipelineStage::Gc` runs the closure-wide GC across the
+    // whole reachable package closure. The foreign library package must already
+    // be orphan-free, so a second manual GC over it reclaims nothing. If GC
+    // reverted to entry-package-only, foreign orphans would survive and this
+    // re-run would report removals.
+    let (mut post_gc_store, post_user_pkg) =
+        compile_and_run_pipeline_to_with_library(lib_source, user_source, PipelineStage::Gc);
+    let post_lib_pkg = library_package_id(&post_gc_store, post_user_pkg, "TestLib");
+
+    // Closure-wide arena integrity holds after the GC stage.
+    crate::invariants::check(
+        &post_gc_store,
+        post_user_pkg,
+        crate::invariants::InvariantLevel::PostGc,
+    );
+
+    let post_gc_removed = super::gc_unreachable(post_gc_store.get_mut(post_lib_pkg));
+    assert_eq!(
+        post_gc_removed, 0,
+        "closure-wide node GC must tombstone foreign-package orphans"
     );
 }

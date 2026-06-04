@@ -311,12 +311,13 @@ fn assert_callable_exec_graph_is_empty(
     );
 }
 
-fn assert_rebuild_restores_only_local_callable(
+fn assert_rebuild_restores_reachable_callables(
     store: &mut qsc_fir::fir::PackageStore,
     pkg_id: qsc_fir::fir::PackageId,
     local_callable: StoreItemId,
     cross_package_callable: StoreItemId,
     expected_local_graph: &str,
+    expected_cross_graph: &str,
 ) {
     clear_store_callable_exec_graph(store, local_callable);
     clear_store_callable_exec_graph(store, cross_package_callable);
@@ -335,10 +336,10 @@ fn assert_rebuild_restores_only_local_callable(
         expected_local_graph,
         "reachable local specialization should be rebuilt"
     );
-    assert_callable_exec_graph_is_empty(
-        store,
-        cross_package_callable,
-        "reachable cross-package callable should not be rebuilt",
+    assert_eq!(
+        format_store_callable_exec_graph(store, cross_package_callable, ExecGraphConfig::NoDebug),
+        expected_cross_graph,
+        "reachable cross-package callable should also be rebuilt across the package closure"
     );
 }
 
@@ -388,28 +389,6 @@ fn find_reachable_callable_by_name(
                 reachable_callable_names_with_packages(store, root_pkg_id).join("\n")
             )
         })
-}
-
-fn assert_external_copy_update_field_range_rebuilt(
-    store: &qsc_fir::fir::PackageStore,
-    external_callable: StoreItemId,
-) {
-    let package = store.get(external_callable.package);
-    let field_expr = package
-        .exprs
-        .values()
-        .find(|expr| {
-            matches!(
-                &expr.kind,
-                qsc_fir::fir::ExprKind::Field(_, Field::Path(path)) if path.indices.as_slice() == [1]
-            )
-        })
-        .expect("external UDT copy-update should synthesize a field read");
-
-    assert!(
-        field_expr.exec_graph_range.start != field_expr.exec_graph_range.end,
-        "synthesized external field read should receive a rebuilt exec graph range"
-    );
 }
 
 /// Compiles Q# source through the pipeline (including exec graph rebuild)
@@ -832,8 +811,7 @@ fn exec_graph_rebuild_is_idempotent() {
 }
 
 #[test]
-fn reachable_cross_package_callables_keep_existing_exec_graphs_while_local_specializations_rebuild()
-{
+fn reachable_cross_package_callables_are_rebuilt_alongside_local_specializations() {
     let source = r#"
         open Std.Arrays;
         open Std.Math;
@@ -868,12 +846,13 @@ fn reachable_cross_package_callables_keep_existing_exec_graphs_while_local_speci
         "reachable cross-package callable should start with a lowered exec graph"
     );
 
-    assert_rebuild_restores_only_local_callable(
+    assert_rebuild_restores_reachable_callables(
         &mut store,
         pkg_id,
         local_specialization,
         cross_package_callable,
         &expected_local_graph,
+        &expected_cross_graph,
     );
 }
 
@@ -915,15 +894,23 @@ fn external_udt_copy_update_exec_graph_rebuilds_mutated_external_spec() {
         external_callable,
         qsc_fir::fir::ExecGraphConfig::NoDebug,
     );
+    // The external `MakeUpdated` body is rebuilt closure-wide and run through
+    // the full structural pipeline. UDT erasure lowers the copy-update into a
+    // tuple reconstruction whose updated field is the literal `42`, and the
+    // untouched field flows from the decomposed source tuple local (tuple
+    // decompose flattens `p`, so the `.1` field read is eliminated).
     assert!(
-        graph.contains(".1"),
-        "external copy-update exec graph should include the synthesized untouched-field read:\n{graph}"
+        graph.contains("Lit(Int(42))"),
+        "external copy-update exec graph should include the updated-field literal:\n{graph}"
     );
     assert!(
         graph.contains("Tuple(len=2)"),
         "external copy-update exec graph should include the erased update tuple:\n{graph}"
     );
-    assert_external_copy_update_field_range_rebuilt(&store, external_callable);
+    assert!(
+        graph.trim_end().ends_with("Ret"),
+        "external copy-update exec graph should be a complete rebuilt body ending in Ret:\n{graph}"
+    );
 }
 
 #[test]

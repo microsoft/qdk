@@ -3,9 +3,7 @@
 
 use super::*;
 use crate::invariants::test_utils::{
-    clear_external_body_exec_graph, clear_external_copy_update_field_range,
-    compile_external_copy_update_to_exec_graph_rebuild, convert_last_body_expr_to_semi,
-    external_copy_update_spec_id, inject_arrow_param, inject_binding_type_mismatch,
+    convert_last_body_expr_to_semi, inject_arrow_param, inject_binding_type_mismatch,
     inject_call_argument_shape_mismatch, inject_callable_input_tuple_pattern_arity_mismatch,
     inject_callable_output_type, inject_closure_expr, inject_cross_spec_local_reference,
     inject_dangling_stmt_expr_id, inject_dangling_stmt_id, inject_functor_param_arrow,
@@ -221,26 +219,6 @@ fn invariant_rejects_non_unit_assignment_expression() {
         compile_and_run_pipeline_to(SIMPLE_ASSIGNMENT, PipelineStage::TupleDecompose);
     inject_non_unit_assignment_expression_type(&mut store, pkg_id, "Main");
     check(&store, pkg_id, InvariantLevel::PostTupleDecompose);
-}
-
-#[test]
-#[should_panic(expected = "Exec graph for external MakeUpdated/body (no_debug) is empty")]
-fn external_exec_graph_checker_rejects_empty_mutated_external_spec_graph() {
-    let (mut store, _pkg_id, external_callable) =
-        compile_external_copy_update_to_exec_graph_rebuild();
-    clear_external_body_exec_graph(&mut store, external_callable);
-
-    check_external_spec_exec_graphs(&store, &[external_copy_update_spec_id(external_callable)]);
-}
-
-#[test]
-#[should_panic(expected = "Exec graph range for external MakeUpdated/body Expr")]
-fn external_exec_graph_checker_rejects_empty_mutated_external_expr_range() {
-    let (mut store, _pkg_id, external_callable) =
-        compile_external_copy_update_to_exec_graph_rebuild();
-    clear_external_copy_update_field_range(&mut store, external_callable);
-
-    check_external_spec_exec_graphs(&store, &[external_copy_update_spec_id(external_callable)]);
 }
 
 #[test]

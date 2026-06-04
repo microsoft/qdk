@@ -50,9 +50,12 @@
 pub(crate) mod cloner;
 pub(crate) mod fir_builder;
 pub mod invariants;
+pub(crate) mod package_assigners;
 #[cfg(test)]
 pub(crate) mod pretty;
 pub mod reachability;
+#[cfg(test)]
+mod showcase_tests;
 
 pub(crate) mod arg_promote;
 pub mod defunctionalize;
@@ -72,26 +75,10 @@ pub mod test_utils;
 pub(crate) mod walk_utils;
 
 use miette::Diagnostic;
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{ExecGraphIdx, ItemKind, PackageId, PackageStore, StoreItemId};
 use thiserror::Error;
 
-/// Identifies a specific callable specialization within a package store item.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct CallableSpecId {
-    /// The callable item that owns the specialization.
-    pub(crate) callable: StoreItemId,
-    /// The specialization kind on the callable.
-    pub(crate) kind: CallableSpecKind,
-}
-
-impl CallableSpecId {
-    /// Creates a callable specialization identifier.
-    #[must_use]
-    pub(crate) fn new(callable: StoreItemId, kind: CallableSpecKind) -> Self {
-        Self { callable, kind }
-    }
-}
+use crate::package_assigners::PackageAssigners;
 
 /// Kinds of callable specializations that carry execution graphs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -272,15 +259,15 @@ fn run_pipeline_to_impl(
 
     let mut result = PipelineResult::default();
 
-    let mut assigner = Assigner::from_package(store.get(package_id));
+    let mut assigners = PackageAssigners::entry(store, package_id);
 
-    monomorphize::monomorphize(store, package_id, &mut assigner);
+    monomorphize::monomorphize(store, package_id, &mut assigners);
     invariants::check(store, package_id, invariants::InvariantLevel::PostMono);
     if matches!(stage, PipelineStage::Mono) {
         return result;
     }
 
-    let ru_errors = return_unify::unify_returns(store, package_id, &mut assigner);
+    let ru_errors = return_unify::unify_returns(store, package_id, &mut assigners);
     let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
         .into_iter()
         .partition(return_unify::Error::is_warning);
@@ -303,7 +290,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    let defunc_diagnostics = defunctionalize::defunctionalize(store, package_id, &mut assigner);
+    let defunc_diagnostics = defunctionalize::defunctionalize(store, package_id, &mut assigners);
     let (warnings, fatal_errors): (Vec<_>, Vec<_>) = defunc_diagnostics
         .into_iter()
         .partition(defunctionalize::Error::is_warning);
@@ -318,13 +305,13 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    let structurally_mutated_specs = udt_erase::erase_udts(store, package_id, &mut assigner);
+    udt_erase::erase_udts(store, package_id, &mut assigners);
     invariants::check(store, package_id, invariants::InvariantLevel::PostUdtErase);
     if matches!(stage, PipelineStage::UdtErase) {
         return result;
     }
 
-    tuple_compare_lower::lower_tuple_comparisons(store, package_id, &mut assigner);
+    tuple_compare_lower::lower_tuple_comparisons(store, package_id, &mut assigners);
     invariants::check(
         store,
         package_id,
@@ -334,7 +321,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    tuple_decompose::tuple_decompose(store, package_id, &mut assigner);
+    tuple_decompose::tuple_decompose(store, package_id, &mut assigners);
     invariants::check(
         store,
         package_id,
@@ -344,7 +331,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    arg_promote::arg_promote(store, package_id, &mut assigner);
+    arg_promote::arg_promote(store, package_id, &mut assigners);
     invariants::check(
         store,
         package_id,
@@ -354,13 +341,13 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    tuple_decompose_arg_promote_fixed_point(store, package_id, &mut result, &mut assigner);
+    tuple_decompose_arg_promote_fixed_point(store, package_id, &mut result, &mut assigners);
 
     // Call-argument-type normalization is idempotent and candidate-neutral, so
     // it is hoisted to run exactly once after the loop converges rather than
     // per round (per-round runs cause `(T,)` wrapping churn that pollutes
     // change detection).
-    arg_promote::normalize_reachable_call_arg_types(store, package_id, &mut assigner);
+    arg_promote::normalize_reachable_call_arg_types(store, package_id, &mut assigners);
     invariants::check(
         store,
         package_id,
@@ -370,7 +357,22 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    gc_unreachable::gc_unreachable(store.get_mut(package_id));
+    // Node-level GC runs across the whole reachable package closure, not just
+    // the entry package. Structural passes (return_unify, defunctionalize,
+    // tuple-decompose, ...) now rewrite reachable callables in every package
+    // and leave orphaned blocks/stmts/exprs/pats behind in those foreign
+    // packages. Unlike item DCE (which stays entry-only because foreign items
+    // may be referenced cross-package), node GC never removes items, so it is
+    // safe to run on library packages. It is also required: RCA's top-level
+    // statement scan (`unanalyzed_stmts`) treats any package statement not
+    // reached through an item body as a top-level statement, so orphaned
+    // synthesized statements in foreign packages would otherwise be analyzed
+    // out of context and panic.
+    let gc_reachable = reachability::collect_reachable_from_entry(store, package_id);
+    let gc_packages = reachability::collect_reachable_package_closure(package_id, &gc_reachable);
+    for gc_pkg in gc_packages {
+        gc_unreachable::gc_unreachable(store.get_mut(gc_pkg));
+    }
     invariants::check(store, package_id, invariants::InvariantLevel::PostGc);
     if matches!(stage, PipelineStage::Gc) {
         return result;
@@ -390,17 +392,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    let structurally_mutated_external_specs: Vec<_> = structurally_mutated_specs
-        .into_iter()
-        .filter(|spec_id| spec_id.callable.package != package_id)
-        .collect();
-    exec_graph_rebuild::rebuild_exec_graphs_with_external_specs(
-        store,
-        package_id,
-        pinned_items,
-        &structurally_mutated_external_specs,
-    );
-    invariants::check_external_spec_exec_graphs(store, &structurally_mutated_external_specs);
+    exec_graph_rebuild::rebuild_exec_graphs(store, package_id, pinned_items);
     if matches!(stage, PipelineStage::ExecGraphRebuild) {
         return result;
     }
@@ -432,17 +424,18 @@ fn tuple_decompose_arg_promote_fixed_point(
     store: &mut PackageStore,
     package_id: PackageId,
     result: &mut PipelineResult,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) {
     let mut rounds = 0;
     loop {
-        let tuple_decompose_changed = tuple_decompose::tuple_decompose(store, package_id, assigner);
+        let tuple_decompose_changed =
+            tuple_decompose::tuple_decompose(store, package_id, assigners);
         invariants::check(
             store,
             package_id,
             invariants::InvariantLevel::PostArgPromote,
         );
-        let promote_changed = arg_promote::promote_to_fixed_point(store, package_id, assigner);
+        let promote_changed = arg_promote::promote_to_fixed_point(store, package_id, assigners);
         invariants::check(
             store,
             package_id,
@@ -528,6 +521,30 @@ fn run_item_dce_and_gc(
     let removed = item_dce::eliminate_dead_items(package_id, store.get_mut(package_id), &reachable);
     if removed > 0 {
         gc_unreachable::gc_unreachable(store.get_mut(package_id));
+    }
+
+    // Foreign packages: structural passes transformed only their entry-reachable
+    // callables, so each foreign package still holds entry-unreachable callables
+    // that reference erased UDTs and pre-promotion signatures. RCA and codegen
+    // analyze every item in every package, so those stale callables must be
+    // removed to keep each foreign package internally consistent with its
+    // transformed reachable callables. Item DCE never removes entry-reachable
+    // items, and the FIR store here is a throwaway codegen clone, so trimming a
+    // library package's unreachable surface is safe (DD-12).
+    let foreign_packages: Vec<PackageId> =
+        reachability::collect_reachable_package_closure(package_id, &reachable)
+            .into_iter()
+            .filter(|p| *p != package_id)
+            .collect();
+    for foreign_pkg in foreign_packages {
+        let removed = item_dce::eliminate_unreachable_foreign_items(
+            foreign_pkg,
+            store.get_mut(foreign_pkg),
+            &reachable,
+        );
+        if removed > 0 {
+            gc_unreachable::gc_unreachable(store.get_mut(foreign_pkg));
+        }
     }
 }
 

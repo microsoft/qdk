@@ -68,12 +68,6 @@ fn hoist_outer_return_wraps_if_with_return_in_then_branch() {
                 };
                 __ret_val
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -140,12 +134,6 @@ fn hoist_outer_return_wraps_if_with_returns_in_both_branches() {
                 };
                 __ret_val
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -208,12 +196,6 @@ fn hoist_outer_return_wraps_block_with_stmt_level_return() {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -382,12 +364,6 @@ fn hoist_outer_return_wraps_nested_ifs_with_deep_stmt_return() {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

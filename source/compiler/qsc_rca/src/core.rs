@@ -473,7 +473,6 @@ impl<'a> Analyzer<'a> {
         };
         let mut compute_kind =
             application_generator_set.generate_application_compute_kind(&arg_compute_kinds);
-
         // Aggregate the runtime features of the qubit controls expressions.
         let mut has_variable_controls = false;
         let default_value_kind = ValueKind::Constant;

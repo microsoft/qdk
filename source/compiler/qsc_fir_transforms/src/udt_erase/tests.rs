@@ -506,8 +506,8 @@ fn extract_types_after_erasure(source: &str) -> String {
     use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
 
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
@@ -1532,8 +1532,8 @@ fn erase_udts_rewrites_reachable_external_package_but_leaves_unreachable_package
         ),
     );
 
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(target_pkg_id));
-    erase_udts(&mut store, target_pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, target_pkg_id);
+    erase_udts(&mut store, target_pkg_id, &mut assigners);
     crate::invariants::check(
         &store,
         target_pkg_id,
@@ -1575,8 +1575,8 @@ fn post_udt_erase_invariants_cover_reachable_external_packages() {
         ),
     );
 
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(target_pkg_id));
-    erase_udts(&mut store, target_pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, target_pkg_id);
+    erase_udts(&mut store, target_pkg_id, &mut assigners);
 
     let reachable_package = store.get_mut(reachable_pkg_id);
     let reachable_item = reachable_package
@@ -1784,8 +1784,8 @@ fn udt_erase_is_idempotent() {
     let (mut store, pkg_id) =
         crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "udt_erase should be idempotent");
 }
@@ -1794,8 +1794,8 @@ fn render_before_after_udt_erase(source: &str) -> (String, String) {
     let (mut store, pkg_id) =
         crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
@@ -1923,8 +1923,8 @@ fn cross_package_udt_copy_update_erased() {
     "};
 
     let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
 
     // After erasure the user package's IR must be UDT-free: no `Pair` struct
     // constructions survive, no expression carries a `Udt` type, and every
@@ -2019,8 +2019,8 @@ fn cross_package_simulatable_intrinsic_with_struct_param_and_return() {
     "};
 
     let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
 
     // Run post-UDT-erase invariants to confirm no Ty::Udt survives in
     // reachable packages and no Field::Path on non-tuple types remains.

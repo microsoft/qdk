@@ -53,6 +53,7 @@ impl FirCloner {
     /// Creates a new cloner whose counters start above the maximum existing IDs
     /// in `package`.
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn new(package: &Package) -> Self {
         let assigner = Assigner::from_package(package);
         Self {

@@ -85,7 +85,8 @@ fn find_callable_params(
         let pkg = store.get(store_id.package);
         let item = pkg.get_item(store_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
-            let params = extract_arrow_params(store, pkg, store_id.item, decl.input);
+            let uses_tuple = hof_uses_tuple_input_pattern(store, store_id);
+            let params = extract_arrow_params(store, pkg, store_id, decl.input, uses_tuple);
             if !params.is_empty() {
                 result.insert(store_id, params);
             }
@@ -99,8 +100,9 @@ fn find_callable_params(
 fn extract_arrow_params(
     store: &PackageStore,
     pkg: &Package,
-    callable_id: qsc_fir::fir::LocalItemId,
+    callable_id: StoreItemId,
     input_pat_id: qsc_fir::fir::PatId,
+    hof_input_is_tuple: bool,
 ) -> Vec<CallableParam> {
     let pat = pkg.get_pat(input_pat_id);
     let mut params = Vec::new();
@@ -117,6 +119,7 @@ fn extract_arrow_params(
                         param_pat_id: sub_pat_id,
                         param_var: ident.id,
                         top_level_param: index,
+                        hof_input_is_tuple,
                     };
                     extract_arrow_params_from_ty(
                         &context,
@@ -135,6 +138,7 @@ fn extract_arrow_params(
                 param_pat_id: input_pat_id,
                 param_var: ident.id,
                 top_level_param: 0,
+                hof_input_is_tuple,
             };
             extract_arrow_params_from_ty(&context, &pat.ty, &mut field_path, &mut params);
         }
@@ -147,10 +151,11 @@ fn extract_arrow_params(
 /// Carries the invariant metadata needed while extracting callable parameters.
 struct ArrowParamExtraction<'a> {
     store: &'a PackageStore,
-    callable_id: qsc_fir::fir::LocalItemId,
+    callable_id: StoreItemId,
     param_pat_id: PatId,
     param_var: LocalVarId,
     top_level_param: usize,
+    hof_input_is_tuple: bool,
 }
 
 /// Recursively descends into the structural layers of a callable parameter
@@ -172,6 +177,7 @@ fn extract_arrow_params_from_ty(
             field_path.clone(),
             context.param_var,
             param_ty.clone(),
+            context.hof_input_is_tuple,
         )),
         Ty::Tuple(items) => {
             for (index, item_ty) in items.iter().enumerate() {
@@ -201,19 +207,33 @@ fn collect_call_sites(
     reachable: &FxHashSet<StoreItemId>,
     hof_params: &FxHashMap<StoreItemId, Vec<CallableParam>>,
 ) -> (Vec<CallSite>, Vec<DirectCallSite>, LatticeStates) {
-    let package = store.get(package_id);
     let mut call_sites = Vec::new();
     let mut direct_call_sites = Vec::new();
     let mut lattice_states: LatticeStates = FxHashMap::default();
 
     for &store_id in reachable {
-        if store_id.package != package_id {
-            continue;
-        }
-        let item = package.get_item(store_id.item);
+        let body_pkg = store.get(store_id.package);
+        let body_pkg_id = store_id.package;
+        // `collect_reachable_from_entry` returns the entire reachable closure,
+        // including the full standard library. Entry-package bodies record both
+        // HOF call sites and direct concrete-callable call sites. Foreign bodies
+        // (e.g. generic HOFs and their callers relocated into their owning
+        // package by monomorphization) are walked too, so that a closure passed
+        // to a HOF *inside* a foreign body is discovered and specialized in
+        // place. For foreign bodies, HOF invocations passing a concrete callable
+        // argument are recorded as call sites, plus the empty-capture closure
+        // callees that specialization materializes in place (see the
+        // closure-callee gate in `inspect_call_expr`). Other already-direct
+        // concrete calls in a foreign body are NOT recorded: doing so would
+        // re-introduce the standard library's entire call graph as spurious
+        // direct call sites (e.g. every `CCNOT`/`Rz`/`T`). The call-site
+        // infrastructure is already package-aware (`call_pkg_id`, per-package
+        // rewrite, and `with_package` allocation).
+        let record_direct_calls = body_pkg_id == package_id;
+        let item = body_pkg.get_item(store_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
             let locals =
-                build_callable_flow_state(package, store, &decl.implementation, package_id);
+                build_callable_flow_state(body_pkg, store, &decl.implementation, body_pkg_id);
 
             // Capture non-Bottom lattice entries, sorted by LocalVarId.
             let mut entries: Vec<(LocalVarId, CalleeLattice)> = locals
@@ -224,22 +244,24 @@ fn collect_call_sites(
                 .collect();
             entries.sort_by_key(|(var, _)| *var);
             if !entries.is_empty() {
-                lattice_states.insert(store_id.item, entries);
+                lattice_states.insert(store_id, entries);
             }
 
             walk_callable_for_calls(
                 store,
-                package,
+                body_pkg,
                 &decl.implementation,
                 hof_params,
                 &locals,
                 &mut call_sites,
                 &mut direct_call_sites,
-                package_id,
+                body_pkg_id,
+                record_direct_calls,
             );
         }
     }
 
+    let package = store.get(package_id);
     if let Some(entry_expr_id) = package.entry {
         let mut locals = LocalState {
             callable: FxHashMap::default(),
@@ -258,6 +280,7 @@ fn collect_call_sites(
                 &mut call_sites,
                 &mut direct_call_sites,
                 package_id,
+                true,
             );
         });
     }
@@ -277,6 +300,7 @@ fn walk_callable_for_calls(
     call_sites: &mut Vec<CallSite>,
     direct_call_sites: &mut Vec<DirectCallSite>,
     package_id: PackageId,
+    record_direct_calls: bool,
 ) {
     crate::walk_utils::for_each_expr_in_callable_impl(pkg, callable_impl, &mut |expr_id, expr| {
         inspect_call_expr(
@@ -289,6 +313,7 @@ fn walk_callable_for_calls(
             call_sites,
             direct_call_sites,
             package_id,
+            record_direct_calls,
         );
     });
 }
@@ -305,6 +330,7 @@ fn inspect_call_expr(
     call_sites: &mut Vec<CallSite>,
     direct_call_sites: &mut Vec<DirectCallSite>,
     package_id: PackageId,
+    record_direct_calls: bool,
 ) {
     let ExprKind::Call(callee_expr_id, args_expr_id) = &expr.kind else {
         return;
@@ -339,6 +365,7 @@ fn inspect_call_expr(
             match resolved {
                 CalleeLattice::Single(cc) => {
                     call_sites.push(CallSite {
+                        call_pkg_id: package_id,
                         call_expr_id: expr_id,
                         hof_item_id: ItemId {
                             package: hof_store_id.package,
@@ -352,6 +379,7 @@ fn inspect_call_expr(
                 CalleeLattice::Multi(candidates) => {
                     for (cc, cond) in candidates {
                         call_sites.push(CallSite {
+                            call_pkg_id: package_id,
                             call_expr_id: expr_id,
                             hof_item_id: ItemId {
                                 package: hof_store_id.package,
@@ -365,6 +393,7 @@ fn inspect_call_expr(
                 }
                 CalleeLattice::Dynamic | CalleeLattice::Bottom => {
                     call_sites.push(CallSite {
+                        call_pkg_id: package_id,
                         call_expr_id: expr_id,
                         hof_item_id: ItemId {
                             package: hof_store_id.package,
@@ -379,6 +408,26 @@ fn inspect_call_expr(
         }
 
         return;
+    }
+
+    if !record_direct_calls {
+        // Foreign bodies (generic HOFs and their callers relocated into their
+        // owning package by monomorphization) are walked so that closures
+        // passed to a HOF *inside* a foreign body are discovered and
+        // specialized in place. But recording every already-direct concrete
+        // call in a foreign body would re-introduce the standard library's
+        // entire call graph as spurious direct call sites. The only direct
+        // call site a foreign body genuinely needs is the empty-capture
+        // `Closure([], target)` callee that specialization itself
+        // materializes when a no-capture closure is threaded into a HOF that
+        // is specialized in place: `rewrite_direct_callee` must convert it
+        // into a direct item call to satisfy PostDefunc and let the
+        // convergence metric reach zero. Restrict foreign direct-call
+        // recording to closure callees only.
+        let (base_id, _) = peel_body_functors(pkg, *callee_expr_id);
+        if !matches!(pkg.get_expr(base_id).kind, ExprKind::Closure(_, _)) {
+            return;
+        }
     }
 
     inspect_direct_call_expr(
@@ -466,6 +515,7 @@ fn inspect_direct_call_expr(
     match resolved {
         CalleeLattice::Single(callable) => {
             direct_call_sites.push(DirectCallSite {
+                call_pkg_id: package_id,
                 call_expr_id: expr_id,
                 callable,
                 condition: None,
@@ -474,6 +524,7 @@ fn inspect_direct_call_expr(
         CalleeLattice::Multi(candidates) => {
             for (callable, condition) in candidates {
                 direct_call_sites.push(DirectCallSite {
+                    call_pkg_id: package_id,
                     call_expr_id: expr_id,
                     callable,
                     condition,
@@ -699,9 +750,14 @@ fn resolve_callee(
 
             match callee_lattice {
                 CalleeLattice::Single(ConcreteCallable::Global { item_id, functor })
-                    if item_id.package == package_id && functor == FunctorApp::default() =>
+                    if functor == FunctorApp::default() =>
                 {
-                    resolve_same_package_callable_return(
+                    // The callee may be defined in another package (e.g. a
+                    // monomorphized library callable that returns a callable).
+                    // `resolve_callable_return` reads the callee body from its
+                    // owning package while resolving the call arguments against
+                    // the caller's package.
+                    resolve_callable_return(
                         pkg,
                         store,
                         locals,
@@ -1053,11 +1109,13 @@ fn resolve_callee_projection(
 
             match callee_lattice {
                 CalleeLattice::Single(ConcreteCallable::Global { item_id, functor })
-                    if item_id.package == package_id && functor == FunctorApp::default() =>
+                    if functor == FunctorApp::default() =>
                 {
-                    let target_item = pkg.get_item(item_id.item);
+                    // The callee may be defined in another package; read its
+                    // declaration from the owning package.
+                    let target_item = store.get(item_id.package).get_item(item_id.item);
                     match &target_item.kind {
-                        ItemKind::Callable(_) => resolve_same_package_callable_return(
+                        ItemKind::Callable(_) => resolve_callable_return(
                             pkg,
                             store,
                             locals,
@@ -1162,7 +1220,7 @@ fn output_path_resolves_to_arrow(store: &PackageStore, ty: &Ty, path: &[usize]) 
 /// binding its parameters to the call's argument expressions and tracing
 /// the result back to a concrete callable.
 #[allow(clippy::too_many_arguments)]
-fn resolve_same_package_callable_return(
+fn resolve_callable_return(
     pkg: &Package,
     store: &PackageStore,
     caller_locals: &LocalState,
@@ -1174,7 +1232,13 @@ fn resolve_same_package_callable_return(
     scoped_capture_vars: &FxHashSet<LocalVarId>,
     package_id: PackageId,
 ) -> CalleeLattice {
-    let item = pkg.get_item(item_id.item);
+    // The callee body may live in a different package than the call site (e.g.
+    // a monomorphized library callable that returns a callable). Read the
+    // callee's declaration and body from its owning package while resolving the
+    // call arguments against the caller's package (`pkg`/`package_id`).
+    let callee_pkg_id = item_id.package;
+    let callee_pkg = store.get(callee_pkg_id);
+    let item = callee_pkg.get_item(item_id.item);
     let ItemKind::Callable(decl) = &item.kind else {
         return CalleeLattice::Dynamic;
     };
@@ -1200,6 +1264,7 @@ fn resolve_same_package_callable_return(
         condition_substitutions: FxHashMap::default(),
     };
     seed_param_bindings_from_call(
+        callee_pkg,
         pkg,
         store,
         caller_locals,
@@ -1208,17 +1273,19 @@ fn resolve_same_package_callable_return(
         args_expr_id,
         package_id,
     );
-    analyze_block_flow(pkg, store, body_block_id, &mut state, package_id);
+    analyze_block_flow(callee_pkg, store, body_block_id, &mut state, callee_pkg_id);
 
-    let block = pkg.get_block(body_block_id);
+    let block = callee_pkg.get_block(body_block_id);
     let Some(&stmt_id) = block.stmts.last() else {
         return CalleeLattice::Dynamic;
     };
-    let stmt = pkg.get_stmt(stmt_id);
+    let stmt = callee_pkg.get_stmt(stmt_id);
     let return_expr_id = match &stmt.kind {
         StmtKind::Expr(return_expr_id) => *return_expr_id,
-        StmtKind::Semi(expr_id) if matches!(pkg.get_expr(*expr_id).kind, ExprKind::Return(_)) => {
-            let ExprKind::Return(inner_expr_id) = pkg.get_expr(*expr_id).kind else {
+        StmtKind::Semi(expr_id)
+            if matches!(callee_pkg.get_expr(*expr_id).kind, ExprKind::Return(_)) =>
+        {
+            let ExprKind::Return(inner_expr_id) = callee_pkg.get_expr(*expr_id).kind else {
                 unreachable!("guarded above")
             };
             inner_expr_id
@@ -1226,11 +1293,11 @@ fn resolve_same_package_callable_return(
         _ => return CalleeLattice::Dynamic,
     };
 
-    materialize_capture_exprs_from_state(
-        pkg,
+    let resolved = materialize_capture_exprs_from_state(
+        callee_pkg,
         &state,
         resolve_callee_projection(
-            pkg,
+            callee_pkg,
             store,
             &state,
             return_expr_id,
@@ -1238,9 +1305,60 @@ fn resolve_same_package_callable_return(
             depth + 1,
             allow_scoped_capture_exprs,
             scoped_capture_vars,
-            package_id,
+            callee_pkg_id,
         ),
-    )
+    );
+
+    // A callable returned from a foreign package (e.g. a monomorphized library
+    // callable that returns `x -> x`) resolves to a closure whose target item
+    // lives in that foreign package. `ConcreteCallable::Closure` only records a
+    // bare `LocalItemId`, which downstream specialization interprets relative
+    // to the call-site (entry) package. For zero-capture closures—which are
+    // semantically equivalent to a direct global reference—coerce to a
+    // package-qualified `Global` so specialization references the foreign
+    // target correctly instead of mis-resolving it in the entry package.
+    if callee_pkg_id == package_id {
+        resolved
+    } else {
+        coerce_foreign_zero_capture_closures(resolved, callee_pkg_id)
+    }
+}
+
+/// Converts zero-capture closures whose target lives in `callee_pkg_id` into a
+/// package-qualified [`ConcreteCallable::Global`]. Closures with captures are
+/// left unchanged because their captured environment cannot be represented as
+/// a plain global reference.
+fn coerce_foreign_zero_capture_closures(
+    lattice: CalleeLattice,
+    callee_pkg_id: PackageId,
+) -> CalleeLattice {
+    fn coerce(cc: ConcreteCallable, callee_pkg_id: PackageId) -> ConcreteCallable {
+        match cc {
+            ConcreteCallable::Closure {
+                target,
+                captures,
+                functor,
+            } if captures.is_empty() => ConcreteCallable::Global {
+                item_id: ItemId {
+                    package: callee_pkg_id,
+                    item: target,
+                },
+                functor,
+            },
+            other => other,
+        }
+    }
+
+    match lattice {
+        CalleeLattice::Single(cc) => CalleeLattice::Single(coerce(cc, callee_pkg_id)),
+        CalleeLattice::Multi(entries) => CalleeLattice::Multi(
+            entries
+                .into_iter()
+                .map(|(cc, cond)| (coerce(cc, callee_pkg_id), cond))
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 fn resolve_condition_literal(
@@ -1388,8 +1506,10 @@ fn resolve_capture_expr_from_state(
 /// Seeds the callable-flow lattice for a HOF with the concrete callables
 /// bound to its arrow parameters at a specific call site, enabling
 /// reaching-def analysis to track parameter-forwarding chains.
+#[allow(clippy::too_many_arguments)]
 fn seed_param_bindings_from_call(
-    pkg: &Package,
+    pat_pkg: &Package,
+    arg_pkg: &Package,
     store: &PackageStore,
     caller_locals: &LocalState,
     state: &mut LocalState,
@@ -1397,14 +1517,14 @@ fn seed_param_bindings_from_call(
     arg_expr_id: ExprId,
     package_id: PackageId,
 ) {
-    let pat = pkg.get_pat(pat_id);
+    let pat = pat_pkg.get_pat(pat_id);
     match &pat.kind {
         PatKind::Bind(ident) => {
             state.exprs.insert(ident.id, arg_expr_id);
             state.condition_substitutions.insert(ident.id, arg_expr_id);
             if matches!(pat.ty, Ty::Arrow(_)) {
                 let lattice = resolve_callee(
-                    pkg,
+                    arg_pkg,
                     store,
                     caller_locals,
                     arg_expr_id,
@@ -1417,13 +1537,14 @@ fn seed_param_bindings_from_call(
             }
         }
         PatKind::Tuple(sub_pats) => {
-            let arg_expr = pkg.get_expr(arg_expr_id);
+            let arg_expr = arg_pkg.get_expr(arg_expr_id);
             if let ExprKind::Tuple(arg_elems) = &arg_expr.kind
                 && sub_pats.len() == arg_elems.len()
             {
                 for (&sub_pat_id, &arg_elem_id) in sub_pats.iter().zip(arg_elems.iter()) {
                     seed_param_bindings_from_call(
-                        pkg,
+                        pat_pkg,
+                        arg_pkg,
                         store,
                         caller_locals,
                         state,

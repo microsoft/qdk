@@ -394,6 +394,203 @@ fn item_dce_is_idempotent() {
     );
 }
 
+/// Foreign-package DCE (`eliminate_unreachable_foreign_items`) does **not** root
+/// on the foreign package's own exports, so an exported-but-entry-unreachable
+/// callable is dead and removed — the distinguishing behavior from
+/// `eliminate_dead_items` (which keeps export targets; see
+/// `dce_preserves_export_targets`).
+#[test]
+fn foreign_dce_drops_exported_unreachable_callable() {
+    let source = indoc! {"
+        namespace Test {
+            function Helper() : Int { 42 }
+            function Dead() : Int { 0 }
+            @EntryPoint()
+            function Main() : Int { 1 }
+        }
+    "};
+    let (mut store, pkg_id) = compile_to_fir(source);
+    let helper_id = callable_id_by_name(store.get(pkg_id), "Helper");
+    let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    let export_id = assigner.next_item();
+
+    store
+        .get_mut(pkg_id)
+        .items
+        .insert(export_id, make_export_item(export_id, pkg_id, helper_id));
+
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+    assert!(
+        !reachable.contains(&qsc_fir::fir::StoreItemId {
+            package: pkg_id,
+            item: helper_id,
+        }),
+        "Helper should be unreachable except through the export"
+    );
+
+    crate::item_dce::eliminate_unreachable_foreign_items(pkg_id, store.get_mut(pkg_id), &reachable);
+    let package = store.get(pkg_id);
+
+    // Unlike `eliminate_dead_items`, the exported-but-unreachable callable is
+    // removed because foreign DCE does not root on the foreign package's exports.
+    assert!(
+        !package.items.contains_key(helper_id),
+        "exported-but-unreachable Helper must be removed by foreign DCE"
+    );
+    assert!(
+        !package.items.contains_key(dead_id),
+        "unexported unreachable Dead must also be removed"
+    );
+    // The entry-reachable callable survives.
+    let _ = callable_id_by_name(package, "Main");
+}
+
+/// An `Export` whose local target was removed is pruned so no surviving export
+/// dangles, while an `Export` targeting a still-reachable callable is preserved.
+#[test]
+fn foreign_dce_prunes_dangling_export() {
+    let source = indoc! {"
+        namespace Test {
+            function Dead() : Int { 0 }
+            @EntryPoint()
+            function Main() : Int { 1 }
+        }
+    "};
+    let (mut store, pkg_id) = compile_to_fir(source);
+    let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
+    let main_id = callable_id_by_name(store.get(pkg_id), "Main");
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    let dead_export_id = assigner.next_item();
+    let main_export_id = assigner.next_item();
+
+    store.get_mut(pkg_id).items.insert(
+        dead_export_id,
+        make_export_item(dead_export_id, pkg_id, dead_id),
+    );
+    store.get_mut(pkg_id).items.insert(
+        main_export_id,
+        make_export_item(main_export_id, pkg_id, main_id),
+    );
+
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+    crate::item_dce::eliminate_unreachable_foreign_items(pkg_id, store.get_mut(pkg_id), &reachable);
+    let package = store.get(pkg_id);
+
+    assert!(
+        !package.items.contains_key(dead_id),
+        "unreachable Dead callable must be removed"
+    );
+    assert!(
+        !package.items.contains_key(dead_export_id),
+        "export targeting the removed Dead callable must be pruned"
+    );
+    assert!(
+        package.items.contains_key(main_export_id),
+        "export targeting the reachable Main callable must survive"
+    );
+
+    // No surviving local export may dangle.
+    for item in package.items.values() {
+        if let ItemKind::Export(_, Res::Item(target)) = &item.kind
+            && target.package == pkg_id
+        {
+            assert!(
+                package.items.contains_key(target.item),
+                "surviving export must not dangle after foreign DCE"
+            );
+        }
+    }
+}
+
+/// Foreign-package DCE preserves entry-reachable callables (even when not
+/// exported), unconditionally removes `Ty(..)` items, and preserves
+/// `Namespace(..)` items.
+#[test]
+fn foreign_dce_keeps_reachable_callable() {
+    let source = indoc! {"
+        namespace Test {
+            newtype Pair = (First : Int, Second : Int);
+            function Reachable() : Int { 7 }
+            @EntryPoint()
+            function Main() : Int {
+                let p = Pair(1, 2);
+                Reachable() + p::First
+            }
+        }
+    "};
+    let (mut store, pkg_id) = compile_to_fir(source);
+    let reachable_id = callable_id_by_name(store.get(pkg_id), "Reachable");
+    assert!(
+        ty_item_names(store.get(pkg_id)).contains(&"Pair".to_string()),
+        "Pair newtype should exist before foreign DCE"
+    );
+
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+    crate::item_dce::eliminate_unreachable_foreign_items(pkg_id, store.get_mut(pkg_id), &reachable);
+    let package = store.get(pkg_id);
+
+    assert!(
+        package.items.contains_key(reachable_id),
+        "entry-reachable Reachable callable must be preserved even though unexported"
+    );
+    assert!(
+        package
+            .items
+            .iter()
+            .all(|(_, item)| !matches!(item.kind, ItemKind::Ty(..))),
+        "all Ty items must be removed by foreign DCE"
+    );
+    assert!(
+        package
+            .items
+            .iter()
+            .any(|(_, item)| matches!(item.kind, ItemKind::Namespace(..))),
+        "Namespace items must be preserved by foreign DCE"
+    );
+}
+
+/// Foreign-package DCE returns the number of items it removed and is idempotent:
+/// a second run over the trimmed package removes nothing.
+#[test]
+fn foreign_dce_is_idempotent() {
+    let source = indoc! {"
+        namespace Test {
+            function Dead() : Int { 0 }
+            @EntryPoint()
+            function Main() : Int { 1 }
+        }
+    "};
+    let (mut store, pkg_id) = compile_to_fir(source);
+    let items_before = item_count(store.get(pkg_id));
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+
+    let removed_first = crate::item_dce::eliminate_unreachable_foreign_items(
+        pkg_id,
+        store.get_mut(pkg_id),
+        &reachable,
+    );
+    assert!(
+        removed_first > 0,
+        "first foreign DCE run should remove unreachable items"
+    );
+    assert_eq!(
+        item_count(store.get(pkg_id)),
+        items_before - removed_first,
+        "return value must equal the number of items removed"
+    );
+
+    let removed_second = crate::item_dce::eliminate_unreachable_foreign_items(
+        pkg_id,
+        store.get_mut(pkg_id),
+        &reachable,
+    );
+    assert_eq!(
+        removed_second, 0,
+        "second foreign DCE run should remove nothing"
+    );
+}
+
 /// Tests validating `item_dce`'s fragile contract regarding temporary dangling
 /// `StmtKind::Item` references and export retention.
 ///
@@ -489,10 +686,11 @@ mod item_dce_contracts {
         "};
 
         let (mut store, pkg_id) = compile_to_fir(source);
-        let mut assigner = Assigner::from_package(store.get(pkg_id));
-        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigner);
+        let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
         let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
-        insert_item_stmt_in_main(&mut store, pkg_id, &mut assigner, dead_id);
+        let assigner = assigners.get_mut(&store, pkg_id);
+        insert_item_stmt_in_main(&mut store, pkg_id, assigner, dead_id);
         assert!(
             dangling_item_refs(store.get(pkg_id)).is_empty(),
             "pre-DCE package should not yet contain dangling item refs"
@@ -549,10 +747,11 @@ mod item_dce_contracts {
 
         // Compile to FIR and monomorphize.
         let (mut store, pkg_id) = compile_to_fir(source);
-        let mut assigner = Assigner::from_package(store.get(pkg_id));
-        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigner);
+        let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
 
         // Manually create an export with an unresolved target to validate the contract.
+        let assigner = assigners.get_mut(&store, pkg_id);
         let export_id = assigner.next_item();
         store.get_mut(pkg_id).items.insert(
             export_id,

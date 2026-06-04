@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::package_assigners::PackageAssigners;
 use crate::{
     PipelineStage,
     return_unify::{tests::assert_no_reachable_returns, unify_returns},
@@ -8,8 +9,6 @@ use crate::{
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
-
 /// Compiles Q# source through `Mono`, captures a pretty-printed snapshot of
 /// the package, runs `unify_returns` directly, captures a second snapshot,
 /// and asserts the concatenated `BEFORE` / `AFTER` string matches `expect`.
@@ -20,8 +19,8 @@ use qsc_fir::assigner::Assigner;
 fn check_before_after(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    let errors = unify_returns(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let errors = unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),
         "return_unify shape test produced errors: {errors:?}"

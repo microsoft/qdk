@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 use super::*;
+use crate::package_assigners::PackageAssigners;
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::NodeId;
 use rustc_hash::FxHashSet;
 
@@ -44,8 +44,8 @@ fn check_details(source: &str, expect: &Expect) {
 
 fn compile_and_monomorphize(source: &str) -> (qsc_fir::fir::PackageStore, qsc_fir::fir::PackageId) {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    monomorphize(&mut store, pkg_id, &mut assigners);
     (store, pkg_id)
 }
 
@@ -54,8 +54,8 @@ fn compile_entry_and_monomorphize(
     entry: &str,
 ) -> (qsc_fir::fir::PackageStore, qsc_fir::fir::PackageId) {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir_with_entry(source, entry);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    monomorphize(&mut store, pkg_id, &mut assigners);
     (store, pkg_id)
 }
 
@@ -1002,12 +1002,7 @@ fn mono_cross_package_length() {
                     Length(arr)
                 }
             "#};
-    check(
-        source,
-        &expect![[r#"
-                Length: generics=0, input=(Int)[], output=Int
-                Main: generics=0, input=Unit, output=Int"#]],
-    );
+    check(source, &expect!["Main: generics=0, input=Unit, output=Int"]);
     check_before_after(
         source,
         &expect![[r#"
@@ -1026,9 +1021,6 @@ fn mono_cross_package_length() {
                 let arr : Int[] = [1, 2, 3];
                 Length(arr)
             }
-            function Length(a : Int[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -1046,9 +1038,7 @@ fn mono_cross_package_reversed() {
             "#};
     check(
         source,
-        &expect![[r#"
-            Main: generics=0, input=Unit, output=(Int)[]
-            Reversed<Int>: generics=0, input=(Int)[], output=(Int)[]"#]],
+        &expect!["Main: generics=0, input=Unit, output=(Int)[]"],
     );
     check_before_after(
         source,
@@ -1067,9 +1057,6 @@ fn mono_cross_package_reversed() {
             operation Main() : Int[] {
                 let arr : Int[] = [1, 2, 3];
                 Reversed_Int_(arr)
-            }
-            function Reversed_Int_(array : Int[]) : Int[] {
-                array[...-1...]
             }
             // entry
             Main()
@@ -1094,7 +1081,6 @@ fn mono_cross_package_with_same_name() {
         &expect![[r#"
             Main: generics=0, input=Unit, output=(Int)[]
             Reversed: generics=1, input=(Param<0>)[], output=(Param<0>)[]
-            Reversed<Int>: generics=0, input=(Int)[], output=(Int)[]
             Reversed<Int>: generics=0, input=(Int)[], output=(Int)[]"#]],
     );
     check_before_after(
@@ -1123,9 +1109,6 @@ fn mono_cross_package_with_same_name() {
             }
             function Reversed_Int_(array : Int[]) : Int[] {
                 Reversed_Int_(array)
-            }
-            function Reversed_Int_(array : Int[]) : Int[] {
-                array[...-1...]
             }
             // entry
             Main()
@@ -1257,8 +1240,8 @@ fn mono_specialized_callable_node_ids_do_not_collide_with_spec_nodes() {
                 ApplyCtl(42);
             }
         "#});
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    monomorphize(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let mut seen = FxHashSet::default();
@@ -1293,7 +1276,12 @@ fn mono_missing_same_package_specialization_panics() {
         "#});
 
     let expr_ids: Vec<_> = store.get(pkg_id).exprs.iter().map(|(id, _)| id).collect();
-    rewrite_call_sites(store.get_mut(pkg_id), pkg_id, &[], &expr_ids);
+    rewrite_call_sites(
+        store.get_mut(pkg_id),
+        pkg_id,
+        &rustc_hash::FxHashMap::default(),
+        &expr_ids,
+    );
 }
 
 fn assert_node_id_is_unique(node_id: NodeId, seen: &mut FxHashSet<u32>) {
@@ -1383,7 +1371,6 @@ fn mono_generic_with_simulatable_intrinsic() {
     check(
         source,
         &expect![[r#"
-            Length: generics=0, input=(Int)[], output=Int
             Main: generics=0, input=Unit, output=Int
             Wrap: generics=1, input=(Param<0>)[], output=Int
             Wrap<Int>: generics=0, input=(Int)[], output=Int"#]],
@@ -1412,9 +1399,6 @@ fn mono_generic_with_simulatable_intrinsic() {
             }
             operation Wrap_Int_(arr : Int[]) : Int {
                 Length(arr)
-            }
-            function Length(a : Int[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -2019,12 +2003,7 @@ fn cross_package_non_intrinsic_generic_specializes() {
             "#};
     check(
         source,
-        &expect![[r#"
-            <lambda>: generics=0, input=((Int, Int),), output=(Int, Int)
-            Enumerated<Int>: generics=0, input=(Int)[], output=((Int, Int))[]
-            Length: generics=0, input=(Int)[], output=Int
-            Main: generics=0, input=Unit, output=((Int, Int))[]
-            MappedByIndex<Int, (Int, Int)>: generics=0, input=(((Int, Int) -> (Int, Int)), (Int)[]), output=((Int, Int))[]"#]],
+        &expect!["Main: generics=0, input=Unit, output=((Int, Int))[]"],
     );
     check_before_after(
         source,
@@ -2041,32 +2020,6 @@ fn cross_package_non_intrinsic_generic_specializes() {
             // namespace test
             function Main() : (Int, Int)[] {
                 Enumerated_Int_([10, 20, 30])
-            }
-            function Enumerated_Int_(array : Int[]) : (Int, Int)[] {
-                MappedByIndex_Int___Int__Int__(/ * closure item = 3 captures = [] * / _lambda_, array)
-            }
-            function _lambda_((index : Int, element : Int), ) : (Int, Int) {
-                (index, element)
-            }
-            function MappedByIndex_Int___Int__Int__(mapper : ((Int, Int) -> (Int, Int)), array : Int[]) : (Int, Int)[] {
-                mutable mapped : (Int, Int)[] = [];
-                {
-                    let _range_id_45755 : Range = 0..Length(array) - 1;
-                    mutable _index_id_45758 : Int = _range_id_45755::Start;
-                    let _step_id_45763 : Int = _range_id_45755::Step;
-                    let _end_id_45768 : Int = _range_id_45755::End;
-                    while _step_id_45763 > 0 and _index_id_45758 <= _end_id_45768 or _step_id_45763 < 0 and _index_id_45758 >= _end_id_45768 {
-                        let index : Int = _index_id_45758;
-                        mapped += [mapper(index, array[index])];
-                        _index_id_45758 += _step_id_45763;
-                    }
-
-                }
-
-                mapped
-            }
-            function Length(a : Int[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -2119,8 +2072,8 @@ fn monomorphize_no_entry_panics() {
 
     assert!(fir_store.get(fir_pkg_id).entry.is_none());
 
-    let mut assigner = Assigner::from_package(fir_store.get(fir_pkg_id));
-    monomorphize(&mut fir_store, fir_pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 }
 
 #[test]
@@ -2132,8 +2085,8 @@ fn mono_preserves_simulatable_intrinsic_impl() {
             operation MySimIntrinsic<'T>(x : 'T) : 'T { x }
             operation Main() : Int { MySimIntrinsic(42) }
         "#});
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    monomorphize(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let mut found_specialized = false;
@@ -2169,8 +2122,8 @@ fn monomorphize_is_idempotent() {
         crate::test_utils::PipelineStage::Mono,
     );
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    monomorphize(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "monomorphize should be idempotent");
 }
@@ -2178,8 +2131,8 @@ fn monomorphize_is_idempotent() {
 fn render_before_after_mono(source: &str) -> (String, String) {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    monomorphize(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
@@ -2279,12 +2232,6 @@ fn shared_input_and_arrow_generic_param_specializes() {
                 };
                 __quantum__rt__qubit_release(q);
                 _generated_ident_64
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
             }
             function doDouble_Int_(a : Int, doubler : (Int -> Int)) : Int {
                 doubler(a)

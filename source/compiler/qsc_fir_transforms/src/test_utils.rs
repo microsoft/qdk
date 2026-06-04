@@ -319,8 +319,8 @@ pub fn compile_to_monomorphized_fir_with_capabilities(
     capabilities: TargetCapabilityFlags,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir_with_capabilities(source, capabilities);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
     (store, pkg_id)
 }
 

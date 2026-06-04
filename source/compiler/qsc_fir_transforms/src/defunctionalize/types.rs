@@ -17,7 +17,8 @@ use thiserror::Error;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
-    ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageLookup, PatId, UnOp,
+    ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
+    PatId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::Ty;
 
@@ -25,7 +26,7 @@ use qsc_fir::ty::Ty;
 #[derive(Clone, Debug)]
 pub struct CallableParam {
     /// The HOF containing this parameter.
-    pub callable_id: LocalItemId,
+    pub callable_id: StoreItemId,
     /// The pattern node for the parameter.
     pub param_pat_id: PatId,
     /// The outer input-parameter slot selected before any nested tuple
@@ -37,17 +38,23 @@ pub struct CallableParam {
     pub param_var: LocalVarId,
     /// The Arrow type of the parameter.
     pub param_ty: Ty,
+    /// Whether the owning HOF's input pattern is a tuple. Precomputed during
+    /// analysis (which has `PackageStore` access) so that later passes can
+    /// derive the input path without re-reading the HOF's owning package,
+    /// which may differ from the package currently being rewritten.
+    pub hof_input_is_tuple: bool,
 }
 
 impl CallableParam {
     #[must_use]
     pub fn new(
-        callable_id: LocalItemId,
+        callable_id: StoreItemId,
         param_pat_id: PatId,
         top_level_param: usize,
         field_path: Vec<usize>,
         param_var: LocalVarId,
         param_ty: Ty,
+        hof_input_is_tuple: bool,
     ) -> Self {
         Self {
             callable_id,
@@ -56,6 +63,7 @@ impl CallableParam {
             field_path,
             param_var,
             param_ty,
+            hof_input_is_tuple,
         }
     }
 }
@@ -63,6 +71,11 @@ impl CallableParam {
 /// A call site where a HOF is called with a concrete callable argument.
 #[derive(Clone, Debug)]
 pub struct CallSite {
+    /// The package owning the body that contains this call expression. The
+    /// specialized callable is allocated into, and the call is rewritten
+    /// within, this package — which may differ from the entry package when
+    /// the call site lives in a foreign body walked by analysis.
+    pub call_pkg_id: PackageId,
     /// The Call expression.
     pub call_expr_id: ExprId,
     /// The HOF being called.
@@ -80,6 +93,8 @@ pub struct CallSite {
 /// A direct call whose callee expression resolves to a concrete callable value.
 #[derive(Clone, Debug)]
 pub struct DirectCallSite {
+    /// The package owning the body that contains this call expression.
+    pub call_pkg_id: PackageId,
     /// The Call expression.
     pub call_expr_id: ExprId,
     /// Resolved concrete callee.
@@ -277,7 +292,7 @@ impl CalleeLattice {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SpecKey {
     /// The HOF being specialized.
-    pub hof_id: LocalItemId,
+    pub hof_id: StoreItemId,
     /// Hashable representations of the concrete callable arguments.
     pub concrete_args: Vec<ConcreteCallableKey>,
 }
@@ -304,10 +319,10 @@ pub enum ConcreteCallableKey {
     },
 }
 
-/// Per-callable lattice snapshot: maps each callable's `LocalItemId` to the
+/// Per-callable lattice snapshot: maps each callable's `StoreItemId` to the
 /// sorted list of `(LocalVarId, CalleeLattice)` entries observed after flow
 /// analysis.
-pub type LatticeStates = FxHashMap<LocalItemId, Vec<(LocalVarId, CalleeLattice)>>;
+pub type LatticeStates = FxHashMap<StoreItemId, Vec<(LocalVarId, CalleeLattice)>>;
 
 /// Output of the analysis phase.
 #[derive(Clone, Debug, Default)]

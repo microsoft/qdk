@@ -47,7 +47,8 @@ use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BinOp, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, Lit, LocalItemId, LocalVarId,
-    Mutability, Package, PackageId, PackageLookup, PatId, PatKind, Res, StmtKind, UnOp,
+    Mutability, Package, PackageId, PackageLookup, PatId, PatKind, Res, StmtKind, StoreItemId,
+    UnOp,
 };
 use qsc_fir::ty::{Arrow, Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -67,14 +68,14 @@ pub(super) fn rewrite(
     package: &mut Package,
     package_id: PackageId,
     analysis: &AnalysisResult,
-    spec_map: &FxHashMap<SpecKey, LocalItemId>,
+    spec_map: &FxHashMap<SpecKey, StoreItemId>,
     assigner: &mut Assigner,
 ) {
     let expr_owner_lookup = build_expr_owner_lookup(package);
     let mut rewritten_callable_arg_locals = FxHashSet::default();
 
-    // Build a lookup from HOF LocalItemId → CallableParam.
-    let param_lookup: FxHashMap<LocalItemId, &CallableParam> = {
+    // Build a lookup from HOF StoreItemId → CallableParam.
+    let param_lookup: FxHashMap<StoreItemId, &CallableParam> = {
         let mut map = FxHashMap::default();
         for p in &analysis.callable_params {
             map.entry(p.callable_id).or_insert(p);
@@ -88,18 +89,33 @@ pub(super) fn rewrite(
         FxHashMap::default();
 
     for call_site in &analysis.call_sites {
+        // Only rewrite call sites that live in the package being rewritten.
+        if call_site.call_pkg_id != package_id {
+            continue;
+        }
         // Skip dynamic callables — they have no specialization.
         if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
             continue;
         }
 
         let spec_key = build_spec_key(call_site);
-        let Some(&spec_local_id) = spec_map.get(&spec_key) else {
+        let Some(&spec_store_id) = spec_map.get(&spec_key) else {
             continue;
         };
+        // This rewrite pass mutates `package` (the call site's package).
+        // Specs created in this phase land in the call-site package, so a
+        // mismatch means the call site lives in a different package and is
+        // handled when that package is rewritten.
+        if spec_store_id.package != package_id {
+            continue;
+        }
+        let spec_local_id = spec_store_id.item;
 
-        let hof_local_id = call_site.hof_item_id.item;
-        let Some(&param) = param_lookup.get(&hof_local_id) else {
+        let hof_store_id = StoreItemId {
+            package: call_site.hof_item_id.package,
+            item: call_site.hof_item_id.item,
+        };
+        let Some(&param) = param_lookup.get(&hof_store_id) else {
             continue;
         };
 
@@ -151,6 +167,10 @@ pub(super) fn rewrite(
 
     let mut grouped_direct: FxHashMap<ExprId, Vec<&DirectCallSite>> = FxHashMap::default();
     for direct_call_site in &analysis.direct_call_sites {
+        // Only rewrite direct call sites that live in this package.
+        if direct_call_site.call_pkg_id != package_id {
+            continue;
+        }
         grouped_direct
             .entry(direct_call_site.call_expr_id)
             .or_default()
@@ -2545,22 +2565,13 @@ fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
     }
 }
 
-fn callable_uses_tuple_input_pattern(package: &Package, callable_id: LocalItemId) -> bool {
-    let item = package.get_item(callable_id);
-    match &item.kind {
-        ItemKind::Callable(decl) => matches!(package.get_pat(decl.input).kind, PatKind::Tuple(_)),
-        _ => false,
-    }
-}
-
 fn callable_param_input_path(
     package: &Package,
     callee_id: ExprId,
     param: &CallableParam,
 ) -> Vec<usize> {
     let (_, outer_functor) = peel_body_functors(package, callee_id);
-    let uses_tuple = callable_uses_tuple_input_pattern(package, param.callable_id);
-    super::build_param_input_path(uses_tuple, param, outer_functor)
+    super::build_param_input_path(param.hof_input_is_tuple, param, outer_functor)
 }
 
 /// Replaces `callee_id` with a reference to the specialized callable while

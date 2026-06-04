@@ -939,21 +939,30 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
 
     run_pipeline_to_successfully(&mut fir_store, fir_pkg_id, PipelineStage::Full);
 
-    let package = fir_store.get(fir_pkg_id);
-    let mapper = package
-        .items
-        .values()
-        .find_map(|item| match &item.kind {
-            ItemKind::Callable(decl)
-                if decl
-                    .name
-                    .name
-                    .as_ref()
-                    .starts_with("MappedByIndex<Bool, (Int, Bool)>") =>
-            {
-                Some(decl.as_ref())
+    // Defunctionalization specializes the generic standard-library HOF
+    // `MappedByIndex` in place into its owning package (monomorphization
+    // relocates the generic instantiation, and specialization allocates the
+    // clone alongside the call site). The specialized clone, the lifted lambda
+    // it calls, and the rewritten direct call therefore all live in that
+    // foreign package rather than the entry package, so the assertions below
+    // search the package that owns the specialization.
+    let reachable = reachability::collect_reachable_from_entry(&fir_store, fir_pkg_id);
+    let (spec_pkg_id, mapper) = reachable
+        .iter()
+        .find_map(|store_id| {
+            let package = fir_store.get(store_id.package);
+            match &package.get_item(store_id.item).kind {
+                ItemKind::Callable(decl)
+                    if decl
+                        .name
+                        .name
+                        .as_ref()
+                        .starts_with("MappedByIndex<Bool, (Int, Bool)>") =>
+                {
+                    Some((store_id.package, decl.as_ref()))
+                }
+                _ => None,
             }
-            _ => None,
         })
         .unwrap_or_else(|| {
             panic!(
@@ -961,6 +970,8 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
                 format_reachable_callable_summary(&fir_store, fir_pkg_id)
             )
         });
+
+    let package = fir_store.get(spec_pkg_id);
 
     let lambda_names = package
         .items
@@ -977,7 +988,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
         .values()
         .find_map(|expr| match &expr.kind {
             ExprKind::Call(callee_id, args_id)
-                if expr_targets_callable(package, fir_pkg_id, *callee_id, "<lambda>") =>
+                if expr_targets_callable(package, spec_pkg_id, *callee_id, "<lambda>") =>
             {
                 Some(*args_id)
             }
@@ -988,7 +999,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
                 "specialized mapper body should call the lifted lambda directly\nmapper body:\n{}\nlambdas:\n{}",
                 format_callable_body_summary(
                     &fir_store,
-                    fir_pkg_id,
+                    spec_pkg_id,
                     mapper.name.name.as_ref(),
                 ),
                 lambda_names.join("\n")
@@ -1305,6 +1316,93 @@ fn cross_package_multi_field_udt_with_callable_field() {
     run_pipeline_successfully(&mut store, pkg_id);
     let package = store.get(pkg_id);
     validate(package, &store);
+}
+
+/// Finds the FIR package id of the separately-compiled library package that
+/// declares `namespace_name` (the package other than core/std/user).
+fn library_package_id(
+    store: &qsc_fir::fir::PackageStore,
+    user_pkg: qsc_fir::fir::PackageId,
+    namespace_name: &str,
+) -> qsc_fir::fir::PackageId {
+    for (id, package) in store {
+        if id == user_pkg {
+            continue;
+        }
+        let declares_namespace = package.items.values().any(|item| {
+            matches!(&item.kind, ItemKind::Namespace(name, _) if name.name.as_ref() == namespace_name)
+        });
+        if declares_namespace {
+            return id;
+        }
+    }
+    panic!("could not locate the {namespace_name} library package in the store");
+}
+
+/// DD-12 regression: a library exports a second caller of a UDT-taking callee
+/// that the user never reaches. Whole-closure structural passes transform only
+/// the entry-reachable library callables, so the exported-but-unreachable caller
+/// is left referencing erased UDTs / pre-promotion signatures. Foreign-package
+/// item DCE must drop that exported-but-unreachable caller so RCA over the whole
+/// store cannot observe a stale arity.
+///
+/// Modeled on the real `Std.OpenQASM.Angle` shape
+/// (`AdjustAngleSizeNoTruncation` -> `AdjustAngleSize`) but self-contained, with
+/// no stdlib dependency.
+#[test]
+fn multipackage_exported_unreachable_caller_is_dce_removed() {
+    let lib_source = r#"
+        namespace TestLib {
+            struct Angle { Value : Int, Size : Int }
+            export Angle, AdjustReached, AdjustUnreachable;
+
+            function Resize(angle : Angle, delta : Int) : Angle {
+                new Angle { Value = angle.Value + delta, Size = angle.Size }
+            }
+
+            function AdjustReached(angle : Angle) : Angle {
+                Resize(angle, 1)
+            }
+
+            function AdjustUnreachable(angle : Angle) : Angle {
+                Resize(angle, 2)
+            }
+        }
+    "#;
+
+    let user_source = r#"
+        import TestLib.*;
+
+        @EntryPoint()
+        operation Main() : Int {
+            let a = new Angle { Value = 5, Size = 3 };
+            let r = AdjustReached(a);
+            r.Value
+        }
+    "#;
+
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    run_pipeline_to_successfully(&mut store, pkg_id, PipelineStage::Full);
+
+    let lib_pkg_id = library_package_id(&store, pkg_id, "TestLib");
+    let callable_names: Vec<String> = store
+        .get(lib_pkg_id)
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        !callable_names.iter().any(|n| n == "AdjustUnreachable"),
+        "exported-but-unreachable foreign caller must be removed by foreign item DCE; remaining: {callable_names:?}"
+    );
+    assert!(
+        callable_names.iter().any(|n| n == "AdjustReached"),
+        "entry-reachable foreign caller must survive; remaining: {callable_names:?}"
+    );
 }
 
 // ============================================================================

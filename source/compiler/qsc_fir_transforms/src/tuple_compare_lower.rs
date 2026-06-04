@@ -37,20 +37,26 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::{alloc_bin_op_expr, alloc_field_expr, reachable_local_callables};
-use crate::reachability::collect_reachable_from_entry;
-use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
+use crate::package_assigners::PackageAssigners;
+use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
+use crate::walk_utils::{
+    collect_expr_ids_in_entry_and_local_callables, collect_expr_ids_in_local_callables,
+};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{BinOp, ExprId, ExprKind, Package, PackageId, PackageLookup, PackageStore};
 use qsc_fir::ty::{Prim, Ty};
 
 /// Rewrites `BinOp(Eq/Neq)` on non-empty tuple-typed operands into
-/// element-wise comparisons in the entry-reachable portion of a package.
+/// element-wise comparisons in the entry-reachable closure.
 ///
 /// Scope and idempotence:
 ///
-/// - Scans only callables whose item reference lives in the target
-///   package; cross-package items stay untouched.
-/// - Returns early without modification when the target package has no
+/// - Walks every package in the entry-reachable closure and rewrites the
+///   tuple comparisons in each reachable callable body, resolving each body
+///   against its owning package. This pass only rewrites expressions WITHIN
+///   bodies (no signatures, no call sites), so widening is localized per
+///   callable.
+/// - Returns early without modification when the entry package has no
 ///   entry expression, since nothing is reachable to rewrite.
 /// - Rewrites each matched expression **in place**, preserving its
 ///   original `ExprId` so downstream references (including
@@ -58,7 +64,7 @@ use qsc_fir::ty::{Prim, Ty};
 pub fn lower_tuple_comparisons(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) {
     let package = store.get(package_id);
     if package.entry.is_none() {
@@ -66,19 +72,31 @@ pub fn lower_tuple_comparisons(
     }
 
     let reachable = collect_reachable_from_entry(store, package_id);
-    let package = store.get(package_id);
-
-    // Collect reachable local callable item IDs.
-    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
-        .map(|(item_id, _)| item_id)
+    let pkg_ids: Vec<PackageId> = collect_reachable_package_closure(package_id, &reachable)
+        .into_iter()
         .collect();
 
-    // Collect all ExprIds in entry expression + reachable callable bodies.
-    let expr_ids = collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+    for pkg_id in pkg_ids {
+        let package = store.get(pkg_id);
 
-    let package = store.get_mut(package_id);
-    for expr_id in expr_ids {
-        lower_single_cmp(package, assigner, expr_id);
+        // Collect reachable local callable item IDs for this package.
+        let local_item_ids: Vec<_> = reachable_local_callables(package, pkg_id, &reachable)
+            .map(|(item_id, _)| item_id)
+            .collect();
+
+        // Collect all ExprIds in reachable callable bodies. The entry
+        // expression lives only in the entry package, so include it there.
+        let expr_ids = if pkg_id == package_id {
+            collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids)
+        } else {
+            collect_expr_ids_in_local_callables(package, &local_item_ids)
+        };
+
+        let assigner = assigners.get_mut(store, pkg_id);
+        let package = store.get_mut(pkg_id);
+        for expr_id in expr_ids {
+            lower_single_cmp(package, assigner, expr_id);
+        }
     }
 }
 

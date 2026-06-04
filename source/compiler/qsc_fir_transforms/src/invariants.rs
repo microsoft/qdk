@@ -22,19 +22,16 @@
 //! | `PostItemDce` | Item DCE — no orphaned live-tree references after item pruning. |
 //! | `PostAll` | All passes — full structural + type checks. |
 //!
-//! # Two entry points
+//! # Entry point
 //!
 //! - [`check`] runs the staged invariant set on the target package's
 //!   entry-rooted reachability closure. At [`InvariantLevel::PostUdtErase`]
 //!   and later it additionally walks the reachable-package closure to apply
 //!   the package-wide UDT-erase invariants to every reachable external
-//!   package.
-//! - [`check_external_spec_exec_graphs`] (crate-private) is a narrower
-//!   companion entry point that validates only the exec-graph surface of
-//!   selected callable specs in *external* packages that an earlier pass
-//!   mutated. The pipeline calls it after `exec_graph_rebuild` to confirm
-//!   that rebuilt external exec graphs are structurally well-formed without
-//!   applying the full target-package invariant set to library packages.
+//!   package. The per-callable structural and exec-graph invariants apply to
+//!   every reachable callable across the closure — including library
+//!   callables that the structural passes transformed in place — while
+//!   remaining scoped to reachable items rather than whole packages.
 
 #[cfg(test)]
 mod tests;
@@ -53,7 +50,6 @@ use qsc_fir::ty::{FunctorSet, Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
-use crate::{CallableSpecId, CallableSpecKind};
 
 /// The level of invariant checking to perform, corresponding to which passes
 /// have already been applied.
@@ -236,7 +232,7 @@ pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: I
         }
     }
 
-    check_reachable_invariants(store, package_id, &reachable, level);
+    check_reachable_invariants(store, &reachable, level);
 
     if level.is_post_defunc_or_later() {
         check_expr_id_ownership(store, package_id, &reachable, entry_id);
@@ -258,71 +254,6 @@ pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: I
             let nodes = package.entry_exec_graph.select_ref(config);
             check_configured_exec_graph(package, nodes, "entry_exec_graph", label);
         }
-    }
-}
-
-/// Checks exec graph integrity for selected external callable specs.
-///
-/// This intentionally validates only the exec graph surface needed after UDT
-/// erasure mutates reachable external specs; it does not apply the full
-/// target-package `PostAll` invariant set to external packages.
-pub(crate) fn check_external_spec_exec_graphs(
-    store: &PackageStore,
-    external_specs: &[CallableSpecId],
-) {
-    for spec_id in external_specs {
-        let package = store.get(spec_id.callable.package);
-        let item = package.get_item(spec_id.callable.item);
-        let ItemKind::Callable(decl) = &item.kind else {
-            panic!("external exec graph invariant expected callable item {spec_id:?}");
-        };
-        let spec = get_spec_decl(package, decl, spec_id.kind);
-        let context = format!(
-            "external {}/{}",
-            decl.name.name,
-            spec_kind_label(spec_id.kind)
-        );
-        check_spec_exec_graph(package, spec, &context);
-        check_spec_exec_graph_ranges(package, spec, &context);
-    }
-}
-
-/// Selects the requested specialization declaration from a callable.
-fn get_spec_decl<'a>(
-    _package: &'a Package,
-    decl: &'a CallableDecl,
-    kind: CallableSpecKind,
-) -> &'a SpecDecl {
-    match (kind, &decl.implementation) {
-        (CallableSpecKind::Body, CallableImpl::Spec(spec_impl)) => &spec_impl.body,
-        (CallableSpecKind::Adj, CallableImpl::Spec(spec_impl)) => {
-            spec_impl.adj.as_ref().expect("adjoint spec should exist")
-        }
-        (CallableSpecKind::Ctl, CallableImpl::Spec(spec_impl)) => spec_impl
-            .ctl
-            .as_ref()
-            .expect("controlled spec should exist"),
-        (CallableSpecKind::CtlAdj, CallableImpl::Spec(spec_impl)) => spec_impl
-            .ctl_adj
-            .as_ref()
-            .expect("controlled adjoint spec should exist"),
-        (CallableSpecKind::SimulatableIntrinsic, CallableImpl::SimulatableIntrinsic(spec)) => spec,
-        _ => panic!(
-            "external exec graph invariant expected spec kind {} on callable '{}'",
-            spec_kind_label(kind),
-            decl.name.name
-        ),
-    }
-}
-
-/// Returns a stable diagnostic label for a callable specialization kind.
-fn spec_kind_label(kind: CallableSpecKind) -> &'static str {
-    match kind {
-        CallableSpecKind::Body => "body",
-        CallableSpecKind::Adj => "adj",
-        CallableSpecKind::Ctl => "ctl",
-        CallableSpecKind::CtlAdj => "ctl_adj",
-        CallableSpecKind::SimulatableIntrinsic => "sim_intrinsic",
     }
 }
 
@@ -440,10 +371,6 @@ pub(crate) fn check_non_unit_block_tails(
     };
 
     for item_id in reachable {
-        if item_id.package != package_id {
-            continue;
-        }
-
         let item_pkg = store.get(item_id.package);
         let item = item_pkg.get_item(item_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
@@ -740,18 +667,16 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
 /// - `check_spec_exec_graph` once exec graphs have been rebuilt at `PostAll`.
 fn check_reachable_invariants(
     store: &PackageStore,
-    target_package_id: qsc_fir::fir::PackageId,
     reachable: &FxHashSet<StoreItemId>,
     level: InvariantLevel,
 ) {
     for item_id in reachable {
-        // Only check invariants on items in the target package. Cross-package
-        // items (e.g. stdlib) are not transformed by the surrounding stages
-        // and may still contain Ty::Param, Arrow types, or closures. Their
-        // package-wide UDT-erasure invariants are checked separately.
-        if item_id.package != target_package_id {
-            continue;
-        }
+        // Every reachable callable — including cross-package library
+        // callables — is transformed in place by the structural passes, so
+        // the stage-specific invariants apply to the whole entry-reachable
+        // closure, not just the target package. The walk is still scoped to
+        // reachable items (not package-wide), so untouched library generics,
+        // higher-order functions, and closures are never checked.
         let item_pkg = store.get(item_id.package);
         let item = item_pkg.get_item(item_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
@@ -1706,30 +1631,6 @@ fn check_spec_exec_graph(package: &Package, spec: &SpecDecl, context: &str) {
     }
 }
 
-/// Validates that every expression in a spec has a non-empty exec graph range
-/// within both configured graph views.
-fn check_spec_exec_graph_ranges(package: &Package, spec: &SpecDecl, context: &str) {
-    let no_debug_len = spec.exec_graph.select_ref(ExecGraphConfig::NoDebug).len();
-    let debug_len = spec.exec_graph.select_ref(ExecGraphConfig::Debug).len();
-
-    crate::walk_utils::for_each_expr_in_block(package, spec.block, &mut |expr_id, expr| {
-        let range = &expr.exec_graph_range;
-        assert!(
-            range.start != range.end,
-            "Exec graph range for {context} Expr {expr_id} is empty"
-        );
-        assert!(
-            range.start.no_debug_idx <= range.end.no_debug_idx
-                && range.end.no_debug_idx <= no_debug_len,
-            "Exec graph range for {context} Expr {expr_id} no_debug indices {range:?} exceed graph length {no_debug_len}"
-        );
-        assert!(
-            range.start.debug_idx <= range.end.debug_idx && range.end.debug_idx <= debug_len,
-            "Exec graph range for {context} Expr {expr_id} debug indices {range:?} exceed graph length {debug_len}"
-        );
-    });
-}
-
 /// Verifies two ownership properties of `ExprId`s after defunctionalization:
 ///
 /// 1. **Per-spec uniqueness**: No `ExprId` appears in more than one
@@ -1751,15 +1652,14 @@ fn check_expr_id_ownership(
     reachable: &FxHashSet<StoreItemId>,
     entry_id: ExprId,
 ) {
-    let package = store.get(package_id);
-
-    // Map each ExprId to the (item, spec_label) that owns it.
-    let mut seen: FxHashMap<ExprId, (LocalItemId, &'static str)> = FxHashMap::default();
+    // `ExprId`s are package-relative, so ownership is tracked with a separate
+    // `seen` map per package. The same `ExprId` value may legitimately appear
+    // in two different packages without being a genuine collision.
+    let mut seen_by_package: FxHashMap<PackageId, FxHashMap<ExprId, (LocalItemId, &'static str)>> =
+        FxHashMap::default();
 
     for item_id in reachable {
-        if item_id.package != package_id {
-            continue;
-        }
+        let package = store.get(item_id.package);
         let item = package.get_item(item_id.item);
         let ItemKind::Callable(decl) = &item.kind else {
             continue;
@@ -1785,6 +1685,7 @@ fn check_expr_id_ownership(
             CallableImpl::Intrinsic => continue,
         };
 
+        let seen = seen_by_package.entry(item_id.package).or_default();
         for (spec, label) in specs {
             let mut expr_ids = FxHashSet::default();
             collect_expr_ids_in_block(package, spec.block, &mut expr_ids);
@@ -1792,8 +1693,8 @@ fn check_expr_id_ownership(
                 if let Some((prev_item, prev_label)) = seen.get(eid) {
                     panic!(
                         "PostDefunc ExprId uniqueness violation: {eid} appears in \
-                         both {prev_item}/{prev_label} and {}/{label}",
-                        item_id.item,
+                         both {prev_item}/{prev_label} and {}/{label} in package {}",
+                        item_id.item, item_id.package,
                     );
                 }
                 seen.insert(*eid, (item_id.item, label));
@@ -1801,15 +1702,20 @@ fn check_expr_id_ownership(
         }
     }
 
-    // Check entry expression ExprIds are disjoint from spec body ExprIds.
+    // Check entry expression ExprIds are disjoint from spec body ExprIds in
+    // the target package (the entry expression lives in the target package,
+    // so only that package's `seen` map is relevant).
+    let package = store.get(package_id);
     let mut entry_expr_ids = FxHashSet::default();
     collect_expr_ids_in_expr(package, entry_id, &mut entry_expr_ids);
-    for eid in &entry_expr_ids {
-        if let Some((owner_item, owner_label)) = seen.get(eid) {
-            panic!(
-                "PostDefunc entry/spec disjointness violation: {eid} appears in \
-                 both the entry expression and {owner_item}/{owner_label}",
-            );
+    if let Some(seen) = seen_by_package.get(&package_id) {
+        for eid in &entry_expr_ids {
+            if let Some((owner_item, owner_label)) = seen.get(eid) {
+                panic!(
+                    "PostDefunc entry/spec disjointness violation: {eid} appears in \
+                     both the entry expression and {owner_item}/{owner_label}",
+                );
+            }
         }
     }
 }

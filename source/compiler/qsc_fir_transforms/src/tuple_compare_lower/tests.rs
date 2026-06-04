@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::package_assigners::PackageAssigners;
 use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{BinOp, CallableImpl, ExprKind, ItemKind, PackageLookup, StmtKind};
 
 /// Runs the pipeline through tuple comparison lowering and extracts a summary
@@ -226,12 +226,6 @@ fn dynamic_tuple_eq_decomposed() {
                 __quantum__rt__qubit_release(_generated_ident_39);
                 _generated_ident_55
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
@@ -246,12 +240,6 @@ fn dynamic_tuple_eq_decomposed() {
                 __quantum__rt__qubit_release(_generated_ident_41);
                 __quantum__rt__qubit_release(_generated_ident_39);
                 _generated_ident_55
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -300,12 +288,6 @@ fn dynamic_tuple_neq_decomposed() {
                 __quantum__rt__qubit_release(_generated_ident_39);
                 _generated_ident_55
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
@@ -320,12 +302,6 @@ fn dynamic_tuple_neq_decomposed() {
                 __quantum__rt__qubit_release(_generated_ident_41);
                 __quantum__rt__qubit_release(_generated_ident_39);
                 _generated_ident_55
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -408,12 +384,6 @@ fn mixed_classical_dynamic_tuple_decomposed() {
                 __quantum__rt__qubit_release(q);
                 _generated_ident_32
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
@@ -425,12 +395,6 @@ fn mixed_classical_dynamic_tuple_decomposed() {
                 let _generated_ident_32 : Bool = 1 == 0 and r == Zero;
                 __quantum__rt__qubit_release(q);
                 _generated_ident_32
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -515,12 +479,6 @@ fn nested_tuple_eq_recursively_decomposes_inner_elements() {
                 __quantum__rt__qubit_release(q1);
                 _generated_ident_55
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
@@ -535,12 +493,6 @@ fn nested_tuple_eq_recursively_decomposes_inner_elements() {
                 __quantum__rt__qubit_release(q2);
                 __quantum__rt__qubit_release(q1);
                 _generated_ident_55
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -672,8 +624,8 @@ fn tuple_compare_lower_is_idempotent() {
     "};
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    crate::tuple_compare_lower::lower_tuple_comparisons(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    crate::tuple_compare_lower::lower_tuple_comparisons(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "tuple_compare_lower should be idempotent");
 }
