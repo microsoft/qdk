@@ -320,7 +320,7 @@ pub fn get_rir(program: ProgramConfig) -> Result<Vec<String>, String> {
     }
 }
 
-/// Compiles raw OpenQASM sources into a Q# package store, returning the store and the id of the
+/// Compiles raw `OpenQASM` sources into a Q# package store, returning the store and the id of the
 /// compiled package. Used by the AST and HIR views, which read the compiled package directly.
 fn compile_openqasm_to_store(
     sources: &[(Arc<str>, Arc<str>)],

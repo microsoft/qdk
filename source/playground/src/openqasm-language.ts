@@ -142,10 +142,7 @@ const language: monaco.languages.IMonarchLanguage = {
       [/[{}()[\]]/, "@brackets"],
       [/@symbols/, { cases: { "@operators": "operator", "@default": "" } }],
       // numbers (including timing literals like 100ns, 10us, 5dt)
-      [
-        /\d*\.\d+([eE][-+]?\d+)?(ns|us|µs|ms|s|dt)?/,
-        "number.float",
-      ],
+      [/\d*\.\d+([eE][-+]?\d+)?(ns|us|µs|ms|s|dt)?/, "number.float"],
       [/\d+(ns|us|µs|ms|s|dt)?/, "number"],
       // delimiter: after number because of .\d floats
       [/[;,.]/, "delimiter"],
