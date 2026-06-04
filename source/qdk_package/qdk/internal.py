@@ -3,7 +3,7 @@
 
 """Internal types that appear in the public API surface.
 
-.. warning::
+Warning:
     The types exposed here are **not** part of the supported public API
     and may change in any release without notice.  They are made reachable
     from this module solely so that:
