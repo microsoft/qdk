@@ -41,6 +41,7 @@ from ._native import (  # type: ignore
     Output,
     Pauli,
     PrimitiveKind,
+    ProgramType,
     QSharpError,
     Result,
     StateDumpData,
@@ -553,20 +554,37 @@ class Context:
         if getattr(struct_type, "_qdk_context") is not self:
             raise QSharpError("This struct belongs to a different Context. ")
 
-    def load_circuit(self, path: str, *, index: int = 0) -> Callable:
+    def import_circuit(
+        self,
+        path: str,
+        *,
+        index: int = 0,
+        program_type: ProgramType = ProgramType.File,
+    ) -> Callable:
         """
-        Loads a visual circuit file as a callable in this context.
+        Imports a visual circuit file as a callable in this context.
 
         :param path: Path to a ``.qsc`` visual circuit file.
         :keyword index: Index of the circuit to return when the file contains
             multiple circuits. Defaults to ``0``.
-        :return: A zero-argument Q# callable that allocates the circuit qubits,
-            applies the visual circuit, resets the qubits, and returns any
-            measurement results.
+        :keyword program_type: Controls how the circuit is imported:
+            ``ProgramType.File`` (default) imports a zero-argument wrapper that
+            allocates the circuit qubits, applies the visual circuit, resets the
+            qubits, and returns any measurement results. ``ProgramType.Operation``
+            imports the visual circuit operation itself, which takes a
+            ``Qubit[]`` argument and is intended for composition from Q# entry
+            expressions.
+        :return: The imported Q# callable.
         :rtype: Callable
         :raises QSharpError: If the file cannot be read or converted to Q#.
         """
         from ._fs import read_file, resolve
+
+        if program_type not in (ProgramType.File, ProgramType.Operation):
+            raise QSharpError(
+                "Visual circuit import supports ProgramType.File and "
+                "ProgramType.Operation only."
+            )
 
         resolved_path = resolve(".", path)
         try:
@@ -586,16 +604,21 @@ class Context:
         circuit_operation_name = (
             operation_name if circuit_count == 1 else f"{operation_name}{index}"
         )
-        wrapper_name = f"{circuit_operation_name}_Entry"
-        wrapper_source = _visual_circuit_wrapper_source(
-            circuit_operation_name, wrapper_name, qubit_count, return_type
-        )
+        eval_source = generated_source
+        callable_name = circuit_operation_name
+        if program_type == ProgramType.File:
+            wrapper_name = f"{circuit_operation_name}_Entry"
+            wrapper_source = _visual_circuit_wrapper_source(
+                circuit_operation_name, wrapper_name, qubit_count, return_type
+            )
+            eval_source = f"{generated_source}\n{wrapper_source}"
+            callable_name = wrapper_name
 
         # generated_source is produced by the native visual-circuit compiler;
-        # wrapper_source is assembled from sanitized operation names and type metadata.
-        eval_source = f"{generated_source}\n{wrapper_source}"
+        # wrapper_source, when present, is assembled from sanitized operation
+        # names and type metadata.
         self.eval(eval_source)  # DevSkim: ignore DS189424
-        return getattr(self.code, wrapper_name)
+        return getattr(self.code, callable_name)
 
     def eval(
         self,

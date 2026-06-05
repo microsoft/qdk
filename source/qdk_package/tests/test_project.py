@@ -82,24 +82,36 @@ def test_circuit(qsharp) -> None:
     assert result == qsharp.Result.Zero
 
 
-def test_load_circuit(qsharp) -> None:
+def test_import_circuit(qsharp) -> None:
     import qdk
 
     ctx = qdk.Context()
-    circuit = ctx.load_circuit("/standalone/circuit.qsc")
+    circuit = ctx.import_circuit("/standalone/circuit.qsc")
     assert ctx.run(circuit, 1) == [qsharp.Result.Zero]
     assert ctx.circuit(circuit) is not None
 
 
-def test_load_circuit_from_multiple_circuit_file(qsharp) -> None:
+def test_import_circuit_from_multiple_circuit_file(qsharp) -> None:
     import qdk
 
     ctx = qdk.Context()
-    first_circuit = ctx.load_circuit("/standalone/multiple_circuits.qsc")
-    second_circuit = ctx.load_circuit("/standalone/multiple_circuits.qsc", index=1)
+    first_circuit = ctx.import_circuit("/standalone/multiple_circuits.qsc")
+    second_circuit = ctx.import_circuit("/standalone/multiple_circuits.qsc", index=1)
 
     assert ctx.run(first_circuit, 1) == [qsharp.Result.Zero]
     assert ctx.run(second_circuit, 1) == [qsharp.Result.One]
+
+
+def test_import_circuit_as_operation(qsharp) -> None:
+    import qdk
+    from qdk._native import ProgramType
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit(
+        "/standalone/circuit.qsc", program_type=ProgramType.Operation
+    )
+    assert circuit is not None
+    assert ctx.run("{ use qs = Qubit[1]; circuit_0(qs) }", 1) == [qsharp.Result.Zero]
 
 
 def test_src_package_udt(qsharp) -> None:
