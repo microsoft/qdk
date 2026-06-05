@@ -1,33 +1,25 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// operationPrompts tests — pins the prompt-aware delete/move
-// wrappers in `editor/operationPrompts.ts`:
+// operationPrompts tests — covers the prompt-aware delete/move
+// wrappers in `editor/operationPrompts.ts`.
 //
-//   - `_deleteOperationWithConfirmation`: the fast paths
-//     (non-measurement, M with no classical consumers) skip the
-//     prompt and mutate + render immediately; the M-with-consumers
-//     path opens a confirm dialog whose message singularizes /
-//     pluralizes the consumer count, and only commits the cascade
-//     delete on OK. Cancel = no mutation, no `renderFn`.
+//   - `_deleteOperationWithConfirmation`: fast paths (non-M, M
+//     with no classical consumers) skip the prompt and mutate +
+//     render immediately; the M-with-consumers path opens a
+//     confirm dialog whose message singularizes / pluralizes the
+//     consumer count, and only commits the cascade on OK.
 //
 //   - `_moveOperationWithConfirmation`: same fast-path / prompt
 //     split, plus the three message-shape branches in
-//     `_buildMoveMConsumerMessage`:
-//       (a) pure survivors — "will be updated to reference this
-//           measurement's new wire";
-//       (b) pure invalidated — "will be deleted";
-//       (c) mixed — both clauses, joined with "; ".
-//     OK runs the partitioned cascade; Cancel = no mutation, no
-//     `renderFn`. The `movingControl` parameter is threaded to
-//     `moveOperation` unchanged on the fast path (the B11a
-//     control-dot-of-a-CNOT regression guard).
+//     `_buildMoveMConsumerMessage` (pure survivors, pure
+//     invalidated, mixed). `movingControl` is threaded through to
+//     `moveOperation` unchanged on the fast path.
 //
-// Both wrappers reach `_createConfirmPrompt` from
-// [prompts.ts](../../ux/circuit-vis/editor/prompts.ts), which
-// builds a `.prompt-overlay` DOM subtree — these tests run under
-// JSDOM and drive the dialog by querying for the rendered
-// `.prompt-button` elements and clicking them.
+// Both wrappers reach `_createConfirmPrompt` from `prompts.ts`,
+// which builds a `.prompt-overlay` DOM subtree. Tests run under
+// JSDOM and drive the dialog by querying for `.prompt-button`
+// elements.
 
 // @ts-check
 
@@ -54,25 +46,22 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Tear down DOM-level singletons aggressively — `_createConfirmPrompt`
-  // installs a document-level keydown listener that's only removed
-  // on OK/Cancel click, so a test that asserts a prompt was NEVER
-  // opened still needs a clean slate for the next test.
+  // `_createConfirmPrompt` installs a document-level keydown
+  // listener only removed on OK/Cancel click; closing JSDOM
+  // ensures a clean slate even if a prompt was never opened.
   jsdom?.window.close();
   jsdom = null;
 });
 
 /**
- * Query the currently-rendered confirm prompt. Returns null if
- * none is open; useful both for asserting "no prompt was opened"
- * and for grabbing the message / buttons in the open-prompt tests.
+ * Query the currently-rendered confirm prompt. Returns null when
+ * none is open. The first button is OK, the second is Cancel.
  */
 function getOpenPrompt() {
   const overlay = document.querySelector(".prompt-overlay");
   if (!overlay) return null;
   const messageElem = overlay.querySelector(".prompt-message");
   const buttons = overlay.querySelectorAll(".prompt-button");
-  // Two buttons in this prompt: OK first, Cancel second.
   return {
     overlay,
     message: messageElem?.textContent ?? "",
@@ -95,9 +84,8 @@ function makeRenderSpy() {
 // ---------------------------------------------------------------------------
 
 test("_deleteOperationWithConfirmation: non-measurement op deletes immediately, no prompt", () => {
-  // Fast path: any non-M op (here a plain H) bypasses the
-  // consumer-collection branch entirely and dispatches straight
-  // to `removeOperation` + `renderFn`. No DOM overlay is created.
+  // Fast path: any non-M op bypasses the consumer-collection branch
+  // and dispatches straight to `removeOperation` + `renderFn`.
   const model = new CircuitModel({
     qubits: [{ id: 0 }],
     componentGrid: [
@@ -121,9 +109,8 @@ test("_deleteOperationWithConfirmation: non-measurement op deletes immediately, 
 
 test("_deleteOperationWithConfirmation: measurement with NO classical consumers deletes immediately", () => {
   // Second fast path: an M whose `collectMeasurementConsumers`
-  // returns `[]` (no consumer reads its classical result) still
-  // skips the prompt — there's nothing the user could lose by
-  // deleting it.
+  // returns `[]` (no consumer reads its result) also skips the
+  // prompt.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }],
     componentGrid: [
@@ -151,9 +138,8 @@ test("_deleteOperationWithConfirmation: measurement with NO classical consumers 
 
 test("_deleteOperationWithConfirmation: M with 1 consumer opens a SINGULAR prompt; OK cascades", () => {
   // M produces (qubit=0, result=0); one classically-controlled X
-  // consumes it. The prompt body must read in the singular form
-  // ("1 dependent operation"), and OK must run the cascade through
-  // `removeMeasurementWithDependents` so both ops vanish.
+  // consumes it. Message must use the singular form; OK must
+  // cascade both ops away.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }],
     componentGrid: [
@@ -208,10 +194,9 @@ test("_deleteOperationWithConfirmation: M with 1 consumer opens a SINGULAR promp
 });
 
 test("_deleteOperationWithConfirmation: M with 3 consumers opens a PLURAL prompt", () => {
-  // Pluralization branch: three consumers all reading the same
-  // (qubit=0, result=0) classical register. Asserting only on the
-  // message form here — the OK-cascade behavior is the same as
-  // the singular case.
+  // Pluralization branch: three consumers reading the same
+  // (qubit=0, result=0) register. OK-cascade behavior matches the
+  // singular case; this test asserts only on the message form.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }, { id: 3 }],
     componentGrid: [
@@ -263,9 +248,8 @@ test("_deleteOperationWithConfirmation: M with 3 consumers opens a PLURAL prompt
 });
 
 test("_deleteOperationWithConfirmation: M-with-consumers Cancel makes NO mutations and does NOT render", () => {
-  // The audit's quick-win #2 specifically: pin the cancel path.
-  // Model state must be byte-for-byte identical before and after,
-  // and `renderFn` must NOT have been called.
+  // Pins the cancel path: model state byte-for-byte identical
+  // before and after, and `renderFn` was never called.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }],
     componentGrid: [
@@ -319,8 +303,7 @@ test("_deleteOperationWithConfirmation: M-with-consumers Cancel makes NO mutatio
 test("_moveOperationWithConfirmation: non-measurement op moves immediately, no prompt", () => {
   // Fast path: ordinary unitary, no consumers to consider. The
   // wrapper passes through to `moveOperation` with `movingControl`
-  // threaded as-is (this is the B11a guard for CNOT-control-dot
-  // drags — see the doc comment on the wrapper).
+  // threaded as-is.
   const model = new CircuitModel({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -396,10 +379,8 @@ test("_moveOperationWithConfirmation: M with NO consumers moves immediately, no 
 
 test("_moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the update-only message", () => {
   // Survivors-only partition: target column < every consumer's
-  // column. The M is moving FORWARD (or staying in place) so
-  // every consumer still comes after it; nothing gets deleted.
-  // Message must contain the "will be updated" clause and NOT the
-  // "will be deleted" clause.
+  // column. The M moves forward (or stays) so every consumer still
+  // comes after it; nothing gets deleted.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
     componentGrid: [
@@ -440,9 +421,8 @@ test("_moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the 
   });
   const render = makeRenderSpy();
 
-  // Move the M to column 0 (its current spot — but target column
-  // is still strictly before columns 1 and 2). Both consumers
-  // partition into survivors.
+  // Move the M to column 0 (its current spot) — still strictly
+  // before columns 1 and 2. Both consumers partition into survivors.
   _moveOperationWithConfirmation(
     model,
     "0,0",
@@ -470,9 +450,8 @@ test("_moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the 
 
 test("_moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows the delete-only message", () => {
   // Invalidated-only partition: target column >= every consumer's
-  // column (i.e. moving the M past all its consumers). Every
-  // consumer flips into the "will be deleted" bucket; no
-  // "will be updated" clause appears.
+  // column — the M moves past all its consumers. Every consumer
+  // flips into the "will be deleted" bucket.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
     componentGrid: [
@@ -502,9 +481,9 @@ test("_moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows th
   });
   const render = makeRenderSpy();
 
-  // Move M into column 1 (where the consumer currently sits).
-  // Target column = consumer's column → `inEarlierColumnThan`
-  // is false → consumer is invalidated.
+  // Move M into column 1 (the consumer's column). Target column ==
+  // consumer's column → `inEarlierColumnThan` is false → consumer
+  // is invalidated.
   _moveOperationWithConfirmation(
     model,
     "0,0",
@@ -534,8 +513,7 @@ test("_moveOperationWithConfirmation: M with MIXED consumers shows both clauses 
   // Mixed partition: target column splits the consumer list —
   // some stay after (survivors → updated), some end up at-or-
   // before (invalidated → deleted). Message must include BOTH
-  // clauses and the explicit '; ' separator from
-  // `_buildMoveMConsumerMessage`.
+  // clauses and the explicit '; ' separator.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
     componentGrid: [
@@ -551,8 +529,7 @@ test("_moveOperationWithConfirmation: M with MIXED consumers shows both clauses 
         ],
       },
       {
-        // Column 1: consumer #1 — will be invalidated (column ==
-        // target column 1 → not in earlier column).
+        // Column 1: consumer #1 — invalidated (column == target).
         components: [
           {
             kind: "unitary",
@@ -563,8 +540,7 @@ test("_moveOperationWithConfirmation: M with MIXED consumers shows both clauses 
         ],
       },
       {
-        // Column 2: consumer #2 — will survive (column 2 > target
-        // column 1).
+        // Column 2: consumer #2 — survives (column > target).
         components: [
           {
             kind: "unitary",
@@ -668,10 +644,10 @@ test("_moveOperationWithConfirmation: M-with-consumers Cancel makes NO mutations
 });
 
 test("_moveOperationWithConfirmation: M-with-consumers OK cascades through moveMeasurementWithDependents", () => {
-  // Sanity-check the OK branch: a mixed partition cascade. After
-  // commit, the M has moved to the target column, the survivor
-  // had its classical control's `qubit` remapped to the M's new
-  // wire, and the invalidated consumer is gone.
+  // Sanity check on the OK branch with a mixed partition. After
+  // commit: the M moved to the target column, the survivor's
+  // classical control was remapped to the M's new wire, and the
+  // invalidated consumer is gone.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
     componentGrid: [
@@ -744,11 +720,9 @@ test("_moveOperationWithConfirmation: M-with-consumers OK cascades through moveM
     undefined,
     "invalidated X consumer must have been cascade-deleted",
   );
-  // The Y (survivor) must still exist; its classical control
-  // qubit will have been remapped via the cascade. We only assert
-  // it still exists here — the exact remap is the contract of
-  // `moveMeasurementWithDependents` and is covered by
-  // [circuitActions.test.mjs](circuitActions.test.mjs).
+  // The Y (survivor) must still exist. The exact remap is the
+  // contract of `moveMeasurementWithDependents`, covered in
+  // circuitActions.test.mjs.
   assert.ok(
     allOps.find((o) => /** @type {any} */ (o).gate === "Y"),
     "survivor Y consumer must remain",

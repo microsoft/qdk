@@ -9,7 +9,7 @@
 //   - Default state is empty.
 //   - setExpanded(true) and setExpanded(false) both record overrides.
 //   - Collapsing a parent prunes user overrides on its descendants
-//     (matches the original `collapseOperation` semantics).
+//     so re-expanding doesn't resurface stale child choices.
 //   - applyTo writes overrides into a component grid, leaves
 //     non-overridden ops alone, and recurses into children.
 
@@ -34,9 +34,9 @@ test("ViewState: setExpanded records expand and collapse choices", () => {
 });
 
 test("ViewState: setExpanded(true) does NOT clear descendants", () => {
-  // Re-expanding a parent should leave previously-recorded descendant
-  // choices alone — the user's prior choices on the body of the group
-  // should resurface when the group is shown again.
+  // Re-expanding a parent leaves descendant choices alone — the
+  // user's prior choices on the body of the group resurface when
+  // the group is shown again.
   const v = new ViewState();
   v.setExpanded("0,0", true);
   v.setExpanded("0,0-1,0", false);
@@ -49,9 +49,8 @@ test("ViewState: setExpanded(true) does NOT clear descendants", () => {
 });
 
 test("ViewState: setExpanded(false) prunes descendant overrides", () => {
-  // Mirrors the original `collapseOperation` behavior: collapsing
-  // a parent forgets descendant choices so re-expanding doesn't
-  // auto-spring previously-expanded children back open.
+  // Collapsing a parent forgets descendant choices so re-expanding
+  // doesn't auto-spring previously-expanded children back open.
   const v = new ViewState();
   v.setExpanded("0,0", true);
   v.setExpanded("0,0-1,0", true);

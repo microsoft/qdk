@@ -5,25 +5,22 @@
 // confirm-dialog primitive in `editor/prompts.ts`. Pins:
 //
 //   - DOM shape: `.prompt-overlay > .prompt-container >
-//     .prompt-message + .prompt-buttons > [OK, Cancel]`. (The
-//     widget classes are load-bearing — they're how the CSS in
-//     the host page styles the dialog AND how the test in
-//     [operationPrompts.test.mjs](operationPrompts.test.mjs)
-//     locates the buttons.)
+//     .prompt-message + .prompt-buttons > [OK, Cancel]`. The
+//     widget classes are load-bearing — the host page's CSS styles
+//     by them and operationPrompts.test.mjs locates buttons by them.
 //   - Click semantics: OK → `callback(true)` + overlay removed;
 //     Cancel → `callback(false)` + overlay removed.
-//   - Keyboard semantics: Enter → OK; Escape → Cancel. Both are
-//     wired through a document-level capture-phase keydown
-//     listener so the prompt wins over any descendant input
-//     handler in the editor surface.
-//   - Listener lifecycle: the document-level keydown listener is
-//     removed when the prompt closes (clicking OK or Cancel —
-//     including the synthetic click from Enter/Escape), so a
-//     subsequent key press does NOT re-invoke the callback.
+//   - Keyboard semantics: Enter → OK, Escape → Cancel, wired through
+//     a document-level capture-phase keydown listener so the prompt
+//     wins over any descendant input handler.
+//   - Listener lifecycle: the keydown listener is removed when the
+//     prompt closes (clicking OK or Cancel — including via Enter or
+//     Escape), so a subsequent key press doesn't re-invoke the
+//     callback.
 //
-// `_createConfirmPrompt` is exported and self-contained; it
-// doesn't depend on `CircuitEvents` or any controller, so these
-// tests stand alone over a bare JSDOM document.
+// `_createConfirmPrompt` is exported and self-contained — no
+// `CircuitEvents` or controller dependency — so these tests stand
+// alone over a bare JSDOM document.
 
 // @ts-check
 

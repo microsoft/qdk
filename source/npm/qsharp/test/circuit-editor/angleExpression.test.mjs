@@ -6,23 +6,12 @@
 // in [contextMenu.ts](../../ux/circuit-vis/editor/contextMenu.ts):
 //
 //   - `isValidAngleExpression(expr)` is the predicate the prompt
-//     consults on every keystroke to enable / disable the OK
-//     button. Anything it accepts ends up persisted into the
-//     operation's `args` array; anything it rejects keeps OK
-//     disabled. The actual evaluator (`evaluateAngleExpression`)
-//     has broad indirect coverage through
-//     [state-viz/stateCompute.test.mjs](../state-viz/stateCompute.test.mjs);
-//     what's not pinned anywhere is the validity *contract* — the
-//     set of strings the editor treats as "good" for the Edit
-//     Argument flow.
-//
-//   - `normalizeAngleExpression(expr)` is the preprocessing step
-//     the prompt runs BEFORE validation: it trims surrounding
-//     whitespace and folds case-insensitive `pi` → `π`. The
-//     contract matters because the persisted value (what gets
-//     written into `args`) is the normalized form, and because
-//     the OK button's enabled/disabled state must agree with
-//     what the user sees after pressing Save.
+//     consults on every keystroke to enable/disable OK. Anything it
+//     accepts ends up persisted into the operation's `args`.
+//   - `normalizeAngleExpression(expr)` runs BEFORE validation: it
+//     trims surrounding whitespace and folds case-insensitive `pi`
+//     to `π`. The persisted value is the normalized form, so OK's
+//     enabled state must agree with what the user sees after Save.
 
 // @ts-check
 

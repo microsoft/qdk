@@ -229,22 +229,12 @@ test("removeTrailingUnusedQubits empties the model when no wires are used", () =
 });
 
 test("removeTrailingUnusedQubits walks nested children, not just qubitUseCounts", () => {
-  // Regression for the "drag into group → render crash" bug:
-  //   * The renderer reads every op's `.targets` / `.controls`
-  //     directly, INCLUDING the derived `.targets` field on group
-  //     ops that `getChildTargets` rewrites after a move.
-  //   * `qubitUseCounts` is maintained incrementally by `_addOp` /
-  //     `_removeOp` and is NOT updated when `getChildTargets`
-  //     rewrites a group's targets.
-  //   * If we trust `qubitUseCounts` to decide which trailing wires
-  //     to drop, we can drop a wire that a group op still names in
-  //     its derived `.targets` — and the next render throws
-  //     "Cannot read properties of undefined (reading
-  //     'currentGroupBordersBelowWire')" because `rowHeights[wire]`
-  //     is missing.
-  //
-  // Walking the actual tree (this test) avoids that whole class
-  // of drift.
+  // The trim must walk the actual op tree (including each group's
+  // derived `.targets`), not the incrementally-maintained
+  // `qubitUseCounts`. Groups can name wires in their derived
+  // `.targets` that the use-count cache no longer reflects;
+  // trusting the cache could drop a wire still referenced by a
+  // group, leaving the renderer with a stale row index.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],

@@ -208,14 +208,12 @@ test("getChildTargets: walks into nested groups", () => {
 });
 
 test("getChildTargets: preserves measurement result registers as distinct entries", () => {
-  // Regression test for the strip-`result` bug. A child
-  // measurement on wire 0 produces classical result 0; the
+  // A child measurement on wire 0 produces classical result 0; the
   // measurement contributes BOTH `{qubit:0}` (the quantum input,
   // pushed from `operation.qubits`) AND `{qubit:0, result:0}`
   // (the classical output, pushed from `operation.results`).
-  // The dedup pass previously keyed on `qubit` alone and rebuilt
-  // output as `{qubit}` only — silently dropping `result` and
-  // collapsing the two distinct registers into one bare qubit.
+  // The dedup pass keys on `(qubit, result)` so the two distinct
+  // registers survive as separate entries.
   const foo = group(
     "Foo",
     [{ qubit: 0 }],
@@ -306,9 +304,9 @@ test("getChildTargets: returns fresh register objects, not aliases of child regi
 // getOuterColumnSiblingWires
 // ============================================================
 //
-// Used by the shift-extend dropzone filter (B6) to identify wires
-// that an op cannot directly extend onto because an external
-// sibling in the op's outer column already occupies them. The
+// Used by the shift-extend dropzone filter to identify wires that
+// an op cannot directly extend onto because an external sibling
+// in the op's outer column already occupies them. The
 // "cross-over" case (extending past an in-between sibling) is
 // intentionally NOT covered here — that's a property of the
 // action-layer overlap resolver and is tested in
@@ -373,8 +371,7 @@ test("getOuterColumnSiblingWires: excludes classical-ref entries on siblings", (
   // a measurement on q0 contributes ONLY wire 3 — the classical
   // ref paints as a thin indicator on q0, not a real visual wire
   // occupant, so it doesn't represent a "drop here would overlap"
-  // situation. Mirrors the B5 pattern of filtering by
-  // `result === undefined`.
+  // situation. Pure-quantum filtering matches `result === undefined`.
   const componentGrid = grid([
     [
       u("Foo", [{ qubit: 1 }]),
@@ -443,10 +440,10 @@ test("getOuterColumnSiblingWires: location resolving to no parent array returns 
 // ============================================================
 //
 // Composes `getOuterColumnSiblingWires` across the location's full
-// ancestor chain. Used by the shift-extend dropzone filter (B6 follow-up)
-// because the cascade widens every ancestor whose span doesn't already
-// enclose the drop wire — collisions can show up at ANY level, not just
-// the immediate parent's.
+// ancestor chain. Used by the shift-extend dropzone filter because
+// the cascade widens every ancestor whose span doesn't already
+// enclose the drop wire — collisions can show up at ANY level, not
+// just the immediate parent's.
 
 test("getAncestorColumnSiblingWires: null / empty location returns empty set", () => {
   const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);

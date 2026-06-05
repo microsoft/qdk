@@ -90,15 +90,13 @@ function singleCircuit(circuit) {
 }
 
 // ---------------------------------------------------------------------------
-// Regression baseline — circuits without any expanded groups should
-// continue to produce only top-level dropzones (single-segment locations
-// like "0,0"). This test passes today and is the load-bearing guard
-// against Phase A accidentally changing top-level behavior.
+// Baseline: flat circuits emit only top-level (single-segment)
+// dropzone locations.
 // ---------------------------------------------------------------------------
 
 test("flat circuit emits only top-level dropzones", () => {
-  // Two qubits, two columns: H on q0, then CNOT (control q0, target q1).
-  // No groups; nothing to recurse into.
+  // Two qubits, two columns: H on q0, then CNOT (control q0,
+  // target q1). No groups.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -142,16 +140,13 @@ test("flat circuit emits only top-level dropzones", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase A target: an expanded custom-gate group should produce
-// dropzones inside its body. The location strings of those dropzones
-// must be nested (start with the parent's location, followed by `-`).
+// Expanded groups: dropzones inside the body carry nested location
+// strings (the parent location followed by `-`).
 // ---------------------------------------------------------------------------
 
 test("expanded group emits nested-location dropzones inside its body", () => {
-  // A custom gate `Foo` containing one nested `H`. We mark `Foo` as
-  // explicitly expanded via `dataAttributes` so the renderer shows its
-  // body (which is what the editor does when the user clicks the
-  // expand chevron).
+  // Custom gate `Foo` containing one nested `H`. Foo is marked
+  // expanded via `dataAttributes` so the renderer shows its body.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -193,12 +188,10 @@ test("expanded group emits nested-location dropzones inside its body", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase A wire-extent clipping: an expanded group spanning only a
-// subset of wires must not emit nested dropzones on wires outside its
-// extent. Without this clipping, the editor would let a user "drop
-// into" Foo on wire 2 even though Foo only spans wires 0 and 1, which
-// the data model can't represent without silently extending Foo's
-// targets.
+// Wire-extent clipping: an expanded group that spans only some wires
+// must not emit nested dropzones on wires outside its extent — the
+// data model can't represent a drop into Foo on a wire Foo doesn't
+// already cover without silently widening Foo's targets.
 // ---------------------------------------------------------------------------
 
 test("nested dropzones are clipped to the group's wire extent", () => {
@@ -239,16 +232,14 @@ test("nested dropzones are clipped to the group's wire extent", () => {
   const dropzones = renderAndCollectDropzones(group);
   const nested = dropzones.filter((d) => d.location.startsWith("0,0-"));
 
-  // First: nested dropzones must actually exist — otherwise the
-  // clipping assertion below is vacuously true and would silently
-  // hide a Phase A regression where recursion stops emitting them.
+  // Nested dropzones must exist — otherwise the clipping assertion
+  // below is vacuously true.
   assert.ok(
     nested.length > 0,
     "expected some nested dropzones inside expanded Foo group",
   );
 
-  // Then: none of them may target wire 2, which lies outside Foo's
-  // [0, 1] extent.
+  // None of them may target wire 2 (outside Foo's [0, 1] extent).
   const leaked = nested.filter((d) => d.wire >= 2);
   assert.deepEqual(
     leaked,
@@ -260,28 +251,20 @@ test("nested dropzones are clipped to the group's wire extent", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Regression: nested dropzones must appear inside groups that are
-// *rendered* expanded, even when the source op has no pre-baked
-// `dataAttributes.expanded` flag.
+// Nested dropzones must appear when a group is rendered expanded by
+// the renderer (via `renderDepth` or chevron click) even when the
+// source op has no pre-baked `dataAttributes.expanded` flag.
 //
-// This is the real-editor scenario. `Sqore.renderCircuit` deep-copies
-// the circuit and then runs `expandOperationsToDepth` /
-// `expandIfSingleOperation` on the COPY — never on `this.circuit`.
-// User clicks on the expand chevron also mutate the copy only.
-//
+// `Sqore.renderCircuit` deep-copies the circuit and runs
+// `expandOperationsToDepth` / `expandIfSingleOperation` on the copy.
 // The dropzone recursion iterates `sqore.circuit.componentGrid` (the
-// original), so any check based on `op.dataAttributes.expanded` reads
-// stale data and never recurses into render-time-expanded groups. The
-// LayoutMap, built from the copy, is the source of truth for what was
-// actually laid out — recursion should be driven by that, not by the
-// source op's flag.
+// original), so it must be driven by the LayoutMap (built from the
+// copy), not by the source op's flag.
 // ---------------------------------------------------------------------------
 
 test("nested dropzones appear when expansion is render-time only (not pre-baked)", () => {
-  // Foo has children but NO `dataAttributes.expanded` pre-set. The
-  // editor will see this op (in the original grid) without any expand
-  // flag. Render-time expansion comes from `renderDepth: 5`, which
-  // `Sqore.renderCircuit` applies to the deep copy only.
+  // Foo has children but no `dataAttributes.expanded`. Render-time
+  // expansion comes from `renderDepth: 5` in the helper.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -291,9 +274,9 @@ test("nested dropzones appear when expansion is render-time only (not pre-baked)
             kind: "unitary",
             gate: "Foo",
             targets: [{ qubit: 0 }, { qubit: 1 }],
-            // Note: NO dataAttributes here. This is what the editor
-            // actually sees in `sqore.circuit.componentGrid` for any
-            // group the user expands via the chevron.
+            // No `dataAttributes` here — what the editor sees in
+            // `sqore.circuit.componentGrid` for a group expanded via
+            // the chevron.
             children: [
               {
                 components: [
@@ -325,24 +308,17 @@ test("nested dropzones appear when expansion is render-time only (not pre-baked)
 // ---------------------------------------------------------------------------
 // Persistent view state: a user-initiated expand (chevron click) must
 // survive subsequent re-renders, including those triggered by editor
-// mutations.
-//
-// Before the ViewState layer existed, chevron clicks mutated the
-// per-render deep copy `_circuit` directly. The next call to
-// `renderCircuit` (e.g. from an editor refresh) discarded that copy
-// and rebuilt from `this.circuit`, losing every user expand choice.
-// `ViewState` decouples view preferences from the saved circuit so
-// they survive the deep-copy.
+// mutations. `ViewState` decouples view preferences from the saved
+// circuit so they survive the per-render deep copy.
 // ---------------------------------------------------------------------------
 
 test("user expand choice survives a re-render via ViewState", async () => {
-  // Construct Sqore directly so the test can call its private
-  // renderCircuit to simulate an editor-mutation refresh. (Tests
-  // can ignore the TypeScript `private` modifier at runtime.)
+  // Construct Sqore directly so the test can call its renderCircuit
+  // method to simulate an editor-mutation refresh.
   const { Sqore } = await import("../../dist/ux/circuit-vis/sqore.js");
 
-  // 2 columns prevents `expandIfSingleOperation` from auto-expanding
-  // — Foo will start collapsed.
+  // 2 columns prevents `expandIfSingleOperation` from auto-expanding;
+  // Foo starts collapsed.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
     componentGrid: [
@@ -429,14 +405,12 @@ test("user expand choice survives a re-render via ViewState", async () => {
     "viewState should record the user's expand choice",
   );
 
-  // Simulate an editor-mutation refresh — the same path
-  // `() => sqore.renderCircuit(container)` that the editor
+  // Simulate an editor-mutation refresh — the same path the editor
   // controllers use after every Action.
   sqore.renderCircuit(container);
 
-  // The bug was here: pre-ViewState, this re-render would deep-copy
-  // `this.circuit` (no expand flag), and Foo would collapse again.
-  // With ViewState, `applyTo` re-applies the user override.
+  // ViewState's `applyTo` re-applies the user override across the
+  // deep-copy boundary, so Foo stays expanded.
   assert.ok(
     collectNested().length > 0,
     "Foo's expand state must survive the editor-mutation re-render",
@@ -449,11 +423,9 @@ test("user expand choice survives a re-render via ViewState", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Drag-causes-shift integration test. Reproduces the user-visible bug
-// where dragging a gate around — or any edit that splices a new column
-// into the top-level grid — would silently collapse an expanded group
-// because the group's location string changed (`"1,0"` → `"2,0"`)
-// while its viewState entry stayed at the old key. `Sqore` now
+// Drag-causes-shift integration test: dragging a gate (or any edit
+// that splices a new column into the top-level grid) shifts an
+// expanded group's location string (e.g. "1,0" → "2,0"). `Sqore`
 // rebases viewState keys by object identity at the start of every
 // render, so user expand/collapse choices follow their op across
 // position shifts.
@@ -543,9 +515,9 @@ test("user expand choice survives an upstream column-shift mutation", async () =
   // every Action.
   sqore.renderCircuit(container);
 
-  // Pre-rebase: viewState["1,0"] stayed put, but Foo is now at "2,0",
-  // so the default-collapse won and Foo silently collapsed. With the
-  // identity-based rebase, the viewState entry follows Foo to "2,0".
+  // The identity-based rebase moves the viewState entry from "1,0"
+  // to "2,0" along with the op, so Foo stays expanded at its new
+  // location.
   assert.equal(
     sqore.viewState.expanded.has("1,0"),
     false,
@@ -570,11 +542,9 @@ test("user expand choice survives an upstream column-shift mutation", async () =
 // ---------------------------------------------------------------------------
 // External circuit update via `Sqore.updateCircuit`: models the VS
 // Code undo/redo path. The host parses a new `CircuitGroup` from the
-// reverted text and pushes it down. Pre-`updateCircuit`, the React
-// wrapper would tear down the SVG and construct a fresh `Sqore` for
-// every such update, which destroyed `viewState` and caused a
-// "Rendering..." flicker. With `updateCircuit`, the same `Sqore`
-// (and therefore the same `viewState`) survives.
+// reverted text and pushes it down. `updateCircuit` swaps the active
+// circuit in place so the same `Sqore` (and therefore `viewState`)
+// survives.
 // ---------------------------------------------------------------------------
 
 test("user expand choice survives an external circuit update via updateCircuit", async () => {
@@ -656,15 +626,14 @@ test("user expand choice survives an external circuit update via updateCircuit",
     "Foo should be expanded after chevron click",
   );
 
-  // Capture the SVG element identity to verify `updateCircuit` does
-  // an in-place swap (`replaceChild`) rather than wiping the
-  // container — the latter is what caused the original flicker.
+  // Capture the SVG identity to verify `updateCircuit` does an
+  // in-place swap (`replaceChild`) rather than wiping the container.
   const svgBefore = container.querySelector("svg.qviz");
   assert.ok(svgBefore, "expected an svg.qviz element to be rendered");
 
   // Simulate the host pushing a new (logically equivalent) circuit
-  // down — the same shape the VS Code editor would build after an
-  // undo/redo or external file edit.
+  // down — the shape the VS Code editor would build after undo/redo
+  // or an external file edit.
   sqore.updateCircuit(buildGroup());
 
   // Foo's user expand choice must still apply to the new circuit.
@@ -687,11 +656,10 @@ test("user expand choice survives an external circuit update via updateCircuit",
 });
 
 // ---------------------------------------------------------------------------
-// Pixel-coordinate tests. These tests assert that for every rendered
-// gate, the on-column dropzone with the matching
-// `data-dropzone-location` covers the gate's x range. If they pass,
-// dropping a gate on top of an existing gate will land on a real
-// dropzone — which is the thing the user actually relies on.
+// Pixel-coordinate tests: for every rendered gate, the on-column
+// dropzone with the matching `data-dropzone-location` must cover the
+// gate's x range. Dropping a gate on top of an existing gate lands
+// on a real dropzone.
 // ---------------------------------------------------------------------------
 
 /**
@@ -834,9 +802,8 @@ test("flat circuit: every gate is covered by its on-column dropzone", () => {
 });
 
 test("expanded group: nested gates are covered by their on-column dropzones", () => {
-  // The Phase A bug: nested dropzones existed (correct location strings)
-  // but landed at the wrong x positions, so users couldn't hit them.
-  // This test would have caught that regression.
+  // Nested gates emit dropzones with locations like `0,0-…`. Each
+  // must overlap the gate's x range.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -889,13 +856,10 @@ test("expanded group: nested gates are covered by their on-column dropzones", ()
 });
 
 // ---------------------------------------------------------------------------
-// Editor overlay structure. All editor-only DOM (dropzones, ghost
-// qubit row, future overlays) must live inside a single
-// `g.editor-overlay` group attached to `svg.qviz`. The renderer
-// (formatGates / formatRegisters / formatInputs) never touches that
-// group; the editor never appends outside it. Asserting the
-// containment property keeps future contributors honest about which
-// side of the boundary their DOM belongs on.
+// Editor overlay structure: all editor-only DOM (dropzones, ghost
+// qubit row, future overlays) lives inside a single `g.editor-overlay`
+// group attached to `svg.qviz`. The renderer never touches the
+// overlay; the editor never appends outside it.
 // ---------------------------------------------------------------------------
 
 test("editor-only DOM lives inside the editor-overlay group", () => {
@@ -1029,25 +993,17 @@ test("trailing-append column lands past the rightmost gate", () => {
 });
 
 // ---------------------------------------------------------------------------
-// D4 Stage A: an expanded group should have a trailing inner-column
-// dropzone band on its right edge, mirroring the leading-column band
-// that already falls out of the column-loop at `colIndex=0`. This is
-// the "extend the group sideways to swallow one more column" gesture
-// — unconditional (no shift), one column of reach, and the dropzone
-// location string identifies the new column as belonging to the
-// group's own scope.
-//
-// Symptom if this regresses: dropping a gate just past the right edge
-// of an expanded group lands at top level next to the group instead
-// of becoming a child of the group.
+// Expanded groups: trailing inner-column dropzone band on the right
+// edge of the group's body — the "extend the group sideways to
+// swallow one more column" gesture. The dropzone's location string
+// identifies the new column as belonging to the group's own scope.
 // ---------------------------------------------------------------------------
 
 test("expanded group emits a trailing inner-column dropzone band on its right edge", () => {
-  // `Foo` spans wires 0-1, contains a single H on wire 0. Foo's
-  // children grid therefore has one column (`0,0-0,…`). The trailing
-  // inner-column dropzones we're asserting should sit at the
-  // synthesized "past-end" column index `1`, prefixed by Foo's
-  // location `0,0` — i.e. `0,0-1,0`.
+  // `Foo` spans wires 0-1 with two children in column 0. The
+  // trailing inner-column band sits at the synthesized past-end
+  // column index `1`, prefixed by Foo's location `0,0` — location
+  // string `0,0-1,0`.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -1111,11 +1067,9 @@ test("expanded group emits a trailing inner-column dropzone band on its right ed
 });
 
 test("trailing inner-column dropzones are clipped to the group's wire extent", () => {
-  // Foo spans wires 0-1 only; a sibling X gate on wire 2 keeps that
-  // wire visible in the circuit. Foo's trailing inner-column band
-  // must not leak onto wire 2 — the wire-clamp contract that already
-  // applies to between-column dropzones must hold for the trailing
-  // band too.
+  // Foo spans wires 0-1 only; a sibling X on wire 2 keeps that wire
+  // visible. Foo's trailing inner-column band must not leak onto
+  // wire 2.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
     componentGrid: [
@@ -1150,15 +1104,13 @@ test("trailing inner-column dropzones are clipped to the group's wire extent", (
 
   const dropzones = renderAndCollectDropzones(group);
 
-  // Anything in Foo's scope at the synthesized trailing column.
-  // Inner-trailing has !interColumn and location `0,0-1,0`.
+  // Inner-trailing band: `!interColumn` at location `0,0-1,0`.
   const innerTrailing = dropzones.filter(
     (d) => d.location === "0,0-1,0" && !d.interColumn,
   );
 
-  // Must exist (otherwise the clipping assertion below is vacuously
-  // true and would hide a regression where the trailing band stopped
-  // being emitted for nested scopes entirely).
+  // Must exist — otherwise the clipping assertion below is
+  // vacuously true.
   assert.ok(
     innerTrailing.length > 0,
     "expected trailing inner-column dropzones inside Foo to be emitted",
@@ -1174,15 +1126,13 @@ test("trailing inner-column dropzones are clipped to the group's wire extent", (
 });
 
 test("collapsed group does NOT emit any inner trailing-column dropzones", () => {
-  // A collapsed group has no `LayoutMap` scope entry, so
-  // `_populateDropzonesForGrid` never recurses into it — and the
-  // trailing-column-for-scope helper only runs for scopes we recurse
-  // into. Result: no inner-scope dropzones should leak out for a
-  // collapsed Foo, trailing band included.
+  // A collapsed group has no `LayoutMap` scope entry, so the
+  // dropzone recursion never enters it and the trailing-column
+  // helper never runs. No inner-scope dropzones should leak out.
   //
-  // Pin Foo collapsed by adding a sibling top-level op: the renderer's
-  // `expandIfSingleOperation` would otherwise auto-expand Foo when it's
-  // the only op at the top level, regardless of `renderDepth`.
+  // The sibling top-level op pins Foo collapsed: without it,
+  // `expandIfSingleOperation` would auto-expand Foo when it's the
+  // only op at the top level.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -1243,12 +1193,9 @@ test("collapsed group does NOT emit any inner trailing-column dropzones", () => 
 });
 
 test("top-level trailing-column band is preserved by the refactor", () => {
-  // After D4 Stage A unified the trailing-column emission into
-  // `_populateDropzonesForGrid`, the top-level trailing band should
-  // still cover every wire (not just the wires of any group). A
-  // regression in the unification would manifest as a top-level
-  // trailing band that's wire-clamped to something other than
-  // `[0, wireData.length)`.
+  // The top-level trailing band must cover every wire, not just the
+  // wires of any group inside it. A wire-clamp regression would
+  // restrict the band to a subset of `[0, wireData.length)`.
   const group = singleCircuit({
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
     componentGrid: [
@@ -1267,12 +1214,9 @@ test("top-level trailing-column band is preserved by the refactor", () => {
   // One column at top level, so trailing colIndex is 1. Location
   // "1,0" is the trailing band's location (no prefix). The editor
   // also renders a ghost-qubit row at wire index `wireData.length`
-  // for the add-a-qubit affordance, which `getWireData` picks up
-  // via its `.qubit-wire` selector — so the top-level trailing band
-  // covers `wireData.length + ghosts` wires. We assert wires
-  // {0, 1, 2} are present rather than nailing the exact count,
-  // because the ghost row is an orthogonal editor feature and
-  // shouldn't lock this test to its implementation detail.
+  // for the add-a-qubit affordance, so the top-level trailing band
+  // covers more wires than the circuit declares. Assert wires
+  // {0, 1, 2} are present rather than nailing the exact count.
   const topTrailing = dropzones.filter(
     (d) => d.location === "1,0" && !d.interColumn,
   );

@@ -2,48 +2,15 @@
 // Licensed under the MIT license.
 
 // contextMenu tests — direct coverage for `addContextMenuToHostElem`
-// in `editor/contextMenu.ts`. This wires a small SVG fixture (a
-// `<g data-location="...">` with a host shape inside) to a
-// minimal `CircuitEvents`-shaped stub, dispatches a `contextmenu`
+// in `editor/contextMenu.ts`. Each test wires a small SVG fixture
+// (a `<g data-location="...">` with a host shape inside) to a
+// minimal `CircuitEvents` stub, dispatches a `contextmenu`
 // MouseEvent, and asserts on the rendered `.context-menu` items.
 //
-// Pinned branches:
-//
-//   - **Measurement / ket kinds** → only "Delete" is offered. No
-//     adjoint, no control authoring, no Edit Argument.
-//   - **Control-dot host on a non-multi-target parent** → only
-//     "Remove control". (Authoring a NEW control from a
-//     control-dot context menu wouldn't make sense; toggling
-//     adjoint, editing args, or deleting the whole op are
-//     reached via the target's gate body, not the dot.)
-//   - **Control-dot host on a multi-target / group parent**
-//     (the **B5** gate) → no items appended at all. Authoring +
-//     removing controls on those bodies is gated at the action
-//     layer; the menu must not expose a no-op affordance.
-//   - **X-gate ordering** — special-cased to "Add Control",
-//     "Remove Control" (if any), "Delete". No Toggle Adjoint,
-//     no Edit Argument (X has no params, and X† == X visually).
-//   - **Multi-target unitary** (the **M5** gate) → "Toggle
-//     Adjoint" + "Delete" but no Add/Remove Control.
-//   - **Group / `children != null`** (the **M7** gate) → no
-//     Toggle Adjoint; control authoring also suppressed because
-//     groups satisfy `_isMultiTargetOrGroup`.
-//   - **Ordinary unitary with controls + params** → Toggle
-//     Adjoint, Add Control, Remove Control, Edit Argument,
-//     Delete — full menu.
-//   - **Re-open replaces the prior menu** — opening a second
-//     time removes the first `.context-menu` so two never
-//     coexist in the DOM.
-//   - **Outside-click closes the menu** — the document-level
-//     `click` listener (registered `{ once: true }`) removes
-//     the menu the next time anything in the page is clicked.
-//
-// The stub `CircuitEvents` only needs the five members
-// `addContextMenuToHostElem` actually reads: `componentGrid`,
-// `model`, `renderFn`, `_startAddingControl`,
-// `_startRemovingControl`. The real class delegates
-// `componentGrid` to `model.componentGrid`; here we just set both
-// from the same circuit instance.
+// The stub only implements the five members the menu reads:
+// `componentGrid`, `model`, `renderFn`, `_startAddingControl`,
+// `_startRemovingControl`. The real class delegates `componentGrid`
+// to `model.componentGrid`; tests do the same on the stub.
 
 // @ts-check
 
@@ -86,9 +53,8 @@ function makeStubEvents(model) {
   const renderCalls = { count: 0 };
   const stub = {
     model,
-    // The real `CircuitEvents.componentGrid` getter delegates to
-    // `model.componentGrid`; replicate that here so `findOperation`
-    // resolves correctly when the menu opens.
+    // Mirror `CircuitEvents.componentGrid`'s delegation to
+    // `model.componentGrid` so `findOperation` resolves correctly.
     get componentGrid() {
       return model.componentGrid;
     },
@@ -106,14 +72,9 @@ function makeStubEvents(model) {
 }
 
 /**
- * Build a `<g data-location="...">` wrapper containing a host
- * shape (rect for a gate body, circle for a control dot). Returns
- * the wrapper plus the host element to install the listener on.
- *
- * The wrapper carries `data-location` so `findGateElem` (a
- * `closest("[data-location]")` walk from the host) resolves to
- * the right enclosing `<g>` and the menu reads the right
- * operation from the grid.
+ * Build a `<g data-location="...">` wrapper containing a host shape
+ * (rect for a gate body, circle for a control dot). The wrapper's
+ * `data-location` is what `findGateElem` resolves via `closest()`.
  *
  * @param {string} location  - "0,0" etc.
  * @param {"body" | "control-dot"} hostKind
@@ -141,9 +102,8 @@ function buildGateFixture(location, hostKind, wireIdx) {
 }
 
 /**
- * Dispatch a `contextmenu` event on the host element, mirroring
- * what the browser does on right-click. The menu builder reads
- * `ev.clientX` / `ev.clientY` for positioning so we provide both.
+ * Dispatch a `contextmenu` event on the host element. The builder
+ * reads `ev.clientX` / `ev.clientY` for positioning.
  *
  * @param {SVGGraphicsElement} host
  */
@@ -172,9 +132,8 @@ function getMenuLabels() {
 // ---------------------------------------------------------------------------
 
 test("addContextMenuToHostElem: measurement gate shows ONLY Delete", () => {
-  // Measurements don't have adjoint, controls, or params — the
-  // only meaningful action is delete. The menu branch is keyed
-  // off `selectedOperation.kind === "measurement"`.
+  // Measurements have no adjoint, controls, or params. The kind ===
+  // "measurement" branch offers only delete.
   const model = new CircuitModel({
     qubits: [{ id: 0, numResults: 1 }],
     componentGrid: [
@@ -200,9 +159,8 @@ test("addContextMenuToHostElem: measurement gate shows ONLY Delete", () => {
 });
 
 test("addContextMenuToHostElem: ket gate shows ONLY Delete", () => {
-  // Ket initializers are treated like measurements for menu
-  // purposes — no controls, no params, no adjoint. Pin the kind
-  // === "ket" branch.
+  // Kets are treated like measurements for menu purposes — no
+  // controls, params, or adjoint.
   const model = new CircuitModel({
     qubits: [{ id: 0 }],
     componentGrid: [
@@ -231,10 +189,9 @@ test("addContextMenuToHostElem: ket gate shows ONLY Delete", () => {
 // ---------------------------------------------------------------------------
 
 test("addContextMenuToHostElem: control-dot on a SIMPLE unitary shows ONLY Remove control", () => {
-  // Right-clicking the control dot of an ordinary CNOT (single
-  // target on q1, single control on q0): the menu offers only
-  // "Remove control" — gestures that affect the whole gate are
-  // reached from the gate body, not the dot.
+  // Right-clicking the control dot of an ordinary CNOT offers only
+  // "Remove control"; gestures affecting the whole gate are reached
+  // from the gate body.
   const model = new CircuitModel({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -251,9 +208,9 @@ test("addContextMenuToHostElem: control-dot on a SIMPLE unitary shows ONLY Remov
     ],
   });
   const { stub } = makeStubEvents(model);
-  // Host is the control dot on wire 0 (the control's wire). The
-  // wrapper's `data-location` still points at the gate's grid
-  // coords ("0,0"); the dot itself just carries `data-wire`.
+  // Host is the control dot on wire 0. The wrapper's
+  // `data-location` points at the gate's grid coords ("0,0"); the
+  // dot itself carries `data-wire`.
   const { host } = buildGateFixture("0,0", "control-dot", 0);
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
 
@@ -262,11 +219,11 @@ test("addContextMenuToHostElem: control-dot on a SIMPLE unitary shows ONLY Remov
   assert.deepEqual(getMenuLabels(), ["Remove control"]);
 });
 
-test("addContextMenuToHostElem: control-dot on a MULTI-TARGET unitary shows NO menu items (B5)", () => {
-  // B5: control-dot context menu on an op that satisfies
+test("addContextMenuToHostElem: control-dot on a MULTI-TARGET unitary shows NO menu items", () => {
+  // Control-dot menu on a body that satisfies
   // `_isMultiTargetOrGroup` mirrors the action layer's refusal —
-  // no "Remove control", and no fallback to body-style items
-  // either. The menu element itself is created but empty.
+  // no items appended, no fallback to body-style items. The menu
+  // element is created but empty.
   const model = new CircuitModel({
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
     componentGrid: [
@@ -292,7 +249,7 @@ test("addContextMenuToHostElem: control-dot on a MULTI-TARGET unitary shows NO m
   assert.deepEqual(
     getMenuLabels(),
     [],
-    "B5: multi-target body + control-dot host yields an empty menu",
+    "multi-target body + control-dot host yields an empty menu",
   );
 });
 
@@ -301,10 +258,9 @@ test("addContextMenuToHostElem: control-dot on a MULTI-TARGET unitary shows NO m
 // ---------------------------------------------------------------------------
 
 test("addContextMenuToHostElem: X gate WITHOUT controls shows [Add Control, Delete]", () => {
-  // X is special-cased: no Toggle Adjoint (X† == X), no Edit
-  // Argument (no params). Ordering is "Add Control, [Remove
-  // Control,] Delete" — distinct from the general unitary order
-  // which has Toggle Adjoint first.
+  // X is special-cased: no Toggle Adjoint (X† == X) and no Edit
+  // Argument (no params). Order is "Add Control, [Remove Control,]
+  // Delete".
   const model = new CircuitModel({
     qubits: [{ id: 0 }],
     componentGrid: [
@@ -324,8 +280,7 @@ test("addContextMenuToHostElem: X gate WITHOUT controls shows [Add Control, Dele
 
 test("addContextMenuToHostElem: X gate WITH controls shows [Add Control, Remove Control, Delete]", () => {
   // Same X branch with an existing control — Remove Control is
-  // inserted between Add Control and Delete. Still no Toggle
-  // Adjoint / Edit Argument.
+  // inserted between Add Control and Delete.
   const model = new CircuitModel({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -355,13 +310,13 @@ test("addContextMenuToHostElem: X gate WITH controls shows [Add Control, Remove 
 });
 
 // ---------------------------------------------------------------------------
-// M5 / M7 / general unitary
+// Multi-target unitaries, parameterized unitaries, general unitary
 // ---------------------------------------------------------------------------
 
-test("addContextMenuToHostElem: multi-target unitary (M5) drops Add/Remove Control", () => {
-  // M5: any non-X unitary whose `targets.length > 1` MUST NOT
-  // surface control authoring. The body still gets Toggle Adjoint
-  // (it's not a group), no Edit Argument (no params), and Delete.
+test("addContextMenuToHostElem: multi-target unitary drops Add/Remove Control", () => {
+  // Any non-X unitary with `targets.length > 1` must not surface
+  // control authoring. The body still gets Toggle Adjoint (not a
+  // group) and Delete.
   const model = new CircuitModel({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -385,16 +340,15 @@ test("addContextMenuToHostElem: multi-target unitary (M5) drops Add/Remove Contr
   assert.deepEqual(
     getMenuLabels(),
     ["Toggle Adjoint", "Delete"],
-    "M5: multi-target unitary has no Add Control / Remove Control",
+    "multi-target unitary has no Add Control / Remove Control",
   );
 });
 
-test("addContextMenuToHostElem: group (M7) drops Toggle Adjoint", () => {
-  // M7: any op with `children != null` MUST NOT surface Toggle
-  // Adjoint. Groups also satisfy `_isMultiTargetOrGroup`, so
-  // control authoring is also suppressed (M5 + M7 are the same
-  // body-shape predicate for that purpose). Net menu for a
-  // param-less group: just Delete.
+test("addContextMenuToHostElem: group drops Toggle Adjoint", () => {
+  // An op with `children != null` must not surface Toggle Adjoint.
+  // Groups also satisfy `_isMultiTargetOrGroup`, so control
+  // authoring is suppressed too. Net menu for a param-less group:
+  // just Delete.
   const model = new CircuitModel({
     qubits: [{ id: 0 }],
     componentGrid: [
@@ -425,13 +379,13 @@ test("addContextMenuToHostElem: group (M7) drops Toggle Adjoint", () => {
   assert.deepEqual(
     getMenuLabels(),
     ["Delete"],
-    "M7: a param-less group has no Toggle Adjoint / Add / Remove Control",
+    "a param-less group has no Toggle Adjoint / Add / Remove Control",
   );
 });
 
 test("addContextMenuToHostElem: ordinary unitary with params shows [Toggle Adjoint, Add Control, Edit Argument, Delete]", () => {
-  // The full general-case body menu without controls. Edit
-  // Argument only appears when `params.length > 0`.
+  // General-case body menu without controls. Edit Argument only
+  // appears when `params.length > 0`.
   const model = new CircuitModel({
     qubits: [{ id: 0 }],
     componentGrid: [
@@ -463,9 +417,8 @@ test("addContextMenuToHostElem: ordinary unitary with params shows [Toggle Adjoi
 });
 
 test("addContextMenuToHostElem: ordinary unitary with controls + params shows the full menu including Remove Control", () => {
-  // Adding an existing control to the previous fixture surfaces
-  // Remove Control between Add Control and Edit Argument —
-  // verifying the four-item conditional block all renders.
+  // Adds an existing control to the prior fixture: Remove Control
+  // appears between Add Control and Edit Argument.
   const model = new CircuitModel({
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
@@ -504,8 +457,8 @@ test("addContextMenuToHostElem: ordinary unitary with controls + params shows th
 
 test("addContextMenuToHostElem: opening a second time replaces the first menu (no DOM duplication)", () => {
   // The builder removes any existing `.context-menu` before
-  // appending the new one — so a user who right-clicks twice
-  // doesn't end up with stacked menus.
+  // appending the new one, so a double right-click doesn't stack
+  // menus.
   const model = new CircuitModel({
     qubits: [{ id: 0 }],
     componentGrid: [
@@ -530,9 +483,9 @@ test("addContextMenuToHostElem: opening a second time replaces the first menu (n
 
 test("addContextMenuToHostElem: outside-click closes the menu", () => {
   // The document-level `click` listener is registered with
-  // `{ once: true }` and removes the menu on the next click
-  // anywhere in the page. This is what closes the menu after the
-  // user clicks an item OR clicks somewhere else entirely.
+  // `{ once: true }` and removes the menu on the next click anywhere
+  // in the page — the same path that closes the menu after the user
+  // picks an item.
   const model = new CircuitModel({
     qubits: [{ id: 0 }],
     componentGrid: [
@@ -559,8 +512,7 @@ test("addContextMenuToHostElem: outside-click closes the menu", () => {
 });
 
 test("addContextMenuToHostElem: clicking Add Control invokes _startAddingControl with the selected op", () => {
-  // Verify the delegation contract for the Add Control item:
-  // the menu item's click handler calls
+  // The Add Control item's click handler calls
   // `circuitEvents._startAddingControl(selectedOperation)`.
   const op = {
     kind: "unitary",
@@ -584,7 +536,7 @@ test("addContextMenuToHostElem: clicking Add Control invokes _startAddingControl
   /** @type {HTMLElement} */ (addCtrl).click();
 
   assert.equal(startAddingCalls.length, 1);
-  // Same identity as the op stored on the grid (findOperation
-  // returns the live reference, not a clone).
+  // findOperation returns the live reference, not a clone, so
+  // identity matches the op on the grid.
   assert.equal(startAddingCalls[0], model.componentGrid[0].components[0]);
 });

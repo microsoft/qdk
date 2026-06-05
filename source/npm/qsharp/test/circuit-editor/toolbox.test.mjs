@@ -1,30 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Toolbox panel rendering tests — exercises the structural contract
-// `createToolboxElement` exposes to the rest of the editor. The Run
-// button half (callback wiring + presence/absence) lives in
-// [toolboxRunButton.test.mjs](toolboxRunButton.test.mjs); this file
-// covers what's around it:
+// Toolbox panel rendering tests — covers the structural contract
+// `createToolboxElement` exposes to the rest of the editor:
 //
-//   - Panel skeleton: a `<div class="toolbox-panel">` holding a
+//   - Panel skeleton: `<div class="toolbox-panel">` with an
 //     `<h2 class="title">Toolbox</h2>` and a
 //     `<svg class="toolbox-panel-svg">`.
 //   - One `[toolbox-item]` SVG node per `toolboxGateDictionary`
-//     entry, with `data-type` matching the dictionary key. The drag
-//     controller's [`onToolboxMouseDown`](../../ux/circuit-vis/editor/controllers/dragController.ts)
-//     keys on these two attributes to look the prototype op up; the
-//     two halves silently break if the toolbox renders the wrong
-//     count or omits `data-type`.
-//   - Two-column grid layout: every other gate starts a new row,
-//     and each new row sits exactly `gateHeight + verticalGap`
-//     below the prior one. Verified by reading `y` attributes
-//     directly from the rendered unitary `<rect>` elements (no
-//     layout engine needed — JSDOM doesn't compute one).
-//   - SVG `height` attribute grows with content + accounts for the
-//     optional Run button. Hosts that shrink the toolbox in
-//     CSS depend on this attribute for the scroll-when-too-short
-//     fallback to fire at the right threshold.
+//     entry, with `data-type` matching the dictionary key.
+//   - Two-column grid layout: every other gate starts a new row.
+//   - SVG `height` attribute grows when the Run button is present.
+//
+// Run button callback wiring lives in toolboxRunButton.test.mjs.
 
 // @ts-check
 
@@ -57,12 +45,10 @@ afterEach(() => {
   jsdom = null;
 });
 
-// Constants are inlined from `renderer/constants.ts` — using
-// production values would either require importing them (the test
-// becomes a tautology against the production module that supplies
-// them to `toolbox.ts` in the first place) or chase a refactor in
-// two places. Pin the literal values here; if the constants change
-// the test will flag the toolbox layout regression.
+// Layout constants inlined from `renderer/constants.ts`. Importing
+// them would make the test a tautology against the same module that
+// supplies them to `toolbox.ts`; pinning literals here flags any
+// constant change as a toolbox layout regression.
 const GATE_HEIGHT = 40;
 const VERTICAL_GAP = 10;
 
@@ -80,8 +66,7 @@ test("panel structure: toolbox-panel div with title and toolbox-panel-svg child"
 
   const svg = toolbox.querySelector("svg.toolbox-panel-svg");
   assert.ok(svg, "expected an svg.toolbox-panel-svg container");
-  // The title comes before the svg in DOM order — the panel's CSS
-  // grid stacks them in that order.
+  // Title comes before the svg in DOM order.
   const children = Array.from(toolbox.children);
   assert.equal(children[0], title);
   assert.equal(children[1], svg);
@@ -91,9 +76,8 @@ test("renders one [toolbox-item] per toolboxGateDictionary entry", () => {
   const toolbox = createToolboxElement();
   const items = toolbox.querySelectorAll("[toolbox-item]");
 
-  // Today the dictionary has 12 entries — but pin the count via the
-  // dictionary itself so adding a new toolbox gate doesn't require
-  // updating this test in lockstep.
+  // Pin the count via the dictionary itself so new toolbox gates
+  // don't require a lockstep test update.
   const dictKeys = Object.keys(toolboxGateDictionary);
   assert.equal(
     items.length,
@@ -101,30 +85,27 @@ test("renders one [toolbox-item] per toolboxGateDictionary entry", () => {
     `expected one [toolbox-item] per dictionary key (${dictKeys.length})`,
   );
 
-  // Defense-in-depth: also pin the literal count so if the dictionary
-  // shrinks unexpectedly, the failure points at the dictionary, not
-  // just the rendering loop.
+  // Defense-in-depth: also pin the literal count so a dictionary
+  // shrink fails here instead of silently passing.
   assert.equal(dictKeys.length, 12);
 
-  // The `toolbox-item` attribute is always the literal string
-  // "true" — `dragController.onToolboxMouseDown` checks for the
-  // attribute's presence, not its value, but locking down "true"
-  // catches an accidental swap to a boolean false-y value.
+  // `dragController.onToolboxMouseDown` checks for attribute
+  // presence; locking down "true" catches an accidental falsy swap.
   for (const item of items) {
     assert.equal(item.getAttribute("toolbox-item"), "true");
   }
 });
 
 test("each toolbox item carries a data-type matching its dictionary key", () => {
-  // The `dragController`'s drag-start handler looks up the prototype
-  // operation by reading `data-type` off the toolbox item:
+  // `dragController.onToolboxMouseDown` looks up the prototype op
+  // by reading `data-type` off the toolbox item:
   //
   //   const gateType = elem.getAttribute("data-type")!;
   //   const proto = toolboxGateDictionary[gateType];
   //
-  // If the toolbox renders the wrong key (or omits `data-type`), the
-  // wrong op gets dragged onto the circuit (or a no-op proto is
-  // returned). Pin every dictionary key against the rendered items.
+  // A wrong/missing `data-type` either drags the wrong op or returns
+  // a no-op proto. Pin every dictionary key against the rendered
+  // items.
   const toolbox = createToolboxElement();
   const items = toolbox.querySelectorAll("[toolbox-item]");
 
@@ -140,33 +121,22 @@ test("each toolbox item carries a data-type matching its dictionary key", () => 
 });
 
 test("two-column grid layout: column 1 sits beside column 0 on the same row; row 2 sits below row 1", () => {
-  // The toolbox lays gates out in a 2-column grid. The layout math
-  // (in `createToolboxElement`):
+  // The toolbox lays gates out in a 2-column grid via:
   //
   //   if (index % 2 === 0 && index !== 0) {
   //     prefixX = 0;
   //     prefixY += gateHeight + verticalGap;
   //   }
   //
-  // gives the following positions for the dictionary's first few
-  // unitary gates:
+  // Expected positions for the dictionary's first few unitary gates:
   //   index 0 (RX): (x=0, y=0)
   //   index 2 (RY): (x=0, y=GATE_HEIGHT + VERTICAL_GAP)
   //   index 3 (Y):  (x>0, y=GATE_HEIGHT + VERTICAL_GAP)
   //
-  // (Index 1 is the X gate, which renders as an `oplus` glyph with
-  // no `<rect>`; skip it for this layout check.)
-  //
-  // The toolbox-item `<g>` doesn't carry an absolute position
-  // attribute — coordinates are baked into its descendants. Reading
-  // a `<rect>`'s `y` attribute gives the rect's top edge. `_unitary`
-  // renders the body rect centered around the target wire `y` with
-  // height `gateHeight`, so:
-  //
-  //   rect.y = targetY - gateHeight / 2
-  //
-  // ...meaning the row delta between rect.y[2] and rect.y[0] is
-  // exactly `targetY[2] - targetY[0]` = `gateHeight + verticalGap`.
+  // Index 1 (X) renders as an `oplus` glyph with no `<rect>` and is
+  // skipped. `_unitary` centers the body rect around the target wire
+  // y with height `gateHeight`, so `rect.y = targetY - gateHeight/2`
+  // and row deltas match `gateHeight + verticalGap`.
   const toolbox = createToolboxElement();
   const items = toolbox.querySelectorAll("[toolbox-item]");
 
@@ -203,15 +173,13 @@ test("two-column grid layout: column 1 sits beside column 0 on the same row; row
 });
 
 test("SVG height grows when a Run button is added", () => {
-  // The toolbox sizes its SVG to its content (gates + optional
-  // button + padding) so the surrounding `<div class="toolbox-panel">`
-  // can rely on a known height for its scroll-when-window-too-short
-  // fallback. The two computed heights are:
+  // The toolbox sizes its SVG to its content so the surrounding
+  // `<div class="toolbox-panel">` has a known height. Computed:
   //
   //   no button:   prefixY + gateHeight + 16
   //   with button: prefixY + 2 * gateHeight + 32
   //
-  // Difference must therefore be `gateHeight + 16`.
+  // Difference must be `gateHeight + 16`.
   const withoutBtn = createToolboxElement();
   const withBtn = createToolboxElement(() => {});
 

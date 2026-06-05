@@ -462,14 +462,11 @@ test("moveOperation: moving a child out of a group to a new column ahead of the 
   // Top-level grid layout:
   //   col 0: X on wire 2
   //   col 1: Group on wires 0+1, with one child H on wire 0.
-  // The bug: moving the inner H from inside the group to a fresh
-  // top-level column at index 0 used to leave the original H still
-  // inside the group's children (a duplicate).
-  //
-  // Post-D1 (empty-group cleanup) the group itself disappears
-  // because moving out its only child empties it. The "no
-  // duplicate" guarantee is strengthened: there's neither a
-  // duplicate H nor an empty Group shell.
+  // Moving the inner H to a fresh top-level column ahead of the
+  // group must remove it from the group's children (no duplicate).
+  // Because the H was the group's only child, the now-empty group
+  // is pruned: the grid contains neither a duplicate H nor a
+  // zero-content Group shell.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
@@ -513,8 +510,8 @@ test("moveOperation: moving a child out of a group to a new column ahead of the 
 
   assert.ok(moved, "move should return the new operation");
 
-  // Top-level grid: [new H@0], [X@2]. The Group is gone (D1
-  // cleanup pruned it because its last child departed).
+  // Top-level grid: [new H@0], [X@2]. The Group is gone
+  // (empty-group cleanup pruned it once its last child departed).
   assert.equal(
     model.componentGrid.length,
     2,
@@ -548,9 +545,8 @@ test("moveOperation: moving a child out of a group to a new column ahead of the 
 test("moveOperation: moving a child out of a group updates the group's targets to drop the departed wire", () => {
   // The parent group's `targets` array is a derived render-extent
   // claim: it must reflect the union of its remaining children's
-  // wires. Pre-fix, the parent's `targets` was recomputed BEFORE the
-  // child was removed, so it still included the departed child's
-  // wire — leaving the group claiming a wire it no longer contains.
+  // wires. After a child departs, the parent's `targets` must no
+  // longer include that wire.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
@@ -626,11 +622,10 @@ test("moveOperation: returns null when sourceLocation does not resolve", () => {
 // ---------------------------------------------------------------------------
 
 test("moveOperation: dragging a multi-target gate (SWAP) shifts all targets by the delta", () => {
-  // Regression: pre-fix, `_moveY` did `targets = [{ qubit: targetWire }]`
-  // unconditionally, which collapsed a SWAP at wires [0, 2] down to a
-  // single-target gate on the drop wire — destroying half the gate.
-  // The fix detects multi-target ops and shifts every register by
-  // `targetWire - sourceWire` so the whole gate moves as a unit.
+  // Multi-target ops (e.g. SWAP) move as a rigid unit: every
+  // register shifts by `targetWire - sourceWire` so the gate
+  // keeps its shape on the drop. A SWAP at wires [0, 2] dragged
+  // from wire 0 onto wire 1 (delta = +1) lands at wires [1, 3].
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
@@ -648,9 +643,8 @@ test("moveOperation: dragging a multi-target gate (SWAP) shifts all targets by t
   };
   const model = new CircuitModel(circuit);
 
-  // User grabbed wire 0 of the SWAP and dropped on wire 1 → delta = +1.
-  // Pre-fix: targets = [{ qubit: 1 }] (single-target, gate destroyed).
-  // Post-fix: targets = [{ qubit: 1 }, { qubit: 3 }] (SWAP intact, shifted).
+  // Grab wire 0 of the SWAP, drop on wire 1 → delta = +1.
+  // Expected: targets = [{ qubit: 1 }, { qubit: 3 }] — SWAP intact, shifted.
   const moved = moveOperation(
     model,
     "0,0",
@@ -675,12 +669,9 @@ test("moveOperation: dragging a multi-target gate (SWAP) shifts all targets by t
 });
 
 test("moveOperation: dragging a group shifts the box AND all child register refs", () => {
-  // Regression: pre-fix, moving a group rewrote the group's
-  // `.targets` to a single wire and left every child op pointing
-  // at the original wires. The visible symptom was "the group box
-  // moves but the contents stay put". The fix shifts every
-  // register on the group AND recursively every register in the
-  // group's children grid by the same delta.
+  // Moving a group shifts the group's own `.targets` AND
+  // recursively every register reference in its children grid by
+  // the same delta — so the box and its contents stay aligned.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
@@ -828,18 +819,13 @@ test("moveOperation: single-target controlled-gate move still rewires just one l
 });
 
 test("moveOperation: moving a group with a classically-controlled child anchors the classical control", () => {
-  // Regression for the render crash:
-  //   "Classical register ID 0 invalid for qubit ID N with 0 classical register(s)"
-  //
   // A classical control register has the shape `{qubit, result}` —
   // the `qubit` field points to the WIRE that owns the classical
-  // register (i.e. where the producing measurement lives),
-  // **not** to a wire the gate acts on. When a group with a
-  // classically-controlled child moves but the producing
-  // measurement is EXTERNAL to the group, the classical control
-  // must stay anchored to its current wire — otherwise it gets
-  // re-pointed at a wire with no classical registers and the
-  // renderer throws on the next paint.
+  // register (where the producing measurement lives), NOT to a
+  // wire the gate acts on. When the producer measurement is
+  // EXTERNAL to a moved group, the consumer's classical control
+  // must stay anchored to its current wire — otherwise it would
+  // point at a wire with no classical registers.
   /** @type {any} */
   const circuit = {
     qubits: [
@@ -1002,19 +988,10 @@ test("moveOperation: moving a group whose internal measurement produces the clas
 });
 
 test("moveOperation: refuses a unit-shift that would push wires below 0", () => {
-  // Regression: a unit-shift with negative delta whose minimum
-  // wire would land below 0 was previously executed anyway,
-  // leaving the subtree with `qubit: -N` register refs. The next
-  // render then either threw "Qubit register with ID -N not found"
-  // OR, more often, threw the misleading
-  // "Classical register ID X invalid for qubit ID Y with 0
-  // classical register(s)" after `removeTrailingUnusedQubits`
-  // trimmed the model in response to the corruption.
-  //
-  // The fix: refuse the move (return null, leave the model
-  // untouched) when the unit-shift's lowest wire would land
-  // below 0. The dragController treats a `null` return as a
-  // no-op and skips the re-render.
+  // A unit-shift whose lowest post-shift wire would land below 0
+  // is refused: moveOperation returns null and leaves the model
+  // untouched. The dragController treats `null` as a no-op and
+  // skips the re-render.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
@@ -1097,21 +1074,12 @@ test("moveOperation: a unit-shift whose lowest wire lands exactly on 0 is allowe
 });
 
 test("moveOperation: classical-ref in targets of a conditional anchors when producer is external", () => {
-  // Regression: a classically-conditional unitary (e.g. `if: ...`)
-  // records its classical-register dependency in BOTH its
-  // `controls` array AND its `targets` array (the targets entry
-  // is a visual extent claim that draws the line down to the
-  // classical register box). The producer-internal-vs-external
-  // rule applies to ALL such classical-ref entries, not just
-  // controls.
-  //
-  // Bug: `_doShift` previously shifted `targets` unconditionally,
-  // so a unit-shift of a conditional whose producer M was a
-  // SIBLING (outside the moved subtree) re-pointed the targets
-  // classical-ref at a wire that has no classical registers.
-  // The renderer then threw:
-  //   "Classical register ID 0 invalid for qubit ID 1 with 0
-  //   classical register(s)"
+  // A classically-conditional unitary (e.g. `if: ...`) records its
+  // classical-register dependency in BOTH its `controls` array AND
+  // its `targets` array (the targets entry is a visual extent
+  // claim drawing the line down to the classical register box).
+  // The producer-internal-vs-external anchoring rule applies to
+  // ALL classical-ref entries, not just controls.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
@@ -1194,15 +1162,10 @@ test("moveOperation: classical-ref in targets of a conditional anchors when prod
 });
 
 test("moveOperation: moving the last child out deletes the empty group", () => {
-  // Regression (D1): before this fix, dragging the last remaining
-  // child out of a group left the group as
-  //   { gate: "Group", targets: [], children: [{components:[]}] }
-  // The next render either threw on the empty `targets` or
-  // produced a zero-wire phantom that the user couldn't reach to
-  // delete.
-  //
-  // Expected: the group quietly disappears once empty. The grid
-  // contains only the relocated child.
+  // Dragging the last remaining child out of a group must prune
+  // the now-empty group — never leave a zero-content shell like
+  //   { gate: "Group", targets: [], children: [{ components: [] }] }
+  // The grid contains only the relocated child.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
@@ -1258,11 +1221,10 @@ test("moveOperation: moving the last child out deletes the empty group", () => {
 });
 
 test("moveOperation: empty-group cleanup cascades through nested groups", () => {
-  // Regression (D1): when the move-out empties an inner group
-  // AND the inner group was the only child of an outer group,
-  // BOTH groups must disappear. The cleanup walks the ancestor
-  // chain innermost-out, stopping at the first ancestor that
-  // still has content.
+  // When a move-out empties an inner group AND that inner group
+  // was the only child of its outer group, BOTH groups must
+  // disappear. The cleanup walks the ancestor chain innermost-out,
+  // stopping at the first ancestor that still has content.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }],
@@ -1319,10 +1281,10 @@ test("moveOperation: empty-group cleanup cascades through nested groups", () => 
 });
 
 test("moveOperation: cleanup STOPS at the first non-empty ancestor", () => {
-  // Regression (D1): the cleanup must not over-delete. When the
-  // innermost ancestor empties but its grandparent still has
-  // other content, only the innermost ancestor disappears; the
-  // grandparent stays put with its remaining content.
+  // The cleanup must not over-delete. When the innermost ancestor
+  // empties but its grandparent still has other content, only the
+  // innermost ancestor disappears; the grandparent stays put with
+  // its remaining content.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }],
@@ -1391,7 +1353,8 @@ test("moveOperation: cleanup STOPS at the first non-empty ancestor", () => {
 });
 
 // ============================================================
-// D2: classical-condition before producer
+// Classical-condition ordering: consumers must not land before
+// their producing measurement
 // ============================================================
 
 test("Location.before: document-order comparison", () => {
@@ -1529,11 +1492,11 @@ test("collectExternalProducerLocations: internal producer M is excluded", () => 
 });
 
 test("moveOperation: refuses dropping a conditional before its producer M", () => {
-  // Regression (D2): dragging a classically-conditional unitary
-  // (or a group containing one) to a column before its producing
-  // measurement leaves the renderer with classical refs pointing
-  // at registers that don't exist yet at the consumer's position.
-  // moveOperation refuses such drops (return null, no-op).
+  // Dragging a classically-conditional unitary (or a group
+  // containing one) to a column before its producing measurement
+  // would leave classical refs pointing at registers that don't
+  // exist yet at the consumer's position. moveOperation refuses
+  // such drops (returns null, model untouched).
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }],
@@ -1779,11 +1742,11 @@ test("Location.inEarlierColumnThan: column-strict, ancestor-aware", () => {
 });
 
 test("moveOperation: refuses promoting a conditional to a sibling of the producer's outer group", () => {
-  // Regression for the "promote-around-the-rule" scenario. Producer
-  // M lives inside an outer group at top-level col 0; the consumer
-  // also starts inside that group. Dragging the consumer OUT of the
-  // group and dropping it as a sibling at top-level col 0 must be
-  // refused — the consumer would land in the same top-level
+  // The "promote-around-the-rule" scenario. Producer M lives
+  // inside an outer group at top-level col 0; the consumer also
+  // starts inside that group. Dragging the consumer OUT of the
+  // group and dropping it as a sibling at top-level col 0 must
+  // be refused — the consumer would land in the same top-level
   // time-step as the producer, even though it's a different op
   // position.
   /** @type {any} */
@@ -1924,18 +1887,13 @@ test("moveOperation: allows promoting a conditional to a strictly later top-leve
 });
 
 // ---------------------------------------------------------------------------
-// D4 Stage A: action-layer support for the right-edge trailing
-// inner-column dropzone of an expanded group. The dropzone layer
-// emits a dropzone at `data-dropzone-location="<prefix>-<N>,0"`
-// where `<N>` is the group's existing child-column count (i.e. one
-// past the rightmost existing column). The action layer must accept
-// that location string and synthesize the new column in the group's
-// `children` grid — without leaking the new op to the top level or
-// creating a duplicate.
-//
-// `_addOp`'s existing "create column if absent" branch is what makes
-// this work; these tests pin down the wire-format contract between
-// the dropzone layer and the action layer.
+// Trailing inner-column dropzone of an expanded group. The
+// dropzone layer emits a dropzone at
+// `data-dropzone-location="<prefix>-<N>,0"` where `<N>` is the
+// group's existing child-column count (one past the rightmost
+// existing column). The action layer accepts that location and
+// synthesizes the new column in the group's `children` grid —
+// without leaking the new op to the top level or duplicating it.
 // ---------------------------------------------------------------------------
 
 test("addOperation: dropping on a group's trailing inner-column slot adds the op as a child", () => {
@@ -2137,19 +2095,17 @@ test("moveOperation: moving an internal gate to its group's trailing inner-colum
 });
 
 // ---------------------------------------------------------------------------
-// D4 Stage B: action-layer dest-side ancestor refresh cascade.
-// `moveOperation` always re-derives each destination ancestor's
-// `.targets` from its post-move children. The target location
-// string is authoritative — if the user dropped the source
-// inside group G, then G's `.targets` MUST reflect that, even
-// when the drop wire was outside G's pre-move span.
+// Dest-side ancestor refresh cascade. `moveOperation` always
+// re-derives each destination ancestor's `.targets` from its
+// post-move children. The target location string is authoritative:
+// if the user dropped the source inside group G, G's `.targets`
+// MUST reflect that, even when the drop wire was outside G's
+// pre-move span.
 //
 // The cascade walks innermost-out and stops at the first ancestor
-// whose pre-existing span already encloses the (now-widened)
-// child below it (so a nested group whose outermost ancestor
-// already enclosed the relevant wire doesn't get unnecessarily
-// refreshed), and skips ancestors that the empty-prune pass
-// removed (the B5 last-child case).
+// whose pre-existing span already encloses the (now-widened) child
+// below it, and skips ancestors that the empty-prune pass removed
+// (the last-child-departed case).
 // ---------------------------------------------------------------------------
 
 test("moveOperation extend: shift-drop onto a wire just outside group's span extends the group's targets", () => {
@@ -2529,7 +2485,7 @@ test("moveOperation extend: cascade stops at first ancestor that already enclose
   );
 });
 
-test("moveOperation extend: empty-group B5 case prunes the group; extend is a safe no-op", () => {
+test("moveOperation extend: last-child-departed case prunes the group; extend is a safe no-op", () => {
   // Foo contains only a single H. Shift-drop the H to a top-level
   // slot, leaving Foo empty. The empty-prune pass removes Foo
   // entirely; the extend cascade then walks the dest ancestor chain
@@ -2659,14 +2615,14 @@ test("moveOperation extend: external source dropped into group on off-span wire 
 });
 
 // ---------------------------------------------------------------------------
-// D4 Stage B follow-up: collision-split when extending a group's span
-// causes it to overlap a sibling op in the same column.
+// Collision-split when extending a group's span causes it to
+// overlap a sibling op in the same column.
 //
 // Mirrors `commitAddControl`'s split-and-shift convention: the
 // extended op is pulled into a fresh column inserted at its
 // current column index, leaving the surviving siblings one slot
 // to the right. This restores a non-overlapping layout without
-// disturbing any siblings' relative order.
+// disturbing siblings' relative order.
 // ---------------------------------------------------------------------------
 
 test("moveOperation extend: extending across a column-sibling splits the column, group shifts left", () => {
@@ -4388,10 +4344,10 @@ test("addOperation: clone-copy that would push a wire below 0 returns null", () 
   assert.equal(JSON.stringify(model.componentGrid), before);
 });
 
-test("addOperation: omitting sourceWire keeps the legacy single-leg behavior (toolbox drops)", () => {
+test("addOperation: omitting sourceWire still rewrites a single-target template to the requested wire (toolbox drops)", () => {
   // The dragController doesn't pass sourceWire for fresh toolbox
   // drops. Verify that omitting it still rewrites a single-target
-  // template's `targets` to the requested wire — no regression.
+  // template's `targets` to the requested wire.
   const model = new CircuitModel(emptyCircuit(3));
 
   const added = addOperation(
@@ -4413,17 +4369,16 @@ test("addOperation: omitting sourceWire keeps the legacy single-leg behavior (to
 
 // -------- addControl / removeControl: classical-ref entries don't shadow quantum controls ----------
 //
-// Bug B5: A classically-controlled op carries a classical-ref
+// A classically-controlled op carries a classical-ref
 // `{qubit: Y, result: N}` in BOTH `.targets` (visual extent claim)
 // AND `.controls` (the conditional dependency). The add/remove
-// control action layer used to match controls by `qubit` only,
-// which meant:
-//   - addControl on wire Y would return false (treating the
-//     classical-ref entry as an existing control)
-//   - removeControl on wire Y would remove the classical-ref entry
-//     instead of (or in addition to) the quantum control
-// Both lookups now filter to pure-quantum entries
-// (`result === undefined`).
+// control action layer filters controls to pure-quantum entries
+// (`result === undefined`) when checking for existing entries on a
+// wire, so:
+//   - addControl on wire Y succeeds even when the classical-ref
+//     already references that wire
+//   - removeControl on wire Y removes only the quantum entry,
+//     leaving the classical-ref intact
 
 test("addControl: adding a quantum control on a wire that already has a classical-ref control succeeds", () => {
   // M on wire 0 produces c_0.0. Conditional X on wire 1 reads c_0.0
@@ -4464,9 +4419,8 @@ test("addControl: adding a quantum control on a wire that already has a classica
 
   assert.equal(ok, true, "addControl must succeed on the classical-owner wire");
   // Both entries should now be in .controls: the classical-ref AND
-  // the new pure-quantum entry. Sort key in the action is by qubit
-  // ascending; the order between two same-qubit entries is
-  // insertion-stable (no full canonical sort needed for B5).
+  // the new pure-quantum entry. The order between two same-qubit
+  // entries is insertion-stable.
   const qubits = condX.controls.map((/** @type {any} */ c) => c.qubit);
   assert.deepEqual(
     qubits.sort(),
@@ -4598,20 +4552,16 @@ test("removeControl: removing a control on a wire that only has a classical-ref 
 });
 
 test("addControl: refuses on a classically-controlled GROUP (groups never carry quantum controls by design)", () => {
-  // Previously B5/M1 unblocked add-control on classically-
-  // controlled groups by filtering classical-ref entries out of
-  // the dedup check. The shipped behavior was correct as far as
-  // the data layer went, but per the team's permanent design,
-  // groups (any op with `children`) may carry CLASSICAL controls
-  // only — never quantum controls — and are never adjointable.
-  // The editor refuses to author quantum controls on any group
-  // (or any multi-target unitary, for which there is no canonical
-  // visual rule). Loaded data with such controls still arrives
-  // through the parser but won't be rendered with a special-case
-  // quantum-control connector.
+  // Per the team's permanent design, groups (any op with `children`)
+  // may carry CLASSICAL controls only — never quantum controls —
+  // and are never adjointable. The editor refuses to author quantum
+  // controls on any group (or any multi-target unitary, for which
+  // there is no canonical visual rule). Loaded data with such
+  // controls still arrives through the parser but won't be rendered
+  // with a special-case quantum-control connector.
   //
-  // The single-target classically-controlled-unitary half of
-  // B5/M1's fix is preserved — see the sister test below.
+  // The single-target classically-controlled-unitary case is
+  // unaffected — see the sister test below.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }, { id: 3 }],
@@ -4665,9 +4615,9 @@ test("addControl: refuses on a classically-controlled GROUP (groups never carry 
 });
 
 test("addControl: still succeeds on a classically-controlled single-target UNITARY (no children)", () => {
-  // The half of B5/M1 that DOES survive: a classically-controlled
-  // unitary with one target and no children isn't multi-target, so
-  // adding a quantum control on a fresh wire still works.
+  // A classically-controlled unitary with one target and no children
+  // isn't multi-target, so adding a quantum control on a fresh wire
+  // works.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
@@ -4821,15 +4771,13 @@ test("removeControl: refuses on a multi-target / group op, leaving existing cont
 });
 
 // ---------------------------------------------------------------
-// Group + control move (B10).
+// Group + control move.
 //
-// Before the fix, `_moveAsUnit` short-circuited on `op.children`
-// before checking `movingControl`, so dragging a quantum control
-// on a group shifted the ENTIRE group as a unit instead of
-// rewiring just the one control. With the fix, controls on groups
-// behave the same as controls on non-group ops: vertical drag
-// rewires only the control (body stays put), and dropping the
-// control on a body wire swaps the two.
+// Dragging a quantum control on a group rewires just the one
+// control, not the entire group. Controls on groups behave the
+// same as controls on non-group ops: vertical drag rewires only
+// the control (body stays put), and dropping the control on a
+// body wire swaps the two.
 // ---------------------------------------------------------------
 
 test("moveOperation: vertical control drag on a group rewires only the control, leaving body untouched", () => {
@@ -4860,9 +4808,8 @@ test("moveOperation: vertical control drag on a group rewires only the control, 
   const model = new CircuitModel(circuit);
 
   // Drag the control from wire 0 to wire 3 (above the group body).
-  // Pre-fix: every register would shift by +3, ending up with
-  // children on q4, q5 and control on q3. With the fix: only the
-  // control moves; children stay on q1, q2.
+  // Only the control moves; children stay on q1, q2 (the group's
+  // body wires are not dragged along with the control leg).
   const moved = moveOperation(model, "0,0", "0,0", 0, 3, true, false);
 
   assert.ok(moved);
@@ -5031,27 +4978,15 @@ test("moveOperation: horizontal control drag on a group moves the whole op to th
 });
 
 test("moveOperation: horizontal control drag on a CNOT keeps target and control intact", () => {
-  // Regression: dragging a control DOT (not the gate body) of an
-  // ordinary CNOT-shaped op horizontally to a new column must
-  // preserve the full topology — target stays on its wire, the
-  // dragged control stays on its wire, only the column changes.
+  // Dragging a control DOT (not the gate body) of an ordinary
+  // CNOT-shaped op horizontally to a new column preserves the full
+  // topology: target stays on its wire, the dragged control stays
+  // on its wire, only the column changes.
   //
-  // The earlier symptom (before the wrapper threaded
-  // `movingControl` through) was: a horizontal control drag
-  // routed through `_moveOperationWithConfirmation` with
-  // `movingControl=false`, which made `_moveY`'s single-leg
-  // branch treat the operation as a target rewrite. With
-  // `sourceWire === targetWire === control's wire`, the swap-
-  // unlike-register branch fired (the control was the unlike
-  // register on `targetWire`), then `op.targets = [{qubit:
-  // targetWire}]` replaced the target with a single-wire stub
-  // on the control's wire — collapsing CNOT(target=q1, ctrl=q0)
-  // to a self-controlled X on q0.
-  //
-  // With `movingControl=true` the leg-rewire path is a no-op for
-  // an in-place (sourceWire === targetWire) drag — the
-  // like-register guard early-returns — so `_moveX` does the
-  // column relocation alone.
+  // The wrapper threads `movingControl=true` through to `_moveY`,
+  // whose leg-rewire path is a no-op for an in-place (sourceWire
+  // === targetWire) drag — the like-register guard early-returns —
+  // so `_moveX` does the column relocation alone.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }],
@@ -5242,11 +5177,10 @@ test("moveOperation: stamp survives the deep-clone roundtrip even when source ha
   assert.equal(movedAny.dataAttributes?.["sqore-prev-location"], "0,0");
 });
 
-test("moveOperation: stamp persists for a control-leg move on a group (B10 + B11 interaction)", () => {
+test("moveOperation: stamp persists for a control-leg move on a group", () => {
   // Verifies the stamp is set regardless of which branch of `_moveY`
-  // ran. The control-on-group leg-move path (B10) creates a new op
-  // identity too, so the ViewState transfer must still work for
-  // exactly the case that triggered B11.
+  // ran. The control-on-group leg-move path creates a new op
+  // identity too, so the ViewState transfer must still work.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
@@ -5283,7 +5217,7 @@ test("moveOperation: stamp persists for a control-leg move on a group (B10 + B11
 });
 
 // ---------------------------------------------------------------
-// B6 regression — shift-extend "cross-over" cases.
+// Shift-extend cross-over cases.
 //
 // When a group is shift-extended onto a wire past an external
 // sibling sitting on an in-between wire, the cascade must split
@@ -5293,15 +5227,13 @@ test("moveOperation: stamp persists for a control-leg move on a group (B10 + B11
 // `getOuterColumnSiblingWires`; everything else is the action
 // layer's job.
 //
-// Earlier extend tests (`extending across a column-sibling`,
-// `multiple column-siblings all survive the split`) cover the
-// simple-gate sibling case. These pin the case where the in-between
-// sibling is itself a multi-wire op (group / SWAP-like), to make
-// sure `_resolveOverlapAfterExtend` doesn't only handle 1-wire
-// siblings.
+// The simple-gate sibling case is covered by the earlier extend
+// tests. These tests pin the case where the in-between sibling is
+// itself a multi-wire op (group / SWAP-like), to ensure
+// `_resolveOverlapAfterExtend` handles more than 1-wire siblings.
 // ---------------------------------------------------------------
 
-test("moveOperation extend (B6): cross-over a GROUP sibling splits the column, leaving both groups intact", () => {
+test("moveOperation extend: cross-over a GROUP sibling splits the column, leaving both groups intact", () => {
   // 5 qubits. Column 0 = [Foo(span 0-1 with H@0, X@1), Bar(span
   // 3-4 with Y@3, Z@4)]. Both are groups, neither overlaps the
   // other. User shift-drops H from inside Foo to Foo's trailing
@@ -5392,7 +5324,7 @@ test("moveOperation extend (B6): cross-over a GROUP sibling splits the column, l
   );
 });
 
-test("moveOperation extend (B6): cross-over a sibling on an IN-BETWEEN wire (drop wire is clear past it)", () => {
+test("moveOperation extend: cross-over a sibling on an IN-BETWEEN wire (drop wire is clear past it)", () => {
   // 5 qubits. Column 0 = [Foo(span 0-1 with X@0 + H@1), Z@3 (in
   // between)]. User shift-drops H from inside Foo to wire 4 — past
   // Z, landing on a clear wire. X stays on wire 0 (anchoring Foo's
@@ -5468,19 +5400,16 @@ test("moveOperation extend (B6): cross-over a sibling on an IN-BETWEEN wire (dro
   );
 });
 
-test("moveOperation extend (B6): deeply-nested source past a multi-wire ancestor sibling splits at the top ancestor", () => {
-  // The regression that motivated the `refreshAncestorTargets`
-  // early-exit fix. With a deeply-nested source AND an in-between
-  // sibling at the TOP ancestor's column, the source-side cascade
-  // propagates the new wire span up through every shared ancestor
-  // BEFORE the dest-side cascade runs. The dest-side cascade sees
-  // `!changed` at its first rung and used to `return` immediately,
-  // never calling `_resolveOverlapAfterExtend` on the topmost
-  // ancestor where the actual collision lives. The widened Outer
-  // ended up sharing a top-level column with Sib, even though
-  // Outer's [0,5] span enclosed Sib's [3,4] — exactly the
-  // "expanded view appears to swallow the external gate" symptom
-  // the user reported.
+test("moveOperation extend: deeply-nested source past a multi-wire ancestor sibling splits at the top ancestor", () => {
+  // The case that requires the dest-side cascade to keep walking
+  // when the immediate rung sees `!changed`. With a deeply-nested
+  // source AND an in-between sibling at the TOP ancestor's column,
+  // the source-side cascade propagates the new wire span up through
+  // every shared ancestor before the dest-side cascade runs. If the
+  // dest-side cascade returned at its first `!changed` rung, the
+  // collision at the topmost ancestor would go unresolved — the
+  // widened Outer would share a column with Sib, swallowing it
+  // visually.
   //
   // Topology: 3-deep nesting (Outer > Middle > Foo > leaves) with
   // Sib a 2-wire GROUP sibling of Outer at the top level.
@@ -5741,12 +5670,11 @@ test("collectMeasurementConsumers: walks into nested children", () => {
 });
 
 test("collectMeasurementConsumers: ancestor groups with propagated .targets are NOT flagged", () => {
-  // Regression for the "deleting one M emptied my circuit" bug.
-  // Simulate the post-`_deepRefreshDerivedTargets` state where
+  // Simulates the post-`_deepRefreshDerivedTargets` state where
   // the outer group's `.targets` cache has propagated the classical
-  // ref upward. If we mistakenly inspected `.targets`, the Outer
-  // group would be flagged as a consumer — and cascade-delete would
-  // wipe the unrelated sibling Y inside it.
+  // ref upward. Inspecting `.targets` (instead of just leaf
+  // consumers) would flag the Outer group and cascade-delete its
+  // unrelated sibling Y. The consumer scan must look at leaves only.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
@@ -6118,17 +6046,23 @@ test("moveMeasurementWithDependents: M with no consumers behaves like a regular 
 });
 
 test("moveMeasurementWithDependents: moving an M onto a wire that already has multiple Ms-with-consumers does not double-remap M results", () => {
-  // Regression: `_applyClassicalRefRemap` used to walk
-  // `getOperationRegisters(op)`, which for measurements
-  // returns both `.qubits` and `.results`. After
-  // `_updateMeasurementLines` had already authoritatively
-  // assigned the post-move result indices to every M on the
-  // affected wire, walking those producer values back through
-  // the consumer remap caused a chain reaction: each M's new
-  // result index coincidentally matched another M's pre-move
-  // key, so the M's `.results` got remapped a second time —
-  // collapsing into duplicate result indices and orphaning any
-  // consumer whose target M had its `.results` clobbered.
+  // `_applyClassicalRefRemap` must skip producer registers
+  // (`.results` on measurements) and only remap consumer
+  // classical refs. Otherwise, after `_updateMeasurementLines`
+  // authoritatively renumbers result indices on the affected
+  // wire, walking those producer values back through the
+  // consumer remap can chain-react: each M's new result index
+  // happens to match another M's pre-move key, so `.results`
+  // gets remapped a second time — collapsing into duplicate
+  // result indices and orphaning consumers whose target M had
+  // its `.results` clobbered.
+  //
+  // Setup: three Ms with consumers spread across two wires.
+  // Wire 0 already has M_a (r=0) and M_b (r=1), each with a
+  // downstream classically-controlled gate. Wire 1 has M_c
+  // (r=0) with its own consumer. We move M_c onto wire 0 in
+  // front of M_a, which forces _updateMeasurementLines to
+  // renumber wire 0 as: M_c=0, M_a=1, M_b=2.
   //
   // Setup: three Ms with consumers spread across two wires.
   // Wire 0 already has M_a (r=0) and M_b (r=1), each with a
@@ -6437,21 +6371,14 @@ test("addControl: no overlap means no split (centralized path is a no-op)", () =
 });
 
 // ---------------------------------------------------------------
-// Regression: overlap-collision check must use the **drawn span**
-// of siblings (`getMinMaxRegIdx` — includes classical-control
-// wires), not the quantum-only `getQuantumWireRange`. A sibling
-// whose target is on a high wire but whose classical control
-// points at a low-wire measurement visually occupies every wire
-// between them (the renderer paints a connector through them);
-// a widened group whose span intersects ANY of those wires
-// collides with that connector even if it doesn't touch the
-// quantum target. Earlier versions routed the action-layer
-// helper through `getQuantumWireRange` and under-reported the
-// collision — the visible symptom matched the user's
-// "straddled between a classical-control dependency and a qubit
-// dependency" report: the widened group's expanded box drew
-// directly through the classical-control connector with no
-// column split.
+// Overlap-collision check must use the **drawn span** of siblings
+// (`getMinMaxRegIdx` — includes classical-control wires), not the
+// quantum-only `getQuantumWireRange`. A sibling whose target is on
+// a high wire but whose classical control points at a low-wire
+// measurement visually occupies every wire between them (the
+// renderer paints a connector through them); a widened group
+// whose span intersects ANY of those wires collides with that
+// connector even if it doesn't touch the quantum target.
 // ---------------------------------------------------------------
 
 test("addControl widening: sibling with classical control on a LOW wire (drawn-span overlap) triggers split even when quantum target is clear", () => {

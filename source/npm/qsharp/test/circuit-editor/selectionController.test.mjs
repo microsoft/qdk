@@ -188,7 +188,7 @@ test("mousedown on a non-control gate does not set movingControl", () => {
 });
 
 // ============================================================
-// D3: closest-wire-to-click for multi-wire host elems
+// Closest-wire-to-click resolution for multi-wire host elems
 // ============================================================
 
 /**
@@ -224,8 +224,8 @@ function buildMultiWireFixture(wireYs = [40, 100, 160]) {
   const groupBody = document.createElementNS(SVG_NS, "rect");
   groupBody.setAttribute("class", "gate-group");
   groupBody.setAttribute("data-wire-ys", JSON.stringify(wireYs));
-  // Static attr is the historical "first match" (topmost wire),
-  // which is exactly what the closest-wire path must override.
+  // Static attr is the topmost-wire fallback, which the
+  // closest-wire path must override.
   groupBody.setAttribute("data-wire", "0");
   svg.appendChild(groupBody);
 

@@ -2,27 +2,26 @@
 // Licensed under the MIT license.
 
 // Pure-helper unit tests for the editor's draggable module
-// (`ux/circuit-vis/editor/draggable.ts`). Locks down the geometry math
+// (`ux/circuit-vis/editor/draggable.ts`). Locks down the geometry
 // and DOM-attribute contracts of the four exported helpers that
 // `dragController` and the rendering pipeline lean on:
 //
 //   - `makeDropzoneBox`: inter-column vs on-column geometry, the
-//     trailing-append column past the rightmost real column, and the
-//     `data-dropzone-*` attribute set used by `findParentArray`/the
-//     drop handler.
-//   - `makeShiftExtendGhost`: vertical span extension above/below the
-//     group, horizontal extension onto the trailing-append column,
-//     and the `shift-extend-ghost` CSS hook the overlay paints with.
+//     trailing-append column past the rightmost real column, and
+//     the `data-dropzone-*` attribute set used by `findParentArray`.
+//   - `makeShiftExtendGhost`: vertical span extension above/below
+//     the group, horizontal extension onto the trailing-append
+//     column, and the `shift-extend-ghost` CSS hook.
 //   - `createWireDropzone`: full-width wire-spanning dropzone Y math,
 //     the `isBetween` cases that target the gaps before the first /
 //     after the last wire.
-//   - `removeAllWireDropzones`: targets `.dropzone-full-wire` only and
-//     leaves other overlay children alone.
+//   - `removeAllWireDropzones`: targets `.dropzone-full-wire` only
+//     and leaves other overlay children alone.
 //
-// End-to-end behaviour through `draw()` is covered by `dropzones.test.mjs`.
-// These tests run each helper in isolation against a hand-built
+// End-to-end behaviour through `draw()` is covered by
+// `dropzones.test.mjs`. Helpers run in isolation against a hand-built
 // `LayoutScope` / `wireData` so geometry assertions hold without
-// dragging the layout pass into the picture.
+// pulling in the layout pass.
 
 // @ts-check
 

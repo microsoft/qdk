@@ -1,29 +1,22 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// gateFormatter unit tests — covers the small islands of pure logic
-// inside [gateFormatter.ts](../../ux/circuit-vis/renderer/formatters/gateFormatter.ts)
-// that the snapshot suite catches only indirectly:
+// gateFormatter unit tests — covers the pure-logic islands inside
+// `renderer/formatters/gateFormatter.ts` that the snapshot suite
+// catches only indirectly:
 //
-//   - `_getQuantumControlYs`: the predicate that routes mixed
-//     classical+quantum controls (post-B5) to the right renderer.
-//     Pure data, no JSDOM.
-//   - `_zoomButton`: the expand/collapse decision tree plus the
+//   - `_getQuantumControlYs`: routing for mixed classical+quantum
+//     control arrays.
+//   - `_zoomButton`: the expand/collapse decision tree and the
 //     classical-control x-offset alignment.
-//   - `_gateBoundingBox` + `_classicalControls`: the geometry +
-//     marker emission for the "classical control on a group"
-//     surface (the load-bearing part of M2/B9 we DO support, vs.
-//     quantum-controls-on-groups which the audit explicitly
-//     declined for direct geometry tests).
-//   - `_createGate` CSS-class contract: classically-controlled
-//     wrapper element gets the `classically-controlled-group`
-//     class hook the editor relies on.
+//   - `_gateBoundingBox` + `_classicalControls`: geometry and
+//     marker emission for classical controls on groups.
+//   - `_createGate`: the `classically-controlled-group` CSS-class
+//     hook the editor relies on.
 //
 // The bulk of the formatter (SVG primitives, `_unitary`, `_swap`,
-// `_oplus`, etc.) is intentionally NOT covered here — those are
-// well-served by the snapshot suite in
-// [test/circuits.js](../circuits.js) and a direct unit test would
-// just re-spell the implementation.
+// `_oplus`) is covered by the snapshot suite in `test/circuits.js`;
+// duplicating that here would just re-spell the implementation.
 
 // @ts-check
 
@@ -93,17 +86,15 @@ function makeRenderData(overrides = {}) {
 test("_getQuantumControlYs: returns every control when classicalControlIds is undefined", () => {
   const data = makeRenderData({
     controlsY: [40, 80, 120],
-    // classicalControlIds omitted — the op has no classical refs at
-    // all, every entry is quantum.
+    // classicalControlIds omitted — every entry is quantum.
   });
 
   assert.deepEqual(_getQuantumControlYs(data), [40, 80, 120]);
 });
 
 test("_getQuantumControlYs: keeps every entry whose classicalControlIds slot is undefined", () => {
-  // Post-B5 shape: every control is quantum, but the
-  // classicalControlIds array exists (e.g. created defensively
-  // upstream) with all slots undefined.
+  // Every control is quantum but the classicalControlIds array
+  // exists (defensively created upstream) with all slots undefined.
   const data = makeRenderData({
     controlsY: [40, 80],
     classicalControlIds: [undefined, undefined],
@@ -122,9 +113,9 @@ test("_getQuantumControlYs: filters out every classical entry (numeric id)", () 
 });
 
 test("_getQuantumControlYs: filters mixed entries — quantum kept, classical (number) dropped", () => {
-  // The mixed shape the post-B5 add-quantum-control-on-classical-op
-  // path produces. Index 0 is a classical ref (numeric id), index 1
-  // is the freshly-added quantum control.
+  // Mixed shape from an add-quantum-control-on-classical-op: index
+  // 0 is a classical ref (numeric id), index 1 is the freshly-added
+  // quantum control.
   const data = makeRenderData({
     controlsY: [40, 120],
     classicalControlIds: [0, undefined],
@@ -133,11 +124,10 @@ test("_getQuantumControlYs: filters mixed entries — quantum kept, classical (n
   assert.deepEqual(_getQuantumControlYs(data), [120]);
 });
 
-test("_getQuantumControlYs: filters out null entries (B1 unresolved classical id)", () => {
-  // `null` marks a classical ref whose id couldn't be resolved (B1).
-  // It MUST still route through the classical render path, not the
-  // quantum one — otherwise a "C_null" condition would be drawn as
-  // a stray control dot on the qubit wire.
+test("_getQuantumControlYs: filters out null entries (unresolved classical id)", () => {
+  // `null` marks a classical ref whose id couldn't be resolved.
+  // It must still route through the classical render path; the
+  // quantum path would draw a stray dot on the qubit wire.
   const data = makeRenderData({
     controlsY: [40, 120],
     classicalControlIds: [null, undefined],
@@ -157,8 +147,7 @@ test("_zoomButton: collapsed group returns an expand button", () => {
 
   assert.notEqual(btn, null);
   assert.equal(btn?.getAttribute("class"), "gate-control gate-expand");
-  // Expand button = plus sign = path with both vertical and
-  // horizontal strokes ("M... v14 M... h14").
+  // Expand = plus sign = path with vertical and horizontal strokes.
   const path = btn?.querySelector("path")?.getAttribute("d") ?? "";
   assert.match(path, /v14/);
   assert.match(path, /h14/);
@@ -171,17 +160,16 @@ test("_zoomButton: expanded group returns a collapse button", () => {
 
   assert.notEqual(btn, null);
   assert.equal(btn?.getAttribute("class"), "gate-control gate-collapse");
-  // Collapse button = minus sign = path with horizontal stroke
-  // only ("M... h14"), no vertical stroke.
+  // Collapse = minus sign = horizontal stroke only.
   const path = btn?.querySelector("path")?.getAttribute("d") ?? "";
   assert.match(path, /h14/);
   assert.doesNotMatch(path, /v14/);
 });
 
 test("_zoomButton: expanded non-group (Unitary) returns a collapse button", () => {
-  // The `expanded` branch fires for any op type, not just groups —
-  // this is what lets expanded ControlledUnitary / extracted-gate
-  // bodies still render a collapse chevron.
+  // The `expanded` branch fires for any op type, not just groups
+  // — expanded ControlledUnitary / extracted-gate bodies also
+  // render a collapse chevron.
   const btn = _zoomButton(
     makeRenderData({ type: GateType.Unitary, isExpanded: true }),
   );
@@ -191,8 +179,8 @@ test("_zoomButton: expanded non-group (Unitary) returns a collapse button", () =
 });
 
 test("_zoomButton: collapsed non-group returns null", () => {
-  // The whole point of the decision tree: a plain non-group leaf
-  // op has nothing to expand into, so no chevron is offered.
+  // A plain non-group leaf has nothing to expand into, so no
+  // chevron is offered.
   assert.equal(
     _zoomButton(makeRenderData({ type: GateType.Unitary, isExpanded: false })),
     null,
@@ -204,13 +192,10 @@ test("_zoomButton: collapsed non-group returns null", () => {
 });
 
 test("_zoomButton: classical-control op shifts the button right by controlCircleOffset", () => {
-  // When an op carries classical controls, the overall bounding box
-  // extends LEFT to make room for the dashed control circles —
-  // [`_gateBoundingBox`](../../ux/circuit-vis/renderer/formatters/gateFormatter.ts)
-  // honors the wider span. The chevron MUST align with the gate
-  // body's left edge (where the dashed box draws), not the bounding
-  // box's left edge, or it would sit out in the empty corner above
-  // the classical-control circles.
+  // When an op carries classical controls, the bounding box extends
+  // LEFT to make room for the dashed control circles. The chevron
+  // must align with the gate body's left edge (where the dashed box
+  // draws), not the bounding box's left edge.
   const baseline = _zoomButton(
     makeRenderData({
       type: GateType.Group,
@@ -235,9 +220,8 @@ test("_zoomButton: classical-control op shifts the button right by controlCircle
   );
 
   // The bounding-box's left edge sits at `centerX - width/2` in
-  // both cases, so the absolute baseline x is identical; the
-  // offset case adds `controlCircleOffset` to nudge the chevron
-  // into the body's column.
+  // both cases; the offset case adds `controlCircleOffset` to nudge
+  // the chevron into the body's column.
   assert.equal(offsetCx - baselineCx, controlCircleOffset);
 });
 
@@ -251,8 +235,8 @@ test("_gateBoundingBox: single-target gate with no controls", () => {
     makeRenderData({ x: 100, width: 40, targetsY: [[60]] }),
   );
 
-  // Bounding-box x centers around `centerX` with width/2 on each
-  // side; height is just `gateHeight` for a single-wire op.
+  // Bounding box centers around `centerX` with width/2 on each
+  // side; height is `gateHeight` for a single-wire op.
   assert.equal(bb.x, 100 - 20);
   assert.equal(bb.width, 40);
   assert.equal(bb.y, 60 - gateHeight / 2);
@@ -260,11 +244,10 @@ test("_gateBoundingBox: single-target gate with no controls", () => {
 });
 
 test("_gateBoundingBox: includes classical-control wire in the y-range", () => {
-  // Classical controls sit on a DIFFERENT wire from the targets
-  // (typically below — the M is on a higher-numbered wire than the
-  // consumer). The bounding box MUST span both, otherwise the
-  // dashed connector emitted by `_classicalControls` would have
-  // nothing to terminate against.
+  // Classical controls sit on a different wire from the targets.
+  // The bounding box must span both wires so the dashed connector
+  // emitted by `_classicalControls` has something to terminate
+  // against.
   const bbWithControl = _gateBoundingBox(
     makeRenderData({
       x: 100,
@@ -276,7 +259,7 @@ test("_gateBoundingBox: includes classical-control wire in the y-range", () => {
   );
 
   // Top stays at the target wire; bottom extends to include the
-  // classical control wire 120px below.
+  // classical-control wire 120px below.
   assert.equal(bbWithControl.y, 60 - gateHeight / 2);
   assert.equal(bbWithControl.height, 180 - 60 + gateHeight);
 });
@@ -301,13 +284,12 @@ test("_gateBoundingBox: applies topPadding and bottomPadding for groups", () => 
 });
 
 // ---------------------------------------------------------------------------
-// _classicalControls — emission count + filter + B1 fallback
+// _classicalControls — emission count + filter + unresolved-id fallback
 // ---------------------------------------------------------------------------
 
 test("_classicalControls: emits one circle + connector per classical entry", () => {
-  // For each classical entry: a dashed circle (the control button),
-  // a vertical dashed line, and a horizontal dashed line. Three
-  // SVG elements per entry.
+  // Each classical entry emits a dashed circle, a vertical dashed
+  // line, and a horizontal dashed line — three elements.
   const elems = _classicalControls(
     50,
     makeRenderData({
@@ -328,9 +310,8 @@ test("_classicalControls: emits one circle + connector per classical entry", () 
 });
 
 test("_classicalControls: skips undefined (quantum) entries in a mixed-control op", () => {
-  // The other half of the M2/B5 mixed-controls contract — quantum
-  // entries (`undefined`) must NOT be drawn here. Otherwise the
-  // qubit wire gets a stray dashed circle slapped on it.
+  // Quantum entries (`undefined`) must NOT be drawn here —
+  // otherwise the qubit wire gets a stray dashed circle.
   const elems = _classicalControls(
     50,
     makeRenderData({
@@ -339,8 +320,8 @@ test("_classicalControls: skips undefined (quantum) entries in a mixed-control o
     }),
   );
 
-  // Two classical entries → 6 elements; the undefined slot
-  // contributes nothing.
+  // Two classical entries → 6 elements; the undefined slot adds
+  // nothing.
   assert.equal(elems.length, 6);
   const btns = elems.filter(
     (e) => e.getAttribute("class") === "classically-controlled-btn",
@@ -348,12 +329,12 @@ test("_classicalControls: skips undefined (quantum) entries in a mixed-control o
   assert.equal(btns.length, 2);
 });
 
-test("_classicalControls: renders null id (B1 unresolved) without crashing", () => {
-  // `null` is the B1 fallback for "this classical ref exists but
-  // its global id couldn't be resolved" — typically a `.qsc` file
-  // missing the `controlResultIds` metadata. The render path must
-  // still draw the dashed circle (the user needs to see SOMETHING
-  // on the control wire) with a literal "null" subscript label.
+test("_classicalControls: renders null id (unresolved) without crashing", () => {
+  // `null` marks a classical ref whose global id couldn't be
+  // resolved (e.g. a `.qsc` file missing `controlResultIds`
+  // metadata). The render path still draws the dashed circle with
+  // a literal "null" subscript label — the user needs to see
+  // something on the control wire.
   const elems = _classicalControls(
     50,
     makeRenderData({
@@ -367,8 +348,8 @@ test("_classicalControls: renders null id (B1 unresolved) without crashing", () 
     (e) => e.getAttribute("class") === "classically-controlled-btn",
   );
   assert.notEqual(btn, undefined);
-  // Label inside the circle is `c<sub>null</sub>` — the tspan child
-  // carries the id-or-"null" subscript.
+  // The tspan child carries the id-or-"null" subscript inside the
+  // `c<sub>…</sub>` label.
   const tspan = btn?.querySelector("tspan");
   assert.equal(tspan?.textContent, "null");
 });
@@ -378,10 +359,8 @@ test("_classicalControls: renders null id (B1 unresolved) without crashing", () 
 // ---------------------------------------------------------------------------
 
 test("_createGate: adds classically-controlled-group CSS class when classical controls are present", () => {
-  // The editor relies on this class to scope CSS rules and select
-  // classically-controlled wrappers via `querySelectorAll`. Without
-  // it, the dashed-box styling and any future selection / hover
-  // affordances scoped to that class would silently break.
+  // The editor relies on this class to scope CSS and to select
+  // classically-controlled wrappers via `querySelectorAll`.
   const gate = _createGate(
     [],
     makeRenderData({
@@ -399,9 +378,8 @@ test("_createGate: adds classically-controlled-group CSS class when classical co
 });
 
 test("_createGate: omits classically-controlled-group CSS class when no classical controls", () => {
-  // The negative side of the contract — pure-quantum groups (or
-  // any op without classical refs) must NOT carry the class, so
-  // classical-only styling doesn't bleed onto unrelated wrappers.
+  // Negative side of the contract — pure-quantum groups (or any
+  // op without classical refs) must not carry the class.
   const gate = _createGate(
     [],
     makeRenderData({
