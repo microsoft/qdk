@@ -952,4 +952,15 @@ function _labelText(label: string, x: number, y: number): SVGTextElement {
   return labelText;
 }
 
-export { formatGates, formatGate };
+export {
+  formatGates,
+  formatGate,
+  // Internal helpers exposed for direct unit testing. The leading
+  // underscore signals "test-only export"; matches the
+  // `_isMultiTargetOrGroup` convention in `actions/circuitActions.ts`.
+  _createGate,
+  _gateBoundingBox,
+  _zoomButton,
+  _classicalControls,
+  _getQuantumControlYs,
+};

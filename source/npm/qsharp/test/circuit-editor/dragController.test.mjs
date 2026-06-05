@@ -27,6 +27,7 @@ import { CircuitModel } from "../../dist/ux/circuit-vis/data/circuitModel.js";
 import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
 import { DragController } from "../../dist/ux/circuit-vis/editor/controllers/dragController.js";
 import { QubitController } from "../../dist/ux/circuit-vis/editor/controllers/qubitController.js";
+import { Location } from "../../dist/ux/circuit-vis/data/location.js";
 
 /** @type {JSDOM | null} */
 let jsdom = null;
@@ -727,6 +728,1070 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
   assert.equal(hCount, 1, `H must appear exactly once; got ${hCount}`);
   assert.equal(fooCount, 1, `Foo must appear exactly once; got ${fooCount}`);
   assert.equal(xCount, 1, `X must appear exactly once; got ${xCount}`);
+
+  dragController.dispose();
+});
+
+// ---------------------------------------------------------------
+// hideInvalidDropzones / showAllDropzones — the producer-before-
+// consumer dropzone filter and its reset cycle.
+//
+// `hideInvalidDropzones(selectedLocation)` is the user-facing
+// surface that prevents the user from dropping a classically-
+// conditional op into a column at-or-before its producing
+// measurement (which would invert the producer→consumer ordering
+// the renderer assumes). `showAllDropzones` is the reset half:
+// shared by `hideInvalidDropzones` itself (so each drag starts
+// from a clean slate) AND by the layer-mouseup teardown (so a
+// canceled / non-rendering drag doesn't leave stale `display:none`
+// marks behind for the next drag — including a toolbox drag,
+// which never runs the filter at all).
+//
+// We exercise the methods directly via `/** @type {any} */` casts
+// rather than driving them through `onGateMouseDown` so the tests
+// can focus on the filter contract without a full gate-elem +
+// LayoutMap fixture. The end-to-end mouse path is covered by the
+// existing gate-mousedown tests.
+// ---------------------------------------------------------------
+
+/** Append a `.dropzone` rect with display:none preset (stale-mark fixture). */
+function appendHiddenDropzone(dropzoneLayer, location, wire) {
+  const dz = appendDropzone(dropzoneLayer, location, wire);
+  /** @type {any} */ (dz).style.display = "none";
+  return dz;
+}
+
+test("showAllDropzones clears stale display:none marks on every dropzone in the layer", () => {
+  const fixture = buildFixture();
+  const dzA = appendHiddenDropzone(fixture.dropzoneLayer, "0,0", 0);
+  const dzB = appendHiddenDropzone(fixture.dropzoneLayer, "1,0", 0);
+  // Pre-condition: both dropzones have display:none.
+  assert.equal(/** @type {any} */ (dzA).style.display, "none");
+  assert.equal(/** @type {any} */ (dzB).style.display, "none");
+
+  const model = new CircuitModel(emptyCircuit(1));
+  const { dragController } = makeController(fixture, model);
+
+  /** @type {any} */ (dragController).showAllDropzones();
+
+  // Empty string → inherit from CSS (i.e. visible). The reset
+  // ditches the inline mark rather than swapping it for "block";
+  // dropzone-layer-level `display:none` toggles via
+  // `dropzoneLayer.style.display` still hide everything during
+  // non-drag states.
+  assert.equal(/** @type {any} */ (dzA).style.display, "");
+  assert.equal(/** @type {any} */ (dzB).style.display, "");
+
+  dragController.dispose();
+});
+
+test("hideInvalidDropzones hides dropzones whose location is not strictly after the external producer", () => {
+  // Circuit: top-level col 0 has measurement M on q0 producing
+  // result 0; col 1 has consumer Z on q1 with classical control
+  // (q0, result 0). Drag the Z (selectedLocation "1,0"); the only
+  // external producer is M at "0,0".
+  //
+  // Dropzones we lay down in the layer:
+  //   "0,0" → producer.col(0) NOT < target.col(0) → HIDE
+  //   "1,0" → producer.col(0) <   target.col(1) → keep
+  //   "2,0" → producer.col(0) <   target.col(2) → keep
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "Measure",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Z",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0, result: 0 }],
+            dataAttributes: { location: "1,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController } = makeController(fixture, model);
+
+  const dzAtZero = appendDropzone(fixture.dropzoneLayer, "0,0", 1);
+  const dzAtOne = appendDropzone(fixture.dropzoneLayer, "1,0", 1);
+  const dzAtTwo = appendDropzone(fixture.dropzoneLayer, "2,0", 1);
+
+  /** @type {any} */ (dragController).hideInvalidDropzones("1,0");
+
+  // The producer at col 0 means anything targeting col 0 is invalid.
+  assert.equal(
+    /** @type {any} */ (dzAtZero).style.display,
+    "none",
+    "drop at col 0 must be hidden — producer is at col 0",
+  );
+  assert.equal(
+    /** @type {any} */ (dzAtOne).style.display,
+    "",
+    "drop at col 1 must stay visible — producer col 0 < target col 1",
+  );
+  assert.equal(
+    /** @type {any} */ (dzAtTwo).style.display,
+    "",
+    "drop at col 2 must stay visible — producer col 0 < target col 2",
+  );
+
+  dragController.dispose();
+});
+
+test("hideInvalidDropzones with no external producers leaves every dropzone visible AND clears stale marks", () => {
+  // Drag an op with no classical-control dependencies. The filter
+  // pass must (a) leave every dropzone visible, AND (b) clear any
+  // stale display:none marks left over from a prior drag — that's
+  // the belt-and-suspenders reset at the top of the method.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "H",
+            targets: [{ qubit: 0 }],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController } = makeController(fixture, model);
+
+  // Drop two dropzones with stale display:none marks (simulating
+  // leftover state from a prior drag that DID have external
+  // producers).
+  const dzStale1 = appendHiddenDropzone(fixture.dropzoneLayer, "0,0", 0);
+  const dzStale2 = appendHiddenDropzone(fixture.dropzoneLayer, "1,0", 0);
+
+  /** @type {any} */ (dragController).hideInvalidDropzones("0,0");
+
+  assert.equal(
+    /** @type {any} */ (dzStale1).style.display,
+    "",
+    "stale display:none from prior drag must be cleared",
+  );
+  assert.equal(/** @type {any} */ (dzStale2).style.display, "");
+
+  dragController.dispose();
+});
+
+test("hideInvalidDropzones skips dropzones missing data-dropzone-location (defensive)", () => {
+  // The pass reads `data-dropzone-location` off each `.dropzone`
+  // and skips entries where the attribute is missing. Defensive
+  // — every real dropzone gets the attr from `makeDropzoneBox` —
+  // but the filter shouldn't crash if a stray `.dropzone` snuck
+  // into the layer some other way (e.g. a future overlay element
+  // that shares the class).
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "Measure",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Z",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0, result: 0 }],
+            dataAttributes: { location: "1,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController } = makeController(fixture, model);
+
+  // A stray .dropzone with no location attr. Should be skipped
+  // (untouched) by the filter loop.
+  const stray = document.createElementNS(SVG_NS, "rect");
+  stray.setAttribute("class", "dropzone");
+  fixture.dropzoneLayer.appendChild(stray);
+
+  assert.doesNotThrow(() =>
+    /** @type {any} */ (dragController).hideInvalidDropzones("1,0"),
+  );
+  // Stray dropzone untouched (no display mark).
+  assert.equal(/** @type {any} */ (stray).style.display, "");
+
+  dragController.dispose();
+});
+
+test("container mouseup teardown clears stale per-dropzone display marks", () => {
+  // Pairs with `showAllDropzones` and `hideInvalidDropzones`:
+  // when a drag is canceled or its commit doesn't re-render
+  // (e.g. drop landed in the same spot, deepEqual short-circuit),
+  // the layer-level mouseup must wipe any `display:none` marks
+  // the filter applied — otherwise the next drag (including a
+  // toolbox drag, which never runs the filter) inherits them.
+  const fixture = buildFixture();
+  const dzHidden = appendHiddenDropzone(fixture.dropzoneLayer, "0,0", 0);
+  const dzAlsoHidden = appendHiddenDropzone(fixture.dropzoneLayer, "1,0", 0);
+
+  const model = new CircuitModel(emptyCircuit(1));
+  const { dragController } = makeController(fixture, model);
+
+  dispatchMouseUp(fixture.container);
+
+  assert.equal(
+    /** @type {any} */ (dzHidden).style.display,
+    "",
+    "container mouseup must clear stale display:none from a previous drag",
+  );
+  assert.equal(/** @type {any} */ (dzAlsoHidden).style.display, "");
+
+  dragController.dispose();
+});
+
+// ---------------------------------------------------------------
+// D4 Stage B — shift-extend lifecycle. Pins the contracts of the
+// six private methods that own the shift-extend pathway:
+//
+//   - `setupShiftExtend`: top-level no-op vs internal-source arm.
+//   - `spawnShiftExtendDropzones`: emits dropzones only for wires
+//     OUTSIDE the parent group's current span, skips wires blocked
+//     by ancestor-column siblings (B6), tags each dropzone with
+//     `data-shift-extend="true"`, and is re-spawn-safe (subsequent
+//     calls clear the prior spawn first).
+//   - `clearShiftExtendDropzones`: removes shift-extend dropzones
+//     from the DOM, leaves regular dropzones alone.
+//   - `paintGhostBorder` / `clearGhostBorder`: append/replace a
+//     single `.shift-extend-ghost` rect in the overlay layer.
+//   - `tearDownShiftExtend`: clears dropzones, ghost border,
+//     `_shiftExtendCtx`, and the document shift-key listeners.
+//
+// We invoke the methods directly via `/** @type {any} */` casts and
+// stage `layoutMap.scopes` manually so each test can hold the geometry
+// inputs constant. The end-to-end "press shift mid-drag" pathway
+// would require a full keyboard-event harness on top of the existing
+// gate-mousedown fixture; the unit-level coverage here is the
+// contract surface other code actually depends on.
+// ---------------------------------------------------------------
+
+/**
+ * Install a `LayoutScope` for `parentLoc` into the controller's
+ * `ctx.layoutMap.scopes`. `columnXOffsets` defaults to a single
+ * column so `spawnShiftExtendDropzones`' `totalCols = real + 1`
+ * computes to 2 (one real + one trailing-append).
+ */
+function setScope(ctx, parentLoc, columnXOffsets = [100], columnWidths = [60]) {
+  ctx.layoutMap.scopes.set(parentLoc, { columnXOffsets, columnWidths });
+}
+
+test("setupShiftExtend no-ops for a top-level source (depth < 2)", () => {
+  // Top-level ops have no ancestor group to extend. Calling
+  // setupShiftExtend with their `Location` must leave the controller
+  // disarmed — no `_shiftExtendCtx`, no installed shift listeners.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "H",
+            targets: [{ qubit: 0 }],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController } = makeController(fixture, model);
+
+  /** @type {any} */ (dragController).setupShiftExtend(Location.parse("0,0"));
+
+  assert.equal(/** @type {any} */ (dragController)._shiftExtendCtx, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftDown, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftUp, null);
+
+  dragController.dispose();
+});
+
+test("setupShiftExtend arms _shiftExtendCtx and installs shift listeners for an internal-source drag", () => {
+  // A child of an expanded group (depth=2). The controller must
+  // capture the parent group's wire span + scope and install
+  // document keydown/keyup listeners so the user can toggle the
+  // shift-extend UI mid-drag.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            // Parent group spans wires 0..1.
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                    dataAttributes: { location: "0,0-0,0" },
+                  },
+                ],
+              },
+            ],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController, ctx } = makeController(fixture, model);
+  // setupShiftExtend looks up the IMMEDIATE parent's scope.
+  setScope(ctx, "0,0");
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+
+  const armed = /** @type {any} */ (dragController)._shiftExtendCtx;
+  assert.ok(armed, "_shiftExtendCtx must be populated");
+  assert.equal(armed.parentLoc, "0,0");
+  assert.equal(armed.parentMinWire, 0);
+  assert.equal(armed.parentMaxWire, 1);
+  assert.ok(
+    armed.parentScope.columnXOffsets,
+    "parentScope must carry layout geometry",
+  );
+
+  // Shift-key listeners installed (the toggle pathway).
+  assert.notEqual(
+    /** @type {any} */ (dragController)._onShiftDown,
+    null,
+    "keydown listener must be installed",
+  );
+  assert.notEqual(
+    /** @type {any} */ (dragController)._onShiftUp,
+    null,
+    "keyup listener must be installed",
+  );
+
+  dragController.dispose();
+});
+
+test("setupShiftExtend no-ops when the parent scope isn't in the LayoutMap (defensive)", () => {
+  // Defensive — every expanded group's scope should be in the
+  // LayoutMap, but the method must skip silently rather than
+  // throw if it isn't.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController } = makeController(fixture, model);
+  // Intentionally do NOT register a scope for "0,0".
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+
+  assert.equal(/** @type {any} */ (dragController)._shiftExtendCtx, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftDown, null);
+
+  dragController.dispose();
+});
+
+test("spawnShiftExtendDropzones emits dropzones only for wires outside the parent group's span", () => {
+  // Parent group spans wires 0..1. `wireData` covers wires 0..4
+  // (4 qubits + trailing ghost). Spawn should emit dropzones for
+  // wires {2, 3, 4} only — wires {0, 1} are inside the span and
+  // already covered by regular inner dropzones.
+  //
+  // Per-column count: 3 wires × 2 columns (1 real + 1 trailing) = 6.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                    dataAttributes: { location: "0,0-0,0" },
+                  },
+                ],
+              },
+            ],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController, ctx } = makeController(fixture, model);
+  setScope(ctx, "0,0");
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+
+  const spawned = fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]");
+  // Wires {2, 3, 4} × 2 columns = 6.
+  assert.equal(spawned.length, 6);
+
+  const wires = new Set(
+    Array.from(spawned).map((d) =>
+      Number(d.getAttribute("data-dropzone-wire")),
+    ),
+  );
+  assert.deepEqual(
+    [...wires].sort((a, b) => a - b),
+    [2, 3, 4],
+  );
+
+  dragController.dispose();
+});
+
+test("spawnShiftExtendDropzones skips wires blocked by ancestor-column siblings (B6)", () => {
+  // Top-level col 0 contains both the parent group (wires 0..1) AND
+  // a sibling X at wire 3. The B6 filter must mark wire 3 as
+  // blocked because dropping a child of the parent group onto wire
+  // 3 in any column would have nowhere to go in the top-level
+  // column without colliding with X.
+  //
+  // Eligible outside-span wires: {2, 3, 4}. Blocked: {3}. Emitted: {2, 4}.
+  // Per-column count: 2 wires × 2 columns = 4.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                    dataAttributes: { location: "0,0-0,0" },
+                  },
+                ],
+              },
+            ],
+            dataAttributes: { location: "0,0" },
+          },
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 3 }],
+            dataAttributes: { location: "0,1" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController, ctx } = makeController(fixture, model);
+  setScope(ctx, "0,0");
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+
+  const spawned = fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]");
+  // 2 unblocked wires × 2 columns = 4.
+  assert.equal(spawned.length, 4);
+
+  const wires = new Set(
+    Array.from(spawned).map((d) =>
+      Number(d.getAttribute("data-dropzone-wire")),
+    ),
+  );
+  assert.deepEqual(
+    [...wires].sort((a, b) => a - b),
+    [2, 4],
+  );
+  assert.ok(
+    !wires.has(3),
+    "wire 3 must be excluded — sibling X blocks it at the ancestor column",
+  );
+
+  dragController.dispose();
+});
+
+test("spawnShiftExtendDropzones tags every dropzone and is re-spawn-safe", () => {
+  // Two contracts in one test (cheap to combine, hard to separate
+  // meaningfully):
+  //   1. Every spawned dropzone carries `data-shift-extend="true"`
+  //      AND `data-dropzone-inter-column="false"` (so the mouseup
+  //      handler doesn't insert a new column).
+  //   2. Calling spawn twice in a row leaves the layer with one
+  //      copy, not two — the method clears its prior spawn first.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                    dataAttributes: { location: "0,0-0,0" },
+                  },
+                ],
+              },
+            ],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController, ctx } = makeController(fixture, model);
+  setScope(ctx, "0,0");
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+  const firstSpawn = fixture.dropzoneLayer.querySelectorAll(
+    "[data-shift-extend]",
+  );
+  assert.ok(firstSpawn.length > 0, "first spawn must emit some dropzones");
+  // Every dropzone is tagged correctly.
+  for (const dz of firstSpawn) {
+    assert.equal(dz.getAttribute("data-shift-extend"), "true");
+    assert.equal(dz.getAttribute("data-dropzone-inter-column"), "false");
+  }
+
+  // Re-spawn: count must NOT double. (Idempotency / re-arm safety.)
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+  const secondSpawn = fixture.dropzoneLayer.querySelectorAll(
+    "[data-shift-extend]",
+  );
+  assert.equal(
+    secondSpawn.length,
+    firstSpawn.length,
+    "second spawn must replace, not append",
+  );
+
+  dragController.dispose();
+});
+
+test("paintGhostBorder appends a .shift-extend-ghost rect and replaces a prior one", () => {
+  // Each `paintGhostBorder` call clears the existing ghost before
+  // appending a new one, so the overlay never carries two ghost
+  // rects at once (would be visible as a doubled halo).
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                    dataAttributes: { location: "0,0-0,0" },
+                  },
+                ],
+              },
+            ],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController, ctx } = makeController(fixture, model);
+  setScope(ctx, "0,0");
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+
+  // First paint — one ghost.
+  /** @type {any} */ (dragController).paintGhostBorder(2, 0);
+  let ghosts = fixture.overlay.querySelectorAll(".shift-extend-ghost");
+  assert.equal(ghosts.length, 1);
+  const firstGhost = ghosts[0];
+
+  // Second paint at a different wire — old ghost replaced, not appended.
+  /** @type {any} */ (dragController).paintGhostBorder(0, 0);
+  ghosts = fixture.overlay.querySelectorAll(".shift-extend-ghost");
+  assert.equal(ghosts.length, 1, "second paint must replace, not append");
+  assert.notEqual(
+    ghosts[0],
+    firstGhost,
+    "new ghost element should be a fresh node",
+  );
+
+  // clearGhostBorder wipes it.
+  /** @type {any} */ (dragController).clearGhostBorder();
+  ghosts = fixture.overlay.querySelectorAll(".shift-extend-ghost");
+  assert.equal(ghosts.length, 0);
+
+  dragController.dispose();
+});
+
+test("tearDownShiftExtend clears dropzones, ghost border, _shiftExtendCtx, and shift listeners", () => {
+  // Full teardown chain. After teardown the controller is back to
+  // its initial unarmed state — no dropzones in the DOM, no ghost
+  // border, no listener refs.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                    dataAttributes: { location: "0,0-0,0" },
+                  },
+                ],
+              },
+            ],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { dragController, ctx } = makeController(fixture, model);
+  setScope(ctx, "0,0");
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+  /** @type {any} */ (dragController).paintGhostBorder(2, 0);
+
+  // Sanity: state was actually armed.
+  assert.notEqual(/** @type {any} */ (dragController)._shiftExtendCtx, null);
+  assert.ok(
+    fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]").length > 0,
+  );
+  assert.equal(
+    fixture.overlay.querySelectorAll(".shift-extend-ghost").length,
+    1,
+  );
+
+  /** @type {any} */ (dragController).tearDownShiftExtend();
+
+  // Everything cleared.
+  assert.equal(/** @type {any} */ (dragController)._shiftExtendCtx, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftDown, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftUp, null);
+  assert.deepEqual(
+    /** @type {any} */ (dragController)._shiftExtendDropzones,
+    [],
+  );
+  assert.equal(
+    fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]").length,
+    0,
+    "shift-extend dropzones must be gone from the DOM",
+  );
+  assert.equal(
+    fixture.overlay.querySelectorAll(".shift-extend-ghost").length,
+    0,
+    "ghost border must be gone from the overlay",
+  );
+
+  // Idempotent — calling teardown a second time must not throw.
+  assert.doesNotThrow(() =>
+    /** @type {any} */ (dragController).tearDownShiftExtend(),
+  );
+
+  dragController.dispose();
+});
+
+// ---------------------------------------------------------------
+// Wave 4 — remaining dragController paths. Each test pins a flow
+// that has its own model-side contract distinct from the drop /
+// drag-out-delete paths already covered above.
+//
+//   - Ctrl+drag clone: source op stays put, a copy lands at the
+//     target. The `selectedWire` is passed through as the source
+//     wire so multi-target/group clones shift every register by
+//     the same delta.
+//   - Document mouseup with `!dragging` is a no-op — protects
+//     mouseup events from unrelated UI from accidentally mutating
+//     the model.
+//   - Qubit-drag-off (no `selectedOperation`, only `selectedWire`):
+//     delegates to `qubitController.removeQubitLineWithConfirmation`.
+//   - movingControl drag-out: removes ONLY the dragged control via
+//     `removeControl`, not the whole op via `_deleteOperationWithConfirmation`.
+//   - Document mousedown clears any wire dropzones in the SVG —
+//     the cleanup hook the add-control / qubit-label flows lean on
+//     so a click elsewhere dismisses their wire-pick UI.
+// ---------------------------------------------------------------
+
+test("Ctrl+drag clone of a regular op: source stays, copy lands at the target", () => {
+  // Source: H on q0 in col 0. Target: an inter-column dropzone at
+  // "0,0" — i.e. "insert a new column before column 0" — on wire 0.
+  // Copying (Ctrl) → `addOperation` is called instead of
+  // `_moveOperationWithConfirmation`; source op must remain in place.
+  // We target an inter-column slot so the new clone lands in a
+  // fresh column without colliding with (or replacing) the source.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "H",
+            targets: [{ qubit: 0 }],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // IMPORTANT: append the target dropzone BEFORE constructing the
+  // controller. `installDropzoneListeners` wires `mouseup` listeners
+  // at construction time only — dropzones added later are inert.
+  const targetDz = appendDropzone(
+    fixture.dropzoneLayer,
+    "0,0",
+    0,
+    /* interColumn */ true,
+  );
+
+  let renderCalls = 0;
+  const { interaction, dragController } = makeController(fixture, model, {
+    renderFn: () => {
+      renderCalls++;
+    },
+  });
+
+  // Simulate the in-progress drag of the H op.
+  interaction.selectedOperation = /** @type {any} */ (
+    model.componentGrid[0].components[0]
+  );
+  interaction.selectedWire = 0;
+  interaction.dragging = true;
+
+  // With ctrlKey set on the mouseup, `onDropzoneMouseUp` takes the
+  // copying branch: `addOperation` is called with the source's
+  // `selectedWire` as the source wire, so the original H stays put
+  // and a deep-copied clone lands in the newly-inserted col 0.
+  targetDz.dispatchEvent(
+    new MouseEvent("mouseup", { ctrlKey: true, bubbles: true }),
+  );
+
+  return Promise.resolve().then(() => {
+    // Two gates now: the original H and the clone.
+    const allGates = [];
+    for (const col of model.componentGrid) {
+      for (const op of col.components) {
+        allGates.push(/** @type {any} */ (op).gate);
+      }
+    }
+    const hCount = allGates.filter((g) => g === "H").length;
+    assert.equal(
+      hCount,
+      2,
+      `expected 2 H gates after Ctrl+drag clone, got ${hCount} (${allGates})`,
+    );
+    // renderFn fires from the deepEqual block (grid changed).
+    assert.equal(renderCalls, 1);
+    // Transient cleared.
+    assert.equal(interaction.selectedOperation, null);
+
+    dragController.dispose();
+  });
+});
+
+test("document mouseup with !dragging is a no-op (no model change, no render)", () => {
+  // Rogue mouseup events from unrelated UI must not trigger the
+  // drag-out-delete branch. The guard is `interaction.dragging`,
+  // which the in-progress-drag tests above all set to `true`.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "H",
+            targets: [{ qubit: 0 }],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  let renderCalls = 0;
+  const { interaction, dragController } = makeController(fixture, model, {
+    renderFn: () => {
+      renderCalls++;
+    },
+  });
+
+  // Default state: dragging is false; selectedOperation is null.
+  assert.equal(interaction.dragging, false);
+
+  dispatchMouseUp(document);
+
+  // Model is untouched; renderFn was never called.
+  assert.equal(model.componentGrid.length, 1);
+  assert.equal(model.componentGrid[0].components.length, 1);
+  assert.equal(renderCalls, 0);
+
+  dragController.dispose();
+});
+
+test("qubit-drag-off (only selectedWire, no selectedOperation) removes the qubit line", () => {
+  // The drag-controller's document-mouseup handler delegates to
+  // `qubitController.removeQubitLineWithConfirmation` when a drag
+  // ends off-circuit with `selectedOperation == null` but
+  // `selectedWire != null` — i.e. a qubit label was dragged off.
+  //
+  // The qubit controller skips the confirmation prompt when the
+  // qubit has zero ops attached (per `removeQubitLineWithConfirmation`),
+  // so we test against an unused qubit and assert the model shrinks.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "H",
+            targets: [{ qubit: 0 }],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  let renderCalls = 0;
+  const { interaction, dragController } = makeController(fixture, model, {
+    renderFn: () => {
+      renderCalls++;
+    },
+  });
+
+  // Simulate an in-progress qubit-label drag.
+  interaction.selectedOperation = null;
+  interaction.selectedWire = 1; // q1 — no ops attached
+  interaction.dragging = true;
+  interaction.mouseUpOnCircuit = false;
+
+  dispatchMouseUp(document);
+
+  // q1 removed → only q0 remains.
+  assert.equal(model.qubits.length, 1);
+  assert.equal(model.qubits[0].id, 0);
+  // Render fired (from the doRemove fast-path inside the qubit controller).
+  assert.equal(renderCalls, 1);
+
+  dragController.dispose();
+});
+
+test("drag-off with movingControl removes just the dragged control via removeControl (not the whole op)", () => {
+  // The movingControl branch of the document-mouseup drag-out path
+  // routes through `removeControl(selectedOperation, selectedWire)`,
+  // NOT `_deleteOperationWithConfirmation`. The op must remain in
+  // the grid with its `.controls` array shortened by the one we
+  // dragged off.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "H",
+            targets: [{ qubit: 0 }],
+            // The control on q1 is the one being dragged off.
+            controls: [{ qubit: 1 }],
+            dataAttributes: { location: "0,0" },
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  let renderCalls = 0;
+  const { interaction, dragController } = makeController(fixture, model, {
+    renderFn: () => {
+      renderCalls++;
+    },
+  });
+
+  interaction.selectedOperation = /** @type {any} */ (
+    model.componentGrid[0].components[0]
+  );
+  interaction.selectedWire = 1; // the control's wire
+  interaction.movingControl = true;
+  interaction.dragging = true;
+  interaction.mouseUpOnCircuit = false;
+
+  dispatchMouseUp(document);
+
+  // The H op is still there — only the control was removed.
+  assert.equal(model.componentGrid.length, 1);
+  const op = /** @type {any} */ (model.componentGrid[0].components[0]);
+  assert.equal(op.gate, "H");
+  // `removeControl` empties the controls array when the last
+  // control is removed (some paths null it; either is a "no
+  // controls" state).
+  const remainingControls = op.controls ?? [];
+  assert.equal(
+    remainingControls.length,
+    0,
+    `expected zero remaining controls, got ${JSON.stringify(remainingControls)}`,
+  );
+  // One render fired from the removeControl branch.
+  assert.equal(renderCalls, 1);
+
+  dragController.dispose();
+});
+
+test("document mousedown clears wire dropzones in the SVG", () => {
+  // The wire-pick UIs (`startAddingControl`, qubit-label drag) drop
+  // `.dropzone-full-wire` rects into the SVG. The document-mousedown
+  // handler clears them so clicking anywhere outside the wire-pick
+  // dropzones dismisses the flow.
+  const fixture = buildFixture();
+  const model = new CircuitModel(emptyCircuit(1));
+  const { dragController } = makeController(fixture, model);
+
+  // Inject two wire dropzones directly — what `createWireDropzone`
+  // produces, minus the wiring.
+  const wireDz1 = document.createElementNS(SVG_NS, "rect");
+  wireDz1.setAttribute("class", "dropzone-full-wire");
+  fixture.svg.appendChild(wireDz1);
+  const wireDz2 = document.createElementNS(SVG_NS, "rect");
+  wireDz2.setAttribute("class", "dropzone-full-wire");
+  fixture.svg.appendChild(wireDz2);
+  // A regular `.dropzone` for contrast — must NOT be removed.
+  const regularDz = appendDropzone(fixture.dropzoneLayer, "0,0", 0);
+
+  dispatchMouseDown(document);
+
+  assert.equal(
+    fixture.svg.querySelectorAll(".dropzone-full-wire").length,
+    0,
+    "wire dropzones must be cleared on document mousedown",
+  );
+  // Regular dropzone left alone.
+  assert.ok(regularDz.parentNode, "regular .dropzone must remain attached");
 
   dragController.dispose();
 });

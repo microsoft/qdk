@@ -1,0 +1,225 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+// prompts tests — direct coverage for `_createConfirmPrompt`, the
+// confirm-dialog primitive in `editor/prompts.ts`. Pins:
+//
+//   - DOM shape: `.prompt-overlay > .prompt-container >
+//     .prompt-message + .prompt-buttons > [OK, Cancel]`. (The
+//     widget classes are load-bearing — they're how the CSS in
+//     the host page styles the dialog AND how the test in
+//     [operationPrompts.test.mjs](operationPrompts.test.mjs)
+//     locates the buttons.)
+//   - Click semantics: OK → `callback(true)` + overlay removed;
+//     Cancel → `callback(false)` + overlay removed.
+//   - Keyboard semantics: Enter → OK; Escape → Cancel. Both are
+//     wired through a document-level capture-phase keydown
+//     listener so the prompt wins over any descendant input
+//     handler in the editor surface.
+//   - Listener lifecycle: the document-level keydown listener is
+//     removed when the prompt closes (clicking OK or Cancel —
+//     including the synthetic click from Enter/Escape), so a
+//     subsequent key press does NOT re-invoke the callback.
+//
+// `_createConfirmPrompt` is exported and self-contained; it
+// doesn't depend on `CircuitEvents` or any controller, so these
+// tests stand alone over a bare JSDOM document.
+
+// @ts-check
+
+import { JSDOM } from "jsdom";
+import { afterEach, beforeEach, test } from "node:test";
+import assert from "node:assert/strict";
+import { _createConfirmPrompt } from "../../dist/ux/circuit-vis/editor/prompts.js";
+
+/** @type {JSDOM | null} */
+let jsdom = null;
+
+beforeEach(() => {
+  jsdom = new JSDOM(`<!doctype html><html><body></body></html>`);
+  // @ts-expect-error - jsdom typings vs DOM lib mismatch
+  globalThis.window = jsdom.window;
+  globalThis.document = jsdom.window.document;
+  globalThis.HTMLElement = jsdom.window.HTMLElement;
+  globalThis.KeyboardEvent = jsdom.window.KeyboardEvent;
+});
+
+afterEach(() => {
+  jsdom?.window.close();
+  jsdom = null;
+});
+
+/** Locate the open prompt's structural pieces by class. */
+function getPrompt() {
+  const overlay = /** @type {HTMLElement | null} */ (
+    document.querySelector(".prompt-overlay")
+  );
+  if (!overlay) return null;
+  const container = overlay.querySelector(".prompt-container");
+  const message = overlay.querySelector(".prompt-message");
+  const buttons = overlay.querySelectorAll(".prompt-button");
+  return {
+    overlay,
+    container,
+    message,
+    okButton: /** @type {HTMLButtonElement} */ (buttons[0]),
+    cancelButton: /** @type {HTMLButtonElement} */ (buttons[1]),
+  };
+}
+
+test("_createConfirmPrompt: builds the expected DOM subtree under document.body", () => {
+  // Pinning the DOM shape because both the host page's CSS and
+  // the operationPrompts tests rely on these specific class names
+  // and the button ordering (OK first, Cancel second).
+  /** @type {boolean | null} */
+  let captured = null;
+  _createConfirmPrompt("Confirm something?", (c) => {
+    captured = c;
+  });
+
+  const p = getPrompt();
+  assert.ok(p, "overlay should be appended to document.body");
+  assert.equal(p.overlay.parentNode, document.body);
+  assert.ok(p.container, "container should exist inside overlay");
+  assert.equal(
+    p.message?.textContent,
+    "Confirm something?",
+    "message element should carry the caller's text verbatim",
+  );
+  assert.equal(p.okButton.textContent, "OK");
+  assert.equal(p.cancelButton.textContent, "Cancel");
+  // Callback shouldn't have fired yet — just the construction.
+  assert.equal(captured, null);
+});
+
+test("_createConfirmPrompt: OK button click fires callback(true) and removes the overlay", () => {
+  /** @type {boolean | null} */
+  let captured = null;
+  _createConfirmPrompt("ok?", (c) => {
+    captured = c;
+  });
+
+  const p = getPrompt();
+  assert.ok(p);
+  p.okButton.click();
+
+  assert.equal(captured, true, "OK click must pass true to callback");
+  assert.equal(
+    document.querySelector(".prompt-overlay"),
+    null,
+    "overlay must be removed from the DOM after OK",
+  );
+});
+
+test("_createConfirmPrompt: Cancel button click fires callback(false) and removes the overlay", () => {
+  /** @type {boolean | null} */
+  let captured = null;
+  _createConfirmPrompt("ok?", (c) => {
+    captured = c;
+  });
+
+  const p = getPrompt();
+  assert.ok(p);
+  p.cancelButton.click();
+
+  assert.equal(captured, false, "Cancel click must pass false to callback");
+  assert.equal(
+    document.querySelector(".prompt-overlay"),
+    null,
+    "overlay must be removed from the DOM after Cancel",
+  );
+});
+
+test("_createConfirmPrompt: Enter key commits as if OK was clicked", () => {
+  // The document-level keydown listener is registered in capture
+  // phase, so dispatching a `keydown` from `document` directly
+  // exercises the same path real key events take in the browser.
+  /** @type {boolean | null} */
+  let captured = null;
+  _createConfirmPrompt("ok?", (c) => {
+    captured = c;
+  });
+
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+  );
+
+  assert.equal(captured, true, "Enter must commit (callback(true))");
+  assert.equal(
+    document.querySelector(".prompt-overlay"),
+    null,
+    "Enter must close the prompt",
+  );
+});
+
+test("_createConfirmPrompt: Escape key cancels as if Cancel was clicked", () => {
+  /** @type {boolean | null} */
+  let captured = null;
+  _createConfirmPrompt("ok?", (c) => {
+    captured = c;
+  });
+
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  );
+
+  assert.equal(captured, false, "Escape must cancel (callback(false))");
+  assert.equal(
+    document.querySelector(".prompt-overlay"),
+    null,
+    "Escape must close the prompt",
+  );
+});
+
+test("_createConfirmPrompt: keydown listener is removed after close — subsequent keys do not fire callback again", () => {
+  // After OK closes the prompt, the document-level handler MUST
+  // be uninstalled — otherwise a stray Enter elsewhere on the
+  // page would try to click a now-detached button and (worse)
+  // could double-fire the callback if a second prompt has since
+  // opened. The implementation uses `removeEventListener` with
+  // matching capture flag inside both click handlers; here we
+  // pin that contract.
+  let callCount = 0;
+  _createConfirmPrompt("ok?", () => {
+    callCount++;
+  });
+
+  // First Enter → OK → callback fires once, prompt closes.
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  assert.equal(callCount, 1);
+  assert.equal(document.querySelector(".prompt-overlay"), null);
+
+  // Subsequent Enter must NOT fire the now-closed prompt's
+  // callback again.
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  assert.equal(
+    callCount,
+    1,
+    "callback must NOT fire after the prompt is closed",
+  );
+});
+
+test("_createConfirmPrompt: keys other than Enter/Escape are ignored", () => {
+  // Defense-in-depth: typing inside the prompt (e.g. someone
+  // accidentally hitting a letter key) must not close it. Only
+  // Enter and Escape are honored.
+  /** @type {boolean | null} */
+  let captured = null;
+  _createConfirmPrompt("ok?", (c) => {
+    captured = c;
+  });
+
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+
+  assert.equal(
+    captured,
+    null,
+    "callback must not fire for non-Enter/Escape keys",
+  );
+  assert.ok(
+    document.querySelector(".prompt-overlay"),
+    "prompt must still be open after stray keypresses",
+  );
+});

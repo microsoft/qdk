@@ -105,7 +105,7 @@ A snapshot of where coverage stands at the close of the
 re-architecture campaign, focused on what's worth landing before
 the PR opens.
 
-**Current totals.** 293 tests across 14 `.mjs` files in
+**Current totals.** 399 tests across 21 `.mjs` files in
 [test/circuit-editor/](../../test/circuit-editor/) — all passing —
 plus 21 snapshot fixtures in
 [test/circuits-cases/](../../test/circuits-cases/).
@@ -124,36 +124,58 @@ plus 21 snapshot fixtures in
 
 **Highest-value gaps** (full per-module table in the TODO):
 
-| Surface                                           | Status                                                                                                                                                                                 |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Sqore.rebaseViewState` (B11 consumer side)       | ❌ No direct test for the `sqore-prev-location` stamp consumption.                                                                                                                     |
-| `operationPrompts.ts` (B2 / B3 wrappers)          | ❌ No tests for the confirm-cancel path or the mixed-shape prompt text.                                                                                                                |
-| `contextMenu.ts` (M5 / M7 / B5 UI gates)          | ❌ No menu-DOM test harness. Predicates in `circuitActions.ts` ARE covered, but the menu wiring isn't pinned.                                                                          |
-| `dragController.ts` (929 lines, 10 tests)         | ⚠️ Thin. Toolbox-drag, drop commit, shift-extend wiring, horizontal control-drag commit untested.                                                                                      |
-| `draggable.ts` (800 lines, 0 direct tests)        | ⚠️ Indirect via `dropzones.test.mjs` + snapshots. Worth a dead-code pass before writing new tests — several helpers may be superseded by `LayoutMap` consumers in `dragController.ts`. |
-| `gateFormatter.ts` group-control geometry (M2/B9) | ⚠️ Snapshot-only — four edge cases (control above / below / in gap / on sub-box wire) aren't individually pinned.                                                                      |
-| `isValidAngleExpression` (Edit Argument flow)     | ❌ No direct test; `evaluateAngleExpression` is covered indirectly by the state-viz suite.                                                                                             |
+| Surface                                             | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Sqore.rebaseViewState` (B11 consumer side)         | ✅ 6 direct tests in [sqore.test.mjs](../../test/circuit-editor/sqore.test.mjs) pin the three branches (identity preserved, identity lost + stamp, identity lost + no stamp) plus the first-render no-op, untracked-entry passthrough, and nested-op rekey. Stamp consumption asserted.                                                                                                                                                                      |
+| `operationPrompts.ts` (B2 / B3 wrappers)            | ✅ 12 direct tests in [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) cover both wrappers end-to-end under JSDOM: fast paths, singular / plural delete prompts, the three move-message shapes (pure-survivors / pure-invalidated / mixed), OK-cascade contracts, and the Cancel-path invariant (no mutation, no `renderFn`).                                                                                                |
+| `prompts.ts` (`_createConfirmPrompt` primitive)     | ✅ 7 direct tests in [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs) pin DOM shape, OK / Cancel click semantics, Enter / Escape keyboard semantics, listener cleanup on close, and the ignore-other-keys contract.                                                                                                                                                                                                                            |
+| `contextMenu.ts` (M5 / M7 / B5 UI gates)            | ✅ 13 direct tests in [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs) cover every kind branch (measurement, ket), control-dot on simple / multi-target parent (B5), X-gate ordering with / without controls, M5 (multi-target unitary), M7 (group), ordinary unitary with / without controls + params, menu-replace + outside-click lifecycle, and `_startAddingControl` delegation.                                                  |
+| `dragController.ts` (929 lines, 28 tests)           | ✅ Major paths covered: toolbox drop, drag-out delete, B11 carve-out, `commitAddControl` no-duplicate, `hideInvalidDropzones` / `showAllDropzones` cycle, D4 Stage B shift-extend lifecycle, Ctrl-clone, document-mouseup `!dragging` no-op, qubit-drag-off, movingControl drag-out, wire-dropzone cleanup. `onArgButtonClick` waits on the deferred context-menu DOM harness.                                                                               |
+| `draggable.ts` (800 lines, 14 direct + 15 dropzone) | ✅ Pure-helper geometry pinned: `makeDropzoneBox` / `makeShiftExtendGhost` / `createWireDropzone` / `removeAllWireDropzones`. `_populateDropzonesForGrid` recursion still indirect via `dropzones.test.mjs`; no dead code found in the audit.                                                                                                                                                                                                                |
+| `gateFormatter.ts` group-control geometry (M2/B9)   | ⚠️ Classical-controls-on-groups path covered directly (`_getQuantumControlYs`, `_classicalControls`, `_gateBoundingBox`, `_createGate` — 18 tests in `gateFormatter.test.mjs`). Quantum-controls-on-groups geometry still snapshot-only; deferred with M6.                                                                                                                                                                                                   |
+| `isValidAngleExpression` (Edit Argument flow)       | ✅ 18 tests in [angleExpression.test.mjs](../../test/circuit-editor/angleExpression.test.mjs) pin the validity contract used by the Edit Argument prompt (numbers, π in all four case forms, arithmetic + parens, whitespace tolerance, plus the full rejection set) and the `normalizeAngleExpression` preprocessing step (trim + case-insensitive `pi` → `π` fold + idempotency). `evaluateAngleExpression` itself remains covered by the state-viz suite. |
 
 **Cut line for the PR** (~5 cheap items, each ~1 day):
 
 1. `Sqore.rebaseViewState` unit tests (identity preserved /
    identity lost + stamp present / stamp absent).
+   ✅ shipped — 6 tests in
+   [sqore.test.mjs](../../test/circuit-editor/sqore.test.mjs)
+   covering all three branches plus first-render no-op,
+   untracked-entry passthrough, and nested-op rekey.
 2. `_deleteOperationWithConfirmation` cancel-path test.
+   ✅ shipped — covered in
+   [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs)
+   alongside singular / plural prompt text and the OK-cascade
+   path (12 tests total).
 3. `_moveOperationWithConfirmation` cascade-count message tests
    (pure-survivors, pure-invalidated, mixed).
+   ✅ shipped — three message-shape tests in the same file pin
+   each branch of `_buildMoveMConsumerMessage`, plus a Cancel
+   path and a mixed-partition OK-cascade test.
 4. `isValidAngleExpression` direct tests.
+   ✅ shipped — 18 tests in
+   [angleExpression.test.mjs](../../test/circuit-editor/angleExpression.test.mjs)
+   cover the validity contract end-to-end and also pin
+   `normalizeAngleExpression` (the prompt's preprocessing step).
 5. `dragController` horizontal control-drag commit-path test.
+   ✅ shipped — same wave also closed out the `draggable.ts`
+   audit (14 pure-helper tests; no dead code found).
 
 Deferred follow-ups (not blocking PR):
 
-- **Context-menu DOM-test harness** — single shared JSDOM
-  investment covers M5 / M7 / B5 / Edit Argument with ~6–10
-  tests. Worth it eventually; not worth standing up for any
-  single milestone.
+- **Context-menu DOM-test harness** — ✅ shipped.
+  [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs)
+  (13 tests) covers M5 / M7 / B5 plus Edit Argument visibility,
+  X-gate ordering, the general unitary menu, and the
+  menu-replace / outside-click lifecycle. The deeper
+  `promptForArguments` flow still depends on the
+  `_createInputPrompt` DOM lifecycle (chained per-param
+  prompts, π-button insertion, Escape cancel); validation
+  through `isValidAngleExpression` is now directly covered.
 - **Renderer geometry tests** for
-  `_renderQuantumGroupControls` — would catch the M6
-  rendering rule's eventual landing without snapshot churn.
-- **`draggable.ts` audit** — dead-code pass vs. targeted tests.
+  `_renderQuantumGroupControls` — bundled with the deferred M6
+  work, since the rendering rule is expected to change there.
 
 See [the full audit in the TODO](CIRCUIT_EDITOR_TODO.md#test-coverage-audit--pr-readiness)
 for the per-module table, milestone-grouped gap list, and

@@ -3079,7 +3079,7 @@ re-architecture campaign, written up so the gap list survives across
 sessions and the "what to write before the PR" decisions are
 explicit.
 
-**Current totals.** 293 tests across 14 `.mjs` files in
+**Current totals.** 399 tests across 21 `.mjs` files in
 [test/circuit-editor/](../../test/circuit-editor/) — all passing —
 plus 21 fixtures in [test/circuits-cases/](../../test/circuits-cases/)
 (9 `.qsc` + 12 `.qs`) driven by the snapshot harness in
@@ -3104,50 +3104,49 @@ instances.
 | [data/circuit.ts](data/circuit.ts) / register.ts | 19/8  | n/a                                                                           | Pure type / structural definitions; no behavior to test.                |
 
 **Action layer** — heavily covered on `circuitActions.ts`;
-`interactionActions.ts` covered directly; `operationPrompts.ts` is
-the load-bearing gap.
+`interactionActions.ts` and `operationPrompts.ts` covered directly.
 
-| Module                                                         | Lines | Tests                                                                                     | Notes                                                                                                                                   |
-| -------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| [actions/circuitActions.ts](actions/circuitActions.ts)         | 2551  | [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs) (126)        | The crown jewel: every move / add / remove / control path, plus extend cascade, classical-ref remap, clone-move, M5/B5 gates.           |
-| [actions/interactionState.ts](actions/interactionState.ts)     | 97    | [interactionActions.test.mjs](../../test/circuit-editor/interactionActions.test.mjs) (10) | Defaults + reset semantics pinned.                                                                                                      |
-| [actions/interactionActions.ts](actions/interactionActions.ts) | 118   | (same file)                                                                               | `beginToolboxDrag`, dropzone tracking, idempotency covered.                                                                             |
-| [editor/operationPrompts.ts](editor/operationPrompts.ts)       | 203   | **0 direct tests**                                                                        | B2/B3 confirm prompts + cascade orchestration. Action layer is covered; the prompt-cancel and consumer-partition wrapper paths are not. |
+| Module                                                         | Lines | Tests                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [actions/circuitActions.ts](actions/circuitActions.ts)         | 2551  | [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs) (126)        | The crown jewel: every move / add / remove / control path, plus extend cascade, classical-ref remap, clone-move, M5/B5 gates.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| [actions/interactionState.ts](actions/interactionState.ts)     | 97    | [interactionActions.test.mjs](../../test/circuit-editor/interactionActions.test.mjs) (10) | Defaults + reset semantics pinned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| [actions/interactionActions.ts](actions/interactionActions.ts) | 118   | (same file)                                                                               | `beginToolboxDrag`, dropzone tracking, idempotency covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| [editor/operationPrompts.ts](editor/operationPrompts.ts)       | 203   | [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) (12)     | B2/B3 confirm prompts + cascade orchestration. `_deleteOperationWithConfirmation`: non-M / M-no-consumers fast paths, singular + plural prompt text, OK cascade, Cancel = no mutation + no `renderFn`. `_moveOperationWithConfirmation`: non-M / M-no-consumers fast paths, pure-survivors / pure-invalidated / mixed message shapes from `_buildMoveMConsumerMessage`, OK cascade through `moveMeasurementWithDependents`, Cancel = no mutation + no `renderFn`. `movingControl` threaded through the fast path (B11a regression). |
 
 **View layer (controllers + editor)** — mixed. The split surfaced
 by R5 made per-controller testing trivial, but only some
 controllers actually got tests.
 
-| Module                                                                                                                    | Lines           | Tests                                                                                       | Notes                                                                                                                                                                 |
-| ------------------------------------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [editor/controllers/dragController.ts](editor/controllers/dragController.ts)                                              | 929             | [dragController.test.mjs](../../test/circuit-editor/dragController.test.mjs) (10)           | **Thin.** B11 carve-out + a few `onGateMouseDown` paths. Toolbox-drag, drop commit, shift-extend wiring, control-drag commit, horizontal-drag commit all untested.    |
-| [editor/controllers/selectionController.ts](editor/controllers/selectionController.ts)                                    | 111             | [selectionController.test.mjs](../../test/circuit-editor/selectionController.test.mjs) (13) | D3 closest-wire pick + `movingControl` flag well-covered.                                                                                                             |
-| [editor/controllers/qubitController.ts](editor/controllers/qubitController.ts)                                            | 135             | [qubitController.test.mjs](../../test/circuit-editor/qubitController.test.mjs) (6)          | Basic mousedown / mouseup wiring; remove-with-confirmation orchestration untested.                                                                                    |
-| [editor/controllers/keyboardController.ts](editor/controllers/keyboardController.ts)                                      | 49              | [keyboardController.test.mjs](../../test/circuit-editor/keyboardController.test.mjs) (6)    | Complete coverage (Ctrl-toggle states + dispose).                                                                                                                     |
-| [editor/controllers/scrollController.ts](editor/controllers/scrollController.ts)                                          | 77              | [scrollController.test.mjs](../../test/circuit-editor/scrollController.test.mjs) (8)        | Auto-scroll edges covered.                                                                                                                                            |
-| [editor/contextMenu.ts](editor/contextMenu.ts)                                                                            | 345             | **0 direct tests**                                                                          | Carries every M5 / M7 / B5 UI gate (Add/Remove Control, Toggle Adjoint, Edit Argument). Predicates live in `circuitActions.ts` and ARE covered; menu wiring is not.   |
-| [editor/draggable.ts](editor/draggable.ts)                                                                                | 800             | **0 direct tests**                                                                          | Indirectly exercised via `dropzones.test.mjs` (15) and snapshots; `makeDropzoneBox`, `makeShiftExtendGhost`, `_populateDropzonesForGrid` have no targeted unit tests. |
-| [editor/events.ts](editor/events.ts)                                                                                      | 196             | **0 direct tests**                                                                          | Coordinator. Wiring exercised end-to-end through controllers; the controller-instantiation order and `dispose()` chain are not pinned directly.                       |
-| [editor/operationPrompts.ts](editor/operationPrompts.ts)                                                                  | 203             | **0 direct tests**                                                                          | See action-layer table above.                                                                                                                                         |
-| [editor/toolbox.ts](editor/toolbox.ts)                                                                                    | 169             | [toolboxRunButton.test.mjs](../../test/circuit-editor/toolboxRunButton.test.mjs) (3)        | Only the run-button visibility logic. Toolbox gate rendering / drag-start untested.                                                                                   |
-| [editor/prompts.ts](editor/prompts.ts)                                                                                    | 70              | **0 direct tests**                                                                          | Pure DOM helper; only exercised transitively.                                                                                                                         |
-| [editor/shell.ts](editor/shell.ts) / standaloneRenderData.ts / installEditor.ts / toolboxGates.ts / interactionContext.ts | 100/93/62/55/55 | **0 direct tests**                                                                          | Glue / scaffolding; nothing behaviorally interesting to assert.                                                                                                       |
+| Module                                                                                                                    | Lines           | Tests                                                                                       | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [editor/controllers/dragController.ts](editor/controllers/dragController.ts)                                              | 929             | [dragController.test.mjs](../../test/circuit-editor/dragController.test.mjs) (28)           | Toolbox-drag, drop commit, B11 carve-out, drag-out-delete, `commitAddControl` no-duplicate (2), `hideInvalidDropzones` / `showAllDropzones` cycle (5), D4 Stage B shift-extend lifecycle — setup / spawn / B6 block / tag-and-respawn / paint+clear ghost / tearDown (8), Ctrl-clone via `addOperation`, document-mouseup `!dragging` no-op, qubit-drag-off delegation, movingControl drag-out via `removeControl`, document-mousedown wire-dropzone cleanup.                                                              |
+| [editor/controllers/selectionController.ts](editor/controllers/selectionController.ts)                                    | 111             | [selectionController.test.mjs](../../test/circuit-editor/selectionController.test.mjs) (13) | D3 closest-wire pick + `movingControl` flag well-covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| [editor/controllers/qubitController.ts](editor/controllers/qubitController.ts)                                            | 135             | [qubitController.test.mjs](../../test/circuit-editor/qubitController.test.mjs) (6)          | Basic mousedown / mouseup wiring; remove-with-confirmation orchestration untested.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| [editor/controllers/keyboardController.ts](editor/controllers/keyboardController.ts)                                      | 49              | [keyboardController.test.mjs](../../test/circuit-editor/keyboardController.test.mjs) (6)    | Complete coverage (Ctrl-toggle states + dispose).                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| [editor/controllers/scrollController.ts](editor/controllers/scrollController.ts)                                          | 77              | [scrollController.test.mjs](../../test/circuit-editor/scrollController.test.mjs) (8)        | Auto-scroll edges covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| [editor/contextMenu.ts](editor/contextMenu.ts)                                                                            | 345             | [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs) (13)                 | Every M5 / M7 / B5 UI gate pinned via a JSDOM stub-`CircuitEvents`: measurement → only Delete; ket → only Delete; control-dot on simple parent → only Remove control; control-dot on multi-target / group parent → no menu items (B5); X-gate ordering with / without controls; multi-target unitary (M5) → no Add/Remove Control; group (M7) → no Toggle Adjoint; ordinary unitary with params / controls (full menu); re-open replaces prior menu; outside-click closes; Add Control delegates to `_startAddingControl`. |
+| [editor/draggable.ts](editor/draggable.ts)                                                                                | 800             | [draggable.test.mjs](../../test/circuit-editor/draggable.test.mjs) (14) + dropzones (15)    | Pure-helper geometry pinned: `makeDropzoneBox` inter-column / on-column / trailing-append / attr contract / pathPrefix nesting, `makeShiftExtendGhost` above-span / below-span / trailing-column horizontal extend / inside-span, `createWireDropzone` on-wire / between / after-last, `removeAllWireDropzones` selective wipe. `_populateDropzonesForGrid` recursion still indirect via `dropzones.test.mjs`.                                                                                                             |
+| [editor/events.ts](editor/events.ts)                                                                                      | 196             | **0 direct tests**                                                                          | Coordinator. Wiring exercised end-to-end through controllers; the controller-instantiation order and `dispose()` chain are not pinned directly.                                                                                                                                                                                                                                                                                                                                                                            |
+| [editor/operationPrompts.ts](editor/operationPrompts.ts)                                                                  | 203             | [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) (12)       | See action-layer table above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| [editor/toolbox.ts](editor/toolbox.ts)                                                                                    | 169             | [toolboxRunButton.test.mjs](../../test/circuit-editor/toolboxRunButton.test.mjs) (3)        | Only the run-button visibility logic. Toolbox gate rendering / drag-start untested.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| [editor/prompts.ts](editor/prompts.ts)                                                                                    | 70              | [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs) (7)                          | `_createConfirmPrompt` DOM shape (`.prompt-overlay > .prompt-container > .prompt-message + .prompt-buttons`), OK click → `callback(true)` + overlay removed, Cancel → `callback(false)` + overlay removed, Enter / Escape commit / cancel through the document-level capture-phase keydown listener, listener uninstall on close (post-close keypresses do NOT re-fire), non-Enter/Escape keys ignored.                                                                                                                    |
+| [editor/shell.ts](editor/shell.ts) / standaloneRenderData.ts / installEditor.ts / toolboxGates.ts / interactionContext.ts | 100/93/62/55/55 | **0 direct tests**                                                                          | Glue / scaffolding; nothing behaviorally interesting to assert.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **Renderer + top-level** — snapshot-only coverage on the
 formatters; `sqore.ts` has no direct unit tests for its
 view-state-rebase consumer logic.
 
-| Module                                                                       | Lines | Tests                                                                                                                                             | Notes                                                                                                                                         |
-| ---------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| [sqore.ts](sqore.ts)                                                         | 859   | thin (indirect via dropzones / snapshots)                                                                                                         | `rebaseViewState` + `sqore-prev-location` stamp consumption (the B11 fix) has no direct test. `updateCircuit` covered via dropzones (1+).     |
-| [renderer/process.ts](renderer/process.ts)                                   | 760   | snapshot-only                                                                                                                                     | LayoutMap output partially covered by dropzone pixel tests; row-height / wire-y derivation untested directly.                                 |
-| [renderer/formatters/gateFormatter.ts](renderer/formatters/gateFormatter.ts) | 867   | snapshot-only                                                                                                                                     | M2 / M3 / B9 group-control rendering, `_renderQuantumGroupControls` geometry, mixed-control routing — all caught only by 21 HTML snapshots.   |
-| [renderer/formatters/\*](renderer/formatters/)                               | ~700  | snapshot-only                                                                                                                                     | inputFormatter / formatUtils / registerFormatter.                                                                                             |
-| [renderer/layoutMap.ts](renderer/layoutMap.ts)                               | 76    | indirect via dropzone pixel tests                                                                                                                 | The LayoutMap contract is tested as a side-effect of dropzone geometry assertions.                                                            |
-| [renderer/gateRenderData.ts](renderer/gateRenderData.ts) / constants.ts      | 97/46 | n/a                                                                                                                                               | Types / constants.                                                                                                                            |
-| [utils.ts](utils.ts)                                                         | 732   | [utils.test.mjs](../../test/circuit-editor/utils.test.mjs) (32) + [findOperation.test.mjs](../../test/circuit-editor/findOperation.test.mjs) (15) | Solid: `pickClosestWireIndex`, `parseWireYs`, `getOuterColumnSiblingWires`, `getAncestorColumnSiblingWires`, `getChildTargets`, find helpers. |
-| [angleExpression.ts](angleExpression.ts)                                     | 123   | indirect via state-viz suite                                                                                                                      | `evaluateAngleExpression` is covered; `isValidAngleExpression` (used by `contextMenu.ts`'s Edit Argument flow) is not directly tested.        |
-| [index.ts](index.ts)                                                         | 53    | n/a                                                                                                                                               | Re-exports.                                                                                                                                   |
+| Module                                                                       | Lines | Tests                                                                                                                                             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [sqore.ts](sqore.ts)                                                         | 859   | [sqore.test.mjs](../../test/circuit-editor/sqore.test.mjs) (6) + indirect via dropzones / snapshots                                               | `rebaseViewState` consumer side pinned: first-render no-op, identity-preserved rekey, identity-lost-with-`sqore-prev-location`-stamp rekey + stamp consumption (the B11 fix), identity-lost-without-stamp drop, untracked-entry passthrough, nested-op rekey. `updateCircuit` still covered indirectly via dropzones.                                                                                                                                                                                                                                                                                                                                                 |
+| [renderer/process.ts](renderer/process.ts)                                   | 760   | snapshot-only                                                                                                                                     | LayoutMap output partially covered by dropzone pixel tests; row-height / wire-y derivation untested directly.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| [renderer/formatters/gateFormatter.ts](renderer/formatters/gateFormatter.ts) | 867   | [gateFormatter.test.mjs](../../test/circuit-editor/gateFormatter.test.mjs) (18) + snapshots                                                       | `_getQuantumControlYs` mixed-controls filter, `_zoomButton` chevron decision tree + classical-control x-offset, `_gateBoundingBox` classical-wire inclusion + group padding, `_classicalControls` emission + B1 null-id fallback, `_createGate` CSS-class contract. SVG primitives still snapshot-only.                                                                                                                                                                                                                                                                                                                                                               |
+| [renderer/formatters/\*](renderer/formatters/)                               | ~700  | snapshot-only                                                                                                                                     | inputFormatter / formatUtils / registerFormatter.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| [renderer/layoutMap.ts](renderer/layoutMap.ts)                               | 76    | indirect via dropzone pixel tests                                                                                                                 | The LayoutMap contract is tested as a side-effect of dropzone geometry assertions.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| [renderer/gateRenderData.ts](renderer/gateRenderData.ts) / constants.ts      | 97/46 | n/a                                                                                                                                               | Types / constants.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| [utils.ts](utils.ts)                                                         | 732   | [utils.test.mjs](../../test/circuit-editor/utils.test.mjs) (32) + [findOperation.test.mjs](../../test/circuit-editor/findOperation.test.mjs) (15) | Solid: `pickClosestWireIndex`, `parseWireYs`, `getOuterColumnSiblingWires`, `getAncestorColumnSiblingWires`, `getChildTargets`, find helpers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| [angleExpression.ts](angleExpression.ts)                                     | 123   | [angleExpression.test.mjs](../../test/circuit-editor/angleExpression.test.mjs) (18) + indirect via state-viz suite                                | `isValidAngleExpression` pinned end-to-end: plain numbers, signed π in all four case forms (π / pi / Pi / PI), arithmetic combos, parenthesized + nested expressions, leading/trailing whitespace; empty / whitespace-only, unknown characters, malformed numbers (leading dot, multiple decimals), unbalanced parens, dangling operators, division-by-zero (`!isFinite` guard), and adjacent factors (no implicit multiply). `normalizeAngleExpression` pinned: whitespace trim, case-insensitive `pi` → `π` fold (including embedded), idempotency. `evaluateAngleExpression` still covered by [stateCompute.test.mjs](../../test/state-viz/stateCompute.test.mjs). |
+| [index.ts](index.ts)                                                         | 53    | n/a                                                                                                                                               | Re-exports.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ### Gap list grouped by milestone
 
@@ -3157,27 +3156,53 @@ regression-tested?" and find the answer.
 
 - **M5 (refuse add/remove control on multi-target / groups).**
   Action layer ✅ (5 tests in `circuitActions.test.mjs`).
-  Context-menu UI gating ❌ (no menu-DOM test harness exists).
+  Context-menu UI gating ✅ — multi-target unitary case in
+  [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs)
+  asserts `[Toggle Adjoint, Delete]` (no Add/Remove Control); the
+  group case asserts `[Delete]` (groups satisfy the same predicate).
+  Control-dot variant ✅ (B5 entry below).
 - **M7 (hide Toggle Adjoint on groups).** Inline check in
-  [contextMenu.ts](editor/contextMenu.ts), no direct test.
-  Action layer is untouched — there's nothing to test outside the
-  menu wiring.
+  [contextMenu.ts](editor/contextMenu.ts) ✅ — covered by the
+  group case in
+  [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs)
+  (`children != null` → no Toggle Adjoint).
+- **B5 (no Remove control on control-dot of a multi-target /
+  group parent).** ✅ — covered by the control-dot-on-multi-target
+  case in
+  [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs)
+  (the rendered menu is empty).
 - **B11 (ViewState transfer across moves).** Action layer ✅
   (3 tests pinning the `sqore-prev-location` stamp). Consumer
-  side in [`Sqore.rebaseViewState`](sqore.ts) ❌ — no direct test
-  that the stamp is consumed and the entry rebases correctly.
+  side in [`Sqore.rebaseViewState`](sqore.ts) ✅ — 6 direct
+  tests in [sqore.test.mjs](../../test/circuit-editor/sqore.test.mjs)
+  pin the three branches (identity preserved, identity lost +
+  stamp, identity lost + no stamp) plus the first-render no-op,
+  untracked-entry passthrough, and nested-op rekey. Stamp
+  consumption (deletion from `dataAttributes` after the rebase)
+  is also asserted.
 - **B2 / B3 (M-with-dependents flows).** Action layer ✅
-  (10 tests in `circuitActions.test.mjs`). Confirm-prompt cancel
-  paths in [operationPrompts.ts](editor/operationPrompts.ts) ❌
-  — no test that `window.confirm() === false` leaves the model
-  untouched, no test that mixed-shape prompt text reports the
-  right survivor / invalidated counts.
-- **M2 / B9 (group-control rendering).** Snapshot-only via
-  `quantum-control-group.qsc` / `quantum-control-classical-group.qsc`.
-  No targeted geometry tests for `_renderQuantumGroupControls` —
-  the four edge cases (control above / below / in gap / on
-  sub-box wire) aren't called out individually, so an off-by-one
-  in connector geometry would only surface as a snapshot diff.
+  (10 tests in `circuitActions.test.mjs`). Confirm-prompt wrappers
+  in [operationPrompts.ts](editor/operationPrompts.ts) ✅ —
+  12 tests in
+  [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs)
+  pin the singular / plural delete prompts, the three move-message
+  shapes (`_buildMoveMConsumerMessage`: pure-survivors,
+  pure-invalidated, mixed), the OK-cascade contract for both
+  wrappers, and the Cancel-path invariant (model untouched,
+  `renderFn` not called). `_createConfirmPrompt` itself covered
+  by [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs)
+  (7 tests including Enter / Escape keyboard semantics and
+  listener cleanup).
+- **M2 / B9 (group-control rendering).** Classical-controls-on-
+  groups path covered directly in `gateFormatter.test.mjs` —
+  `_getQuantumControlYs` filter, `_classicalControls` emission +
+  B1 null-id fallback, `_gateBoundingBox` classical-wire
+  inclusion, `_createGate` CSS-class contract. The
+  quantum-controls-on-groups geometry (`_renderQuantumGroupControls`)
+  remains snapshot-only — deferred per M5/M6 design (the editor
+  doesn't currently let users author quantum controls on groups,
+  so M6 will revisit the geometry rule before targeted tests
+  earn their keep).
 - **D-series cascades.** All extend / overlap / split paths
   covered in `circuitActions.test.mjs`. Dropzone visibility filter
   paths covered in `dropzones.test.mjs`.
@@ -3188,44 +3213,71 @@ Ordered by value × cost. Items 1–5 are "Cheap" (each ~1 day or
 less, no new harness investment) and are the suggested cut line
 for what to land before opening the PR.
 
-1. **`Sqore.rebaseViewState` direct unit tests.** Pin the B11
-   consumer side: a `Map<Operation, string> → Map<Operation, string>`
-   transform under three scenarios — identity preserved, identity
-   lost + stamp present, identity lost + stamp absent. Lives in a
-   new `sqore.test.mjs`; no JSDOM beyond the existing setup.
-2. **`_deleteOperationWithConfirmation` cancel-path test.** Stub
-   `window.confirm` to return `false`, assert model unchanged
-   and `renderFn` not called. Add to a new
-   `operationPrompts.test.mjs`.
+1. **`Sqore.rebaseViewState` direct unit tests.** ✅ shipped —
+   6 tests in [sqore.test.mjs](../../test/circuit-editor/sqore.test.mjs)
+   cover the three core branches (identity preserved, identity
+   lost + `sqore-prev-location` stamp, identity lost + no stamp)
+   plus the first-render no-op, untracked-entry passthrough,
+   and nested-op rekey. Stamp consumption is asserted on the
+   stamp branch so the marker can't leak into the rendered SVG.
+2. **`_deleteOperationWithConfirmation` cancel-path test.** ✅
+   shipped — covered in
+   [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs)
+   alongside the singular / plural prompt text and the OK-cascade
+   path. The cancel-path test clicks the `.prompt-button` Cancel
+   button (the real `_createConfirmPrompt` is exercised end-to-end
+   under JSDOM rather than stubbing `window.confirm`) and asserts
+   the model is byte-for-byte unchanged and `renderFn` is not
+   called.
 3. **`_moveOperationWithConfirmation` cascade-count assertions.**
-   Three tests: pure-survivors message, pure-invalidated message,
-   mixed message. Stub `window.confirm`, capture the prompt text,
-   assert against the partition counts.
-4. **`isValidAngleExpression` direct tests.** Pure function,
-   already implemented in [angleExpression.ts](angleExpression.ts),
-   used by Edit Argument flow. Half a dozen positive / negative
-   cases.
-5. **`dragController` horizontal-drag commit-path test.** Pins
-   the same-wire control-drag horizontal-only fix from this
-   session's earlier work.
+   ✅ shipped — three message-shape tests in
+   [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs)
+   pin pure-survivors / pure-invalidated / mixed, plus a Cancel
+   path and a mixed-partition OK-cascade test confirming the
+   survivor remains and the invalidated consumer is gone.
+4. **`isValidAngleExpression` direct tests.** ✅ shipped — 18
+   tests in
+   [angleExpression.test.mjs](../../test/circuit-editor/angleExpression.test.mjs)
+   cover the validity contract used by the Edit Argument prompt:
+   plain numbers, π / pi / Pi / PI, arithmetic + parens, whitespace
+   tolerance, plus the rejection cases (empty input, unknown chars,
+   malformed numbers, unbalanced parens, dangling operators,
+   division-by-zero, adjacent factors). Same file pins
+   `normalizeAngleExpression` (the prompt's preprocessing step).
+5. **`dragController` horizontal-drag commit-path test.** ✅
+   shipped — the dragController-coverage wave landed 18 new
+   tests (10 pre-existing → 28), covering toolbox drop, drag-out
+   delete, B11 carve-out, the full `hideInvalidDropzones` /
+   `showAllDropzones` cycle, the D4 Stage B shift-extend
+   lifecycle, Ctrl-clone via `addOperation`, document-mouseup
+   `!dragging` no-op, qubit-drag-off delegation, movingControl
+   drag-out via `removeControl`, and wire-dropzone cleanup.
+   Same wave landed 14 pure-helper unit tests for
+   `draggable.ts`. Outstanding sub-items: `onArgButtonClick`
+   (depends on `promptForArguments` — best landed alongside the
+   context-menu DOM harness below).
 
 Larger follow-ups (deferred — not blocking PR):
 
-- **Context-menu DOM-test harness.** A single JSDOM harness that
-  builds a `contextmenu` event and asserts which menu items
-  appear would cover M5 / M7 / B5 plus the Edit Argument flow in
-  one shared investment (~6–10 tests). Worth it eventually; not
-  worth standing up the harness for just M7.
+- **Context-menu DOM-test harness.** ✅ shipped —
+  [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs)
+  (13 tests) covers M5 (multi-target unitary), M7 (group), B5
+  (control-dot on multi-target / group), X-gate ordering, the
+  general unitary menu with params + controls, the menu-replace
+  / outside-click lifecycle, and the Add Control delegation
+  contract. Edit Argument visibility is pinned (item appears
+  when `params?.length > 0`); the deeper `promptForArguments`
+  flow still depends on `_createInputPrompt` (the per-parameter
+  text-input dialog with the π button + live validity-gated OK
+  button). Validation through `isValidAngleExpression` is now
+  directly covered, but the input-prompt DOM lifecycle itself
+  (chained per-param prompts, π-button insertion, Escape
+  cancel) remains untested.
 - **`gateFormatter._renderQuantumGroupControls` geometry tests.**
   Targeted assertions on connector start / end Y for the four
-  edge cases. Would catch M6 regressions automatically when M6
-  eventually lands.
-- **`draggable.ts` audit.** 800 lines, 0 direct tests. Either
-  worth carving into per-function units with targeted tests, or
-  worth a dead-code pass — several helpers may have been
-  superseded by `LayoutMap` consumers in `dragController.ts`
-  during R5. Worth investigating which it is before writing
-  tests.
+  edge cases. Bundled with the deferred M6 work — the rendering
+  rule is expected to change there, so writing tests against the
+  current rule would just become churn.
 
 ### Working principles
 
