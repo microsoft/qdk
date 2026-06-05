@@ -299,10 +299,31 @@ class BlochRenderer {
   directionalLight: DirectionalLight;
   labelSprites: Sprite[] = [];
   isDark: boolean;
+  // Shared GPU resources for trail dots. Without these, every replayed gate
+  // (snapTo) and every animation frame (queueGate) used to allocate a fresh
+  // SphereGeometry + MeshBasicMaterial per path point -- ~3.2k geometries and
+  // ~6.4k materials per click for a 50-gate sequence -- which is what was
+  // freezing the UI on history-row clicks.
+  private trailDotGeometry!: SphereGeometry;
+  // Pre-built palette of fade colors. Trail-dot age maps to an index via
+  // `getTrailDotMaterial`; lookups replace per-dot `new MeshBasicMaterial`.
+  private trailDotMaterials!: MeshBasicMaterial[];
 
   constructor(canvas: HTMLCanvasElement, isDark: boolean) {
     this.rotations = new Rotations(64);
     this.isDark = isDark;
+
+    // Build the shared trail-dot resources up front so the hot paths in
+    // snapTo/queueGate are pure object linking, not allocation.
+    this.trailDotGeometry = new SphereGeometry(0.05, 16, 16);
+    const TRAIL_PALETTE_SIZE = 32;
+    this.trailDotMaterials = [];
+    for (let i = 0; i < TRAIL_PALETTE_SIZE; i++) {
+      const sat = i / (TRAIL_PALETTE_SIZE - 1);
+      this.trailDotMaterials.push(
+        new MeshBasicMaterial({ color: hslToRgb(0.6, sat, 0.5) }),
+      );
+    }
     const palette = colorsFor(isDark);
 
     const renderer = new WebGLRenderer({
@@ -492,10 +513,11 @@ class BlochRenderer {
       currentRotation.path.forEach((val) => {
         // Draw any that don't already have a point
         if (val.ref) return;
-        const trackGeo = new SphereGeometry(0.05, 16, 16);
+        // Shared geometry + a placeholder material from the palette; the
+        // fade pass below will assign the correct material this frame.
         const trackBall = new Mesh(
-          trackGeo,
-          new MeshBasicMaterial({ color: 0x808080 }),
+          this.trailDotGeometry,
+          this.trailDotMaterials[0],
         );
         trackBall.position.set(0, 5, 0);
 
@@ -510,12 +532,12 @@ class BlochRenderer {
       // Set qubit position to slerped values
       this.qubit.quaternion.copy(currentRotation.pos);
 
-      // Fade out the path trail as needed
+      // Fade out the path trail as needed. Use shared palette materials
+      // instead of allocating a fresh MeshBasicMaterial per dot per frame.
       this.trail.children.forEach((child, idx, arr) => {
         const ball = child as Mesh;
         const sat = easeOutSine((idx + 1) / arr.length);
-        const color = hslToRgb(0.6, sat, 0.5);
-        ball.material = new MeshBasicMaterial({ color });
+        ball.material = this.getTrailDotMaterial(sat);
         ball.scale.setScalar(sat + 0.5);
       });
 
@@ -638,16 +660,19 @@ class BlochRenderer {
           applied = this.rotations.rotateH(angle);
           break;
       }
-      // Same trackball construction as the animation loop in queueGate.
+      // Same trackball construction as the animation loop in queueGate,
+      // but we don't know the final dot count until we've walked every
+      // step, so we defer color/scale to a single fade pass after the
+      // loop. Shared geometry + a placeholder palette material keep this
+      // allocation-free apart from the lightweight Mesh wrapper.
       // We deliberately do not set val.ref here: these are throwaway
       // visuals owned by the snap (cleared on the next snapTo), not the
       // long-lived references the animation path uses to skip
       // already-drawn points.
       for (const val of applied.path) {
-        const trackGeo = new SphereGeometry(0.05, 16, 16);
         const trackBall = new Mesh(
-          trackGeo,
-          new MeshBasicMaterial({ color: 0x808080 }),
+          this.trailDotGeometry,
+          this.trailDotMaterials[0],
         );
         trackBall.position.set(0, 5, 0);
         trackBall.position.applyQuaternion(val.pos);
@@ -656,16 +681,28 @@ class BlochRenderer {
     }
     // Apply the same age-based fade the animation loop applies on every
     // frame so the trail looks the same whether it was drawn step by
-    // step or rebuilt in one shot.
+    // step or rebuilt in one shot. Palette lookup, no allocations.
     this.trail.children.forEach((child, idx, arr) => {
       const ball = child as Mesh;
       const sat = easeOutSine((idx + 1) / arr.length);
-      const color = hslToRgb(0.6, sat, 0.5);
-      ball.material = new MeshBasicMaterial({ color });
+      ball.material = this.getTrailDotMaterial(sat);
       ball.scale.setScalar(sat + 0.5);
     });
     this.qubit.quaternion.copy(this.rotations.currPosition);
     this.render();
+  }
+
+  /**
+   * Map an age-fade saturation in [0, 1] to a pre-built material from
+   * `trailDotMaterials`. Replaces `new MeshBasicMaterial({ color })` on
+   * the per-dot hot path -- the visual difference of bucketing 64 unique
+   * sat values into 32 palette entries is imperceptible, the perf
+   * difference (no allocation, no GC) is not.
+   */
+  private getTrailDotMaterial(sat: number): MeshBasicMaterial {
+    const n = this.trailDotMaterials.length;
+    const idx = Math.min(n - 1, Math.max(0, Math.floor(sat * n)));
+    return this.trailDotMaterials[idx];
   }
 
   render() {
@@ -718,23 +755,34 @@ class BlochRenderer {
     // Walk every Mesh in the scene and release its geometry/material/textures.
     // three.js doesn't do this automatically; failing to do so accumulates
     // GPU memory and (more visibly) eats WebGL contexts on every remount.
+    // Trail dots all share the same geometry + a small material palette, so
+    // we skip them here and dispose those shared resources exactly once below.
+    const sharedGeo = this.trailDotGeometry;
+    const sharedMats = new Set<MeshBasicMaterial>(this.trailDotMaterials);
     this.scene.traverse((obj) => {
       const mesh = obj as Mesh;
-      if (mesh.geometry) mesh.geometry.dispose();
+      if (mesh.geometry && mesh.geometry !== sharedGeo) {
+        mesh.geometry.dispose();
+      }
       const mat = mesh.material as
         | { map?: { dispose: () => void }; dispose?: () => void }
         | { map?: { dispose: () => void }; dispose?: () => void }[]
         | undefined;
       if (Array.isArray(mat)) {
         mat.forEach((m) => {
+          if (sharedMats.has(m as MeshBasicMaterial)) return;
           m.map?.dispose();
           m.dispose?.();
         });
-      } else if (mat) {
+      } else if (mat && !sharedMats.has(mat as MeshBasicMaterial)) {
         mat.map?.dispose();
         mat.dispose?.();
       }
     });
+    // Dispose the shared trail-dot resources exactly once.
+    sharedGeo.dispose();
+    this.trailDotMaterials.forEach((m) => m.dispose());
+    this.trailDotMaterials = [];
     this.labelSprites.forEach((sprite) => {
       sprite.material.map?.dispose();
       sprite.material.dispose();
@@ -966,8 +1014,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const sticky = container.querySelector<HTMLElement>(
       ".qs-bloch-history-item-latest",
     );
-    const stickyOverlap =
-      sticky && sticky !== active ? sticky.offsetHeight : 0;
+    const stickyOverlap = sticky && sticky !== active ? sticky.offsetHeight : 0;
     const visibleHeight = container.clientHeight - stickyOverlap;
     const cTop = container.scrollTop;
     const cBottom = cTop + visibleHeight;
