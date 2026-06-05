@@ -47,9 +47,6 @@ pub struct CompileUnit {
     pub sources: SourceMap,
     pub errors: Vec<Error>,
     pub dropped_names: Vec<TrackedName>,
-    /// Spans of items that were excluded from this compilation because their
-    /// `@Config` attributes did not match the current target capabilities.
-    /// These are reported to the editor so the excluded code can be greyed out.
     pub dropped_spans: Vec<Span>,
 }
 
