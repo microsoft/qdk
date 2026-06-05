@@ -206,6 +206,162 @@ test("removeQubitLineWithConfirmation prompts when the wire has operations", () 
   assert.equal(renderCalls, 0);
 });
 
+/**
+ * Find a prompt button by its visible text. The prompt renders
+ * exactly two buttons ("OK" and "Cancel") both with class
+ * `prompt-button`, so text is the disambiguator.
+ */
+const findPromptButton = (label) =>
+  /** @type {HTMLButtonElement | undefined} */ (
+    Array.from(document.querySelectorAll("button.prompt-button")).find(
+      (b) => b.textContent === label,
+    )
+  );
+
+test("removeQubitLineWithConfirmation prompt message reflects operation count (singular vs plural)", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 1 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { container } = buildFixture(2);
+  const { controller } = makeController(container, model);
+
+  controller.removeQubitLineWithConfirmation(1);
+
+  // Singular wording for exactly one associated operation.
+  const singularMsg = document.querySelector(".prompt-message")?.textContent;
+  assert.match(singularMsg ?? "", /1 operation associated/);
+  assert.doesNotMatch(singularMsg ?? "", /operations associated/);
+
+  // Cancel to dismiss before the plural-case fixture.
+  findPromptButton("Cancel")?.click();
+
+  /** @type {any} */
+  const circuit2 = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+          { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+        ],
+      },
+    ],
+  };
+  const model2 = new CircuitModel(circuit2);
+  const { controller: controller2 } = makeController(container, model2);
+
+  controller2.removeQubitLineWithConfirmation(1);
+
+  // Plural wording for >1 associated operation.
+  const pluralMsg = document.querySelector(".prompt-message")?.textContent;
+  assert.match(pluralMsg ?? "", /2 operations associated/);
+});
+
+test("removeQubitLineWithConfirmation OK click cascades findAndRemoveOperations + removeQubit + render", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+          { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { container } = buildFixture(3);
+  let renderCalls = 0;
+  const { controller, ctx } = makeController(container, model, {
+    renderFn: () => {
+      renderCalls++;
+    },
+  });
+
+  controller.removeQubitLineWithConfirmation(1);
+  // Pre-click: model unchanged.
+  assert.equal(model.qubits.length, 3);
+  assert.equal(renderCalls, 0);
+
+  // Simulate the user clicking OK.
+  const okButton = findPromptButton("OK");
+  assert.ok(okButton, "expected OK button on prompt");
+  okButton.click();
+
+  // The H on wire 1 was removed via findAndRemoveOperations; only
+  // the X on wire 0 survives. Wire 1 itself was removed (trailing
+  // wire 2 was also unused so it was trimmed by
+  // removeTrailingUnusedQubits, leaving just wire 0).
+  assert.equal(model.qubits.length, 1);
+  assert.equal(model.qubits[0].id, 0);
+  // Surviving op is the X on wire 0; renumbering may or may not
+  // shift its qubit index depending on removeQubit's behavior —
+  // assert only that the H is gone.
+  const remainingOps = model.componentGrid.flatMap(
+    (col) => /** @type {any[]} */ (col.components),
+  );
+  assert.equal(remainingOps.length, 1);
+  assert.equal(remainingOps[0].gate, "X");
+
+  // wireData was spliced in step with the model removal.
+  assert.equal(ctx.wireData.length, 3);
+
+  // One render call from doRemove.
+  assert.equal(renderCalls, 1);
+
+  // Prompt was torn down after the click.
+  assert.equal(document.querySelectorAll(".prompt-overlay").length, 0);
+});
+
+test("removeQubitLineWithConfirmation Cancel click leaves the model untouched and does not render", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 1 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const { container } = buildFixture(2);
+  let renderCalls = 0;
+  const { controller, ctx } = makeController(container, model, {
+    renderFn: () => {
+      renderCalls++;
+    },
+  });
+
+  controller.removeQubitLineWithConfirmation(1);
+
+  const cancelButton = findPromptButton("Cancel");
+  assert.ok(cancelButton, "expected Cancel button on prompt");
+  cancelButton.click();
+
+  // Cancel must NOT mutate the model, NOT splice wireData, and
+  // NOT trigger a re-render.
+  assert.equal(model.qubits.length, 2);
+  assert.equal(ctx.wireData.length, 3);
+  assert.equal(renderCalls, 0);
+  // The op on wire 1 is still in the grid.
+  const ops = model.componentGrid.flatMap(
+    (col) => /** @type {any[]} */ (col.components),
+  );
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0].gate, "H");
+
+  // Prompt was torn down after the click.
+  assert.equal(document.querySelectorAll(".prompt-overlay").length, 0);
+});
+
 test("mousedown on a qubit label sets selectedWire and dragging", () => {
   const { container, labels } = buildFixture(3);
   const model = new CircuitModel(emptyCircuit(3));

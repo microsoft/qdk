@@ -1820,18 +1820,42 @@ exercise the shared-ancestor hook-firing contract.
 
 ### Controls on groups — feature
 
-**Why this is a feature, not a bug.** "Add a control to a group"
+**Design summary (locked in).** Groups (any op with `children`)
+may carry **classical controls only** — never quantum controls —
+and are never adjointable through the editor surface. This is a
+permanent design decision from the team, not a deferral pending
+future work. Multi-target unitaries (SWAP-shaped ops, multi-qubit
+measurements) likewise can't have quantum controls authored or
+removed through the editor, because the CNOT-style "one solid
+line from top control to bottom target" rendering rule doesn't
+extend to a body split across non-adjacent wires.
+
+What the editor enforces:
+
+- `addControl` / `removeControl` refuse on any op where
+  `_isMultiTargetOrGroup(op)` returns true.
+- The context menu omits "Add Control" / "Remove Control" /
+  "Toggle Adjoint" on those ops (and on every group, regardless
+  of subtree contents).
+- The renderer doesn't carry special-case logic for
+  quantum-control connectors on groups. Externally-supplied data
+  (e.g. a `.qsc` file authored elsewhere) that has quantum
+  controls on a group renders without those controls — the
+  dashed box and child gates draw as normal, the control dot and
+  connector just don't appear.
+
+**Why this was non-trivial to land.** "Add a control to a group"
 sounds like a one-liner — model has `op.controls`, renderer has
-`controlsY`, done. In practice the gesture cuts across every layer
-of the editor (data model, action layer, dropzone filters, hit
-testing, renderer, ViewState rebase, drag controller, default-
-expansion logic) and each layer had assumptions that quietly only
+`controlsY`, done. In practice the gesture cut across every layer
+of the editor and each layer had assumptions that quietly only
 worked for the historical "single-op + controls" shape (CNOT-style
 1 target + N controls). Trying to land the feature surfaced a
-chain of latent issues that look like bugs in isolation but are
-really gaps in a feature that was never fully designed. This
-section consolidates the campaign so the open work can be scoped
-as design + implementation rather than triaged one-symptom-at-a-time.
+chain of latent issues that look like bugs in isolation but were
+really gaps in a feature with no settled design. The team's
+final decision to lock the editor's authoring surface to
+single-target unitaries cleanly resolves the cross-layer
+ambiguity — the affected layers either need no change or only
+need a refusal predicate at the action layer.
 
 **Surface area touched (cumulative).**
 
@@ -1841,8 +1865,10 @@ as design + implementation rather than triaged one-symptom-at-a-time.
   identity loss across deep-clone.
 - View / hit: `dragController.onGateMouseDown` early-return for
   expanded groups; `selectionController.movingControl` flag.
-- Renderer: `gateFormatter._groupedOperations`; `_classicalControls`;
-  per-control id resolution in `process.classicalControlIds`.
+- Renderer: `gateFormatter._groupedOperations` (B5-era
+  per-control-routing was reverted in the M2 partial-revert);
+  `_classicalControls`; per-control id resolution in
+  `process.classicalControlIds`.
 - View state: `Sqore.rebaseViewState` identity-keyed remap;
   default-expansion rule for classically-controlled groups.
 
@@ -1853,14 +1879,14 @@ detailed root-cause + fix writeups live in the
 [`B`-numbered bug-fix entries](#bug-fixes--open) below — kept there
 as engineering archaeology rather than re-inlined here.
 
-| #   | Detail                                                                                                                                                 | One-line summary                                                                                                                                                                                              |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M1  | [B5](#b5-add--remove-control-on-a-classically-controlled-op-blocked-by-classical-ref-entries---shipped-pending-user-confirmation)                      | Add / remove control on classically-controlled ops: filter four dedup / dropzone sites for pure-quantum entries. ⚠️ **Group / multi-target half reverted by M5**; single-target-unitary half still in effect. |
-| M2  | [B9](#b9-quantum-controls-on-a-group-are-never-drawn---shipped-pending-user-confirmation)                                                              | Rendering: pure-quantum controls on groups draw a `controlDot` + connector to the nearest dashed-box edge; mixed-controls render too. Still ships — `.qsc`-loaded controls on groups continue to render.      |
-| M3  | [B10](#b10-control-drag-on-a-group-moves-the-whole-group-instead-of-just-the-control---shipped-pending-user-confirmation)                              | Drag semantics: control-leg drag rewires just the leg (not the whole group); drop on body wire swaps via `_swapWiresInSubtree`.                                                                               |
-| M4  | [B11](#b11-control-drag-on-a-group-expanded-groups-blocked--classically-controlled-groups-re-expand-on-every-move---shipped-pending-user-confirmation) | Drag init on expanded groups + ViewState transfer across `moveOperation`'s deep-clone via `sqore-prev-location` stamp.                                                                                        |
-| M5  | [see below](#m5-refuse-addremove-control-on-multi-target-ops--groups--shipped)                                                                         | Refuse `addControl` / `removeControl` on any op with `children != null` or `targets.length > 1` (incl. multi-qubit measurements). Action layer + context menu both gated. Pre-existing controls render.       |
-| M7  | [see below](#m7-hide-toggle-adjoint-on-groups--shipped)                                                                                                | Hide "Toggle Adjoint" on every group (`children != null`). Adjoint authoring on groups is deferred — see M8. Leaf unitaries are unaffected.                                                                   |
+| #   | Detail                                                                                                                                                 | One-line summary                                                                                                                                                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1  | [B5](#b5-add--remove-control-on-a-classically-controlled-op-blocked-by-classical-ref-entries---shipped-pending-user-confirmation)                      | Add / remove control on classically-controlled ops: filter four dedup / dropzone sites for pure-quantum entries. ⚠️ **Group / multi-target half permanently reverted by M5**; single-target-unitary half still in effect.                                            |
+| M2  | [B9](#b9-quantum-controls-on-a-group-are-never-drawn---shipped-pending-user-confirmation)                                                              | Rendering: mixed quantum+classical controls render on single-target unitaries. ⚠️ **Group rendering half permanently reverted by the design lock-in** — quantum controls on groups are no longer drawn; the single-target-unitary half (a B5 follow-up) still ships. |
+| M3  | [B10](#b10-control-drag-on-a-group-moves-the-whole-group-instead-of-just-the-control---shipped-pending-user-confirmation)                              | Drag semantics: control-leg drag rewires just the leg (not the whole group); drop on body wire swaps via `_swapWiresInSubtree`.                                                                                                                                      |
+| M4  | [B11](#b11-control-drag-on-a-group-expanded-groups-blocked--classically-controlled-groups-re-expand-on-every-move---shipped-pending-user-confirmation) | Drag init on expanded groups + ViewState transfer across `moveOperation`'s deep-clone via `sqore-prev-location` stamp.                                                                                                                                               |
+| M5  | [see below](#m5-refuse-addremove-control-on-multi-target-ops--groups--shipped)                                                                         | Refuse `addControl` / `removeControl` on any op with `children != null` or `targets.length > 1` (incl. multi-qubit measurements). Action layer + context menu both gated. Permanent design.                                                                          |
+| M7  | [see below](#m7-hide-toggle-adjoint-on-groups--shipped)                                                                                                | Hide "Toggle Adjoint" on every group (`children != null`). Permanent design — groups are not adjointable through the editor surface. Leaf unitaries are unaffected.                                                                                                  |
 
 (B8 — clone-move of a multi-wire group rewriting `.targets` —
 shipped in parallel but isn't gated on having controls; it's a
@@ -1880,15 +1906,17 @@ predicate to omit "Add Control" / "Remove Control" /
 "Remove control" entries so the menu never advertises a
 silently-no-op affordance.
 
-**Why now.** Trying to extend the editor to author quantum
-controls on multi-target bodies (groups, SWAP-shaped unitaries)
-surfaced a visual design problem we don't have a settled answer
-for — see the [M6 deferred-milestone writeup](#m6-deferred-quantum-control-rendering-on-multi-target-bodies)
-below for the four options considered. Rather than ship a
-half-answered visual behind a flag, we narrow the editor's
-authoring surface to "ops whose existing CNOT-style rendering
-trivially extends" — single-target unitaries — and defer the
-multi-target / group case to a planned future milestone.
+**Why this is permanent.** Trying to extend the editor to author
+quantum controls on multi-target bodies (groups, SWAP-shaped
+unitaries) surfaced a visual design problem with no clean answer
+for the group case in particular. The team's design call:
+groups support classical controls only, and the rendering
+question for quantum-control connectors on multi-target bodies
+isn't worth answering for a scenario the editor doesn't author.
+Multi-target unitaries (SWAP) inherit the same refusal as a
+structural consequence of the predicate — there is no canonical
+attachment point for a single control connector on a body split
+across non-adjacent wires.
 
 **What still works.**
 
@@ -1896,9 +1924,11 @@ multi-target / group case to a planned future milestone.
   preserved. Adding a quantum control to a classically-conditioned
   H gate (one target, no children) still routes through the
   pure-quantum dedup filter from M1 and lands cleanly.
-- M2's rendering of pre-existing controls on groups and
-  ControlledUnitary-split ops is unchanged. Loaded `.qsc` files
-  with such controls render the same as before.
+- M2's rendering of pre-existing quantum controls on
+  ControlledUnitary-split ops (multi-target unitaries from
+  loaded `.qsc` data) is unchanged. The group half of M2 was
+  reverted as part of the design lock-in — quantum controls on
+  groups no longer render.
 - M3's control-leg drag still works on every shape that has
   controls today, because dragging is a permutation of the
   existing control set (rewires leg position) rather than
@@ -1939,33 +1969,30 @@ positive contract is incompatible with M5 by design.
 ##### M7: hide Toggle Adjoint on groups — shipped
 
 **What changed.** The context-menu builder in
-[contextMenu.ts](editor/contextMenu.ts) now omits the "Toggle
+[contextMenu.ts](editor/contextMenu.ts) omits the "Toggle
 Adjoint" entry on every op that has `children` (i.e. every
 group). Leaf unitaries are unaffected. Implementation is a
 single inline check (`selectedOperation.children == null`) — no
 action-layer helper, no walk of the subtree.
 
-**Why now.** A first cut tried to be precise: walk the group's
-subtree and only hide the affordance when the subtree contains a
-measurement or Reset (ket) — both irreversible, so the group's
-overall transformation isn't unitary and has no mathematical
-adjoint. That ships in one commit and looks right in tests, but
-even for groups whose subtree IS adjointable the editor still
-needs to figure out how the group-level `isAdjoint` flag is
-supposed to propagate into the children for the emitted Q# to
-match the original semantics. Q# expresses adjoint as
-`Adjoint Foo()` at the call site, but the editor's "group" is
-typically an `operation` boundary or an inline `within ... apply`
-block — propagating `isAdjoint` through that boundary correctly
-(reverse child order, apply `Adjoint` to each adjointable child,
-keep the rest in place if they're self-adjoint) is a chunk of
-emitter work, not a one-line render-time flip. Until that
-emitter work lands, "Toggle Adjoint" on a group is a UI flag
-with no defined semantics.
+**Why this is permanent.** Per the team's design call, groups
+are never adjointable through the editor surface. The
+underlying considerations:
 
-Same posture as M5: rather than ship a half-answered semantic
-behind a flag, narrow the editor's authoring surface and defer
-the group case to a planned future milestone (see M8 below).
+- A group whose subtree contains a measurement or Reset (ket) is
+  not adjointable at all — those operations are irreversible, so
+  the group's overall transformation isn't unitary and has no
+  mathematical adjoint.
+- For groups whose subtree IS adjointable in principle, the
+  editor would still need to propagate the group-level
+  `isAdjoint` flag into the children for the emitted Q# to
+  match the original semantics (reverse child order, apply
+  `Adjoint` to each adjointable child, handle the
+  `within ... apply` block's own adjoint rule, etc.) — a chunk
+  of emitter work that's out of scope for the circuit editor.
+
+Locking the design at "no group adjoint" lets the editor stay
+out of the emitter-semantics business entirely.
 
 **What still works.**
 
@@ -1985,145 +2012,7 @@ the group case to a planned future milestone (see M8 below).
 
 **Tests.** No new tests. The restriction lives entirely in the
 context-menu builder (one inline check on `children`); the
-action layer is untouched. There is no JSDOM / context-menu
-test harness today, and adding one just for this single guard
-isn't worth the scaffolding. M8 will bring action-layer support
-and tests with it.
-
-##### M8 (deferred): adjoint authoring on groups
-
-**Why deferred.** Two intertwined sub-problems:
-
-1. **Adjointability check.** A group can only be adjointed when
-   its subtree is composed entirely of adjointable operations.
-   Measurement and Reset (ket) are the obvious blockers; the
-   long tail is custom gates whose underlying Q# `operation`
-   declaration may or may not carry an `is Adj` characteristic.
-   The editor needs a reliable way to know whether a child is
-   adjointable without re-running Q# semantic analysis on every
-   edit.
-2. **Adjoint propagation into the emitter.** Setting
-   `isAdjoint = true` on a group implies "reverse the order of
-   children and adjoint each one." For a top-level `operation`
-   group this can be expressed via `Adjoint Foo(...)` at the
-   call site, which is cheap. For an inline `within ... apply`
-   block or a structural `for` / `if` group, the emitter has to
-   reverse the child sequence and emit `Adjoint` per child,
-   which interacts with classical-control conditions, loop
-   iteration order, and the `within ... apply` block's own
-   adjoint rule. None of that is plumbed today.
-
-The visual change is trivial — flip the dagger overlay on the
-group's box, same as today's leaf-op rendering — but the
-semantics on the round-trip side are not. Same posture as M6:
-ship the restriction, document the deferred work, revisit when
-either Q# semantic information is already available at edit
-time (e.g. via the language service's symbol table for custom
-gates) or the emitter is being reworked for some other reason.
-
-**Acceptance criteria for M8.**
-
-1. Action-layer predicate `_isGroupAdjointable(op)` that walks
-   the subtree and returns true iff every leaf op is
-   adjointable. Surfaces a clear reason string for the UI
-   ("this group contains a measurement on q0" etc.) when it
-   returns false.
-2. Context-menu Toggle Adjoint affordance restored on groups
-   when the predicate passes. Greyed-out (not hidden) with a
-   tooltip when it fails, so the user can see why.
-3. Emitter support: setting `isAdjoint` on a group reverses
-   child order and applies `Adjoint` to each adjointable child
-   in the emitted Q#. Existing tests for
-   `within ... apply` adjoint semantics must still pass.
-4. Round-trip test: `.qs` with an `Adjoint Foo()` call → `.qsc`
-   with the group's `isAdjoint = true` → emitted `.qs` matches
-   the original.
-
-##### M6 (deferred): quantum-control rendering on multi-target bodies
-
-**Why deferred.** A control on a CNOT-shaped op (one target +
-N controls) draws a single solid vertical line from each control
-dot straight down to the target box — that's a 30-year-old
-convention and every reader recognizes it on sight. The same
-gesture on a multi-target body breaks because there are
-**multiple** target boxes split across non-adjacent wires, with
-a dashed inter-box "skip" line connecting them. There is no
-existing convention for "control on a multi-target body" we can
-adopt off the shelf, and the choice we make sets a precedent
-for every future split-body shape (multi-qubit measurements,
-extracted custom gates rendered as multi-target unitaries,
-controlled-controlled groups). We want to make it once,
-deliberately.
-
-**Four options considered.**
-
-| Opt   | Sketch                                                                                                                                                                                                                                                                            | Pros                                                                                                                | Cons                                                                                                                                                                                                                                                                            |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A     | **Single solid line** from topmost control to bottommost sub-box, passing visually "through" any gap wires.                                                                                                                                                                       | Closest visual analog to CNOT; trivial implementation (just reuse `_controlledGate`'s connector geometry).          | The line crosses non-participating wires with no indication it doesn't act on them. Worse, it visually erases the dashed inter-box skip signal that's the whole point of split-target rendering: today a reader sees the dashed line and knows "this op skips those wires."     |
-| B     | **Mixed solid/dashed segments**: solid between control & top sub-box; dashed between sub-boxes (carried forward from today); solid between bottom sub-box & lowest control.                                                                                                       | Preserves the dashed-skip signal where it already exists.                                                           | Three rendering rules co-located on one connector, segmented by sub-box edges; the visual reads as a "weird wire" rather than as a control connector. Edge cases (control inside a gap, control collinear with a sub-box edge) need their own carve-outs. Hard to test cleanly. |
-| **C** | **Per-control connector to nearest sub-box edge** — each control dot draws its own short connector to the closest sub-box (top or bottom). Inter-sub-box dashed skip line is untouched. Generalizes M2's existing group-control rendering rule to ControlledUnitary split bodies. | One rule covers groups, ControlledUnitary, single-target (collapses to today's CNOT line). Dashed signal preserved. | More connectors to draw; need a clear edge-case rule for "control wire is between two sub-boxes" (nearest edge — closer of top-of-lower vs bottom-of-upper).                                                                                                                    |
-| D     | **Off-axis connector** like classical controls (the dashed circle-and-line drawn to one side of the body box).                                                                                                                                                                    | Visually unambiguous — clearly not part of the gate body.                                                           | Hijacks the visual vocabulary classical conditions own. Conflates "quantum control" with "classical condition" at a glance, which is exactly what M2 spent effort to disentangle. Wrong direction.                                                                              |
-
-**Recommendation: Option C.** Rationale:
-
-- **Unifies three cases under one rule.** A control's connector
-  is "vertical line from the dot to the nearest edge of the
-  nearest sub-box." For a single-target gate, "nearest sub-box"
-  is the only sub-box, and the rule collapses pixel-for-pixel
-  to today's CNOT-style rendering. For a group, the rule
-  matches M2's existing "controlDot + connector to the nearest
-  dashed-box edge" behavior. For a ControlledUnitary split
-  across non-adjacent wires, the rule fills in the case that
-  today's `_controlledGate` handles by drawing a solid line
-  that obliterates the dashed connector — a latent rendering
-  bug Option C also fixes.
-- **Preserves the dashed inter-sub-box signal.** The skip line
-  between sub-boxes is what tells the reader "this op operates
-  on the boxed wires and skips the wires in between." Option C
-  doesn't touch it.
-- **Edge cases have natural answers.**
-  - Control wire is above all sub-boxes → connector goes down to
-    the top of the topmost sub-box (today's behavior).
-  - Control wire is below all sub-boxes → connector goes up to
-    the bottom of the bottommost sub-box (today's behavior).
-  - Control wire is in a gap between two sub-boxes → connector
-    goes to the closer of "bottom of upper sub-box" vs "top of
-    lower sub-box" (tie → either; render the same dot either
-    way).
-  - Control wire is **on** a sub-box's wire range → the dot is
-    drawn at the box's edge on that wire; no connector is needed
-    (zero-length).
-
-**Acceptance criteria for M6.**
-
-1. Single-target gate rendering is byte-identical to today's
-   output (regression).
-2. M2's existing group-control rendering is byte-identical to
-   today (regression — Option C generalizes M2, doesn't replace
-   it).
-3. ControlledUnitary split-target case (existing data) draws
-   per-control connectors to nearest sub-box edge instead of one
-   solid line through everything. Net change: the dashed
-   inter-sub-box skip line stops being overdrawn by the control
-   connector for non-adjacent target wires.
-4. M5's `_isMultiTargetOrGroup` refusal is **removed** from
-   `addControl` / `removeControl` and the gated context-menu
-   items become unconditional. The `M5` test file's "refuses on
-   …" tests are replaced with "succeeds on …" tests.
-5. Per-control connector geometry has a dedicated unit test in
-   the renderer test suite covering all four edge cases (above
-   all, below all, in gap, on a sub-box wire).
-6. The action-layer dedup / dropzone-filter sites M1 originally
-   shipped for groups (now dead code behind the M5 refusal)
-   come back into use without modification.
-
-**Estimated scope.** Renderer-only change to
-[`gateFormatter.ts`](renderer/formatters/gateFormatter.ts);
-geometry helper extracted from M2's
-`_renderQuantumGroupControls`; action layer touched only to
-delete the M5 refusal predicate from the two call sites.
-Self-contained; doesn't gate or get gated by any other
-in-flight work.
+action layer is untouched.
 
 #### Known open issues
 
@@ -2136,88 +2025,60 @@ landed. Some are flagged out-of-scope in shipped milestones above.
   can underflow in edge cases where the rewired control wire had
   no other uses. Currently invisible because the children's body
   keeps the wire's count above zero; adding a control-only op
-  would expose it.
+  would expose it. Independent of the groups-controls design lock —
+  the same code path serves single-target unitaries with controls.
 - **Editing / removing the classical condition itself on a
   classically-controlled group.** Out-of-scope flagged by M1 (and
   B1 before it). There is no UI today to convert a
   classically-controlled group back to unconditional, or to swap
   which classical register it depends on. Deferred to the broader
   "editor-authoring" work that also owns B1's architectural fix.
-- **Toolbox-drop of a control onto a group is not supported.**
-  Add Control is context-menu-only. A toolbox "control" element
-  (analogous to the toolbox "H gate") doesn't exist. May or may
-  not be desirable — see Design questions.
-- **Clone (Ctrl+drag) of a control on a group is undefined.**
-  M3 + M4 fix the move path; the clone path on a control dot
-  hasn't been audited. Likely silently degrades to one of:
-  whole-group clone, no-op, or model-corrupting partial copy.
-- **Drag-extend a group via a control dot is undefined.** The
-  shift-extend gesture (D4 in the drag-and-drop overhaul) is
-  designed around target wires. Whether a control drop outside
-  the group's body span should extend `.targets` like a child
-  drop does is unresolved; today the control just rewires onto
-  the new wire and `.targets` is recomputed from children only
-  (the control wire does not extend the visual box).
+  Independent of the M5 design lock — classical control authoring
+  on groups is the surviving authoring surface, just not built out
+  yet.
 
 #### Design questions worth re-examining
 
-- **Should "control" be a first-class toolbox element?** Currently
-  the only way to add a control is to right-click an existing op
-  and use the context menu. Making control a draggable toolbox
-  item would close the symmetry with gates, but raises new
-  questions about drop targets (every gate would gain
+The earlier draft of this section had a longer list of questions
+specifically about authoring quantum controls on groups
+(toolbox-drop of a control onto a group, click semantics of a
+control dot on a group, visual differentiation between a
+group's quantum control and a CNOT control, default-expansion
+behavior when adding a control to a group, selecting "the
+control on q0 of group X" as a unit). All of those are
+**resolved by the design lock-in above**: groups don't carry
+editor-authored quantum controls, so there's no gesture, click
+target, or selection unit to design.
+
+The questions that survive aren't groups-specific:
+
+- **Should "control" be a first-class toolbox element on
+  single-target unitaries?** Currently the only way to add a
+  control is to right-click an existing op and use the context
+  menu. Making control a draggable toolbox item would close the
+  symmetry with gates, but raises new questions about drop
+  targets (every single-target unitary would gain
   control-receiving dropzones) and clutter.
-- **What's the right gesture when the user drops a control on a
-  body wire of the same group?** M3 implements a swap (control ↔
-  body wire); an alternative is to refuse the drop entirely
-  ("you can't put a control on a wire the group already operates
-  on"). Swap is currently shipped; the alternative may be more
-  legible. Need usability data.
-- **Click semantics on a control dot of a group.** Today clicking
-  a control dot sets `selectedOperation = group` AND `movingControl
-= true`, so the gesture has dual intent. Should the control dot
-  have its own context menu separate from the group's? Should
-  Delete-key on a control dot remove just the control vs. the
-  whole group?
-- **Visual differentiation.** Mixed-controls groups (quantum +
-  classical) render a solid control dot for the quantum control
-  and a dashed circle for the classical condition (M2). Whether
-  the quantum dot should be visually distinguished from a CNOT
-  control (e.g. labeled with the group name or color-coded) is
-  open. Today they're identical to ordinary controls.
-- **Default-expansion interaction.** Classically-controlled groups
-  default-expand (`hasClassicalControls && hasChildren` in
-  `process.ts`). When the user adds a pure-quantum control to such
-  a group, should the default change? M4 made the stored
-  collapse-choice survive moves; the underlying default rule is
-  unchanged.
-- **Keyboard accessibility.** None of M1–M4 wired keyboard
-  equivalents for add/remove/drag of controls on groups.
-- **Selection / multi-select.** No story for selecting "the control
-  on q0 of group X" as a first-class selectable unit.
+- **Keyboard accessibility for add/remove control on
+  single-target unitaries.** None of M1–M4 wired keyboard
+  equivalents.
 
 #### Roadmap
 
-| Item                                                                  | Status                                                                                                 |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| M1: add / remove control plumbing                                     | ⚠️ Partial — single-target unitary half in effect; group / multi-target half reverted by M5 pending M6 |
-| M2: render quantum controls on groups                                 | ✅ Shipped (pending confirm) — render-only; still draws loaded-data controls                           |
-| M3: control-leg drag semantics                                        | ✅ Shipped (pending confirm)                                                                           |
-| M4: drag init + ViewState across moves                                | ✅ Shipped (pending confirm)                                                                           |
-| M5: refuse add/remove control on multi-target ops & groups            | ✅ Shipped (pending confirm)                                                                           |
-| M7: hide Toggle Adjoint on every group                                | ✅ Shipped (pending confirm)                                                                           |
-| M6: unified quantum-control rendering on multi-target bodies (Opt. C) | ❌ Deferred — design documented, implementation a future PR                                            |
-| M8: adjoint authoring on groups (predicate + emitter propagation)     | ❌ Deferred — design documented, implementation a future PR                                            |
-| `qubitUseCounts` on single-leg rewire                                 | ❌ Open                                                                                                |
-| Classical-condition editing                                           | ❌ Deferred (editor-authoring)                                                                         |
-| Toolbox control element                                               | ❌ Open (design TBD)                                                                                   |
-| Control clone-on-group audit                                          | ❌ Open                                                                                                |
-| Drag-extend via control dot                                           | ❌ Open (design TBD)                                                                                   |
-| Click / select / delete semantics                                     | ❌ Open (design TBD)                                                                                   |
-| Visual differentiation                                                | ❌ Open (design TBD)                                                                                   |
-| Default-expansion interaction                                         | ❌ Open (design TBD)                                                                                   |
-| Keyboard accessibility                                                | ❌ Open                                                                                                |
-| Control as selectable unit                                            | ❌ Open (design TBD)                                                                                   |
+| Item                                                                                           | Status                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| M1: add / remove control plumbing                                                              | ⚠️ Partial — single-target unitary half in effect; group / multi-target half **permanently** reverted by M5 (no group quantum controls) |
+| M2: render quantum controls on classically-controlled single-target unitaries (mixed controls) | ✅ Shipped (pending confirm). Group rendering half permanently reverted by the design lock-in.                                          |
+| M3: control-leg drag semantics                                                                 | ✅ Shipped (pending confirm)                                                                                                            |
+| M4: drag init + ViewState across moves                                                         | ✅ Shipped (pending confirm)                                                                                                            |
+| M5: refuse add/remove control on multi-target ops & groups                                     | ✅ Shipped (pending confirm). Permanent design — not gating any future work.                                                            |
+| M7: hide Toggle Adjoint on every group                                                         | ✅ Shipped (pending confirm). Permanent design — not gating any future work.                                                            |
+| M6: unified quantum-control rendering on multi-target bodies                                   | ✅ Resolved by permanent design — groups never carry editor-authored quantum controls, so no unified renderer rule is needed.           |
+| M8: adjoint authoring on groups                                                                | ✅ Resolved by permanent design — groups are never adjointable through the editor surface.                                              |
+| `qubitUseCounts` on single-leg rewire                                                          | ❌ Open                                                                                                                                 |
+| Classical-condition editing                                                                    | ❌ Deferred (editor-authoring)                                                                                                          |
+| Toolbox control element (single-target unitaries)                                              | ❌ Open (design TBD)                                                                                                                    |
+| Keyboard accessibility for add/remove control                                                  | ❌ Open                                                                                                                                 |
 
 ---
 
@@ -3079,12 +2940,19 @@ re-architecture campaign, written up so the gap list survives across
 sessions and the "what to write before the PR" decisions are
 explicit.
 
-**Current totals.** 399 tests across 21 `.mjs` files in
+**Current totals.** 412 tests across 22 `.mjs` files in
 [test/circuit-editor/](../../test/circuit-editor/) — all passing —
 plus 21 fixtures in [test/circuits-cases/](../../test/circuits-cases/)
 (9 `.qsc` + 12 `.qs`) driven by the snapshot harness in
 [test/circuits.js](../../test/circuits.js) (regenerate with
-`--test-update-snapshots`).
+`--test-update-snapshots`). The three quantum-control-on-group
+fixtures (`quantum-control-group.qsc`,
+`quantum-control-group-collapsed.qsc`,
+`quantum-control-classical-group.qsc`) were regenerated after the
+group-quantum-control rendering was stripped per the design
+lock-in — the renderer now omits the control dot + connector on
+groups; dashed-box, child gate, and classical-control geometry
+are byte-identical pre/post.
 
 ### Per-module coverage
 
@@ -3117,20 +2985,20 @@ instances.
 by R5 made per-controller testing trivial, but only some
 controllers actually got tests.
 
-| Module                                                                                                                    | Lines           | Tests                                                                                       | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [editor/controllers/dragController.ts](editor/controllers/dragController.ts)                                              | 929             | [dragController.test.mjs](../../test/circuit-editor/dragController.test.mjs) (28)           | Toolbox-drag, drop commit, B11 carve-out, drag-out-delete, `commitAddControl` no-duplicate (2), `hideInvalidDropzones` / `showAllDropzones` cycle (5), D4 Stage B shift-extend lifecycle — setup / spawn / B6 block / tag-and-respawn / paint+clear ghost / tearDown (8), Ctrl-clone via `addOperation`, document-mouseup `!dragging` no-op, qubit-drag-off delegation, movingControl drag-out via `removeControl`, document-mousedown wire-dropzone cleanup.                                                              |
-| [editor/controllers/selectionController.ts](editor/controllers/selectionController.ts)                                    | 111             | [selectionController.test.mjs](../../test/circuit-editor/selectionController.test.mjs) (13) | D3 closest-wire pick + `movingControl` flag well-covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| [editor/controllers/qubitController.ts](editor/controllers/qubitController.ts)                                            | 135             | [qubitController.test.mjs](../../test/circuit-editor/qubitController.test.mjs) (6)          | Basic mousedown / mouseup wiring; remove-with-confirmation orchestration untested.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| [editor/controllers/keyboardController.ts](editor/controllers/keyboardController.ts)                                      | 49              | [keyboardController.test.mjs](../../test/circuit-editor/keyboardController.test.mjs) (6)    | Complete coverage (Ctrl-toggle states + dispose).                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| [editor/controllers/scrollController.ts](editor/controllers/scrollController.ts)                                          | 77              | [scrollController.test.mjs](../../test/circuit-editor/scrollController.test.mjs) (8)        | Auto-scroll edges covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| [editor/contextMenu.ts](editor/contextMenu.ts)                                                                            | 345             | [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs) (13)                 | Every M5 / M7 / B5 UI gate pinned via a JSDOM stub-`CircuitEvents`: measurement → only Delete; ket → only Delete; control-dot on simple parent → only Remove control; control-dot on multi-target / group parent → no menu items (B5); X-gate ordering with / without controls; multi-target unitary (M5) → no Add/Remove Control; group (M7) → no Toggle Adjoint; ordinary unitary with params / controls (full menu); re-open replaces prior menu; outside-click closes; Add Control delegates to `_startAddingControl`. |
-| [editor/draggable.ts](editor/draggable.ts)                                                                                | 800             | [draggable.test.mjs](../../test/circuit-editor/draggable.test.mjs) (14) + dropzones (15)    | Pure-helper geometry pinned: `makeDropzoneBox` inter-column / on-column / trailing-append / attr contract / pathPrefix nesting, `makeShiftExtendGhost` above-span / below-span / trailing-column horizontal extend / inside-span, `createWireDropzone` on-wire / between / after-last, `removeAllWireDropzones` selective wipe. `_populateDropzonesForGrid` recursion still indirect via `dropzones.test.mjs`.                                                                                                             |
-| [editor/events.ts](editor/events.ts)                                                                                      | 196             | **0 direct tests**                                                                          | Coordinator. Wiring exercised end-to-end through controllers; the controller-instantiation order and `dispose()` chain are not pinned directly.                                                                                                                                                                                                                                                                                                                                                                            |
-| [editor/operationPrompts.ts](editor/operationPrompts.ts)                                                                  | 203             | [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) (12)       | See action-layer table above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| [editor/toolbox.ts](editor/toolbox.ts)                                                                                    | 169             | [toolboxRunButton.test.mjs](../../test/circuit-editor/toolboxRunButton.test.mjs) (3)        | Only the run-button visibility logic. Toolbox gate rendering / drag-start untested.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| [editor/prompts.ts](editor/prompts.ts)                                                                                    | 70              | [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs) (7)                          | `_createConfirmPrompt` DOM shape (`.prompt-overlay > .prompt-container > .prompt-message + .prompt-buttons`), OK click → `callback(true)` + overlay removed, Cancel → `callback(false)` + overlay removed, Enter / Escape commit / cancel through the document-level capture-phase keydown listener, listener uninstall on close (post-close keypresses do NOT re-fire), non-Enter/Escape keys ignored.                                                                                                                    |
-| [editor/shell.ts](editor/shell.ts) / standaloneRenderData.ts / installEditor.ts / toolboxGates.ts / interactionContext.ts | 100/93/62/55/55 | **0 direct tests**                                                                          | Glue / scaffolding; nothing behaviorally interesting to assert.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Module                                                                                                                    | Lines           | Tests                                                                                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [editor/controllers/dragController.ts](editor/controllers/dragController.ts)                                              | 929             | [dragController.test.mjs](../../test/circuit-editor/dragController.test.mjs) (28)                                                                         | Toolbox-drag, drop commit, B11 carve-out, drag-out-delete, `commitAddControl` no-duplicate (2), `hideInvalidDropzones` / `showAllDropzones` cycle (5), D4 Stage B shift-extend lifecycle — setup / spawn / B6 block / tag-and-respawn / paint+clear ghost / tearDown (8), Ctrl-clone via `addOperation`, document-mouseup `!dragging` no-op, qubit-drag-off delegation, movingControl drag-out via `removeControl`, document-mousedown wire-dropzone cleanup.                                                              |
+| [editor/controllers/selectionController.ts](editor/controllers/selectionController.ts)                                    | 111             | [selectionController.test.mjs](../../test/circuit-editor/selectionController.test.mjs) (13)                                                               | D3 closest-wire pick + `movingControl` flag well-covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| [editor/controllers/qubitController.ts](editor/controllers/qubitController.ts)                                            | 135             | [qubitController.test.mjs](../../test/circuit-editor/qubitController.test.mjs) (9)                                                                        | Basic mousedown / mouseup wiring + remove-with-confirmation orchestration: prompt singular / plural message, OK click cascades through `findAndRemoveOperations` + `removeQubit` + render, Cancel leaves model + DOM untouched.                                                                                                                                                                                                                                                                                            |
+| [editor/controllers/keyboardController.ts](editor/controllers/keyboardController.ts)                                      | 49              | [keyboardController.test.mjs](../../test/circuit-editor/keyboardController.test.mjs) (6)                                                                  | Complete coverage (Ctrl-toggle states + dispose).                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| [editor/controllers/scrollController.ts](editor/controllers/scrollController.ts)                                          | 77              | [scrollController.test.mjs](../../test/circuit-editor/scrollController.test.mjs) (8)                                                                      | Auto-scroll edges covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| [editor/contextMenu.ts](editor/contextMenu.ts)                                                                            | 345             | [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs) (13)                                                                               | Every M5 / M7 / B5 UI gate pinned via a JSDOM stub-`CircuitEvents`: measurement → only Delete; ket → only Delete; control-dot on simple parent → only Remove control; control-dot on multi-target / group parent → no menu items (B5); X-gate ordering with / without controls; multi-target unitary (M5) → no Add/Remove Control; group (M7) → no Toggle Adjoint; ordinary unitary with params / controls (full menu); re-open replaces prior menu; outside-click closes; Add Control delegates to `_startAddingControl`. |
+| [editor/draggable.ts](editor/draggable.ts)                                                                                | 800             | [draggable.test.mjs](../../test/circuit-editor/draggable.test.mjs) (14) + dropzones (15)                                                                  | Pure-helper geometry pinned: `makeDropzoneBox` inter-column / on-column / trailing-append / attr contract / pathPrefix nesting, `makeShiftExtendGhost` above-span / below-span / trailing-column horizontal extend / inside-span, `createWireDropzone` on-wire / between / after-last, `removeAllWireDropzones` selective wipe. `_populateDropzonesForGrid` recursion still indirect via `dropzones.test.mjs`.                                                                                                             |
+| [editor/events.ts](editor/events.ts)                                                                                      | 196             | **0 direct tests**                                                                                                                                        | Coordinator. Wiring exercised end-to-end through controllers; the controller-instantiation order and `dispose()` chain are not pinned directly.                                                                                                                                                                                                                                                                                                                                                                            |
+| [editor/operationPrompts.ts](editor/operationPrompts.ts)                                                                  | 203             | [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) (12)                                                                     | See action-layer table above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| [editor/toolbox.ts](editor/toolbox.ts)                                                                                    | 169             | [toolboxRunButton.test.mjs](../../test/circuit-editor/toolboxRunButton.test.mjs) (3) + [toolbox.test.mjs](../../test/circuit-editor/toolbox.test.mjs) (5) | Run-button visibility + panel structure (header + SVG), 12 toolbox items pinned to `toolboxGateDictionary` key set, `data-type` attributes match dictionary keys, two-column grid layout (gateHeight + verticalGap pitch verified on RX/RY/Y rects — X renders as oplus so isn't used for the rect comparison), SVG height with vs without Run button differs by exactly `gateHeight + 16`. Drag-start handler still untested.                                                                                             |
+| [editor/prompts.ts](editor/prompts.ts)                                                                                    | 70              | [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs) (7)                                                                                        | `_createConfirmPrompt` DOM shape (`.prompt-overlay > .prompt-container > .prompt-message + .prompt-buttons`), OK click → `callback(true)` + overlay removed, Cancel → `callback(false)` + overlay removed, Enter / Escape commit / cancel through the document-level capture-phase keydown listener, listener uninstall on close (post-close keypresses do NOT re-fire), non-Enter/Escape keys ignored.                                                                                                                    |
+| [editor/shell.ts](editor/shell.ts) / standaloneRenderData.ts / installEditor.ts / toolboxGates.ts / interactionContext.ts | 100/93/62/55/55 | **0 direct tests**                                                                                                                                        | Glue / scaffolding; nothing behaviorally interesting to assert.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **Renderer + top-level** — snapshot-only coverage on the
 formatters; `sqore.ts` has no direct unit tests for its
@@ -3138,7 +3006,7 @@ view-state-rebase consumer logic.
 
 | Module                                                                       | Lines | Tests                                                                                                                                             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [sqore.ts](sqore.ts)                                                         | 859   | [sqore.test.mjs](../../test/circuit-editor/sqore.test.mjs) (6) + indirect via dropzones / snapshots                                               | `rebaseViewState` consumer side pinned: first-render no-op, identity-preserved rekey, identity-lost-with-`sqore-prev-location`-stamp rekey + stamp consumption (the B11 fix), identity-lost-without-stamp drop, untracked-entry passthrough, nested-op rekey. `updateCircuit` still covered indirectly via dropzones.                                                                                                                                                                                                                                                                                                                                                 |
+| [sqore.ts](sqore.ts)                                                         | 859   | [sqore.test.mjs](../../test/circuit-editor/sqore.test.mjs) (11) + indirect via dropzones / snapshots                                              | `rebaseViewState` consumer side pinned: first-render no-op, identity-preserved rekey, identity-lost-with-`sqore-prev-location`-stamp rekey + stamp consumption (the B11 fix), identity-lost-without-stamp drop, untracked-entry passthrough, nested-op rekey. `updateCircuit` directly pinned: swap-and-rerender preserves `viewState`, nullifies `lastLocationMap`, throws on `null` / empty / `null`-circuits inputs (matches `/No circuit found/`), and a multi-circuit group renders the first circuit.                                                                                                                                                           |
 | [renderer/process.ts](renderer/process.ts)                                   | 760   | snapshot-only                                                                                                                                     | LayoutMap output partially covered by dropzone pixel tests; row-height / wire-y derivation untested directly.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | [renderer/formatters/gateFormatter.ts](renderer/formatters/gateFormatter.ts) | 867   | [gateFormatter.test.mjs](../../test/circuit-editor/gateFormatter.test.mjs) (18) + snapshots                                                       | `_getQuantumControlYs` mixed-controls filter, `_zoomButton` chevron decision tree + classical-control x-offset, `_gateBoundingBox` classical-wire inclusion + group padding, `_classicalControls` emission + B1 null-id fallback, `_createGate` CSS-class contract. SVG primitives still snapshot-only.                                                                                                                                                                                                                                                                                                                                                               |
 | [renderer/formatters/\*](renderer/formatters/)                               | ~700  | snapshot-only                                                                                                                                     | inputFormatter / formatUtils / registerFormatter.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -3193,16 +3061,18 @@ regression-tested?" and find the answer.
   by [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs)
   (7 tests including Enter / Escape keyboard semantics and
   listener cleanup).
-- **M2 / B9 (group-control rendering).** Classical-controls-on-
-  groups path covered directly in `gateFormatter.test.mjs` —
-  `_getQuantumControlYs` filter, `_classicalControls` emission +
-  B1 null-id fallback, `_gateBoundingBox` classical-wire
-  inclusion, `_createGate` CSS-class contract. The
-  quantum-controls-on-groups geometry (`_renderQuantumGroupControls`)
-  remains snapshot-only — deferred per M5/M6 design (the editor
-  doesn't currently let users author quantum controls on groups,
-  so M6 will revisit the geometry rule before targeted tests
-  earn their keep).
+- **M2 / B9 (group-control rendering).**
+  Classical-controls-on-groups path covered directly in
+  `gateFormatter.test.mjs` — `_getQuantumControlYs` filter,
+  `_classicalControls` emission + B1 null-id fallback,
+  `_gateBoundingBox` classical-wire inclusion, `_createGate`
+  CSS-class contract. The pure-quantum-controls-on-groups
+  rendering originally added by M2 was permanently reverted as
+  part of the team's design lock-in: groups never carry
+  editor-authored quantum controls, and the renderer doesn't
+  carry special-case logic for the loaded-data variant either.
+  The three quantum-control-group snapshots reflect that
+  (regenerated this pass).
 - **D-series cascades.** All extend / overlap / split paths
   covered in `circuitActions.test.mjs`. Dropzone visibility filter
   paths covered in `dropzones.test.mjs`.
@@ -3274,10 +3144,11 @@ Larger follow-ups (deferred — not blocking PR):
   (chained per-param prompts, π-button insertion, Escape
   cancel) remains untested.
 - **`gateFormatter._renderQuantumGroupControls` geometry tests.**
-  Targeted assertions on connector start / end Y for the four
-  edge cases. Bundled with the deferred M6 work — the rendering
-  rule is expected to change there, so writing tests against the
-  current rule would just become churn.
+  No longer applicable. The function is now unitary-only —
+  groups don't call it per the design lock-in. The remaining
+  single-target unitary call site is covered by
+  `gateFormatter.test.mjs`'s `_getQuantumControlYs` mixed-controls
+  tests plus the snapshot suite.
 
 ### Working principles
 

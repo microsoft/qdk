@@ -4597,18 +4597,18 @@ test("removeControl: removing a control on a wire that only has a classical-ref 
   assert.equal(condX.controls[0].result, 0);
 });
 
-test("addControl: refuses on a classically-controlled GROUP (group-control authoring is deferred)", () => {
+test("addControl: refuses on a classically-controlled GROUP (groups never carry quantum controls by design)", () => {
   // Previously B5/M1 unblocked add-control on classically-
   // controlled groups by filtering classical-ref entries out of
   // the dedup check. The shipped behavior was correct as far as
-  // the data layer went, but the renderer has no agreed visual
-  // rule for a quantum-control connector on a multi-target /
-  // multi-sub-box body (see "Controls on Groups" in
-  // CIRCUIT_EDITOR_TODO.md). Until that ships, the editor
-  // refuses to author controls on any op that has children OR
-  // more than one target, so the rendering question never has
-  // to be answered for newly-authored circuits. Loaded data
-  // with such controls still renders.
+  // the data layer went, but per the team's permanent design,
+  // groups (any op with `children`) may carry CLASSICAL controls
+  // only — never quantum controls — and are never adjointable.
+  // The editor refuses to author quantum controls on any group
+  // (or any multi-target unitary, for which there is no canonical
+  // visual rule). Loaded data with such controls still arrives
+  // through the parser but won't be rendered with a special-case
+  // quantum-control connector.
   //
   // The single-target classically-controlled-unitary half of
   // B5/M1's fix is preserved — see the sister test below.

@@ -647,16 +647,14 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   const { children, label, displayArgs, x, targetsY, width } = renderData;
   const expanded = renderData.isExpanded;
 
-  // Per-control routing: classical controls flow through
-  // `_classicalControls` (dashed circle + dashed connector to the
-  // box's left edge); quantum controls flow through
-  // `_renderQuantumGroupControls` (solid dot + solid connector to
-  // the nearest top/bottom box edge). The two paths can coexist on
-  // the same group when the editor adds a quantum control to a
-  // classically-controlled group (post-B5).
+  // Groups support classical controls only (rendered via
+  // `_classicalControls` in `_createGate`). Quantum controls on
+  // groups are rejected at the authoring layer (see
+  // `_isMultiTargetOrGroup` in `circuitActions.ts`); if such an op
+  // arrives from an external source we let it fall through
+  // unrendered rather than carry special-case logic for an
+  // unsupported scenario.
   const hasClassicalControls = renderData.classicalControlIds != null;
-  const quantumControlsY = _getQuantumControlYs(renderData);
-  const hasQuantumControls = quantumControlsY.length > 0;
 
   // Collapsed composite: render as a single summary gate (unitary-style), but keep
   // the GateType as Group so the UI can still offer an expand button.
@@ -682,23 +680,6 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
       displayArgs,
     );
 
-    // Collapsed controlled group: draw control dots + connectors
-    // outside the summary box on each quantum control wire (the
-    // classical refs, if any, are rendered separately by
-    // `_classicalControls` via `_createGate`).
-    if (hasQuantumControls) {
-      const flatTargets = normalizedTargetsY.flat();
-      const summaryTopY = Math.min(...flatTargets) - gateHeight / 2;
-      const summaryBottomY = Math.max(...flatTargets) + gateHeight / 2;
-      const controlElems = _renderQuantumGroupControls(
-        quantumControlsY,
-        x,
-        summaryTopY,
-        summaryBottomY,
-      );
-      return _createGate([summary, ...controlElems], renderData);
-    }
-
     return _createGate([summary], renderData);
   }
 
@@ -719,11 +700,8 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   // so `_classicalControls` can attach its dashed connector). Both
   // are already merged into `targetsY` by `_opToRenderData`'s
   // classical-control patch, so deriving box geometry from
-  // `targetsY` alone gives the right span for pure-quantum,
-  // pure-classical, AND mixed cases. Quantum controls stay OUTSIDE
-  // the box on their own wires — they are NOT included in
-  // `targetsY` and are rendered via `_renderQuantumGroupControls`
-  // below with a connector to the nearest box edge.
+  // `targetsY` alone gives the right span for pure-quantum and
+  // mixed-classical cases.
   const flatTargets = (targetsY as (number | number[])[]).flat();
   const minTargetY = Math.min(...flatTargets);
   const maxTargetY = Math.max(...flatTargets);
@@ -763,22 +741,6 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
     elems.push(labelText);
   }
 
-  // Quantum controls float outside the dashed box on their own
-  // wires, connected via a short solid connector to the nearest box
-  // edge. Appended AFTER the children + label so the dots paint over
-  // any wire that crosses them. Classical refs (if any) are emitted
-  // separately by `_classicalControls` via `_createGate`.
-  if (hasQuantumControls) {
-    elems.push(
-      ..._renderQuantumGroupControls(
-        quantumControlsY,
-        x,
-        boxY,
-        boxY + boxHeight,
-      ),
-    );
-  }
-
   return _createGate(elems, renderData);
 };
 
@@ -799,17 +761,22 @@ const _getQuantumControlYs = (renderData: GateRenderData): number[] => {
 
 /**
  * Emit control dots and connector lines for each quantum control
- * on a group or unitary body. The dot sits on the control wire at
+ * on a single-target unitary body that also carries classical
+ * refs (the post-B5 mixed-control case in `formatGate`'s
+ * `GateType.Unitary` branch). The dot sits on the control wire at
  * the body's center x; the connector runs from the dot to the
  * nearest body edge (top edge if the control is above the body,
  * bottom edge if below). A control wire that falls INSIDE the
- * body's y range — possible when the user adds a control on a
- * wire between two children's wires — gets just the dot with no
- * connector (the wire itself already passes through the body).
+ * body's y range gets just the dot with no connector (the wire
+ * itself already passes through the body).
  *
  * Centerline x matches what `_controlledGate` uses for normal
  * `ControlledUnitary` gates so dots line up consistently across
  * the editor.
+ *
+ * Groups (ops with `children`) do NOT use this path — quantum
+ * controls on groups are rejected by the authoring layer (see
+ * `_isMultiTargetOrGroup` in `circuitActions.ts`).
  */
 const _renderQuantumGroupControls = (
   controlsY: number[],

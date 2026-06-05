@@ -101,26 +101,20 @@ const addContextMenuToHostElem = (
       });
 
       // Multi-target unitaries and groups: don't surface Add /
-      // Remove Control. Until the editor ships a unified rendering
-      // rule for quantum controls on multi-target bodies (see the
-      // "Controls on Groups" milestone in CIRCUIT_EDITOR_TODO.md),
-      // creating or destroying controls on such ops would either
-      // silently no-op (action-layer refusal) or produce visually
-      // ambiguous output. The body-drag, leg-rewire, and existing-
-      // control-render paths are unaffected.
+      // Remove Control. By design, groups never carry quantum
+      // controls (they may only carry classical controls), and
+      // multi-target bodies have no canonical attachment point for
+      // a control connector. Mirrors the action-layer refusal in
+      // `_isMultiTargetOrGroup`. The body-drag, leg-rewire, and
+      // existing-control-render paths are unaffected.
       const allowControlAuthoring = !_isMultiTargetOrGroup(selectedOperation);
 
       // Groups (any op with `children`) don't get "Toggle Adjoint"
-      // today. Authoring the adjoint of a group has several open
-      // questions — e.g. groups whose subtree contains a
-      // measurement or Reset (ket) aren't adjointable at all, and
-      // groups whose subtree IS adjointable still need the adjoint
-      // marker to propagate sensibly through the children for the
-      // emitted Q# to be correct. Until that work lands, the
-      // editor refuses the gesture on every group; leaf unitaries
-      // continue to get the Toggle Adjoint option. See the
-      // "Controls on Groups" section of CIRCUIT_EDITOR_TODO.md for
-      // the parallel deferral on quantum controls.
+      // by design — authoring the adjoint of a group would have to
+      // propagate the adjoint marker sensibly through the subtree
+      // (and groups containing a measurement or Reset aren't
+      // adjointable at all). Leaf unitaries continue to get the
+      // Toggle Adjoint option.
       const allowAdjoint = selectedOperation.children == null;
 
       const addControlOption = _createContextMenuItem("Add Control", () => {

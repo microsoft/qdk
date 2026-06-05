@@ -10,7 +10,6 @@ import {
   findParentArray,
   getMinMaxRegIdx,
   getOperationRegisters,
-  getQuantumWireRange,
 } from "../utils.js";
 
 /*
@@ -2138,20 +2137,23 @@ const findAndRemoveOperations = (
  * top control to bottom target" rendering rule doesn't extend
  * to a body that's split across non-adjacent wires.
  *
- * Used to gate [`addControl`](#) and [`removeControl`](#): until
- * the editor ships a unified rendering rule for quantum controls
- * on multi-target ops (see the "Controls on Groups" section of
- * [`CIRCUIT_EDITOR_TODO.md`](../CIRCUIT_EDITOR_TODO.md)), the
- * editor refuses to create or destroy controls on such ops.
+ * Used to gate [`addControl`](#) and [`removeControl`](#): by
+ * design, the editor refuses to create or destroy quantum
+ * controls on such ops. For groups (any op with `children`) this
+ * is a permanent design decision — groups may carry classical
+ * controls only. For multi-target unitaries / measurements this
+ * is a structural limitation of the rendering rule.
  *
- * Existing controls in loaded `.qsc` data on a multi-target op
- * still render (via [`_renderQuantumGroupControls`](../renderer/formatters/gateFormatter.ts)
- * for groups; via [`_controlledGate`](../renderer/formatters/gateFormatter.ts)'s
+ * Existing quantum controls in loaded `.qsc` data on a
+ * multi-target unitary still render (via
+ * [`_controlledGate`](../renderer/formatters/gateFormatter.ts)'s
  * ControlledUnitary branch for split multi-target unitaries).
- * They just can't be authored or removed through the editor
- * surface — the existing controls can still be DRAGGED via the
- * `movingControl` leg-rewire path, which is a permutation of
- * controls already on the op and doesn't introduce a new one.
+ * Quantum controls on groups arriving from external data are
+ * not rendered — there is no editor surface for them and no
+ * special-case renderer logic. They can still be DRAGGED via the
+ * `movingControl` leg-rewire path on shapes that already had
+ * them, which is a permutation of controls already on the op
+ * and doesn't introduce a new one.
  *
  * Mirrors the structural-shape half of [`_moveAsUnit`](#)'s
  * predicate (the `movingControl` short-circuit there is
@@ -2178,12 +2180,13 @@ const addControl = (
   op: Unitary,
   wireIndex: number,
 ): boolean => {
-  // Refuse on multi-target ops and groups until the unified
-  // rendering rule for quantum controls on such bodies lands.
-  // See [`_isMultiTargetOrGroup`](#) for the rationale; gating
-  // at the action layer ensures every entry point (context menu,
-  // dropzone commit, drag flows, programmatic callers) gets the
-  // same treatment without each having to remember the rule.
+  // Refuse on multi-target ops and groups by design (see
+  // [`_isMultiTargetOrGroup`](#) for the rationale — groups never
+  // carry quantum controls; multi-target bodies have no canonical
+  // attachment point). Gating at the action layer ensures every
+  // entry point (context menu, dropzone commit, drag flows,
+  // programmatic callers) gets the same treatment without each
+  // having to remember the rule.
   if (_isMultiTargetOrGroup(op)) return false;
   if (!op.controls) {
     op.controls = [];
@@ -2231,11 +2234,11 @@ const removeControl = (
   wireIndex: number,
 ): boolean => {
   // Symmetric to [`addControl`](#): refuse on multi-target ops
-  // and groups so legacy controls on such ops can be observed
-  // but not destroyed through the editor surface. The
-  // `movingControl` drag-leg-rewire path is permutation-only
-  // and doesn't reach this function. See
-  // [`_isMultiTargetOrGroup`](#).
+  // and groups by design, so legacy controls on such ops (if
+  // they arrive in external data) can be observed but not
+  // destroyed through the editor surface. The `movingControl`
+  // drag-leg-rewire path is permutation-only and doesn't reach
+  // this function. See [`_isMultiTargetOrGroup`](#).
   if (_isMultiTargetOrGroup(op)) return false;
   if (op.controls) {
     // Match only PURE-QUANTUM controls. If both `{qubit: wireIndex}`

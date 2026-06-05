@@ -293,3 +293,184 @@ test("rebaseViewState: handles nested ops — identity preserved at depth 2", ()
   assert.equal(sqore.viewState.expanded.has("0,0"), false);
   assert.equal(sqore.viewState.expanded.has("0,0-0,0"), false);
 });
+
+// ---------------------------------------------------------------------------
+// updateCircuit — the React-wrapper escape hatch for external circuit
+// updates. Direct unit coverage of the contract:
+//
+//   1. Replaces both `circuitGroup` and `circuit` (the first one in
+//      the group) so subsequent renders use the new data.
+//   2. Preserves `viewState` — the whole reason for the method's
+//      existence. The React wrapper was throwing away every
+//      user-expanded group on each external update before this
+//      shipped.
+//   3. NULLs `lastLocationMap` so the next rebase short-circuits as
+//      a first-render (the new op identities have no relation to the
+//      prior snapshot — running the rebase against the stale snapshot
+//      would silently drop every entry by misidentifying ops via the
+//      identity-lost branch).
+//   4. Throws on null / empty input so a fumble in the host code
+//      surfaces as an exception rather than a silently-broken render.
+// ---------------------------------------------------------------------------
+
+test("updateCircuit: swaps circuit + circuitGroup while preserving viewState", () => {
+  // Pre-seed viewState the way a user would by expanding groups; the
+  // central guarantee of `updateCircuit` is that these entries
+  // survive the swap unchanged (vs. the pre-fix path of constructing
+  // a brand-new Sqore, which destroyed them).
+  sqore = makeSqore([
+    { components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }] },
+  ]);
+  sqore.viewState.setExpanded("0,0", true);
+  sqore.viewState.setExpanded("1,2-0,0", false);
+
+  /** @type {any} */
+  const newGroup = {
+    circuits: [
+      {
+        qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+        componentGrid: [
+          {
+            components: [
+              { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
+              { kind: "unitary", gate: "Y", targets: [{ qubit: 1 }] },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  sqore.updateCircuit(newGroup);
+
+  // circuitGroup swapped wholesale.
+  assert.equal(sqore.circuitGroup, newGroup);
+  // circuit is the FIRST circuit in the group (matches constructor).
+  assert.equal(sqore.circuit, newGroup.circuits[0]);
+  assert.equal(sqore.circuit.qubits.length, 3);
+
+  // viewState entries survived intact — same keys, same values.
+  assert.equal(sqore.viewState.expanded.size, 2);
+  assert.equal(sqore.viewState.expanded.get("0,0"), true);
+  assert.equal(sqore.viewState.expanded.get("1,2-0,0"), false);
+});
+
+test("updateCircuit: nullifies lastLocationMap so the next rebase short-circuits as first-render", () => {
+  // The new circuit's op identities have no relation to the prior
+  // tree. Leaving `lastLocationMap` populated would cause every
+  // tracked entry to fall through both identity and stamp lookups
+  // and get dropped on the first post-`updateCircuit` rebase.
+  // Nulling the snapshot is the explicit signal: treat the next
+  // render as a fresh first render.
+  const opA = {
+    kind: "unitary",
+    gate: "H",
+    targets: [{ qubit: 0 }],
+  };
+  sqore = makeSqore([{ components: [opA] }]);
+  // Simulate a prior render having populated the location map.
+  sqore.lastLocationMap = snapshot([[opA, "0,0"]]);
+  sqore.viewState.setExpanded("0,0", true);
+
+  /** @type {any} */
+  const newGroup = {
+    circuits: [
+      {
+        qubits: [{ id: 0 }],
+        componentGrid: [
+          {
+            components: [
+              { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  sqore.updateCircuit(newGroup);
+
+  assert.equal(sqore.lastLocationMap, null);
+
+  // Now run the rebase: with the snapshot null, it must
+  // short-circuit and leave viewState untouched (the
+  // first-render contract from the no-op test above).
+  sqore.rebaseViewState();
+  assert.equal(sqore.viewState.expanded.size, 1);
+  assert.equal(sqore.viewState.expanded.get("0,0"), true);
+});
+
+test("updateCircuit: throws on null circuitGroup", () => {
+  sqore = makeSqore([
+    { components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }] },
+  ]);
+
+  // Fumbled host code must surface as an exception, not a silently
+  // broken render.
+  assert.throws(() => sqore.updateCircuit(null), /No circuit found/);
+});
+
+test("updateCircuit: throws on circuitGroup with empty circuits array", () => {
+  sqore = makeSqore([
+    { components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }] },
+  ]);
+
+  // An empty `circuits` array is treated the same way as null — there
+  // is nothing to render and continuing would NPE downstream when
+  // `circuits[0]` was dereferenced.
+  assert.throws(
+    () => sqore.updateCircuit(/** @type {any} */ ({ circuits: [] })),
+    /No circuit found/,
+  );
+
+  // Also null `circuits`.
+  assert.throws(
+    () =>
+      sqore.updateCircuit(
+        /** @type {any} */ ({ circuits: /** @type {any} */ (null) }),
+      ),
+    /No circuit found/,
+  );
+});
+
+test("updateCircuit: when circuitGroup has multiple circuits, only the first becomes active", () => {
+  // Matches the constructor's behavior. `Sqore` today renders one
+  // circuit at a time; if the host wants to switch to a later one in
+  // the group, it would need a separate hook (none exists yet).
+  sqore = makeSqore([
+    { components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }] },
+  ]);
+
+  /** @type {any} */
+  const newGroup = {
+    circuits: [
+      {
+        qubits: [{ id: 0 }],
+        componentGrid: [
+          {
+            components: [
+              { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
+            ],
+          },
+        ],
+      },
+      {
+        qubits: [{ id: 0 }, { id: 1 }],
+        componentGrid: [
+          {
+            components: [
+              { kind: "unitary", gate: "Y", targets: [{ qubit: 0 }] },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  sqore.updateCircuit(newGroup);
+
+  assert.equal(sqore.circuitGroup, newGroup);
+  assert.equal(sqore.circuit, newGroup.circuits[0]);
+  // The first circuit had 1 qubit, not 2.
+  assert.equal(sqore.circuit.qubits.length, 1);
+});
