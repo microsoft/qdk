@@ -1,7 +1,10 @@
-use enum_iterator::{Sequence, next};
+use enum_iterator::Sequence;
 use qsc_data_structures::span::Span;
-use std::iter::Peekable;
 use std::str::CharIndices;
+use std::{
+    fmt::{self, Display, Formatter},
+    iter::Peekable,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Token {
@@ -29,10 +32,42 @@ pub enum TokenKind {
     Unknown,         // unknown token
 }
 
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TokenKind::Newline => f.write_str("newline"),
+            TokenKind::Whitespace => f.write_str("whitespace"),
+            TokenKind::Comment => f.write_str("comment"),
+            TokenKind::Uint => f.write_str("uint"),
+            TokenKind::Double => f.write_str("double"),
+            TokenKind::InstructionName => f.write_str("instruction_name"),
+            TokenKind::Rec => f.write_str("rec"),
+            TokenKind::Sweep => f.write_str("sweep"),
+            TokenKind::Tag => write!(f, "tag"),
+            TokenKind::Open(delim) => write!(f, "open({})", delim),
+            TokenKind::Close(delim) => write!(f, "close({})", delim),
+            TokenKind::Star => write!(f, "star"),
+            TokenKind::Bang => write!(f, "bang"),
+            TokenKind::Minus => write!(f, "minus"),
+            TokenKind::Comma => write!(f, "comma"),
+            TokenKind::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
 pub enum Delim {
     Paren,
     Brace,
+}
+
+impl Display for Delim {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Delim::Paren => f.write_str("paren"),
+            Delim::Brace => f.write_str("brace"),
+        }
+    }
 }
 
 pub struct Lexer<'a> {
