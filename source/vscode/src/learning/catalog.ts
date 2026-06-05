@@ -48,13 +48,13 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
         const exIdx = items.indexOf(exampleItem);
         const before = items
           .slice(0, exIdx)
-          .filter((i) => i.type === "text-content")
-          .map((i) => i.content)
+          .map(renderLessonItemAsMarkdown)
+          .filter((c): c is string => !!c)
           .join("\n");
         const after = items
           .slice(exIdx + 1)
-          .filter((i) => i.type === "text-content")
-          .map((i) => i.content)
+          .map(renderLessonItemAsMarkdown)
+          .filter((c): c is string => !!c)
           .join("\n");
         return {
           type: "lesson",
@@ -66,10 +66,10 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
         };
       }
 
-      // No example — merge all text items.
+      // No example — merge all renderable items.
       const content = items
-        .filter((i) => i.type === "text-content")
-        .map((i) => i.content)
+        .map(renderLessonItemAsMarkdown)
+        .filter((c): c is string => !!c)
         .join("\n");
       return {
         type: "lesson",
@@ -81,4 +81,35 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
   }));
 
   return { id: KATAS_COURSE_ID, title: "Quantum Katas", units };
+}
+
+/**
+ * Project a single `LessonItem` down to a markdown string for the
+ * VS Code learning view, which renders one merged HTML blob per
+ * lesson section. `text-content` passes through unchanged. The
+ * interactive `bloch` item degrades to a short note + code block
+ * (and a link out to the playground), so it shows up in VS Code as
+ * informative text instead of disappearing. Anything else (examples,
+ * questions) is rendered elsewhere by the learning view and returns
+ * `null` here so the merger skips it.
+ */
+function renderLessonItemAsMarkdown(item: {
+  type: string;
+  content?: string;
+  gates?: string;
+  title?: string;
+}): string | null {
+  if (item.type === "text-content" && item.content !== undefined) {
+    return item.content;
+  }
+  if (item.type === "bloch" && item.gates !== undefined) {
+    const caption = item.title ? ` (${item.title})` : "";
+    return (
+      `> **Interactive Bloch sphere demo${caption}.** ` +
+      `Gate sequence: \`${item.gates}\`. ` +
+      `Open this sequence in the Bloch sphere in the playground ` +
+      `to step through it visually.`
+    );
+  }
+  return null;
 }

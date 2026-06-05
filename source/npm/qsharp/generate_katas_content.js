@@ -291,6 +291,34 @@ function createExample(baseFolderPath, properties) {
   };
 }
 
+// `@[bloch]({"gates": "HZH", "title": "..."})` embeds the interactive
+// Bloch sphere widget inline in lesson prose. `gates` is required (it's
+// the only thing the widget needs to seed itself); `title` is an
+// optional caption rendered above the widget by the kata renderer.
+//
+// Gate chars are not validated here on purpose -- the `BlochSphere`
+// component runs the same sanitizer that the live textbox uses, so
+// unknown characters are silently dropped at render time. Keeping
+// generation lenient means we don't have to mirror the gate alphabet
+// in two places.
+function createBlochItem(properties) {
+  const requiredProperties = ["gates"];
+  const missingProperties = identifyMissingProperties(
+    properties,
+    requiredProperties,
+  );
+  if (missingProperties.length > 0) {
+    throw new Error(
+      `Bloch macro is missing the following properties: ${missingProperties}`,
+    );
+  }
+  return {
+    type: "bloch",
+    gates: String(properties.gates),
+    title: properties.title ? String(properties.title) : undefined,
+  };
+}
+
 function createTextContent(markdown) {
   if (validate) {
     try {
@@ -350,6 +378,8 @@ function createExplainedSolution(markdownFilePath) {
       solutionItem = createSolution(solutionFolderPath, segment.properties);
     } else if (segment.type === "markdown") {
       solutionItem = createTextContent(segment.markdown);
+    } else if (segment.type === "bloch") {
+      solutionItem = createBlochItem(segment.properties);
     }
 
     if (solutionItem !== null) {
@@ -379,6 +409,8 @@ function createAnswer(markdownFilePath) {
       answerItem = createExample(answerFolderPath, segment.properties);
     } else if (segment.type === "markdown") {
       answerItem = createTextContent(segment.markdown);
+    } else if (segment.type === "bloch") {
+      answerItem = createBlochItem(segment.properties);
     }
 
     if (answerItem !== null) {
@@ -535,6 +567,8 @@ function createLessonSection(kataPath, properties, segmentsStack) {
       lessonItem = createTextContent(currentSegment.markdown);
     } else if (currentSegment.type === "question") {
       lessonItem = createQuestion(kataPath, currentSegment.properties);
+    } else if (currentSegment.type === "bloch") {
+      lessonItem = createBlochItem(currentSegment.properties);
     }
 
     // Check that a valid lesson item was created.

@@ -135,6 +135,8 @@ function LessonEl(props: { lesson: Lesson }) {
                 <code>{item.code}</code>
               </pre>
             );
+          case "bloch":
+            return <BlochFallback gates={item.gates} title={item.title} />;
         }
       })}
     </>
@@ -160,16 +162,43 @@ function ExerciseEl(props: { exercise: Exercise }) {
 
 function ExplainedSolution(props: { item: ExplainedSolutionItem }) {
   const item = props.item;
+  if (item.type === "text-content") {
+    return <div dangerouslySetInnerHTML={{ __html: item.content }}></div>;
+  }
+  if (item.type === "bloch") {
+    return <BlochFallback gates={item.gates} title={item.title} />;
+  }
   return (
     <div>
-      {item.type === "text-content" ? (
-        <div dangerouslySetInnerHTML={{ __html: item.content }}></div>
-      ) : (
-        <pre>
-          <code>{item.code}</code>
-        </pre>
-      )}
+      <pre>
+        <code>{item.code}</code>
+      </pre>
     </div>
+  );
+}
+
+// The static katas site doesn't ship the WebGL Bloch widget. Render a
+// short note describing what the embedded interactive demo would show
+// so readers aren't left wondering what was supposed to be here. The
+// link points at the playground page where the widget is live.
+function BlochFallback(props: { gates: string; title?: string }) {
+  return (
+    <aside class="bloch-fallback">
+      <p>
+        <strong>Interactive Bloch sphere:</strong>{" "}
+        {props.title ?? "gate sequence demo"}
+      </p>
+      <pre>
+        <code>{props.gates}</code>
+      </pre>
+      <p>
+        Open this sequence in the{" "}
+        <a href={`/?view=bloch&gates=${encodeURIComponent(props.gates)}`}>
+          interactive Bloch sphere
+        </a>
+        .
+      </p>
+    </aside>
   );
 }
 

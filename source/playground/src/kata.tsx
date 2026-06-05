@@ -5,7 +5,7 @@ import { useState } from "preact/hooks";
 import { QscEventTarget } from "qsharp-lang";
 import { Editor } from "./editor.js";
 import { OutputTabs } from "./tabs.js";
-import { Markdown } from "qsharp-lang/ux";
+import { BlochSphere, Markdown } from "qsharp-lang/ux";
 
 import type {
   CompilerState,
@@ -19,6 +19,7 @@ import type {
   Kata,
   Question,
   KataSection,
+  BlochItem,
 } from "qsharp-lang/katas";
 
 type Props = {
@@ -29,6 +30,22 @@ type Props = {
   onRestartCompiler: () => void;
   languageService: ILanguageServiceWorker;
 };
+
+// Wrapper for the interactive Bloch sphere widget embedded inline in a
+// kata via the `@[bloch](...)` directive. We give it a bit of vertical
+// breathing room above and below so it visually separates from the
+// surrounding prose, and render the optional caption as a small
+// heading. The widget itself is the standard `BlochSphere` -- no
+// special compact mode -- so students get the full transport bar,
+// gate editor, and history pane to play with.
+function BlochEmbed({ item }: { item: BlochItem }) {
+  return (
+    <div class="kata-bloch-embed">
+      {item.title && <h4 class="kata-bloch-embed-title">{item.title}</h4>}
+      <BlochSphere initialGates={item.gates} />
+    </div>
+  );
+}
 
 function ExplainedSolutionElem(props: { solution: ExplainedSolution }) {
   return (
@@ -45,6 +62,8 @@ function ExplainedSolutionElem(props: { solution: ExplainedSolution }) {
             );
           case "text-content":
             return <Markdown markdown={item.content}></Markdown>;
+          case "bloch":
+            return <BlochEmbed item={item} />;
         }
       })}
     </details>
@@ -70,6 +89,8 @@ function QuestionElem(props: { question: Question }) {
               );
             case "text-content":
               return <Markdown markdown={item.content}></Markdown>;
+            case "bloch":
+              return <BlochEmbed item={item} />;
           }
         })}
       </details>
@@ -135,6 +156,8 @@ function LessonElem(props: Props & { section: KataSection }) {
               return <Markdown markdown={item.content}></Markdown>;
             case "question":
               return <QuestionElem question={item}></QuestionElem>;
+            case "bloch":
+              return <BlochEmbed item={item} />;
           }
         })}
       </div>
