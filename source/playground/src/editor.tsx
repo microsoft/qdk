@@ -39,12 +39,17 @@ function VSDiagsToMarkers(errors: VSDiagnostic[]): monaco.editor.IMarkerData[] {
       case "info":
         severity = monaco.MarkerSeverity.Info;
         break;
+      case "hint":
+        severity = monaco.MarkerSeverity.Hint;
+        break;
     }
 
     const marker: monaco.editor.IMarkerData = {
       ...lsRangeToMonacoRange(err.range),
       severity,
       message: err.message,
+      // LSP DiagnosticTag values match monaco's MarkerTag (1 = Unnecessary).
+      tags: err.tags as monaco.MarkerTag[] | undefined,
       relatedInformation: err.related?.map((r) => {
         const range = lsRangeToMonacoRange(r.location.span);
         return {

@@ -30,6 +30,22 @@ pub enum ErrorKind {
     #[error(transparent)]
     #[diagnostic(transparent)]
     DocumentStatus(#[from] DocumentStatusDiagnostic),
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    Unnecessary(#[from] UnnecessaryCodeDiagnostic),
+}
+
+/// Marks a region of code that is excluded from the current compilation, e.g.
+/// an item whose `@Config` attribute does not match the current target profile.
+/// This is reported to the editor as a hint carrying the `Unnecessary`
+/// diagnostic tag so that the excluded code can be displayed as greyed out.
+#[derive(Clone, Debug, Diagnostic, Error)]
+#[error(
+    "this code is not included in the current compilation because it does not apply to the current target profile"
+)]
+#[diagnostic(severity(info), code("Qdk.LanguageServer.UnnecessaryCode"))]
+pub struct UnnecessaryCodeDiagnostic {
+    pub range: Range,
 }
 
 /// Document status is a non-user facing, info-level diagnostic meant for
