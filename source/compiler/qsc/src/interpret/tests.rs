@@ -1099,6 +1099,73 @@ mod given_interpreter {
         }
 
         #[test]
+        fn base_get_rir() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let res = interpreter.get_rir("Foo()").expect("expected success");
+            // get_rir returns the raw RIR and the SSA-transformed RIR. The full
+            // dump embeds source offsets in its debug metadata, so assert on the
+            // stable structure rather than snapshotting the whole program.
+            assert_eq!(res.len(), 2);
+            let ssa = &res[1];
+            assert!(ssa.contains("Program:"), "{ssa}");
+            assert!(ssa.contains("capabilities: Base"), "{ssa}");
+            assert!(ssa.contains("num_results: 1"), "{ssa}");
+            assert!(ssa.contains("call_type: Measurement"), "{ssa}");
+        }
+
+        #[test]
+        fn adaptive_get_rir() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                namespace Test {
+                    import Std.Math.*;
+                    open QIR.Intrinsic;
+                    @EntryPoint()
+                    operation Main() : Result {
+                        use q = Qubit();
+                        let pi_over_2 = 4.0 / 2.0;
+                        __quantum__qis__rz__body(pi_over_2, q);
+                        __quantum__qis__mresetz__body(q)
+                    }
+                }"#
+                },
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let res = interpreter
+                .get_rir("Test.Main()")
+                .expect("expected success");
+            assert_eq!(res.len(), 2);
+            let ssa = &res[1];
+            assert!(ssa.contains("Program:"), "{ssa}");
+            assert!(ssa.contains("Adaptive"), "{ssa}");
+            assert!(ssa.contains("num_results: 1"), "{ssa}");
+            assert!(ssa.contains("call_type: Measurement"), "{ssa}");
+        }
+
+        #[test]
+        fn get_rir_fails_for_unrestricted_profile() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::all());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let res = interpreter
+                .get_rir("Foo()")
+                .expect_err("expected get_rir to fail for the unrestricted profile");
+            expect!["[UnsupportedRuntimeCapabilities]"].assert_eq(&format!("{res:?}"));
+        }
+
+        #[test]
         fn adaptive_qirgen_nested_output_types() {
             let mut interpreter =
                 get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
