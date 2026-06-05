@@ -1,9 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(non_snake_case)]
+
 mod algorithms;
 #[rustfmt::skip]
 mod algorithms_generated;
+mod algorithms_Ising;
+#[rustfmt::skip]
+mod algorithms_Ising_generated;
 mod getting_started;
 #[rustfmt::skip]
 mod getting_started_generated;
@@ -14,9 +19,7 @@ mod language;
 mod language_generated;
 #[rustfmt::skip]
 mod project_generated;
-#[allow(non_snake_case)]
 mod OpenQASM;
-#[allow(non_snake_case)]
 #[rustfmt::skip]
 mod OpenQASM_generated;
 
