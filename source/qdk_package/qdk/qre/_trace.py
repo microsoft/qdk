@@ -25,7 +25,7 @@ class TraceTransform(ABC):
             trace (Trace): The input trace.
 
         Returns:
-            Optional[Trace]: The transformed trace, or None if the
+            Trace: The transformed trace, or None if the
                 transformation is not applicable.
         """
         ...
@@ -74,7 +74,7 @@ class PSSPC(TraceTransform):
             trace (Trace): The input trace.
 
         Returns:
-            Optional[Trace]: The transformed trace.
+            Trace: The transformed trace.
         """
         return self._psspc.transform(trace)
 
@@ -104,7 +104,7 @@ class LatticeSurgery(TraceTransform):
             trace (Trace): The input trace.
 
         Returns:
-            Optional[Trace]: The transformed trace.
+            Trace: The transformed trace.
         """
         return self._lattice_surgery.transform(trace)
 

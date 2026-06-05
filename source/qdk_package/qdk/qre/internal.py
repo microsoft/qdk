@@ -38,8 +38,8 @@ if TYPE_CHECKING:
     class ApplicationContext(Protocol):
         """Enumeration context wrapping an application instance.
 
-        Obtained via :meth:`Application.context` and passed to
-        :meth:`TraceQuery.enumerate`.
+        Obtained via :meth:`~qdk.qre.Application.context` and passed to
+        :meth:`~qdk.qre.TraceQuery.enumerate`.
         """
 
         @property
@@ -52,7 +52,7 @@ if TYPE_CHECKING:
     class DataclassProtocol(Protocol):
         """Structural type satisfied by any ``@dataclass`` class.
 
-        Used as a constraint on :data:`TraceParameters`.
+        Used as a constraint on :data:`~qdk.qre.TraceParameters`.
         """
 
         __dataclass_fields__: ClassVar[dict]
@@ -62,12 +62,12 @@ if TYPE_CHECKING:
     #   (runtime: _instruction._InstructionSourceNodeReference)
     # ------------------------------------------------------------------
     class InstructionSourceNodeReference(Protocol):
-        """Reference to a node in an ``InstructionSource`` graph."""
+        """Reference to a node in an :class:`~qdk.qre.InstructionSource` graph."""
 
         @property
         def instruction(self) -> Instruction: ...
         @property
-        def transform(self) -> Optional[Union[ISATransform, Architecture]]: ...
+        def transform(self) -> Union[ISATransform, Architecture, None]: ...
 
     # ------------------------------------------------------------------
     # Instruction  (runtime: _qre.Instruction — Rust native)
@@ -80,12 +80,12 @@ if TYPE_CHECKING:
         @property
         def encoding(self) -> int: ...
         @property
-        def arity(self) -> Optional[int]: ...
-        def space(self, arity: Optional[int] = None) -> Optional[int]: ...
-        def time(self, arity: Optional[int] = None) -> Optional[int]: ...
-        def error_rate(self, arity: Optional[int] = None) -> Optional[float]: ...
-        def expect_time(self, arity: Optional[int] = None) -> int: ...
-        def expect_error_rate(self, arity: Optional[int] = None) -> float: ...
+        def arity(self) -> int | None: ...
+        def space(self, arity: int | None = None) -> int | None: ...
+        def time(self, arity: int | None = None) -> int | None: ...
+        def error_rate(self, arity: int | None = None) -> float | None: ...
+        def expect_time(self, arity: int | None = None) -> int: ...
+        def expect_error_rate(self, arity: int | None = None) -> float: ...
 
 else:
     from ._application import ApplicationContext, DataclassProtocol

@@ -60,7 +60,7 @@ class EstimationTable(list["EstimationTableEntry"]):
             function (Callable[[EstimationTableEntry], Any]): A function that
                 takes an EstimationTableEntry and returns the value for this
                 column.
-            formatter (Optional[Callable[[Any], Any]]): An optional function
+            formatter (Callable[[Any], Any]): An optional function
                 that formats the output of ``function`` for display purposes.
         """
         self._columns.append((name, EstimationTableColumn(function, formatter)))
@@ -80,7 +80,7 @@ class EstimationTable(list["EstimationTableEntry"]):
             function (Callable[[EstimationTableEntry], Any]): A function that
                 takes an EstimationTableEntry and returns the value for this
                 column.
-            formatter (Optional[Callable[[Any], Any]]): An optional function
+            formatter (Callable[[Any], Any]): An optional function
                 that formats the output of ``function`` for display purposes.
         """
         self._columns.insert(index, (name, EstimationTableColumn(function, formatter)))
@@ -123,7 +123,7 @@ class EstimationTable(list["EstimationTableEntry"]):
 
         Args:
             property_key (int): The property key to add as a column.
-            column_name (Optional[str]): An optional name for the column. If not provided, the column will be named "property_{property_key}".
+            column_name (str): An optional name for the column. If not provided, the column will be named "property_{property_key}".
             default_value (Any): The default value to use if the property key is not present in an entry's properties. Defaults to None.
         """
         if column_name is None:
@@ -144,7 +144,7 @@ class EstimationTable(list["EstimationTableEntry"]):
     def as_frame(self):
         """Convert the estimation table to a ``pandas.DataFrame``.
 
-        Each row corresponds to an ``EstimationTableEntry`` and each
+        Each row corresponds to an :class:`~qdk.qre.EstimationTableEntry` and each
         column is determined by the columns registered on this table.  Column
         formatters, when present, are applied to the values before they are
         placed in the frame.
@@ -174,18 +174,18 @@ class EstimationTable(list["EstimationTableEntry"]):
         arguments are forwarded.
 
         Returns:
-            matplotlib.figure.Figure: The figure containing the plot.
+            object: A ``matplotlib.figure.Figure`` containing the plot.
         """
         return plot_estimates(self, **kwargs)
 
 
 @dataclass(frozen=True, slots=True)
 class EstimationTableColumn:
-    """Definition of a single column in an ``EstimationTable``.
+    """Definition of a single column in an :class:`~qdk.qre.EstimationTable`.
 
     Attributes:
         function: A callable that extracts the raw column value from an
-            ``EstimationTableEntry``.
+            :class:`~qdk.qre.EstimationTableEntry`.
         formatter: An optional callable that transforms the raw value for
             display purposes (e.g. converting nanoseconds to a
             ``pandas.Timedelta``).
@@ -197,7 +197,7 @@ class EstimationTableColumn:
 
 @dataclass(frozen=True, slots=True)
 class EstimationTableEntry:
-    """A single row in an ``EstimationTable``.
+    """A single row in an :class:`~qdk.qre.EstimationTable`.
 
     Each entry represents one Pareto-optimal estimation result for a
     particular combination of application trace and architecture ISA.
@@ -310,10 +310,10 @@ def plot_estimates(
     Creates a log-log scatter plot where the x-axis shows the total runtime and
     the y-axis shows the total number of physical qubits.
 
-    *data* may be a single ``EstimationTable`` or an iterable of tables.  When
+    *data* may be a single :class:`~qdk.qre.EstimationTable` or an iterable of tables.  When
     multiple tables are provided, each is plotted as a separate series.  If a
-    table has a ``EstimationTable.name`` (set via the *name* parameter of
-    ``estimate``), it is used as the legend label for that series.
+    table has an ``EstimationTable.name`` (set via the *name* parameter of
+    :func:`~qdk.qre.estimate`), it is used as the legend label for that series.
 
     When *runtime_unit* is ``None`` (the default), the x-axis uses
     human-readable time-unit tick labels spanning nanoseconds to centuries.
@@ -334,7 +334,7 @@ def plot_estimates(
             ``matplotlib.axes.Axes.scatter`` when plotting the points.
 
     Returns:
-        matplotlib.figure.Figure: The figure containing the plot.
+        object: A ``matplotlib.figure.Figure`` containing the plot.
 
     Raises:
         ImportError: If matplotlib is not installed.
