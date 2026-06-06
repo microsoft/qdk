@@ -90,6 +90,24 @@ pub type Dependencies = [(PackageId, Option<Arc<str>>)];
 #[error(transparent)]
 pub struct Error(pub(super) ErrorKind);
 
+impl Error {
+    /// If this is an unresolved-name error (diagnostic code `Qsc.Resolve.NotFound`),
+    /// returns the unresolved name and the span where it appears, otherwise `None`.
+    ///
+    /// This covers both a name that genuinely doesn't exist and a name that exists
+    /// but isn't available for the current compilation configuration, since both
+    /// surface under the same diagnostic.
+    #[must_use]
+    pub fn unresolved_name(&self) -> Option<(&str, Span)> {
+        match &self.0 {
+            ErrorKind::Resolve(
+                resolve::Error::NotFound(name, span) | resolve::Error::NotAvailable(name, _, span),
+            ) => Some((name.as_str(), *span)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Diagnostic, Error)]
 #[diagnostic(transparent)]
 pub(super) enum ErrorKind {
