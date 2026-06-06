@@ -188,7 +188,7 @@ impl VSDiagnostic {
             range: d.range.into(),
             message: d.to_string(),
             severity: "hint".to_string(),
-            code: d.code().map(|c| c.to_string()),
+            code: None,
             uri: None,
             related: Vec::new(),
             tags: vec![DIAGNOSTIC_TAG_UNNECESSARY],

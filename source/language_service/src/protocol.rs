@@ -43,7 +43,7 @@ pub enum ErrorKind {
 #[error(
     "this code is not included in the current compilation because it does not apply to the current target profile"
 )]
-#[diagnostic(severity(info), code("Qdk.LanguageServer.UnnecessaryCode"))]
+#[diagnostic(severity(info))]
 pub struct UnnecessaryCodeDiagnostic {
     pub range: Range,
 }

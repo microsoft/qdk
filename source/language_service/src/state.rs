@@ -741,10 +741,9 @@ fn add_unnecessary_code_diagnostics(
     let unit = compilation.user_unit();
     let source_map = &unit.sources;
     for &span in &unit.dropped_spans {
-        // Skip any span we can't resolve to a source rather than panicking.
-        let Some(source) = source_map.find_by_offset(span.lo) else {
-            continue;
-        };
+        let source = source_map
+            .find_by_offset(span.lo)
+            .expect("dropped span should resolve to a source");
         let range = into_range(encoding, span, source_map);
         map.entry(source.name.clone())
             .or_default()
