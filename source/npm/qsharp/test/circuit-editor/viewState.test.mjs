@@ -82,8 +82,7 @@ test("ViewState: setExpanded(false) prunes descendant overrides", () => {
 });
 
 test("ViewState: setExpanded(false) does not match prefix of unrelated location", () => {
-  // "0,1" is NOT a descendant of "0,1-extra"; "0,10" is NOT a
-  // descendant of "0,1". The prune logic uses the `-` separator
+  // "0,10" is NOT a descendant of "0,1". The prune logic uses the `-` separator
   // explicitly so location-string substrings can't accidentally match.
   const v = new ViewState();
   v.setExpanded("0,1", true);

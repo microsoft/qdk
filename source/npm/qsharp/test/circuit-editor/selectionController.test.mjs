@@ -126,7 +126,6 @@ function makeController(
     model: ctx.model,
     renderFn: ctx.renderFn,
   });
-  // eslint-disable-next-line no-new
   new SelectionController(/** @type {any} */ (ctx), stubEvents);
   return { ctx, interaction };
 }
@@ -264,7 +263,6 @@ function makeControllerWithWireData(
     model: ctx.model,
     renderFn: ctx.renderFn,
   });
-  // eslint-disable-next-line no-new
   new SelectionController(/** @type {any} */ (ctx), stubEvents);
   return { ctx, interaction };
 }

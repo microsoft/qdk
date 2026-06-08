@@ -135,7 +135,7 @@ test("findParentArray returns the children grid for a nested location", () => {
   assert.equal(parent[0].components[0].gate, "X");
 });
 
-test("findParentArray returns null when an interior segment is out of bounds", () => {
+test("findParentArray returns null when an ancestor address is out of bounds", () => {
   const grid = nestedGrid();
   // Walking "9,0-..." can't get past the first segment.
   assert.equal(findParentArray(grid, "9,0-0,0"), null);
