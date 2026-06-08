@@ -49,6 +49,10 @@ afterEach(() => {
   sqore = null;
 });
 
+// ---------------------------------------------------------------------------
+// rebaseViewState: per-render key migration
+// ---------------------------------------------------------------------------
+
 test("rebaseViewState: no-op on the first render when lastLocationMap is null", () => {
   // No prior snapshot → short-circuit and leave `viewState` alone.
   const opA = {
@@ -227,9 +231,11 @@ test("rebaseViewState: handles nested ops — identity preserved at depth 2", ()
   assert.equal(sqore.viewState.expanded.has("0,0-0,0"), false);
 });
 
-// updateCircuit — the escape hatch for external circuit updates.
-// Swaps `circuit` + `circuitGroup`, preserves `viewState`, and nulls
+// ---------------------------------------------------------------------------
+// updateCircuit: the escape hatch for external circuit updates. Swaps
+// `circuit` + `circuitGroup`, preserves `viewState`, and nulls
 // `lastLocationMap` so the next rebase treats it as a first render.
+// ---------------------------------------------------------------------------
 
 test("updateCircuit: swaps circuit + circuitGroup while preserving viewState", () => {
   // Pre-seed viewState; the central guarantee is that these entries

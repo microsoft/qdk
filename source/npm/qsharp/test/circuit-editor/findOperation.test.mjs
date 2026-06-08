@@ -26,7 +26,12 @@ import {
   findParentOperation,
 } from "../../dist/ux/circuit-vis/utils.js";
 
-/** Build a 1-column grid with a single H@0. */
+/** @typedef {import("../../dist/ux/circuit-vis/data/circuit.js").ComponentGrid} ComponentGrid */
+
+/**
+ * Build a 1-column grid with a single H@0.
+ * @returns {ComponentGrid}
+ */
 function flatGrid() {
   return [
     {
@@ -39,6 +44,7 @@ function flatGrid() {
  * Build a grid with one outer op (a "group") whose `children` is itself a
  * 1-column grid containing an inner X@0. The outer op lives at "0,0";
  * the inner op lives at "0,0-0,0".
+ * @returns {ComponentGrid}
  */
 function nestedGrid() {
   return [

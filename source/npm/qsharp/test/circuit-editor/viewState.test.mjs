@@ -19,6 +19,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ViewState } from "../../dist/ux/circuit-vis/data/viewState.js";
 
+// ---------------------------------------------------------------------------
+// Storage primitives: setExpanded / clearExpanded
+// ---------------------------------------------------------------------------
+
 test("ViewState: starts empty", () => {
   const v = new ViewState();
   assert.equal(v.expanded.size, 0);
@@ -102,6 +106,10 @@ test("ViewState: clearExpanded is idempotent on absent entries", () => {
   v.clearExpanded("nonexistent");
   assert.equal(v.expanded.size, 0);
 });
+
+// ---------------------------------------------------------------------------
+// applyTo: write overrides into a rendered component grid
+// ---------------------------------------------------------------------------
 
 test("ViewState: applyTo writes overrides into a component grid", () => {
   const v = new ViewState();

@@ -130,6 +130,10 @@ test("markMovingControl / markMouseUpOnCircuit / markDragging set their respecti
   assert.equal(s.dragging, true);
 });
 
+// ---------------------------------------------------------------------------
+// Temporary-dropzone bookkeeping
+// ---------------------------------------------------------------------------
+
 test("trackTemporaryDropzone appends to the list without removing existing entries", () => {
   const s = new InteractionState();
   const a = fakeDropzone();

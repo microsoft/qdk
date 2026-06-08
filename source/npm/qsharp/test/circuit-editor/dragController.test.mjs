@@ -150,6 +150,12 @@ const dispatchMouseDown = (target, init = {}) =>
 const dispatchMouseUp = (target, init = {}) =>
   target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, ...init }));
 
+// ---------------------------------------------------------------
+// Basic gestures and lifecycle: toolbox drag, dropzone drop,
+// startAddingControl / startRemovingControl, off-circuit mouseup,
+// dispose()
+// ---------------------------------------------------------------
+
 test("toolbox mousedown sets selectedOperation to the toolbox prototype", () => {
   const fixture = buildFixture();
   const model = new CircuitModel(emptyCircuit(2));

@@ -362,6 +362,11 @@ test("removeQubitLineWithConfirmation Cancel click leaves the model untouched an
   assert.equal(document.querySelectorAll(".prompt-overlay").length, 0);
 });
 
+// ---------------------------------------------------------------------------
+// Pointer interactions: label mousedown spawns dropzones; mouseup on a
+// swap dropzone dispatches moveQubit
+// ---------------------------------------------------------------------------
+
 test("mousedown on a qubit label sets selectedWire and dragging", () => {
   const { container, labels } = buildFixture(3);
   const model = new CircuitModel(emptyCircuit(3));
