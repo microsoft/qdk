@@ -40,7 +40,7 @@ import {
   AppliedGate,
   Rotations,
   Ket0,
-  vec2,
+  Vec2,
   PauliX,
   PauliY,
   PauliZ,
@@ -973,7 +973,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // Computed in one pass instead of being mirrored in state, so the
   // history rows can never disagree with the underlying gate list.
   const historyEntries = useMemo(() => {
-    let prior = vec2(Ket0);
+    let prior: Vec2 = Ket0;
     return gates.map((code, i) => {
       const info = gateInfo[code];
       const next = info.matrix.mulVec2(prior);
