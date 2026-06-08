@@ -26,7 +26,6 @@ let jsdom = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(`<!doctype html><html><body></body></html>`);
-  // @ts-expect-error - jsdom typings vs DOM lib mismatch
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.HTMLElement = jsdom.window.HTMLElement;
@@ -48,7 +47,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * group, plus the editor overlay layer that QubitController appends
  * dropzones into.
  */
-function buildFixture(n) {
+function buildFixture(/** @type {number} */ n) {
   const container = document.createElement("div");
   document.body.appendChild(container);
 
@@ -85,7 +84,11 @@ function buildFixture(n) {
  * fresh model. `wireData[i]` is set to a stable y-coordinate so
  * the dropzone layout math has stable inputs.
  */
-function makeController(container, model, options = {}) {
+function makeController(
+  /** @type {any} */ container,
+  /** @type {any} */ model,
+  /** @type {{ renderFn?: () => void }} */ options = {},
+) {
   const interaction = new InteractionState();
   const renderFn = options.renderFn ?? (() => {});
   const wireData = Array.from(
@@ -109,12 +112,12 @@ function makeController(container, model, options = {}) {
   return { controller, ctx, interaction };
 }
 
-const emptyCircuit = (n) => ({
+const emptyCircuit = (/** @type {number} */ n) => ({
   qubits: Array.from({ length: n }, (_, id) => ({ id })),
   componentGrid: [],
 });
 
-const dispatchMouseDown = (target) =>
+const dispatchMouseDown = (/** @type {EventTarget} */ target) =>
   target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
 
 test("constructor on a fixture with no labels is a safe no-op", () => {
@@ -211,7 +214,7 @@ test("removeQubitLineWithConfirmation prompts when the wire has operations", () 
  * exactly two buttons ("OK" and "Cancel") both with class
  * `prompt-button`, so text is the disambiguator.
  */
-const findPromptButton = (label) =>
+const findPromptButton = (/** @type {string} */ label) =>
   /** @type {HTMLButtonElement | undefined} */ (
     Array.from(document.querySelectorAll("button.prompt-button")).find(
       (b) => b.textContent === label,

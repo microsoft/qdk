@@ -30,7 +30,6 @@ let jsdom = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(documentTemplate);
-  // @ts-expect-error - the `jsdom` typings and DOM typings don't match
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.Node = jsdom.window.Node;
@@ -84,9 +83,13 @@ test("clicking the Run button invokes the callback exactly once per click", () =
   const button = toolbox.querySelector(".svg-run-button");
   assert.ok(button, "Run button should be present");
 
-  button.dispatchEvent(new jsdom.window.Event("click", { bubbles: true }));
+  button.dispatchEvent(
+    new /** @type {any} */ (jsdom).window.Event("click", { bubbles: true }),
+  );
   assert.equal(callCount, 1, "one click → one callback invocation");
 
-  button.dispatchEvent(new jsdom.window.Event("click", { bubbles: true }));
+  button.dispatchEvent(
+    new /** @type {any} */ (jsdom).window.Event("click", { bubbles: true }),
+  );
   assert.equal(callCount, 2, "second click → second invocation (no debounce)");
 });

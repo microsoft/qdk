@@ -25,7 +25,6 @@ let circuitSvg = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(`<!doctype html><html><body></body></html>`);
-  // @ts-expect-error - jsdom typings vs DOM lib mismatch
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.HTMLElement = jsdom.window.HTMLElement;
@@ -72,7 +71,7 @@ afterEach(() => {
   circuitSvg = null;
 });
 
-const move = (clientX, clientY) =>
+const move = (/** @type {number} */ clientX, /** @type {number} */ clientY) =>
   document.dispatchEvent(
     new MouseEvent("mousemove", { clientX, clientY, bubbles: true }),
   );

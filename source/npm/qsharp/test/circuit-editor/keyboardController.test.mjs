@@ -29,7 +29,6 @@ let controller = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(`<!doctype html><html><body></body></html>`);
-  // @ts-expect-error - the `jsdom` typings and DOM typings don't match
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.HTMLElement = jsdom.window.HTMLElement;
@@ -57,17 +56,17 @@ const makeController = (interaction = new InteractionState()) => {
     wireData: [],
     renderFn: () => {},
   };
-  controller = new KeyboardController(ctx);
+  controller = new KeyboardController(/** @type {any} */ (ctx));
   return { ctx, container };
 };
 
-const dispatchCtrlKey = (type) => {
+const dispatchCtrlKey = (/** @type {string} */ type) => {
   document.dispatchEvent(
     new KeyboardEvent(type, { ctrlKey: true, bubbles: true }),
   );
 };
 
-const dispatchPlainKey = (type) => {
+const dispatchPlainKey = (/** @type {string} */ type) => {
   document.dispatchEvent(
     new KeyboardEvent(type, { ctrlKey: false, bubbles: true }),
   );

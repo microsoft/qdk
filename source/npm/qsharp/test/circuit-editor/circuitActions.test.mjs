@@ -46,6 +46,7 @@ function emptyCircuit(n) {
 /**
  * Build a unitary-gate template (the shape `addOperation` deep-copies).
  * @param {string} gate
+ * @returns {import("../../dist/ux/circuit-vis/index.js").Operation}
  */
 function unitary(gate) {
   return { kind: "unitary", gate, targets: [{ qubit: 0 }] };
@@ -1361,7 +1362,7 @@ test("moveOperation: cleanup STOPS at the first non-empty ancestor", () => {
 test("Location.before: document-order comparison", () => {
   // Quick sanity tests for the helper that backs the
   // dropzone-filter and moveOperation safety-net.
-  const L = (s) => Location.parse(s);
+  const L = (/** @type {string} */ s) => Location.parse(s);
   // Top-level columns.
   assert.equal(L("0,0").before(L("0,1")), true, "same col, smaller op first");
   assert.equal(L("0,1").before(L("0,0")), false, "same col, larger op last");
@@ -1665,7 +1666,7 @@ test("Location.inEarlierColumnThan: column-strict, ancestor-aware", () => {
   // document-order `before`: two ops in the same column are
   // simultaneous, and ancestor groups project their column down
   // onto everything they contain.
-  const L = (s) => Location.parse(s);
+  const L = (/** @type {string} */ s) => Location.parse(s);
 
   // Different top-level columns.
   assert.equal(
@@ -2606,7 +2607,7 @@ test("moveOperation extend: external source dropped into group on off-span wire 
       .find((/** @type {any} */ c) =>
         c.components.some((/** @type {any} */ op) => op.gate === "Foo"),
       )
-      .components.find((/** @type {any} */ op) => op.gate === "Foo")
+      ?.components.find((/** @type {any} */ op) => op.gate === "Foo")
   );
   const fooQubits = fooOp.targets
     .map((/** @type {any} */ t) => t.qubit)
@@ -5836,7 +5837,9 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
   for (const col of model.componentGrid) {
     for (const op of col.components) {
       if (op.kind === "measurement" && op.qubits[0].qubit === 0) {
-        wire0ResultsInDocOrder.push(op.results[0].result);
+        wire0ResultsInDocOrder.push(
+          /** @type {number} */ (op.results[0].result),
+        );
       }
     }
   }

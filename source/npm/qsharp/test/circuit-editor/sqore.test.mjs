@@ -9,7 +9,7 @@
 
 // @ts-check
 
-import { afterEach, beforeEach, test } from "node:test";
+import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { Sqore } from "../../dist/ux/circuit-vis/sqore.js";
 
@@ -22,6 +22,7 @@ import { Sqore } from "../../dist/ux/circuit-vis/sqore.js";
  */
 function makeSqore(componentGrid) {
   return new Sqore({
+    version: 1,
     circuits: [
       {
         qubits: [{ id: 0 }, { id: 1 }],

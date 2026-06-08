@@ -25,7 +25,6 @@ let jsdom = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(`<!doctype html><html><body></body></html>`);
-  // @ts-expect-error - jsdom typings vs DOM lib mismatch
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.HTMLElement = jsdom.window.HTMLElement;
@@ -41,18 +40,22 @@ beforeEach(() => {
   // stub just returns the point itself). This is enough surface
   // area to exercise the controller's coord-projection wiring
   // without dragging an SVG-layout shim into the test deps.
-  globalThis.DOMPoint = class {
-    constructor(x = 0, y = 0) {
-      this.x = x;
-      this.y = y;
+  // Cast the assignment because our stub doesn't implement the
+  // full DOMPoint static surface (e.g. `fromPoint`).
+  globalThis.DOMPoint = /** @type {any} */ (
+    class {
+      constructor(x = 0, y = 0) {
+        this.x = x;
+        this.y = y;
+      }
+      // Identity transform: the fixture's CTM stub is also identity,
+      // so this is correct for all our tests. A real layout-aware
+      // run would apply the matrix; we don't need that fidelity.
+      matrixTransform() {
+        return { x: this.x, y: this.y };
+      }
     }
-    // Identity transform: the fixture's CTM stub is also identity,
-    // so this is correct for all our tests. A real layout-aware
-    // run would apply the matrix; we don't need that fidelity.
-    matrixTransform() {
-      return { x: this.x, y: this.y };
-    }
-  };
+  );
 });
 
 afterEach(() => {
@@ -100,7 +103,10 @@ function buildFixture() {
  * Construct a SelectionController with the minimum viable
  * `InteractionContext` and a stub `CircuitEvents`.
  */
-function makeController(container, interaction = new InteractionState()) {
+function makeController(
+  /** @type {HTMLElement} */ container,
+  interaction = new InteractionState(),
+) {
   const ctx = {
     model: /** @type {any} */ ({}),
     interaction,
@@ -125,7 +131,7 @@ function makeController(container, interaction = new InteractionState()) {
   return { ctx, interaction };
 }
 
-const dispatchMouseDown = (target, button = 0) =>
+const dispatchMouseDown = (/** @type {EventTarget} */ target, button = 0) =>
   target.dispatchEvent(new MouseEvent("mousedown", { button, bubbles: true }));
 
 test("mousedown on a gate host sets selectedWire from data-wire", () => {
@@ -218,7 +224,7 @@ function buildMultiWireFixture(wireYs = [40, 100, 160]) {
   // non-null with an `.inverse()` method the controller can call
   // before passing it to `matrixTransform`. The returned value
   // never has to be a real matrix.
-  const identityCtm = { inverse: () => identityCtm };
+  const identityCtm = /** @type {any} */ ({ inverse: () => identityCtm });
   svg.getScreenCTM = () => identityCtm;
 
   const groupBody = document.createElementNS(SVG_NS, "rect");
@@ -236,7 +242,10 @@ function buildMultiWireFixture(wireYs = [40, 100, 160]) {
  * Make a controller with `wireData` matching the fixture so
  * `pickClosestWireIndex` can resolve the closest Y to an index.
  */
-function makeControllerWithWireData(container, wireData) {
+function makeControllerWithWireData(
+  /** @type {HTMLElement} */ container,
+  /** @type {number[]} */ wireData,
+) {
   const interaction = new InteractionState();
   const ctx = {
     model: /** @type {any} */ ({}),
@@ -260,7 +269,11 @@ function makeControllerWithWireData(container, wireData) {
   return { ctx, interaction };
 }
 
-const dispatchMouseDownAt = (target, clientY, button = 0) =>
+const dispatchMouseDownAt = (
+  /** @type {EventTarget} */ target,
+  /** @type {number} */ clientY,
+  button = 0,
+) =>
   target.dispatchEvent(
     new MouseEvent("mousedown", {
       button,
@@ -324,7 +337,7 @@ test("multi-wire host: falls back to data-wire when getScreenCTM returns null", 
   // throw; it should fall back to the static `data-wire` attribute
   // so the click still resolves *some* wire.
   const { container, groupBody } = buildMultiWireFixture();
-  const svg = container.querySelector("svg.qviz");
+  const svg = /** @type {any} */ (container.querySelector("svg.qviz"));
   svg.getScreenCTM = () => null;
   const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
 

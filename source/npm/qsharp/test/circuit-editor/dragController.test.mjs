@@ -21,7 +21,6 @@ let jsdom = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(`<!doctype html><html><body></body></html>`);
-  // @ts-expect-error - jsdom typings vs DOM lib mismatch
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.HTMLElement = jsdom.window.HTMLElement;
@@ -87,7 +86,12 @@ function buildFixture() {
  * Append a dropzone rect to the dropzone-layer at `(location, wire)`.
  * Returns the element so the caller can dispatch mouseup on it.
  */
-function appendDropzone(dropzoneLayer, location, wire, interColumn = false) {
+function appendDropzone(
+  /** @type {SVGElement} */ dropzoneLayer,
+  /** @type {string} */ location,
+  /** @type {number} */ wire,
+  interColumn = false,
+) {
   const dropzone = document.createElementNS(SVG_NS, "rect");
   dropzone.setAttribute("class", "dropzone");
   dropzone.setAttribute("data-dropzone-location", location);
@@ -104,7 +108,11 @@ function appendDropzone(dropzoneLayer, location, wire, interColumn = false) {
  * against the fixture. `wireData` is filled with stable y-coords so
  * any spawned wire dropzones have somewhere to anchor.
  */
-function makeController(fixture, model, options = {}) {
+function makeController(
+  /** @type {any} */ fixture,
+  /** @type {any} */ model,
+  /** @type {{ renderFn?: () => void }} */ options = {},
+) {
   const interaction = new InteractionState();
   const renderFn = options.renderFn ?? (() => {});
   const wireData = Array.from(
@@ -137,17 +145,23 @@ function makeController(fixture, model, options = {}) {
   return { dragController, qubitController, ctx, interaction };
 }
 
-const emptyCircuit = (n) => ({
+const emptyCircuit = (/** @type {number} */ n) => ({
   qubits: Array.from({ length: n }, (_, id) => ({ id })),
   componentGrid: [],
 });
 
-const dispatchMouseDown = (target, init = {}) =>
+const dispatchMouseDown = (
+  /** @type {EventTarget} */ target,
+  /** @type {MouseEventInit} */ init = {},
+) =>
   target.dispatchEvent(
     new MouseEvent("mousedown", { button: 0, bubbles: true, ...init }),
   );
 
-const dispatchMouseUp = (target, init = {}) =>
+const dispatchMouseUp = (
+  /** @type {EventTarget} */ target,
+  /** @type {MouseEventInit} */ init = {},
+) =>
   target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, ...init }));
 
 // ---------------------------------------------------------------
@@ -230,7 +244,7 @@ test("startAddingControl spawns one dropzone per non-target / non-control wire",
   const { dragController } = makeController(fixture, model);
 
   const op = /** @type {any} */ (model.componentGrid[0].components[0]);
-  dragController.startAddingControl(op, "0,0");
+  /** @type {any} */ (dragController).startAddingControl(op, "0,0");
 
   // wireData has length n+1 (= 5) including the trailing ghost wire.
   // The controller iterates the full wireData length and excludes
@@ -716,7 +730,11 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
 // ---------------------------------------------------------------
 
 /** Append a `.dropzone` rect with display:none preset (stale-mark fixture). */
-function appendHiddenDropzone(dropzoneLayer, location, wire) {
+function appendHiddenDropzone(
+  /** @type {SVGElement} */ dropzoneLayer,
+  /** @type {string} */ location,
+  /** @type {number} */ wire,
+) {
   const dz = appendDropzone(dropzoneLayer, location, wire);
   /** @type {any} */ (dz).style.display = "none";
   return dz;
@@ -957,7 +975,12 @@ test("container mouseup teardown clears stale per-dropzone display marks", () =>
  * column so `spawnShiftExtendDropzones`' `totalCols = real + 1`
  * computes to 2 (one real + one trailing-append).
  */
-function setScope(ctx, parentLoc, columnXOffsets = [100], columnWidths = [60]) {
+function setScope(
+  /** @type {any} */ ctx,
+  /** @type {string} */ parentLoc,
+  columnXOffsets = [100],
+  columnWidths = [60],
+) {
   ctx.layoutMap.scopes.set(parentLoc, { columnXOffsets, columnWidths });
 }
 
@@ -1291,7 +1314,7 @@ test("spawnShiftExtendDropzones tags every dropzone and is re-spawn-safe", () =>
   );
   assert.ok(firstSpawn.length > 0, "first spawn must emit some dropzones");
   // Every dropzone is tagged correctly.
-  for (const dz of firstSpawn) {
+  for (const dz of Array.from(firstSpawn)) {
     assert.equal(dz.getAttribute("data-shift-extend"), "true");
     assert.equal(dz.getAttribute("data-dropzone-inter-column"), "false");
   }

@@ -32,7 +32,6 @@ let jsdom = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(documentTemplate);
-  // @ts-expect-error - the `jsdom` typings and DOM typings don't match
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.Node = jsdom.window.Node;
@@ -91,7 +90,7 @@ test("renders one [toolbox-item] per toolboxGateDictionary entry", () => {
 
   // `dragController.onToolboxMouseDown` checks for attribute
   // presence; locking down "true" catches an accidental falsy swap.
-  for (const item of items) {
+  for (const item of Array.from(items)) {
     assert.equal(item.getAttribute("toolbox-item"), "true");
   }
 });

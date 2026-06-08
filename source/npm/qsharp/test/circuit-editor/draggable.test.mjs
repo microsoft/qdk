@@ -45,7 +45,6 @@ let jsdom = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(documentTemplate);
-  // @ts-expect-error - the `jsdom` typings and DOM typings don't match
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.Node = jsdom.window.Node;

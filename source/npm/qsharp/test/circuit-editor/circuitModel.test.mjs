@@ -32,6 +32,7 @@ function emptyCircuit(n) {
  * @param {string} gate
  * @param {number} targetQubit
  * @param {number[]} [controlQubits]
+ * @returns {import("../../dist/ux/circuit-vis/index.js").Operation}
  */
 function unitary(gate, targetQubit, controlQubits) {
   const op = {
@@ -44,7 +45,7 @@ function unitary(gate, targetQubit, controlQubits) {
       qubit,
     }));
   }
-  return op;
+  return /** @type {any} */ (op);
 }
 
 // ---------------------------------------------------------------------------

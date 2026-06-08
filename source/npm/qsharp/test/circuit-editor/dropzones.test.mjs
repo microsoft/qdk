@@ -28,7 +28,6 @@ let jsdom = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(documentTemplate);
-  // @ts-expect-error - the `jsdom` typings and DOM typings don't match
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.Node = jsdom.window.Node;
@@ -85,6 +84,7 @@ function renderAndCollectDropzones(group) {
  */
 function singleCircuit(circuit) {
   return {
+    version: 1,
     circuits: [circuit],
   };
 }
@@ -387,9 +387,12 @@ test("user expand choice survives a re-render via ViewState", async () => {
   assert.ok(expandBtn, "expected to find expand chevron on collapsed Foo");
   // JSDOM's MouseEvent constructor lives on its window.
   expandBtn.dispatchEvent(
-    new container.ownerDocument.defaultView.MouseEvent("click", {
-      bubbles: true,
-    }),
+    new /** @type {any} */ (container.ownerDocument.defaultView).MouseEvent(
+      "click",
+      {
+        bubbles: true,
+      },
+    ),
   );
 
   // After click: Foo is expanded; nested dropzones appear.
@@ -407,7 +410,7 @@ test("user expand choice survives a re-render via ViewState", async () => {
 
   // Simulate an editor-mutation refresh — the same path the editor
   // controllers use after every Action.
-  sqore.renderCircuit(container);
+  /** @type {any} */ (sqore).renderCircuit(container);
 
   // ViewState's `applyTo` re-applies the user override across the
   // deep-copy boundary, so Foo stays expanded.
@@ -487,9 +490,12 @@ test("user expand choice survives an upstream column-shift mutation", async () =
   const expandBtn = fooGate.querySelector(".gate-control.gate-expand");
   assert.ok(expandBtn, "expected expand chevron on collapsed Foo");
   expandBtn.dispatchEvent(
-    new container.ownerDocument.defaultView.MouseEvent("click", {
-      bubbles: true,
-    }),
+    new /** @type {any} */ (container.ownerDocument.defaultView).MouseEvent(
+      "click",
+      {
+        bubbles: true,
+      },
+    ),
   );
   assert.equal(
     sqore.viewState.expanded.get("1,0"),
@@ -513,7 +519,7 @@ test("user expand choice survives an upstream column-shift mutation", async () =
 
   // Re-render via the same path the editor controllers use after
   // every Action.
-  sqore.renderCircuit(container);
+  /** @type {any} */ (sqore).renderCircuit(container);
 
   // The identity-based rebase moves the viewState entry from "1,0"
   // to "2,0" along with the op, so Foo stays expanded at its new
@@ -617,9 +623,12 @@ test("user expand choice survives an external circuit update via updateCircuit",
   const expandBtn = fooGate.querySelector(".gate-control.gate-expand");
   assert.ok(expandBtn, "expected to find expand chevron on collapsed Foo");
   expandBtn.dispatchEvent(
-    new container.ownerDocument.defaultView.MouseEvent("click", {
-      bubbles: true,
-    }),
+    new /** @type {any} */ (container.ownerDocument.defaultView).MouseEvent(
+      "click",
+      {
+        bubbles: true,
+      },
+    ),
   );
   assert.ok(
     collectNested().length > 0,
@@ -694,12 +703,12 @@ function renderAndCollectGeometry(group) {
     .map((el) => {
       const gateGroup = el.closest("[data-location]");
       return {
-        location: gateGroup?.getAttribute("data-location") ?? null,
+        location: gateGroup?.getAttribute("data-location") ?? "",
         x: Number(el.getAttribute("x") ?? "NaN"),
         width: Number(el.getAttribute("data-width") ?? "NaN"),
       };
     })
-    .filter((h) => h.location != null);
+    .filter((h) => h.location !== "");
 
   // Dropzones — every on-column rect (interColumn=false) carries a
   // `data-dropzone-location` whose value matches a host's location.
@@ -724,7 +733,7 @@ function renderAndCollectGeometry(group) {
  *   "0,0"     -> { prefix: "",     colIndex: 0, opIndex: 0 }
  *   "0,0-1,2" -> { prefix: "0,0",  colIndex: 1, opIndex: 2 }
  */
-function parseLocation(loc) {
+function parseLocation(/** @type {string} */ loc) {
   const lastDash = loc.lastIndexOf("-");
   const prefix = lastDash === -1 ? "" : loc.slice(0, lastDash);
   const tail = lastDash === -1 ? loc : loc.slice(lastDash + 1);
@@ -745,10 +754,14 @@ function parseLocation(loc) {
  * column has the same x/width as every other (they're all sized to
  * the column), so any one of them is a valid coverage witness.
  */
-function assertHostsCoveredByColumnDropzones(hosts, dropzones, label) {
+function assertHostsCoveredByColumnDropzones(
+  /** @type {{location: string, x: number, width: number}[]} */ hosts,
+  /** @type {{location: string, x: number, width: number, wire: number}[]} */ dropzones,
+  /** @type {string} */ label,
+) {
   for (const host of hosts) {
     const hostKey = parseLocation(host.location);
-    const sameCol = dropzones.filter((d) => {
+    const sameCol = dropzones.filter((/** @type {{location: string}} */ d) => {
       const dzKey = parseLocation(d.location);
       return (
         dzKey.prefix === hostKey.prefix && dzKey.colIndex === hostKey.colIndex

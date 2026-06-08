@@ -114,7 +114,7 @@ afterEach(() => {
   jsdom = null;
 });
 
-const makeElem = (attr) => {
+const makeElem = (/** @type {string | null} */ attr) => {
   const el = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   if (attr != null) el.setAttribute("data-wire-ys", attr);
   return el;
@@ -154,24 +154,36 @@ test("parseWireYs: non-array JSON returns []", () => {
 
 // Helper: wrap a list of children into the single-column shape
 // `Operation.children` expects.
-const group = (gate, targets, children) => ({
-  kind: "unitary",
-  gate,
-  targets,
-  children: [{ components: children }],
-});
-const u = (gate, targets, controls) => {
+const group = (
+  /** @type {string} */ gate,
+  /** @type {any[]} */ targets,
+  /** @type {any[]} */ children,
+) =>
+  /** @type {import("../../dist/ux/circuit-vis/index.js").Operation} */ ({
+    kind: "unitary",
+    gate,
+    targets,
+    children: [{ components: children }],
+  });
+const u = (
+  /** @type {string} */ gate,
+  /** @type {any[]} */ targets,
+  /** @type {any[] | undefined} */ controls = undefined,
+) => {
   /** @type {any} */
   const op = { kind: "unitary", gate, targets };
   if (controls != null) op.controls = controls;
-  return op;
+  return /** @type {import("../../dist/ux/circuit-vis/index.js").Operation} */ (
+    op
+  );
 };
-const m = (qubits, results) => ({
-  kind: "measurement",
-  gate: "Measure",
-  qubits,
-  results,
-});
+const m = (/** @type {any[]} */ qubits, /** @type {any[]} */ results) =>
+  /** @type {import("../../dist/ux/circuit-vis/index.js").Operation} */ ({
+    kind: "measurement",
+    gate: "Measure",
+    qubits,
+    results,
+  });
 
 test("getChildTargets: returns [] when op has no children", () => {
   // Leaf ops aren't groups; the action-layer cascade only calls
@@ -313,8 +325,8 @@ test("getChildTargets: returns fresh register objects, not aliases of child regi
 // circuitActions.test.mjs.
 
 // Helper: build a single-component-grid from a component list.
-const grid = (componentLists) =>
-  componentLists.map((components) => ({ components }));
+const grid = (/** @type {any[][]} */ componentLists) =>
+  componentLists.map((/** @type {any[]} */ components) => ({ components }));
 
 test("getOuterColumnSiblingWires: null / empty location returns empty set", () => {
   const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);

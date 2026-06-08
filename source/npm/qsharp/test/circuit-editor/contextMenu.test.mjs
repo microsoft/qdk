@@ -25,7 +25,6 @@ let jsdom = null;
 
 beforeEach(() => {
   jsdom = new JSDOM(`<!doctype html><html><body></body></html>`);
-  // @ts-expect-error - jsdom typings vs DOM lib mismatch
   globalThis.window = jsdom.window;
   globalThis.document = jsdom.window.document;
   globalThis.HTMLElement = jsdom.window.HTMLElement;
@@ -61,10 +60,10 @@ function makeStubEvents(model) {
     renderFn: () => {
       renderCalls.count++;
     },
-    _startAddingControl: (op) => {
+    _startAddingControl: (/** @type {any} */ op) => {
       startAddingCalls.push(op);
     },
-    _startRemovingControl: (op) => {
+    _startRemovingControl: (/** @type {any} */ op) => {
       startRemovingCalls.push(op);
     },
   };

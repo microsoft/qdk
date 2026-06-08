@@ -116,6 +116,7 @@ test("ViewState: applyTo writes overrides into a component grid", () => {
   v.setExpanded("0,0", true);
   v.setExpanded("1,0", false);
 
+  /** @type {any} */
   const grid = [
     {
       components: [
@@ -155,6 +156,7 @@ test("ViewState: applyTo leaves non-overridden ops untouched", () => {
   const v = new ViewState();
   // No overrides at all.
 
+  /** @type {any} */
   const grid = [
     {
       components: [
@@ -192,6 +194,7 @@ test("ViewState: applyTo recurses into children grids", () => {
   const v = new ViewState();
   v.setExpanded("0,0-1,0", true);
 
+  /** @type {any} */
   const grid = [
     {
       components: [
@@ -233,6 +236,7 @@ test("ViewState: applyTo skips ops without a location attribute", () => {
   const v = new ViewState();
   v.setExpanded("0,0", true);
 
+  /** @type {any} */
   const grid = [
     {
       components: [
