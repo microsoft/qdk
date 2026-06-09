@@ -47,6 +47,7 @@ pub struct CompileUnit {
     pub sources: SourceMap,
     pub errors: Vec<Error>,
     pub dropped_names: Vec<TrackedName>,
+    pub dropped_spans: Vec<Span>,
 }
 
 impl CompileUnit {
@@ -59,6 +60,7 @@ impl CompileUnit {
             sources: Default::default(),
             errors: Default::default(),
             dropped_names: Default::default(),
+            dropped_spans: Default::default(),
         }
     }
 
@@ -284,6 +286,7 @@ pub fn compile_ast(
 ) -> CompileUnit {
     let mut cond_compile = preprocess::Conditional::new(capabilities);
     cond_compile.visit_package(&mut ast_package);
+    let dropped_spans = cond_compile.take_dropped_spans();
     let dropped_names = cond_compile.into_names();
 
     let mut remove_spans = preprocess::RemoveCircuitSpans::new(&sources);
@@ -336,6 +339,7 @@ pub fn compile_ast(
         sources,
         errors,
         dropped_names,
+        dropped_spans,
     }
 }
 
