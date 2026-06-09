@@ -621,7 +621,7 @@ class _TypedQubitManager(cirq.GreedyQubitManager):
         """Allocates single qubit."""
         return TypedQubit(super()._allocate_qid(name, dim), self.qubit_type)
 
-    def qalloc(self, n: int, dim: int) -> list[cirq.Qid]:
+    def qalloc(self, n: int, dim: int = 2) -> list[cirq.Qid]:
         """Allocate ``n`` qubits and update the usage counters."""
         qs = super().qalloc(n, dim)
         self.current_in_use += len(qs)
@@ -666,7 +666,7 @@ class PeakUsageGreedyQubitManager(cirq.QubitManager):
         }
 
     def qalloc(
-        self, n: int, dim: int, qubit_type: QubitType = QubitType.COMPUTE
+        self, n: int, dim: int = 2, qubit_type: QubitType = QubitType.COMPUTE
     ) -> list[cirq.Qid]:
         """Allocate ``n`` qubits and update the usage counters.
 

@@ -39,12 +39,17 @@ function VSDiagsToMarkers(errors: VSDiagnostic[]): monaco.editor.IMarkerData[] {
       case "info":
         severity = monaco.MarkerSeverity.Info;
         break;
+      case "hint":
+        severity = monaco.MarkerSeverity.Hint;
+        break;
     }
 
     const marker: monaco.editor.IMarkerData = {
       ...lsRangeToMonacoRange(err.range),
       severity,
       message: err.message,
+      // LSP DiagnosticTag values match monaco's MarkerTag (1 = Unnecessary).
+      tags: err.tags as monaco.MarkerTag[] | undefined,
       relatedInformation: err.related?.map((r) => {
         const range = lsRangeToMonacoRange(r.location.span);
         return {
@@ -119,12 +124,16 @@ export function Editor(props: {
 
     const markers = VSDiagsToMarkers(errs);
     monaco.editor.setModelMarkers(model, "qsharp", markers);
-
-    const errList = markers.map((err) => ({
-      location: `${fileName}@(${err.startLineNumber},${err.startColumn})`,
-      severity: err.severity,
-      msg: err.message.split("\n\n"),
-    }));
+    
+    const errList = markers
+      // Hints (e.g. grayed-out excluded code) are shown inline only, not in the
+      // diagnostics list below the editor, mirroring VS Code's Problems view.
+      .filter((err) => err.severity !== monaco.MarkerSeverity.Hint)
+      .map((err) => ({
+        location: `${fileName}@(${err.startLineNumber},${err.startColumn})`,
+        severity: err.severity,
+        msg: err.message.split("\n\n"),
+      }));
     setErrors(errList);
   }
 
