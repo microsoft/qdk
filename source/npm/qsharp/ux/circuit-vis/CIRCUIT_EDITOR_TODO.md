@@ -2549,6 +2549,73 @@ the doc.
   about checking every column was based on a misreading of the
   layout model.
 
+**Follow-up correction (PR-prep review) — ✅ shipped (pending user-confirmation).**
+The B6 fix above blocked siblings using
+[`getQuantumWireRange`](utils.ts) on the premise that
+classical-ref entries "paint as thin indicators, not real wire
+occupants." A pre-PR walkthrough of the test for
+[`getOuterColumnSiblingWires`](utils.ts) revealed that's wrong
+about the GEOMETRY: a classically-controlled sibling `Z @ q3
+cref q0r0` doesn't just paint at q3 — its connector descends
+through every wire between q3's body and the q0r0 classical
+row (which sits BELOW q0, between q0 and q1). So the sibling
+visually covers q1, q2, q3; q0 is above the connector's
+endpoint and is NOT covered. The old quantum-only filter
+under-blocked (only {q3}); naively widening to all referenced
+qubits would over-block (would include q0).
+
+Fix: new [`getWireRange(op)`](utils.ts) helper returning
+`[Register, Register]` endpoints in the half-step ordering
+(classical row immediately below its owning qubit row). Scope
+deliberately kept tight — only
+[`getOuterColumnSiblingWires`](utils.ts) was switched over;
+the other call sites of `getQuantumWireRange` / `getMinMaxRegIdx`
+were left alone to be audited as a separate item (see
+"Wire-range helper consolidation — deferred" below). 7 new
+`getWireRange` tests in
+[utils.test.mjs](../../test/circuit-editor/utils.test.mjs); the
+2 existing classical-ref tests for
+`getOuterColumnSiblingWires` / `getAncestorColumnSiblingWires`
+were updated to assert the new geometric coverage. 419/419 in
+the circuit-editor suite (was 412 before this correction).
+
+### Wire-range helper consolidation — deferred
+
+`utils.ts` now has three close-but-not-identical helpers for
+"what wires does this op touch":
+
+- [`getMinMaxRegIdx`](utils.ts) — every register; treats
+  classical-ref `.qubit` as if it were a regular qubit row
+  (off-by-one in the over-blocking direction). Used by
+  cascade overlap in [circuitActions.ts](actions/circuitActions.ts)
+  via `_getMinMaxRegIdx`.
+- [`getQuantumWireRange`](utils.ts) — only registers with
+  `result === undefined`. Used by
+  [dragController.ts](editor/dragController.ts) (multi-target
+  drag legs, shift-extend reach) and
+  [draggable.ts](editor/draggable.ts) (dropzone occupancy,
+  child window for groups).
+- [`getWireRange`](utils.ts) — geometric endpoints as
+  `Register`s, half-step ordering (added in the B6 follow-up
+  above). Used only by
+  [`getOuterColumnSiblingWires`](utils.ts).
+
+Each helper answers a subtly different question; some have
+policy baked in (which connector wires "count" as occupancy),
+which is the part that's currently inconsistent across call
+sites. The fully consolidated end-state is a small set of
+geometry-only helpers (no policy), with each call site
+documenting its own policy at the use site. Estimated audit
+load: 5 sites that probably want `getWireRange` (one in
+[utils.ts](utils.ts) already done; the 5 in
+[circuitActions.ts](actions/circuitActions.ts) and
+[dragController.ts](editor/dragController.ts) line 815 are
+the likely targets) and 2 sites that are intentional policy
+carve-outs and should stay on `getQuantumWireRange`
+([draggable.ts](editor/draggable.ts) lines 557 and 640).
+**Not in this PR** — the cascade in `circuitActions.ts` is a
+hot path; each swap needs its own regression-test plan.
+
 ### B7. Qubit rearrangement doesn't update group contents correctly — ✅ shipped
 
 **Symptom.** Drag a qubit label to reorder wires. Ops whose

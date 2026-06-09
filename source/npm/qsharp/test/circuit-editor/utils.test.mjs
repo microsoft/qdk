@@ -1,10 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Tests for the pure-data helpers in `utils.ts`. Kept narrow: only
-// the helpers that don't need a DOM or `CircuitModel` to exercise.
-// Heavier paths (host-element lookup, wire-data extraction) go in
-// the controller-level suites where a JSDOM fixture exists.
+// Tests for the lower-level helpers in `utils.ts` — the ones that
+// can be exercised without a `CircuitModel` or a rendered SVG tree.
+// Most are pure data (`pickClosestWireIndex`, `getChildTargets`,
+// the column-sibling helpers); `parseWireYs` just reads an attribute
+// off an Element, so a minimal JSDOM is spun up for those few tests.
+// The heavier paths that walk the rendered SVG (host-element lookup,
+// wire-Y resolution from a real circuit DOM) live in the
+// controller-level suites where a full render fixture exists.
 
 // @ts-check
 
@@ -15,6 +19,7 @@ import {
   getChildTargets,
   getAncestorColumnSiblingWires,
   getOuterColumnSiblingWires,
+  getWireRange,
   parseWireYs,
   pickClosestWireIndex,
 } from "../../dist/ux/circuit-vis/utils.js";
@@ -34,12 +39,12 @@ test("pickClosestWireIndex: single-wire span ignores clickY", () => {
   assert.equal(
     pickClosestWireIndex(999, [100], [40, 100, 160]),
     1,
-    "wire-Y 100 is at index 1 in wireData",
+    "clickY far below wire 100 must still resolve to that wire",
   );
   assert.equal(
     pickClosestWireIndex(-999, [40], [40, 100, 160]),
     0,
-    "wire-Y 40 is at index 0 in wireData",
+    "clickY far above wire 40 must still resolve to that wire",
   );
 });
 
@@ -194,8 +199,7 @@ test("getChildTargets: returns [] when op has no children", () => {
 });
 
 test("getChildTargets: dedupes overlapping bare-qubit refs", () => {
-  // The classical case from the original doc comment: Foo
-  // contains H on wire 1 and RX on wires 1, 2. The union is
+  // Foo contains H on wire 1 and RX on wires 1, 2. The union is
   // {1, 2} — wire 1 must appear exactly once, not twice.
   const foo = group(
     "Foo",
@@ -313,6 +317,117 @@ test("getChildTargets: returns fresh register objects, not aliases of child regi
 });
 
 // ============================================================
+// getWireRange
+// ============================================================
+//
+// Vertical extent of an op as a pair of `Register` endpoints.
+// Either endpoint may be a qubit row (no `.result`) or a
+// classical-result row (`.result` set). Classical rows sit
+// IMMEDIATELY BELOW their owning qubit row \u2014 the stack on a
+// qubit `q_c` with results `r0..rN` reads, top to bottom:
+//   q_c, q_c.r0, q_c.r1, ..., q_c.rN, q_(c+1), ...
+
+test("getWireRange: single-qubit unitary returns the qubit row at both endpoints", () => {
+  const op = u("H", [{ qubit: 2 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 2 }, { qubit: 2 }]);
+});
+
+test("getWireRange: multi-qubit unitary spans min..max", () => {
+  // SWAP-like op on q3 and q5 \u2014 endpoints are the outer qubits.
+  const op = u("SWAP", [{ qubit: 3 }, { qubit: 5 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 3 }, { qubit: 5 }]);
+});
+
+test("getWireRange: classically-controlled gate with low classical ref \u2014 ref is the MIN endpoint", () => {
+  // Z @ q3 cref q0r0 \u2014 the classical row sits below q0, so it's
+  // the lowest visual position. The bare qubit q3 is the max.
+  const op = u("Z", [{ qubit: 3 }], [{ qubit: 0, result: 0 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 0, result: 0 }, { qubit: 3 }]);
+});
+
+test("getWireRange: classically-controlled gate with high classical ref \u2014 ref is the MAX endpoint", () => {
+  // Z @ q0 cref q3r0 \u2014 the classical row sits below q3, so it's
+  // the highest visual position.
+  const op = u("Z", [{ qubit: 0 }], [{ qubit: 3, result: 0 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 0 }, { qubit: 3, result: 0 }]);
+});
+
+test("getWireRange: classical refs on the SAME qubit \u2014 lowest-numbered result is the topmost", () => {
+  // Multiple classical refs to q0's result rows. r0 sits above
+  // r1 (lower-numbered results are drawn topmost). So between
+  // q0.r0 and q0.r1, q0.r1 is geometrically lower.
+  const op = u(
+    "Z",
+    [{ qubit: 5 }],
+    [
+      { qubit: 0, result: 0 },
+      { qubit: 0, result: 1 },
+    ],
+  );
+  // Max is q5 (a qubit row well below q0's classical rows). Min
+  // among the classical refs is r0 (it sits above r1).
+  assert.deepEqual(getWireRange(op), [{ qubit: 0, result: 0 }, { qubit: 5 }]);
+});
+
+test("getWireRange: bare qubit row sorts ABOVE its own classical-result rows", () => {
+  // Measurement on q0 producing r0: endpoints are the bare q0
+  // (top) and q0.r0 (immediately below it).
+  const op = m([{ qubit: 0 }], [{ qubit: 0, result: 0 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 0 }, { qubit: 0, result: 0 }]);
+});
+
+test("getWireRange: quantum control BELOW target \u2014 control is the MAX endpoint", () => {
+  // CX with target on q0 and control on q3 \u2014 the control wire
+  // is the geometric bottom, the target the top.
+  const op = u("X", [{ qubit: 0 }], [{ qubit: 3 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 0 }, { qubit: 3 }]);
+});
+
+test("getWireRange: quantum control ABOVE target \u2014 control is the MIN endpoint", () => {
+  // CX with target on q3 and control on q0 \u2014 the control wire
+  // is the geometric top, the target the bottom.
+  const op = u("X", [{ qubit: 3 }], [{ qubit: 0 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 0 }, { qubit: 3 }]);
+});
+
+test("getWireRange: multiple quantum controls bracketing the target", () => {
+  // CCX-like with target on q3 and controls on q0 and q5 \u2014
+  // endpoints are the outermost controls, not the target.
+  const op = u("X", [{ qubit: 3 }], [{ qubit: 0 }, { qubit: 5 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 0 }, { qubit: 5 }]);
+});
+
+test("getWireRange: mixed quantum + classical controls \u2014 each contributes its own row", () => {
+  // X @ q3 with a quantum control on q1 and a classical ref to
+  // q5r0. Geometric stack top-to-bottom: q1 (control), q3
+  // (target), q5 (a quantum wire we cross), q5.r0 (classical
+  // row, BELOW q5). So min = q1, max = q5.r0.
+  const op = u("X", [{ qubit: 3 }], [{ qubit: 1 }, { qubit: 5, result: 0 }]);
+  assert.deepEqual(getWireRange(op), [{ qubit: 1 }, { qubit: 5, result: 0 }]);
+});
+
+test("getWireRange: endpoints are fresh objects, not aliases of op's registers", () => {
+  // Same hazard as `getChildTargets`: callers shouldn't be able
+  // to mutate the op's own register state via the return value.
+  const opTargets = [{ qubit: 3 }];
+  const op = u("H", opTargets);
+  const range = getWireRange(op);
+  assert.ok(range);
+  assert.notEqual(
+    range[0],
+    opTargets[0],
+    "min endpoint must be a fresh object",
+  );
+  assert.notEqual(
+    range[1],
+    opTargets[0],
+    "max endpoint must be a fresh object",
+  );
+  range[0].qubit = 999;
+  assert.equal(opTargets[0].qubit, 3, "op's register must be untouched");
+});
+
+// ============================================================
 // getOuterColumnSiblingWires
 // ============================================================
 //
@@ -378,12 +493,13 @@ test("getOuterColumnSiblingWires: sibling spans expand into a wire RANGE", () =>
   );
 });
 
-test("getOuterColumnSiblingWires: excludes classical-ref entries on siblings", () => {
-  // A classically-controlled sibling at q3 with a classical ref to
-  // a measurement on q0 contributes ONLY wire 3 — the classical
-  // ref paints as a thin indicator on q0, not a real visual wire
-  // occupant, so it doesn't represent a "drop here would overlap"
-  // situation. Pure-quantum filtering matches `result === undefined`.
+test("getOuterColumnSiblingWires: a sibling's classical-ref endpoint extends its covered range", () => {
+  // Z @ q3 with a classical ref to q0r0 visually spans q1..q3 in
+  // its column — a box on q3, a connector descending through q1
+  // and q2, ending at the q0r0 classical row (which sits between
+  // q0 and q1). The connector does NOT cross q0. The helper
+  // reports geometric coverage; deciding whether a drop onto a
+  // classical-connector wire is acceptable is the caller's call.
   const componentGrid = grid([
     [
       u("Foo", [{ qubit: 1 }]),
@@ -391,10 +507,24 @@ test("getOuterColumnSiblingWires: excludes classical-ref entries on siblings", (
     ],
   ]);
   const blocked = getOuterColumnSiblingWires(componentGrid, "0,0");
-  // q0 is the classical-ref's wire — it must NOT be in the set
-  // (otherwise the shift-extend filter would over-block).
-  assert.equal(blocked.has(0), false, "classical-ref wire q0 must not block");
-  assert.equal(blocked.has(3), true, "sibling's quantum wire q3 must block");
+  // q0 is ABOVE the classical row's pass-through endpoint, so it
+  // is NOT in the set. q1..q3 are.
+  assert.equal(
+    blocked.has(0),
+    false,
+    "q0 sits above the classical-ref endpoint and is not covered",
+  );
+  assert.equal(
+    blocked.has(1),
+    true,
+    "q1 is crossed by the descending connector",
+  );
+  assert.equal(
+    blocked.has(2),
+    true,
+    "q2 is crossed by the descending connector",
+  );
+  assert.equal(blocked.has(3), true, "q3 is the gate body's row");
 });
 
 test("getOuterColumnSiblingWires: ops in OTHER columns of the parent array do NOT block", () => {
@@ -531,11 +661,12 @@ test("getAncestorColumnSiblingWires: unions sibling wires from EVERY level of th
   );
 });
 
-test("getAncestorColumnSiblingWires: classical-ref entries on ancestor-level siblings are still excluded", () => {
-  // Same exclusion the single-level helper applies — propagated
-  // through the chain walk because each level just delegates.
-  // Outer-level sibling Z @ q3 with a classical ref to q0
-  // contributes ONLY wire 3, not wire 0.
+test("getAncestorColumnSiblingWires: classical-ref endpoints on ancestor-level siblings extend coverage geometrically", () => {
+  // Outer-level sibling Z @ q3 with a classical ref to q0r0 spans
+  // q1..q3 (connector descends through q1, q2 to the q0r0
+  // classical row sitting between q0 and q1). q0 is above the
+  // endpoint and not covered. Same geometry rule as the
+  // single-level helper, propagated through the chain walk.
   const h = u("H", [{ qubit: 0 }]);
   const middle = {
     kind: "unitary",
@@ -556,13 +687,19 @@ test("getAncestorColumnSiblingWires: classical-ref entries on ancestor-level sib
   assert.equal(
     blocked.has(0),
     false,
-    "classical-ref wire q0 must not block at any ancestor level",
+    "q0 sits above the classical-ref endpoint and is not covered",
   );
   assert.equal(
-    blocked.has(3),
+    blocked.has(1),
     true,
-    "ancestor sibling's quantum wire q3 must block",
+    "q1 is crossed by the descending connector",
   );
+  assert.equal(
+    blocked.has(2),
+    true,
+    "q2 is crossed by the descending connector",
+  );
+  assert.equal(blocked.has(3), true, "q3 is the gate body's row");
 });
 
 test("getAncestorColumnSiblingWires: location resolving to no parent array returns empty set", () => {

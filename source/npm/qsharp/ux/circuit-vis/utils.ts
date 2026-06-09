@@ -359,6 +359,63 @@ const getOperationRegisters = (operation: Operation): Register[] => {
   return [...controls, ...targets];
 };
 
+/**
+ * Vertical extent of an op on the wire grid, expressed as a pair
+ * of `Register` endpoints. Either endpoint may land on a qubit
+ * row (no `.result`) or on a classical-result row (`.result` set).
+ *
+ * Geometry. Classical-result rows sit immediately BELOW their
+ * owning qubit row — the rendered stack on a qubit `q_c` with
+ * results `r0..rN` reads, top to bottom:
+ *
+ *     q_c,  q_c.r0,  q_c.r1, ...,  q_c.rN,  q_(c+1), ...
+ *
+ * Endpoints are compared by `.qubit` first, then by `.result`
+ * (with `undefined` sorting above any concrete result index, i.e.
+ * the bare qubit row sits above its own classical-result rows).
+ *
+ * The returned endpoints are FRESH register objects (not aliases
+ * of the op's own registers) so callers can keep them around
+ * without risking mutation of the source op.
+ *
+ * Returns `null` if the op carries no registers at all (defensive
+ * — no valid op should hit this).
+ *
+ * @param operation The operation to measure.
+ * @returns `[min, max]` register endpoints, or `null` if empty.
+ */
+const getWireRange = (operation: Operation): [Register, Register] | null => {
+  const regs = getOperationRegisters(operation);
+  if (regs.length === 0) return null;
+  // `result === undefined` sorts ABOVE any concrete result index
+  // on the same qubit (bare qubit row sits above its r0 row).
+  // Encode `undefined` as -1 for the comparison key.
+  const key = (r: Register) => r.result ?? -1;
+  let minReg = regs[0];
+  let maxReg = regs[0];
+  for (let i = 1; i < regs.length; i++) {
+    const r = regs[i];
+    if (
+      r.qubit < minReg.qubit ||
+      (r.qubit === minReg.qubit && key(r) < key(minReg))
+    ) {
+      minReg = r;
+    }
+    if (
+      r.qubit > maxReg.qubit ||
+      (r.qubit === maxReg.qubit && key(r) > key(maxReg))
+    ) {
+      maxReg = r;
+    }
+  }
+  // Copy so callers can't mutate the op's own registers.
+  const copy = (r: Register): Register =>
+    r.result === undefined
+      ? { qubit: r.qubit }
+      : { qubit: r.qubit, result: r.result };
+  return [copy(minReg), copy(maxReg)];
+};
+
 /**********************
  *  Finder Functions  *
  **********************/
@@ -482,10 +539,18 @@ const findOperation = (
 };
 
 /**
- * Set of quantum wires occupied by EXTERNAL SIBLINGS of the op at
+ * Set of qubit wires covered by EXTERNAL SIBLINGS of the op at
  * `location` in that op's outer column. "External sibling" =
  * another op sharing the same column in the op's containing array
  * (i.e., NOT a descendant inside the op's own children grid).
+ *
+ * "Covered" follows the visual extent reported by
+ * [`getWireRange`](#): the inclusive range of qubit rows the
+ * sibling's body and any classical-control connector paint into.
+ * Classical-result endpoints contribute the qubit row BELOW which
+ * they sit (e.g. a low endpoint at `q_c.r0` extends coverage
+ * starting at `q_(c+1)`; a high endpoint at `q_c.r0` extends
+ * coverage through `q_c`).
  *
  * Use this to answer "what wires would directly collide if I
  * widened this op's wire span?" — the building block for the
@@ -494,20 +559,13 @@ const findOperation = (
  * chain and accumulate every collision the cascade would need
  * to resolve.
  *
- * Classical-ref entries (`{qubit, result}`) are excluded via
- * [`getQuantumWireRange`](#) — they paint as a thin indicator on
- * a wire the op doesn't actually occupy, so they don't represent a
- * real visual overlap. Mirrors the pattern established by B5's
- * `result === undefined` filter at the four addControl/removeControl
- * sites.
- *
  * Returns an empty set when `location` is null, doesn't resolve,
  * or addresses a top-level op with no siblings (no overlap possible).
  *
  * @param componentGrid The grid the op lives in.
  * @param location The op's location string.
- * @returns The wires occupied by every external sibling in the op's
- *   outer column.
+ * @returns The qubit wires covered by every external sibling in
+ *   the op's outer column.
  */
 const getOuterColumnSiblingWires = (
   componentGrid: ComponentGrid,
@@ -525,11 +583,20 @@ const getOuterColumnSiblingWires = (
   const selfOp = findOperation(componentGrid, location);
   for (const sibling of column.components) {
     if (sibling === selfOp) continue;
-    const [sMin, sMax] = getQuantumWireRange(sibling);
-    // -1 sentinel = sibling has no quantum span (e.g., a hypothetical
-    // pure-classical op); skip it — it can't visually overlap a wire.
-    if (sMin < 0) continue;
-    for (let w = sMin; w <= sMax; w++) {
+    const range = getWireRange(sibling);
+    // Defensive: a register-less op (shouldn't exist) can't cover
+    // any wire.
+    if (range == null) continue;
+    const [minReg, maxReg] = range;
+    // Classical-result row sits between q_owner and q_(owner+1).
+    // A LOW endpoint on a classical row enters coverage at
+    // q_(owner+1); a HIGH endpoint on a classical row extends
+    // coverage through q_owner. A quantum endpoint covers its own
+    // row at either end.
+    const minQubit =
+      minReg.result === undefined ? minReg.qubit : minReg.qubit + 1;
+    const maxQubit = maxReg.qubit;
+    for (let w = minQubit; w <= maxQubit; w++) {
       blocked.add(w);
     }
   }
@@ -761,6 +828,7 @@ export {
   getMinMaxRegIdx,
   getOperationRegisters,
   getQuantumWireRange,
+  getWireRange,
   findGateElem,
   findParentOperation,
   findParentArray,
