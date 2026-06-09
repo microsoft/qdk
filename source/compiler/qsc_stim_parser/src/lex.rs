@@ -15,7 +15,6 @@ pub struct Token {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
 pub enum TokenKind {
     Newline,         // \n
-    Procedure,       // #! ...
     Uint,            // unsigned integers
     Double,          // floating-point numbers
     InstructionName, // H, X, CNOT, etc.
@@ -26,7 +25,6 @@ pub enum TokenKind {
     Close(Delim),    // ) }
     Star,            // *
     Bang,            // !
-    Minus,           // -
     Comma,           // ,
     Unknown,         // unknown token
 }
@@ -35,7 +33,6 @@ impl Display for TokenKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             TokenKind::Newline => f.write_str("newline"),
-            TokenKind::Procedure => f.write_str("procedure"),
             TokenKind::Uint => f.write_str("uint"),
             TokenKind::Double => f.write_str("double"),
             TokenKind::InstructionName => f.write_str("instruction_name"),
@@ -46,7 +43,6 @@ impl Display for TokenKind {
             TokenKind::Close(delim) => write!(f, "close({})", delim),
             TokenKind::Star => write!(f, "star"),
             TokenKind::Bang => write!(f, "bang"),
-            TokenKind::Minus => write!(f, "minus"),
             TokenKind::Comma => write!(f, "comma"),
             TokenKind::Unknown => write!(f, "unknown"),
         }
@@ -88,6 +84,10 @@ impl<'a> Lexer<'a> {
 
     fn eat_while(&mut self, mut f: impl Fn(char) -> bool) {
         while self.chars.next_if(|i| f(i.1)).is_some() {}
+    }
+
+    fn newline(&mut self) {
+        self.eat_while(|c| c == '\n');
     }
 
     fn whitespace(&mut self) {
@@ -143,14 +143,17 @@ impl Iterator for Lexer<'_> {
         let (offset, c) = self.chars.next()?;
         let lo: u32 = offset.try_into().expect("offset should fit into u32");
         let token_kind = match c {
-            '\n' => TokenKind::Newline,
+            '\n' => {
+                self.newline();
+                TokenKind::Newline
+            }
             ' ' | '\t' => {
                 self.whitespace();
                 return self.next();
             }
             '#' => {
                 if self.chars.next_if(|(_, c)| *c == '!').is_some() {
-                    TokenKind::Procedure
+                    TokenKind::InstructionName
                 } else {
                     self.comment();
                     return self.next();
@@ -162,7 +165,6 @@ impl Iterator for Lexer<'_> {
             '}' => TokenKind::Close(Brace),
             '*' => TokenKind::Star,
             '!' => TokenKind::Bang,
-            '-' => TokenKind::Minus,
             ',' => TokenKind::Comma,
             '0'..='9' => self.scan_number(),
             'A'..='Z' | 'a'..='z' => self.scan_identifier(lo as usize),
@@ -181,4 +183,4 @@ impl Iterator for Lexer<'_> {
     }
 }
 
-// TODO: PAULI CAN COME IMMEDIATELY BEFORE THE UINT (NO SPACE)
+//TODO: Deal with escaping
