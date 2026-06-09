@@ -276,7 +276,8 @@ async function loaded() {
     }
   }
   // Language of a shared link, defaulting to Q# so existing links keep working.
-  const linkedLanguage = params.get("lang") === "openqasm" ? "openqasm" : "qsharp";
+  const linkedLanguage =
+    params.get("lang") === "openqasm" ? "openqasm" : "qsharp";
 
   render(
     <App
