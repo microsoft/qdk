@@ -29,6 +29,9 @@ def test_get_action_on_state(ctx):
     s = 0.5**0.5
     _assert_states_close(vector, [s, 0, 0, -s])
 
+    vector = helper.get_action_on_state("MyOp1", num_qubits=2)
+    _assert_states_close(vector, [s, 0, 0, -s])
+
 
 def test_get_action_on_state_with_two_registers(ctx):
     ctx.eval("""
@@ -122,7 +125,7 @@ def test_get_action_on_state_with_parameterized_callable(ctx):
     """)
     helper = OperationTestHelper(ctx)
 
-    vector = helper.get_action_on_state(ctx.eval("MyOp5(_, 0.3)"), num_qubits=2)
+    vector = helper.get_action_on_state("MyOp5(_, 0.3)", num_qubits=2)
     c = math.cos(0.3 / 2)
     s = math.sin(0.3 / 2)
     _assert_states_close(vector, [c * c, -1j * c * s, -1j * c * s, -(s * s)])
