@@ -53,6 +53,7 @@ from ._interpreter import (
     set_quantum_seed,
 )
 from ._native import Result, TargetProfile
+from ._test_helper import OperationTestHelper
 from ._types import (
     BitFlipNoise,
     DepolarizingNoise,
