@@ -7,16 +7,15 @@ use std::{
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct Token {
-    pub(crate) kind: TokenKind,
-    pub(crate) span: Span,
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
 pub enum TokenKind {
     Newline,         // \n
-    Whitespace,      // spaces, tabs
-    Comment,         // # ...
+    Procedure,       // #! ...
     Uint,            // unsigned integers
     Double,          // floating-point numbers
     InstructionName, // H, X, CNOT, etc.
@@ -36,8 +35,7 @@ impl Display for TokenKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             TokenKind::Newline => f.write_str("newline"),
-            TokenKind::Whitespace => f.write_str("whitespace"),
-            TokenKind::Comment => f.write_str("comment"),
+            TokenKind::Procedure => f.write_str("procedure"),
             TokenKind::Uint => f.write_str("uint"),
             TokenKind::Double => f.write_str("double"),
             TokenKind::InstructionName => f.write_str("instruction_name"),
@@ -88,7 +86,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn eat_while(&mut self, mut f: impl FnMut(char) -> bool) {
+    fn eat_while(&mut self, mut f: impl Fn(char) -> bool) {
         while self.chars.next_if(|i| f(i.1)).is_some() {}
     }
 
@@ -148,11 +146,15 @@ impl Iterator for Lexer<'_> {
             '\n' => TokenKind::Newline,
             ' ' | '\t' => {
                 self.whitespace();
-                TokenKind::Whitespace
+                return self.next();
             }
             '#' => {
-                self.comment();
-                TokenKind::Comment
+                if self.chars.next_if(|(_, c)| *c == '!').is_some() {
+                    TokenKind::Procedure
+                } else {
+                    self.comment();
+                    return self.next();
+                }
             }
             '(' => TokenKind::Open(Paren),
             ')' => TokenKind::Close(Paren),
@@ -178,3 +180,5 @@ impl Iterator for Lexer<'_> {
         })
     }
 }
+
+// TODO: PAULI CAN COME IMMEDIATELY BEFORE THE UINT (NO SPACE)
