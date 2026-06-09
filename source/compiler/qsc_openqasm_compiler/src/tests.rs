@@ -76,25 +76,6 @@ pub(crate) fn generate_qir_from_ast(
     )
 }
 
-/// Generates RIR (raw and SSA forms) from an AST package.
-/// This function is used for testing purposes only, mirroring `generate_qir_from_ast`.
-pub(crate) fn generate_rir_from_ast(
-    ast_package: Package,
-    source_map: SourceMap,
-    profile: Profile,
-) -> Result<Vec<String>, Vec<Error>> {
-    let capabilities = profile.into();
-    let (stdid, mut store) = package_store_with_stdlib(capabilities);
-    let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
-    qsc::codegen::qir::get_rir_from_ast(
-        &mut store,
-        &dependencies,
-        ast_package,
-        source_map,
-        capabilities,
-    )
-}
-
 fn compile<S: Into<Arc<str>>>(source: S) -> miette::Result<QasmCompileUnit, Vec<Report>> {
     let config = CompilerConfig::new(
         QubitSemantics::Qiskit,
@@ -214,19 +195,6 @@ fn compile_qasm_to_qir(source: &str) -> Result<String, Vec<Report>> {
             .collect::<Vec<_>>()
     })?;
     Ok(qir)
-}
-
-fn compile_qasm_to_rir(source: &str) -> Result<Vec<String>, Vec<Report>> {
-    let unit = compile(source)?;
-    fail_on_compilation_errors(&unit);
-    let package = unit.package;
-    let rir = generate_rir_from_ast(package, unit.source_map, unit.profile).map_err(|errors| {
-        errors
-            .iter()
-            .map(|e| Report::new(e.clone()))
-            .collect::<Vec<_>>()
-    })?;
-    Ok(rir)
 }
 
 /// used to do full compilation with best effort of the input.
@@ -376,23 +344,6 @@ pub fn check_qasm_to_qir(source: &str, expect: &Expect) {
     match compile_qasm_to_qir(source) {
         Ok(qsharp) => {
             expect.assert_eq(&qsharp);
-        }
-        Err(errors) => {
-            let buffer = errors
-                .iter()
-                .map(|e| format!("{e:?}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            expect.assert_eq(&buffer);
-        }
-    }
-}
-
-pub fn check_qasm_to_rir(source: &str, expect: &Expect) {
-    match compile_qasm_to_rir(source) {
-        // get_rir returns the raw and SSA-transformed RIR; check the final (SSA) form.
-        Ok(rir) => {
-            expect.assert_eq(&rir[1]);
         }
         Err(errors) => {
             let buffer = errors

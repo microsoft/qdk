@@ -83,7 +83,11 @@ function createCompiler(onStateChange: (val: CompilerState) => void) {
   return compiler;
 }
 
-function App(props: { katas: Kata[]; linkedCode?: string }) {
+function App(props: {
+  katas: Kata[];
+  linkedCode?: string;
+  linkedLanguage?: "qsharp" | "openqasm";
+}) {
   const [compilerState, setCompilerState] = useState<CompilerState>("idle");
   const [compiler, setCompiler] = useState(() =>
     createCompiler(setCompilerState),
@@ -140,9 +144,14 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
   // OpenQASM samples are namespaced with their own nav prefix because some
   // sample titles (e.g. "Random Number Generator") exist in both languages.
   const isOpenQasmSample = currentNavItem.startsWith("openqasm-sample-");
-  const currentLanguage: "qsharp" | "openqasm" = isOpenQasmSample
-    ? "openqasm"
-    : "qsharp";
+  // For shared links the language comes from the URL (defaulting to Q#); for
+  // samples it's derived from which sample set the nav item belongs to.
+  const currentLanguage: "qsharp" | "openqasm" =
+    currentNavItem === "linked"
+      ? (props.linkedLanguage ?? "qsharp")
+      : isOpenQasmSample
+        ? "openqasm"
+        : "qsharp";
 
   const selectedSample = isOpenQasmSample
     ? openqasm_samples.find(
@@ -164,6 +173,7 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
     if (newURL.searchParams.get("code")) {
       newURL.searchParams.delete("code");
       newURL.searchParams.delete("profile");
+      newURL.searchParams.delete("lang");
       window.history.pushState({}, "", newURL.toString());
       props.linkedCode = undefined;
     }
@@ -255,7 +265,8 @@ async function loaded() {
   // If URL is a sharing link, populate the editor with the code from the link.
   // Otherwise, populate with sample code.
   let linkedCode: string | undefined;
-  const paramCode = new URLSearchParams(window.location.search).get("code");
+  const params = new URLSearchParams(window.location.search);
+  const paramCode = params.get("code");
   if (paramCode) {
     try {
       const base64code = decodeURIComponent(paramCode);
@@ -264,8 +275,17 @@ async function loaded() {
       linkedCode = "// Unable to decode the code in the URL\n";
     }
   }
+  // Language of a shared link, defaulting to Q# so existing links keep working.
+  const linkedLanguage = params.get("lang") === "openqasm" ? "openqasm" : "qsharp";
 
-  render(<App katas={katas} linkedCode={linkedCode}></App>, document.body);
+  render(
+    <App
+      katas={katas}
+      linkedCode={linkedCode}
+      linkedLanguage={linkedLanguage}
+    ></App>,
+    document.body,
+  );
 }
 
 // Languages that share the language-service-backed providers below. OpenQASM

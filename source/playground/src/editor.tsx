@@ -370,6 +370,13 @@ export function Editor(props: {
       // Update or add the current URL parameter 'code'
       const newURL = new URL(window.location.href);
       newURL.searchParams.set("code", escapedCode);
+      // Encode the language so shared OpenQASM links reopen in OpenQASM mode.
+      // Q# is the default, so it's left out to keep existing links working.
+      if (language === "openqasm") {
+        newURL.searchParams.set("lang", language);
+      } else {
+        newURL.searchParams.delete("lang");
+      }
 
       // Copy link to clipboard and update url without reloading the page
       navigator.clipboard.writeText(newURL.toString());

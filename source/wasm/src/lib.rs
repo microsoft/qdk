@@ -8,7 +8,9 @@ use katas::check_solution;
 use language_service::IOperationInfo;
 use num_bigint::BigUint;
 use num_complex::Complex64;
-use project_system::{ProgramConfig, into_openqasm_arg, into_qsc_args, is_openqasm_program};
+use project_system::{
+    ProgramConfig, into_openqasm_arg, into_qsc_args, into_qsharp_ast_args, is_openqasm_program,
+};
 use qsc::{
     LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents, SourceMap, SourceName,
     SparseSim, TargetCapabilityFlags,
@@ -256,23 +258,32 @@ pub fn get_library_source_content(name: &str) -> Option<String> {
 pub fn get_ast(program: ProgramConfig) -> Result<String, String> {
     if is_openqasm_program(&program) {
         let (sources, _capabilities) = into_openqasm_arg(program);
-        let (store, package_id) = compile_openqasm_to_store(&sources)?;
+        // OpenQASM has two ASTs: the original OpenQASM AST and the Q# AST it lowers
+        // to. Show both so the original is available for debugging. Compiler errors
+        // are ignored here so the (partial) AST still renders, matching the Q# path.
+        let qasm_ast = qsc::openqasm::semantic::parse_sources(&sources).program;
+        let (store, package_id) = compile_openqasm_to_store(&sources);
         let unit = store
             .get(package_id)
             .expect("compiled OpenQASM package should be in the store");
-        Ok(format!("{}", unit.ast.package))
+        Ok(format!(
+            "OpenQASM AST:\n{qasm_ast}\nQ# AST:\n{}",
+            unit.ast.package
+        ))
     } else {
-        let (source_map, _capabilities, language_features, store, deps) =
-            into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
-        let (unit, _) = compile::compile(
-            &store,
-            &deps[..],
-            source_map,
-            PackageType::Exe,
-            Profile::Unrestricted.into(),
-            language_features,
-        );
-        Ok(format!("{}", unit.ast.package))
+        let (source_map, language_features) = into_qsharp_ast_args(program);
+        let package = STORE_CORE_STD.with(|(store, std)| {
+            let (unit, _) = compile::compile(
+                store,
+                &[(*std, None)],
+                source_map,
+                PackageType::Exe,
+                Profile::Unrestricted.into(),
+                language_features,
+            );
+            unit.ast.package
+        });
+        Ok(format!("{package}"))
     }
 }
 
@@ -280,23 +291,26 @@ pub fn get_ast(program: ProgramConfig) -> Result<String, String> {
 pub fn get_hir(program: ProgramConfig) -> Result<String, String> {
     if is_openqasm_program(&program) {
         let (sources, _capabilities) = into_openqasm_arg(program);
-        let (store, package_id) = compile_openqasm_to_store(&sources)?;
+        // Compiler errors are ignored so the (partial) HIR still renders, matching the Q# path.
+        let (store, package_id) = compile_openqasm_to_store(&sources);
         let unit = store
             .get(package_id)
             .expect("compiled OpenQASM package should be in the store");
         Ok(unit.package.to_string())
     } else {
-        let (source_map, _capabilities, language_features, store, deps) =
-            into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
-        let (unit, _) = compile::compile(
-            &store,
-            &deps[..],
-            source_map,
-            PackageType::Exe,
-            Profile::Unrestricted.into(),
-            language_features,
-        );
-        Ok(unit.package.to_string())
+        let (source_map, language_features) = into_qsharp_ast_args(program);
+        let package = STORE_CORE_STD.with(|(store, std)| {
+            let (unit, _) = compile::compile(
+                store,
+                &[(*std, None)],
+                source_map,
+                PackageType::Exe,
+                Profile::Unrestricted.into(),
+                language_features,
+            );
+            unit.package
+        });
+        Ok(package.to_string())
     }
 }
 
@@ -322,30 +336,22 @@ pub fn get_rir(program: ProgramConfig) -> Result<Vec<String>, String> {
 
 /// Compiles raw `OpenQASM` sources into a Q# package store, returning the store and the id of the
 /// compiled package. Used by the AST and HIR views, which read the compiled package directly.
-fn compile_openqasm_to_store(
-    sources: &[(Arc<str>, Arc<str>)],
-) -> Result<(PackageStore, PackageId), String> {
+/// Compiler errors are ignored: the package is always returned best-effort so the views can render
+/// a (partial) AST/HIR even for invalid programs, matching the Q# behavior.
+fn compile_openqasm_to_store(sources: &[(Arc<str>, Arc<str>)]) -> (PackageStore, PackageId) {
     let (file, source) = sources
         .iter()
         .next()
         .expect("there should be at least one source");
     let mut resolver = sources.iter().cloned().collect::<InMemorySourceResolver>();
-    let CompileRawQasmResult(store, source_package_id, _dependencies, _sig, errors) =
+    let CompileRawQasmResult(store, source_package_id, ..) =
         qsc::openqasm::parse_and_compile_raw_qasm(
             source.clone(),
             file.clone(),
             Some(&mut resolver),
             PackageType::Exe,
         );
-    if !errors.is_empty() {
-        return Err(interpret_errors_into_qsharp_errors_json(
-            errors
-                .iter()
-                .map(|e| qsc::interpret::Error::Compile(e.clone()))
-                .collect(),
-        ));
-    }
-    Ok((store, source_package_id))
+    (store, source_package_id)
 }
 
 pub(crate) fn get_rir_from_openqasm(
