@@ -168,6 +168,20 @@ def _visual_circuit_wrapper_source(
     )
 
 
+def _mark_visual_circuit_operations_internal(
+    source: str, operation_name: str, circuit_count: int
+) -> str:
+    for index in range(circuit_count):
+        callable_name = (
+            operation_name if circuit_count == 1 else f"{operation_name}{index}"
+        )
+        source = source.replace(
+            f"operation {callable_name}(",
+            f"internal operation {callable_name}_Operation(",
+        )
+    return source
+
+
 def make_class_rec(qsharp_type: TypeIR) -> type:
     class_name = qsharp_type.unwrap_udt().name
     fields = {}
@@ -607,12 +621,14 @@ class Context:
         eval_source = generated_source
         callable_name = circuit_operation_name
         if program_type == ProgramType.File:
-            wrapper_name = f"{circuit_operation_name}_Entry"
+            circuit_helper_name = f"{circuit_operation_name}_Operation"
+            generated_source = _mark_visual_circuit_operations_internal(
+                generated_source, operation_name, circuit_count
+            )
             wrapper_source = _visual_circuit_wrapper_source(
-                circuit_operation_name, wrapper_name, qubit_count, return_type
+                circuit_helper_name, circuit_operation_name, qubit_count, return_type
             )
             eval_source = f"{generated_source}\n{wrapper_source}"
-            callable_name = wrapper_name
 
         # generated_source is produced by the native visual-circuit compiler;
         # wrapper_source, when present, is assembled from sanitized operation

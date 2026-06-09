@@ -87,6 +87,9 @@ def test_import_circuit(qsharp) -> None:
 
     ctx = qdk.Context()
     circuit = ctx.import_circuit("/standalone/circuit.qsc")
+    assert circuit is ctx.code.circuit
+    assert not hasattr(ctx.code, "circuit_Entry")
+    assert not hasattr(ctx.code, "circuit_Operation")
     assert ctx.run(circuit, 1) == [qsharp.Result.Zero]
     assert ctx.circuit(circuit) is not None
 
@@ -110,7 +113,7 @@ def test_import_circuit_as_operation(qsharp) -> None:
     circuit = ctx.import_circuit(
         "/standalone/circuit.qsc", program_type=ProgramType.Operation
     )
-    assert circuit is not None
+    assert circuit is ctx.code.circuit
     assert ctx.run("{ use qs = Qubit[1]; circuit(qs) }", 1) == [qsharp.Result.Zero]
 
 
@@ -119,6 +122,9 @@ def test_import_circuit_with_name_override(qsharp) -> None:
 
     ctx = qdk.Context()
     circuit = ctx.import_circuit("/standalone/circuit.qsc", name="NamedCircuit")
+    assert circuit is ctx.code.NamedCircuit
+    assert not hasattr(ctx.code, "NamedCircuit_Entry")
+    assert not hasattr(ctx.code, "NamedCircuit_Operation")
     assert ctx.run(circuit, 1) == [qsharp.Result.Zero]
     assert ctx.circuit(circuit) is not None
 
