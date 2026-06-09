@@ -240,7 +240,6 @@ class Context:
     code: Any
     _disposed: bool
     _is_global_context: bool
-    _loaded_circuit_count: int
 
     def __init__(
         self,
@@ -276,7 +275,6 @@ class Context:
         self._disposed = False
         self._is_global_context = _is_global_context
         self._target_profile = target_profile
-        self._loaded_circuit_count = 0
 
         if _is_global_context:
             self.code = code
@@ -559,6 +557,7 @@ class Context:
         path: str,
         *,
         index: int = 0,
+        name: Optional[str] = None,
         program_type: ProgramType = ProgramType.File,
     ) -> Callable:
         """
@@ -567,6 +566,8 @@ class Context:
         :param path: Path to a ``.qsc`` visual circuit file.
         :keyword index: Index of the circuit to return when the file contains
             multiple circuits. Defaults to ``0``.
+        :keyword name: Optional Q# operation name to use for the imported
+            circuit. Defaults to the file name stem.
         :keyword program_type: Controls how the circuit is imported:
             ``ProgramType.File`` (default) imports a zero-argument wrapper that
             allocates the circuit qubits, applies the visual circuit, resets the
@@ -595,11 +596,10 @@ class Context:
         qubit_count, return_type, circuit_count = _visual_circuit_signature(
             circuit_json, index
         )
-        unique_name = f"{_path_stem(resolved_path)}_{self._loaded_circuit_count}"
-        self._loaded_circuit_count += 1
+        operation_base_name = name if name is not None else _path_stem(resolved_path)
 
         operation_name, generated_source = compile_visual_circuit_to_qsharp(
-            unique_name, circuit_json
+            operation_base_name, circuit_json
         )
         circuit_operation_name = (
             operation_name if circuit_count == 1 else f"{operation_name}{index}"

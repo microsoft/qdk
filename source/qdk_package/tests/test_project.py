@@ -104,14 +104,23 @@ def test_import_circuit_from_multiple_circuit_file(qsharp) -> None:
 
 def test_import_circuit_as_operation(qsharp) -> None:
     import qdk
-    from qdk._native import ProgramType
+    from qdk import ProgramType
 
     ctx = qdk.Context()
     circuit = ctx.import_circuit(
         "/standalone/circuit.qsc", program_type=ProgramType.Operation
     )
     assert circuit is not None
-    assert ctx.run("{ use qs = Qubit[1]; circuit_0(qs) }", 1) == [qsharp.Result.Zero]
+    assert ctx.run("{ use qs = Qubit[1]; circuit(qs) }", 1) == [qsharp.Result.Zero]
+
+
+def test_import_circuit_with_name_override(qsharp) -> None:
+    import qdk
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit("/standalone/circuit.qsc", name="NamedCircuit")
+    assert ctx.run(circuit, 1) == [qsharp.Result.Zero]
+    assert ctx.circuit(circuit) is not None
 
 
 def test_src_package_udt(qsharp) -> None:
