@@ -254,7 +254,10 @@ impl<'a> Parser<'a> {
             targets.push(self.parse_target());
         }
 
-        let hi = targets[targets.len() - 1].span.hi;
+        let hi = targets
+            .last()
+            .map(|t| t.span.hi)
+            .unwrap_or(name_token.span.hi);
 
         Instruction {
             span: Span { lo, hi },
