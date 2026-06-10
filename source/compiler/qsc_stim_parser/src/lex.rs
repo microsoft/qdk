@@ -97,11 +97,26 @@ impl<'a> Lexer<'a> {
 
     fn scan_number(&mut self) -> TokenKind {
         self.eat_while(|c| c.is_ascii_digit());
+        let mut is_double = false;
         if self.chars.next_if(|(_, c)| *c == '.').is_some() {
             self.eat_while(|c| c.is_ascii_digit());
-            return TokenKind::Double;
+            is_double = true;
         }
-        TokenKind::Uint
+        if self
+            .chars
+            .next_if(|(_, c)| *c == 'e' || *c == 'E')
+            .is_some()
+        {
+            // scientific notation
+            self.chars.next_if(|(_, c)| *c == '+' || *c == '-');
+            self.eat_while(|c| c.is_ascii_digit());
+            is_double = true;
+        }
+        if is_double {
+            TokenKind::Double
+        } else {
+            TokenKind::Uint
+        }
     }
 
     fn scan_identifier(&mut self, lo: usize) -> TokenKind {
