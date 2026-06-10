@@ -4,33 +4,34 @@ use crate::lex::Lexer;
 use crate::lex::Token;
 use crate::lex::TokenKind;
 use qsc_data_structures::span::Span;
-use std::{
-    fmt::{self, Display, Formatter},
-    iter::Peekable,
-    str::FromStr,
-};
+use std::{iter::Peekable, str::FromStr};
 
+#[derive(Debug)]
 pub struct Circuit {
     pub span: Span,
     pub items: Vec<Item>,
 }
 
+#[derive(Debug)]
 pub enum Item {
     Line(Line),
     Block(Block),
 }
 
+#[derive(Debug)]
 pub struct Line {
     pub span: Span,
     pub instruction: Instruction,
 }
 
+#[derive(Debug)]
 pub struct Block {
     pub span: Span,
     pub block_instruction: Instruction, // currently, only the "REPEAT" instruction is supported
     pub items: Vec<Item>,
 }
 
+#[derive(Debug)]
 pub struct Instruction {
     pub span: Span,
     pub name: String,
@@ -39,11 +40,13 @@ pub struct Instruction {
     pub targets: Vec<Target>,
 }
 
+#[derive(Debug)]
 pub struct Target {
     pub span: Span,
     pub kind: TargetKind,
 }
 
+#[derive(Debug)]
 pub enum TargetKind {
     Qubit {
         negated: bool,
@@ -63,6 +66,7 @@ pub enum TargetKind {
     Combiner,
 }
 
+#[derive(Debug)]
 pub enum Pauli {
     X,
     Y,
@@ -103,6 +107,14 @@ impl<'a> Parser<'a> {
         let token = self.tokens.next().expect("expected token");
         if token.kind != kind {
             panic!("expected token of kind {:?}", kind);
+        }
+        token
+    }
+
+    fn expect_number(&mut self) -> Token {
+        let token = self.tokens.next().expect("expected number");
+        if token.kind != TokenKind::Uint && token.kind != TokenKind::Double {
+            panic!("expected number, got {:?}", token.kind);
         }
         token
     }
@@ -219,7 +231,7 @@ impl<'a> Parser<'a> {
                 .peek()
                 .is_some_and(|t| t.kind != TokenKind::Close(Paren))
             {
-                let arg = self.expect(TokenKind::Double);
+                let arg = self.expect_number();
                 args.push(self.extract_double(arg, None));
             }
             // Each subsequent arg must be preceded by a comma
@@ -229,7 +241,7 @@ impl<'a> Parser<'a> {
                 .is_some_and(|t| t.kind != TokenKind::Close(Paren))
             {
                 self.expect(TokenKind::Comma);
-                let arg = self.expect(TokenKind::Double);
+                let arg = self.expect_number();
                 args.push(self.extract_double(arg, None));
             }
             self.expect(TokenKind::Close(Paren));

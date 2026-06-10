@@ -104,14 +104,7 @@ impl<'a> Lexer<'a> {
             self.eat_while(|c| c.is_ascii_digit());
             return TokenKind::Double;
         }
-        return TokenKind::Uint;
-    }
-
-    fn scan_bracketed(&mut self) {
-        if self.chars.next_if(|(_, c)| *c == '[').is_some() {
-            self.eat_while(|c| c != ']');
-            self.chars.next_if(|(_, c)| *c == ']');
-        }
+        TokenKind::Uint
     }
 
     fn scan_identifier(&mut self, lo: usize) -> TokenKind {
@@ -123,11 +116,13 @@ impl<'a> Lexer<'a> {
         // TODO: What if some identifier starts with "rec" but is not a rec token?
         match &self.input[lo..hi] {
             "rec" => {
-                self.scan_bracketed();
+                self.eat_while(|c| c != ']');
+                self.chars.next_if(|(_, c)| *c == ']');
                 TokenKind::Rec
             }
             "sweep" => {
-                self.scan_bracketed();
+                self.eat_while(|c| c != ']');
+                self.chars.next_if(|(_, c)| *c == ']');
                 TokenKind::Sweep
             }
             _ => TokenKind::InstructionName,
@@ -169,7 +164,8 @@ impl Iterator for Lexer<'_> {
             '0'..='9' => self.scan_number(),
             'A'..='Z' | 'a'..='z' => self.scan_identifier(lo as usize),
             '[' => {
-                self.scan_bracketed();
+                self.eat_while(|c| c != ']');
+                self.chars.next_if(|(_, c)| *c == ']');
                 TokenKind::Tag
             }
             _ => TokenKind::Unknown,

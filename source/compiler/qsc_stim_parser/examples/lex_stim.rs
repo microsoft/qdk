@@ -1,4 +1,4 @@
-use qsc_my_parser::lex::Lexer;
+use qsc_stim_parser::lex::Lexer;
 
 fn main() {
     let stim_code = "\
@@ -18,7 +18,7 @@ OBSERVABLE_INCLUDE(0) rec[-1]
     for token in lexer {
         let text = &stim_code[token.span.lo as usize..token.span.hi as usize];
         let text_display = match token.kind {
-            qsc_my_parser::lex::TokenKind::Newline => "\\n".to_string(),
+            qsc_stim_parser::lex::TokenKind::Newline => "\\n".to_string(),
             _ => format!("{:?}", text),
         };
         println!(
