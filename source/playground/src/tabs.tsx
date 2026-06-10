@@ -57,6 +57,7 @@ export function OutputTabs(props: {
   showPanel: boolean;
   onShotError?: (err?: VSDiagnostic) => void;
   kataMode?: boolean;
+  languageId?: "qsharp" | "openqasm";
   ast: string;
   hir: string;
   rir: string[];
@@ -68,14 +69,21 @@ export function OutputTabs(props: {
     <div class="results-column">
       {props.showPanel ? (
         <div class="results-labels">
-          {tabArray.map((elem) => (
-            <div
-              onClick={() => props.setActiveTab(elem[0])}
-              class={props.activeTab === elem[0] ? "active-tab" : ""}
-            >
-              {elem[1]}
-            </div>
-          ))}
+          {tabArray
+            .filter(
+              ([tab]) =>
+                props.languageId !== "openqasm" ||
+                tab === "results-tab" ||
+                tab === "qir-tab",
+            )
+            .map((elem) => (
+              <div
+                onClick={() => props.setActiveTab(elem[0])}
+                class={props.activeTab === elem[0] ? "active-tab" : ""}
+              >
+                {elem[1]}
+              </div>
+            ))}
         </div>
       ) : null}
       <ResultsTab {...props} />

@@ -3,6 +3,8 @@
 
 import { IPosition, IRange, IWorkspaceEdit } from "qsharp-lang";
 
+type WorkspaceChange = [string, { range: IRange; newText: string }[]];
+
 // Utility functions to convert source code to and from base64.
 //
 // The btoa function expects a string of bytes (i.e. in the range x00 - xFF), however
@@ -112,17 +114,19 @@ export function monacoRangetoLsRange(range: monaco.Range): IRange {
 export function lsToMonacoWorkspaceEdit(
   iWorkspaceEdit: IWorkspaceEdit,
 ): monaco.languages.WorkspaceEdit {
-  const edits = iWorkspaceEdit.changes.flatMap(([uri, edits]) => {
-    return edits.map((edit) => {
-      const textEdit: monaco.languages.TextEdit = {
-        range: lsRangeToMonacoRange(edit.range),
-        text: edit.newText,
-      };
-      return {
-        resource: monaco.Uri.parse(uri),
-        textEdit: textEdit,
-      } as monaco.languages.IWorkspaceTextEdit;
-    });
-  });
+  const edits = (iWorkspaceEdit.changes as WorkspaceChange[]).flatMap(
+    ([uri, edits]) => {
+      return edits.map((edit) => {
+        const textEdit: monaco.languages.TextEdit = {
+          range: lsRangeToMonacoRange(edit.range),
+          text: edit.newText,
+        };
+        return {
+          resource: monaco.Uri.parse(uri),
+          textEdit: textEdit,
+        } as monaco.languages.IWorkspaceTextEdit;
+      });
+    },
+  );
   return { edits: edits } as monaco.languages.WorkspaceEdit;
 }

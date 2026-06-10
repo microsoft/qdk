@@ -6,6 +6,7 @@ export function Nav(props: {
   navSelected: (name: string) => void;
   katas: string[];
   samples: string[];
+  openQasmSamples: string[];
   namespaces: string[];
 }) {
   function onSelected(name: string) {
@@ -23,6 +24,19 @@ export function Nav(props: {
             (props.selected === "sample-" + name ? " nav-current" : "")
           }
           onClick={() => onSelected("sample-" + name)}
+        >
+          {name}
+        </div>
+      ))}
+
+      <div class="nav-1">OpenQASM Samples</div>
+      {props.openQasmSamples.map((name) => (
+        <div
+          class={
+            "nav-2 nav-selectable" +
+            (props.selected === "openqasm-sample-" + name ? " nav-current" : "")
+          }
+          onClick={() => onSelected("openqasm-sample-" + name)}
         >
           {name}
         </div>

@@ -20,6 +20,15 @@ import { codeToCompressedBase64, lsRangeToMonacoRange } from "./utils.js";
 import { ActiveTab } from "./main.js";
 
 import type { KataSection } from "qsharp-lang/katas";
+import type { ProjectType } from "qsharp-lang";
+
+type DiagnosticRelatedInformation = {
+  location: {
+    source: string;
+    span: Parameters<typeof lsRangeToMonacoRange>[0];
+  };
+  message: string;
+};
 
 type ErrCollection = {
   checkDiags: VSDiagnostic[];
@@ -50,14 +59,16 @@ function VSDiagsToMarkers(errors: VSDiagnostic[]): monaco.editor.IMarkerData[] {
       message: err.message,
       // LSP DiagnosticTag values match monaco's MarkerTag (1 = Unnecessary).
       tags: err.tags as monaco.MarkerTag[] | undefined,
-      relatedInformation: err.related?.map((r) => {
-        const range = lsRangeToMonacoRange(r.location.span);
-        return {
-          resource: monaco.Uri.parse(r.location.source),
-          message: r.message,
-          ...range,
-        };
-      }),
+      relatedInformation: err.related?.map(
+        (r: DiagnosticRelatedInformation) => {
+          const range = lsRangeToMonacoRange(r.location.span);
+          return {
+            resource: monaco.Uri.parse(r.location.source),
+            message: r.message,
+            ...range,
+          };
+        },
+      ),
     };
 
     if (err.uri && err.code) {
@@ -75,6 +86,7 @@ function VSDiagsToMarkers(errors: VSDiagnostic[]): monaco.editor.IMarkerData[] {
 
 export function Editor(props: {
   code: string;
+  languageId?: "qsharp" | "openqasm";
   compiler: ICompilerWorker;
   compiler_worker_factory: () => ICompilerWorker;
   compilerState: CompilerState;
@@ -106,6 +118,10 @@ export function Editor(props: {
     { location: string; severity: monaco.MarkerSeverity; msg: string[] }[]
   >([]);
   const [hasCheckErrors, setHasCheckErrors] = useState(false);
+  const languageId = props.languageId ?? "qsharp";
+  const sourceName = languageId === "openqasm" ? "main.qasm" : "main.qs";
+  const projectType: ProjectType = languageId;
+  const canShowQSharpIr = languageId === "qsharp";
 
   function markErrors() {
     const model = editor.current?.getModel();
@@ -117,14 +133,14 @@ export function Editor(props: {
     ];
 
     const markers = VSDiagsToMarkers(errs);
-    monaco.editor.setModelMarkers(model, "qsharp", markers);
+    monaco.editor.setModelMarkers(model, languageId, markers);
 
     const errList = markers
       // Hints (e.g. grayed-out excluded code) are shown inline only, not in the
       // diagnostics list below the editor, mirroring VS Code's Problems view.
       .filter((err) => err.severity !== monaco.MarkerSeverity.Hint)
       .map((err) => ({
-        location: `main.qs@(${err.startLineNumber},${err.startColumn})`,
+        location: `${sourceName}@(${err.startLineNumber},${err.startColumn})`,
         severity: err.severity,
         msg: err.message.split("\n\n"),
       }));
@@ -136,21 +152,26 @@ export function Editor(props: {
     if (code == null) return;
 
     const config = {
-      sources: [["code", code]] as [string, string][],
+      sources: [[sourceName, code]] as [string, string][],
       languageFeatures: [],
       profile:
-        (await getTargetProfileFromEntryPoint("main.qs", code)) ||
-        "adaptive_rif", // Default to adaptive_rif for qir and rir generation
+        (languageId === "qsharp"
+          ? await getTargetProfileFromEntryPoint(sourceName, code)
+          : undefined) || "adaptive_rif", // Default to adaptive_rif for qir and rir generation
+      projectType,
     };
 
-    if (props.activeTab === "ast-tab") {
+    if (props.activeTab === "ast-tab" && canShowQSharpIr) {
       props.setAst(await props.compiler.getAst(code, config.languageFeatures));
     }
-    if (props.activeTab === "hir-tab") {
+    if (props.activeTab === "hir-tab" && canShowQSharpIr) {
       props.setHir(await props.compiler.getHir(code, config.languageFeatures));
     }
     const codeGenTimeout = 1000; // ms
-    if (props.activeTab === "qir-tab" || props.activeTab === "rir-tab") {
+    if (
+      props.activeTab === "qir-tab" ||
+      (props.activeTab === "rir-tab" && canShowQSharpIr)
+    ) {
       let timedOut = false;
       const compiler = props.compiler_worker_factory();
       const compilerTimeout = setTimeout(() => {
@@ -193,9 +214,13 @@ export function Editor(props: {
     if (code == null) return;
     props.evtTarget.clearResults();
     const config = {
-      sources: [["code", code]],
+      sources: [[sourceName, code]],
       languageFeatures: [],
-      profile: await getTargetProfileFromEntryPoint("main.qs", code),
+      profile:
+        languageId === "qsharp"
+          ? await getTargetProfileFromEntryPoint(sourceName, code)
+          : undefined,
+      projectType,
     } as ProgramConfig;
 
     try {
@@ -246,16 +271,23 @@ export function Editor(props: {
     editor.current = newEditor;
     const srcModel =
       monaco.editor.getModel(
-        monaco.Uri.parse(props.kataSection?.id ?? "main.qs"),
+        monaco.Uri.parse(props.kataSection?.id ?? sourceName),
       ) ??
       monaco.editor.createModel(
         "",
-        "qsharp",
-        monaco.Uri.parse(props.kataSection?.id ?? "main.qs"),
+        languageId,
+        monaco.Uri.parse(props.kataSection?.id ?? sourceName),
       );
     srcModel.setValue(props.code);
     newEditor.setModel(srcModel);
     srcModel.onDidChangeContent(() => irRef.current());
+
+    props.languageService.updateDocument(
+      srcModel.uri.toString(),
+      srcModel.getVersionId(),
+      srcModel.getValue(),
+      languageId,
+    );
 
     // TODO: If the language service ever changes, this callback
     // will be invalid as it captures the *original* props.languageService
@@ -272,6 +304,7 @@ export function Editor(props: {
         srcModel.uri.toString(),
         srcModel.getVersionId(),
         srcModel.getValue(),
+        languageId,
       );
       const measure = performance.measure(
         "update-document",
@@ -289,10 +322,10 @@ export function Editor(props: {
     return () => {
       log.info("Disposing a monaco editor");
       window.removeEventListener("resize", onResize);
-      props.languageService.closeDocument(srcModel.uri.toString());
+      props.languageService.closeDocument(srcModel.uri.toString(), languageId);
       newEditor.dispose();
     };
-  }, []);
+  }, [languageId, sourceName]);
 
   useEffect(() => {
     props.languageService.updateConfiguration({
@@ -359,6 +392,7 @@ export function Editor(props: {
       // Update or add the current URL parameter 'code'
       const newURL = new URL(window.location.href);
       newURL.searchParams.set("code", escapedCode);
+      newURL.searchParams.set("language", languageId);
 
       // Copy link to clipboard and update url without reloading the page
       navigator.clipboard.writeText(newURL.toString());
@@ -391,7 +425,7 @@ export function Editor(props: {
   return (
     <div class="editor-column">
       <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div class="file-name">main.qs</div>
+        <div class="file-name">{sourceName}</div>
         <div class="icon-row">
           <svg
             onClick={onGetLink}

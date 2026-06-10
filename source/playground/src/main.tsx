@@ -12,6 +12,7 @@ import type {
   VSDiagnostic,
   LogLevel,
   ILanguageService,
+  IRange,
 } from "qsharp-lang";
 
 import {
@@ -19,6 +20,7 @@ import {
   getCompilerWorker,
   loadWasmModule,
   log,
+  openqasm_samples,
   samples,
   getLanguageServiceWorker,
 } from "qsharp-lang";
@@ -69,6 +71,35 @@ const modulePath = basePath + "libs/qsharp/qsc_wasm_bg.wasm";
 const compilerWorkerPath = basePath + "libs/compiler-worker.js";
 const languageServiceWorkerPath = basePath + "libs/language-service-worker.js";
 
+type CompletionItem = {
+  label: string;
+  kind:
+    | "function"
+    | "interface"
+    | "keyword"
+    | "module"
+    | "property"
+    | "variable"
+    | "typeParameter"
+    | "field"
+    | "class";
+  sortText?: string;
+  detail?: string;
+  additionalTextEdits?: {
+    range: IRange;
+    newText: string;
+  }[];
+};
+
+type SignatureInformation = {
+  label: string;
+  documentation: string;
+  parameters: {
+    label: string;
+    documentation: string;
+  }[];
+};
+
 function telemetryHandler({ id, data }: { id: string; data?: any }) {
   // NOTE: This is for demo purposes. Wire up to the real telemetry library.
   console.log(`Received telemetry event: "%s" with payload: %o`, id, data);
@@ -81,7 +112,11 @@ function createCompiler(onStateChange: (val: CompilerState) => void) {
   return compiler;
 }
 
-function App(props: { katas: Kata[]; linkedCode?: string }) {
+function App(props: {
+  katas: Kata[];
+  linkedCode?: string;
+  linkedLanguage?: "qsharp" | "openqasm";
+}) {
   const [compilerState, setCompilerState] = useState<CompilerState>("idle");
   const [compiler, setCompiler] = useState(() =>
     createCompiler(setCompilerState),
@@ -101,7 +136,11 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
   });
 
   const [currentNavItem, setCurrentNavItem] = useState(
-    props.linkedCode ? "linked" : "sample-Minimal",
+    props.linkedCode
+      ? props.linkedLanguage === "openqasm"
+        ? "openqasm-linked"
+        : "linked"
+      : "sample-Minimal",
   );
   const [shotError, setShotError] = useState<VSDiagnostic | undefined>(
     undefined,
@@ -122,6 +161,7 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
 
   const kataTitles = props.katas.map((elem) => elem.title);
   const sampleTitles = samples.map((sample) => sample.title);
+  const openQasmSampleTitles = openqasm_samples.map((sample) => sample.title);
 
   const [documentation, setDocumentation] = useState<
     Map<string, string> | undefined
@@ -136,10 +176,35 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
 
   const sampleCode =
     samples.find((sample) => "sample-" + sample.title === currentNavItem)
-      ?.code || props.linkedCode;
+      ?.code ||
+    openqasm_samples.find(
+      (sample) => "openqasm-sample-" + sample.title === currentNavItem,
+    )?.code ||
+    props.linkedCode;
 
   const defaultShots =
-    samples.find((sample) => sample.title === currentNavItem)?.shots || 100;
+    samples.find((sample) => "sample-" + sample.title === currentNavItem)
+      ?.shots ||
+    openqasm_samples.find(
+      (sample) => "openqasm-sample-" + sample.title === currentNavItem,
+    )?.shots ||
+    100;
+
+  const languageId =
+    currentNavItem.startsWith("openqasm-sample-") ||
+    currentNavItem === "openqasm-linked"
+      ? "openqasm"
+      : "qsharp";
+
+  useEffect(() => {
+    if (
+      languageId === "openqasm" &&
+      activeTab !== "results-tab" &&
+      activeTab !== "qir-tab"
+    ) {
+      setActiveTab("results-tab");
+    }
+  }, [activeTab, languageId]);
 
   const activeKata = kataTitles.includes(currentNavItem)
     ? props.katas.find((kata) => kata.title === currentNavItem)
@@ -165,12 +230,14 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
         navSelected={onNavItemSelected}
         katas={kataTitles}
         samples={sampleTitles}
+        openQasmSamples={openQasmSampleTitles}
         namespaces={getNamespaces(documentation)}
       ></Nav>
       {sampleCode ? (
         <>
           <Editor
             code={sampleCode}
+            languageId={languageId}
             compiler={compiler}
             compiler_worker_factory={compiler_worker_factory}
             compilerState={compilerState}
@@ -191,6 +258,7 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
             evtTarget={evtTarget}
             showPanel={true}
             onShotError={(diag?: VSDiagnostic) => setShotError(diag)}
+            languageId={languageId}
             ast={ast}
             hir={hir}
             rir={rir}
@@ -233,92 +301,290 @@ async function loaded() {
   log.setTelemetryCollector(telemetryHandler);
 
   await loadWasmModule(modulePath);
+  registerOpenQasmMonacoLanguage();
 
   const katas = await getAllKatas({ includeUnpublished: true });
 
   // If URL is a sharing link, populate the editor with the code from the link.
   // Otherwise, populate with sample code.
   let linkedCode: string | undefined;
+  let linkedLanguage: "qsharp" | "openqasm" | undefined;
   const paramCode = new URLSearchParams(window.location.search).get("code");
   if (paramCode) {
     try {
       const base64code = decodeURIComponent(paramCode);
       linkedCode = await compressedBase64ToCode(base64code);
+      linkedLanguage =
+        new URLSearchParams(window.location.search).get("language") ===
+        "openqasm"
+          ? "openqasm"
+          : "qsharp";
     } catch {
       linkedCode = "// Unable to decode the code in the URL\n";
     }
   }
 
-  render(<App katas={katas} linkedCode={linkedCode}></App>, document.body);
+  render(
+    <App
+      katas={katas}
+      linkedCode={linkedCode}
+      linkedLanguage={linkedLanguage}
+    ></App>,
+    document.body,
+  );
+}
+
+function registerOpenQasmMonacoLanguage() {
+  monaco.languages.register({
+    id: "openqasm",
+    extensions: [".qasm", ".inc"],
+    aliases: ["OpenQASM", "openqasm"],
+  });
+
+  monaco.languages.setLanguageConfiguration("openqasm", {
+    comments: {
+      lineComment: "//",
+      blockComment: ["/*", "*/"],
+    },
+    brackets: [
+      ["[", "]"],
+      ["(", ")"],
+      ["{", "}"],
+    ],
+    autoClosingPairs: [
+      { open: "[", close: "]" },
+      { open: "(", close: ")" },
+      { open: "{", close: "}" },
+      { open: "'", close: "'" },
+      { open: '"', close: '"', notIn: ["string"] },
+    ],
+    surroundingPairs: [
+      { open: "[", close: "]" },
+      { open: "(", close: ")" },
+      { open: "{", close: "}" },
+      { open: "'", close: "'" },
+      { open: '"', close: '"' },
+    ],
+  });
+
+  monaco.languages.setMonarchTokensProvider("openqasm", {
+    defaultToken: "",
+    tokenPostfix: ".openqasm",
+    keywords: [
+      "OPENQASM",
+      "array",
+      "barrier",
+      "bit",
+      "bool",
+      "box",
+      "cal",
+      "complex",
+      "const",
+      "creg",
+      "def",
+      "defcal",
+      "defcalgrammar",
+      "delay",
+      "duration",
+      "else",
+      "extern",
+      "float",
+      "for",
+      "frame",
+      "gate",
+      "if",
+      "include",
+      "input",
+      "int",
+      "let",
+      "measure",
+      "mutable",
+      "output",
+      "port",
+      "pragma",
+      "qreg",
+      "qubit",
+      "readonly",
+      "reset",
+      "return",
+      "stretch",
+      "switch",
+      "uint",
+      "waveform",
+      "while",
+    ],
+    constants: [
+      "euler",
+      "false",
+      "lambda",
+      "phi",
+      "pi",
+      "tau",
+      "theta",
+      "true",
+    ],
+    typeKeywords: [
+      "angle",
+      "bit",
+      "bool",
+      "complex",
+      "creg",
+      "duration",
+      "float",
+      "int",
+      "qreg",
+      "qubit",
+      "stretch",
+      "uint",
+    ],
+    operators: [
+      "=",
+      ">",
+      "<",
+      "!",
+      "~",
+      "?",
+      ":",
+      "==",
+      "<=",
+      ">=",
+      "!=",
+      "&&",
+      "||",
+      "++",
+      "--",
+      "+",
+      "-",
+      "*",
+      "/",
+      "&",
+      "|",
+      "^",
+      "%",
+      "<<",
+      ">>",
+      "**",
+    ],
+    symbols: /[=><!~?:&|+\-*/^%]+/,
+    escapes: /\\(?:[btnfr"\\]|u[0-9A-Fa-f]{4})/,
+    tokenizer: {
+      root: [
+        [
+          /[a-zA-Z_][\w_]*/,
+          {
+            cases: {
+              "@typeKeywords": "type",
+              "@keywords": "keyword",
+              "@constants": "constant",
+              "@default": "identifier",
+            },
+          },
+        ],
+        [/[{}()[\]]/, "@brackets"],
+        [
+          /@symbols/,
+          {
+            cases: {
+              "@operators": "operator",
+              "@default": "",
+            },
+          },
+        ],
+        [
+          /\d[\d_]*(\.\d[\d_]*)?([eE][+-]?\d[\d_]*)?(im|dt|ns|us|ms|s)?/,
+          "number",
+        ],
+        [/"/, "string", "@string"],
+        [/\/\/.*$/, "comment"],
+        [/\/\*/, "comment", "@comment"],
+      ],
+      comment: [
+        [/[^/*]+/, "comment"],
+        [/\*\//, "comment", "@pop"],
+        [/[/*]/, "comment"],
+      ],
+      string: [
+        [/[^\\"]+/, "string"],
+        [/@escapes/, "string.escape"],
+        [/\\./, "string.escape.invalid"],
+        [/"/, "string", "@pop"],
+      ],
+    },
+  });
 }
 
 function registerMonacoLanguageServiceProviders(
   languageService: ILanguageService,
 ) {
+  async function getCompletionItems(
+    model: monaco.editor.ITextModel,
+    position: monaco.Position,
+  ) {
+    const completions = await languageService.getCompletions(
+      model.uri.toString(),
+      monacoPositionToLsPosition(position),
+    );
+    return {
+      suggestions: completions.items.map((i: CompletionItem) => {
+        let kind;
+        switch (i.kind) {
+          case "function":
+            kind = monaco.languages.CompletionItemKind.Function;
+            break;
+          case "interface":
+            kind = monaco.languages.CompletionItemKind.Interface;
+            break;
+          case "keyword":
+            kind = monaco.languages.CompletionItemKind.Keyword;
+            break;
+          case "variable":
+            kind = monaco.languages.CompletionItemKind.Variable;
+            break;
+          case "typeParameter":
+            kind = monaco.languages.CompletionItemKind.TypeParameter;
+            break;
+          case "module":
+            kind = monaco.languages.CompletionItemKind.Module;
+            break;
+          case "property":
+            kind = monaco.languages.CompletionItemKind.Property;
+            break;
+          case "field":
+            kind = monaco.languages.CompletionItemKind.Field;
+            break;
+          case "class":
+            kind = monaco.languages.CompletionItemKind.Class;
+            break;
+        }
+        return {
+          label: i.label,
+          kind: kind,
+          insertText: i.label,
+          sortText: i.sortText,
+          detail: i.detail,
+          additionalTextEdits: i.additionalTextEdits?.map((edit) => {
+            const range = edit.range;
+            const textEdit: monaco.languages.TextEdit = {
+              range: lsRangeToMonacoRange(range),
+              text: edit.newText,
+            };
+            return textEdit;
+          }),
+          range: undefined,
+        };
+      }),
+    };
+  }
+
   monaco.languages.registerCompletionItemProvider("qsharp", {
-    // @ts-expect-error - Monaco's types expect range to be defined,
-    // but it's actually optional and the default behavior is better
-    provideCompletionItems: async (
-      model: monaco.editor.ITextModel,
-      position: monaco.Position,
-    ) => {
-      const completions = await languageService.getCompletions(
-        model.uri.toString(),
-        monacoPositionToLsPosition(position),
-      );
-      return {
-        suggestions: completions.items.map((i) => {
-          let kind;
-          switch (i.kind) {
-            case "function":
-              kind = monaco.languages.CompletionItemKind.Function;
-              break;
-            case "interface":
-              kind = monaco.languages.CompletionItemKind.Interface;
-              break;
-            case "keyword":
-              kind = monaco.languages.CompletionItemKind.Keyword;
-              break;
-            case "variable":
-              kind = monaco.languages.CompletionItemKind.Variable;
-              break;
-            case "typeParameter":
-              kind = monaco.languages.CompletionItemKind.TypeParameter;
-              break;
-            case "module":
-              kind = monaco.languages.CompletionItemKind.Module;
-              break;
-            case "property":
-              kind = monaco.languages.CompletionItemKind.Property;
-              break;
-            case "field":
-              kind = monaco.languages.CompletionItemKind.Field;
-              break;
-            case "class":
-              kind = monaco.languages.CompletionItemKind.Class;
-              break;
-          }
-          return {
-            label: i.label,
-            kind: kind,
-            insertText: i.label,
-            sortText: i.sortText,
-            detail: i.detail,
-            additionalTextEdits: i.additionalTextEdits?.map((edit) => {
-              const range = edit.range;
-              const textEdit: monaco.languages.TextEdit = {
-                range: lsRangeToMonacoRange(range),
-                text: edit.newText,
-              };
-              return textEdit;
-            }),
-            range: undefined,
-          };
-        }),
-      };
-    },
+    provideCompletionItems: getCompletionItems,
     // Trigger characters should be kept in sync with the ones in `vscode/src/extension.ts`
     triggerCharacters: ["@", "."],
+  });
+
+  monaco.languages.registerCompletionItemProvider("openqasm", {
+    provideCompletionItems: getCompletionItems,
+    triggerCharacters: ["@", "["],
   });
 
   monaco.languages.registerHoverProvider("qsharp", {
@@ -341,7 +607,7 @@ function registerMonacoLanguageServiceProviders(
     },
   });
 
-  monaco.languages.registerDefinitionProvider("qsharp", {
+  monaco.languages.registerDefinitionProvider(["qsharp", "openqasm"], {
     provideDefinition: async (
       model: monaco.editor.ITextModel,
       position: monaco.Position,
@@ -360,7 +626,7 @@ function registerMonacoLanguageServiceProviders(
     },
   });
 
-  monaco.languages.registerReferenceProvider("qsharp", {
+  monaco.languages.registerReferenceProvider(["qsharp", "openqasm"], {
     provideReferences: async (
       model: monaco.editor.ITextModel,
       position: monaco.Position,
@@ -403,7 +669,7 @@ function registerMonacoLanguageServiceProviders(
         value: {
           activeParameter: sigHelpLs.activeParameter,
           activeSignature: sigHelpLs.activeSignature,
-          signatures: sigHelpLs.signatures.map((sig) => {
+          signatures: sigHelpLs.signatures.map((sig: SignatureInformation) => {
             return {
               label: sig.label,
               documentation: {
@@ -424,7 +690,7 @@ function registerMonacoLanguageServiceProviders(
     },
   });
 
-  monaco.languages.registerRenameProvider("qsharp", {
+  monaco.languages.registerRenameProvider(["qsharp", "openqasm"], {
     provideRenameEdits: async (
       model: monaco.editor.ITextModel,
       position: monaco.Position,
