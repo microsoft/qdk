@@ -98,9 +98,16 @@ def test_import_circuit_from_multiple_circuit_file(qsharp) -> None:
     import qdk
 
     ctx = qdk.Context()
-    first_circuit = ctx.import_circuit("/standalone/multiple_circuits.qsc")
-    second_circuit = ctx.import_circuit("/standalone/multiple_circuits.qsc", index=1)
+    first_circuit = ctx.import_circuit(
+        "/standalone/multiple_circuits.qsc", name="FirstCircuit"
+    )
+    assert first_circuit is ctx.code.FirstCircuit
 
+    second_circuit = ctx.import_circuit(
+        "/standalone/multiple_circuits.qsc", index=1, name="SecondCircuit"
+    )
+
+    assert second_circuit is ctx.code.SecondCircuit
     assert ctx.run(first_circuit, 1) == [qsharp.Result.Zero]
     assert ctx.run(second_circuit, 1) == [qsharp.Result.One]
 

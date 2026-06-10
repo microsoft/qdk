@@ -45,7 +45,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
-    circuit::{TracerConfig, circuits_to_qsharp},
+    circuit::{TracerConfig, circuit_to_standalone_qsharp, circuits_to_qsharp},
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -1135,9 +1135,19 @@ fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
 pub fn compile_visual_circuit_to_qsharp(
     file_name: &str,
     circuit_json: &str,
+    index: usize,
+    program_type: ProgramType,
 ) -> PyResult<(String, String)> {
     let operation_name = sanitize_name(file_name);
-    match circuits_to_qsharp(&operation_name, circuit_json) {
+    let source = match program_type {
+        ProgramType::File => circuit_to_standalone_qsharp(&operation_name, circuit_json, index),
+        ProgramType::Operation => circuits_to_qsharp(&operation_name, circuit_json),
+        ProgramType::Fragments => Err(
+            "Visual circuit import supports ProgramType.File and ProgramType.Operation only."
+                .to_string(),
+        ),
+    };
+    match source {
         Ok(source) => Ok((operation_name, source)),
         Err(error) => Err(QSharpError::new_err(error)),
     }

@@ -137,65 +137,6 @@ def _visual_circuit_signature(circuit_json: str, index: int) -> tuple[int, str, 
     return len(qubits), "Result[]", len(circuits)
 
 
-def _visual_circuit_wrapper_source(
-    helper_source: str,
-    operation_name: str,
-    wrapper_name: str,
-    qubit_count: int,
-    return_type: str,
-) -> str:
-    helper_source = _indent_qsharp_source(helper_source.strip() + "\n\n")
-    if qubit_count == 0:
-        allocation = ""
-        call = f"{operation_name}()"
-        reset = ""
-    else:
-        allocation = f"    use qs = Qubit[{qubit_count}];\n"
-        call = f"{operation_name}(qs)"
-        reset = "    ResetAll(qs);\n"
-
-    if return_type == "Unit":
-        return (
-            f"operation {wrapper_name}() : Unit {{\n"
-            f"{helper_source}"
-            f"{allocation}"
-            f"    {call};\n"
-            f"{reset}"
-            "}\n"
-        )
-
-    return (
-        f"operation {wrapper_name}() : {return_type} {{\n"
-        f"{helper_source}"
-        f"{allocation}"
-        f"    let result = {call};\n"
-        f"{reset}"
-        "    return result;\n"
-        "}\n"
-    )
-
-
-def _indent_qsharp_source(source: str) -> str:
-    return "".join(
-        f"    {line}" if line.strip() else line
-        for line in source.splitlines(keepends=True)
-    )
-
-
-def _rename_visual_circuit_operations(
-    source: str, operation_name: str, circuit_count: int
-) -> str:
-    for index in range(circuit_count):
-        callable_name = (
-            operation_name if circuit_count == 1 else f"{operation_name}{index}"
-        )
-        source = source.replace(
-            f"operation {callable_name}(",
-            f"operation {callable_name}_Operation(",
-        )
-    return source
-
-
 def make_class_rec(qsharp_type: TypeIR) -> type:
     class_name = qsharp_type.unwrap_udt().name
     fields = {}
@@ -621,36 +562,19 @@ class Context:
         except Exception as err:
             raise QSharpError(f"Error reading visual circuit file {resolved_path}.") from err
 
-        qubit_count, return_type, circuit_count = _visual_circuit_signature(
-            circuit_json, index
-        )
+        _, _, circuit_count = _visual_circuit_signature(circuit_json, index)
         operation_base_name = name if name is not None else _path_stem(resolved_path)
 
         operation_name, generated_source = compile_visual_circuit_to_qsharp(
-            operation_base_name, circuit_json
-        )
-        circuit_operation_name = (
-            operation_name if circuit_count == 1 else f"{operation_name}{index}"
+            operation_base_name, circuit_json, index, program_type
         )
         eval_source = generated_source
-        callable_name = circuit_operation_name
-        if program_type == ProgramType.File:
-            circuit_helper_name = f"{circuit_operation_name}_Operation"
-            generated_source = _rename_visual_circuit_operations(
-                generated_source, operation_name, circuit_count
-            )
-            wrapper_source = _visual_circuit_wrapper_source(
-                generated_source,
-                circuit_helper_name,
-                circuit_operation_name,
-                qubit_count,
-                return_type,
-            )
-            eval_source = wrapper_source
+        if program_type == ProgramType.Operation and circuit_count > 1:
+            callable_name = f"{operation_name}{index}"
+        else:
+            callable_name = operation_name
 
-        # generated_source is produced by the native visual-circuit compiler;
-        # wrapper_source, when present, is assembled from sanitized operation
-        # names and type metadata.
+        # generated_source is produced by the native visual-circuit compiler.
         self.eval(eval_source)  # DevSkim: ignore DS189424
         return getattr(self.code, callable_name)
 

@@ -533,7 +533,10 @@ def physical_estimates(logical_resources: str, params: str) -> str:
     ...
 
 def compile_visual_circuit_to_qsharp(
-    file_name: str, contents: str
+    file_name: str,
+    contents: str,
+    index: int,
+    program_type: ProgramType,
 ) -> Tuple[str, str]:
     """
     Converts a visual circuit file to Q# source.
@@ -545,6 +548,8 @@ def compile_visual_circuit_to_qsharp(
 
     :param file_name: The base name to use for the generated operation.
     :param contents: The visual circuit JSON contents.
+    :param index: The circuit index to import in file mode.
+    :param program_type: The type of Q# source to generate.
     :return: The sanitized operation name and generated Q# source.
     :rtype: Tuple[str, str]
     """
