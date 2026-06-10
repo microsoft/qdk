@@ -43,39 +43,18 @@ function emptyCircuit(n) {
   };
 }
 
-/**
- * Build a unitary-gate template (the shape `addOperation` deep-copies).
- * @param {string} gate
- * @returns {import("../../dist/ux/circuit-vis/index.js").Operation}
- */
-function unitary(gate) {
-  return { kind: "unitary", gate, targets: [{ qubit: 0 }] };
-}
-
 // ---------------------------------------------------------------------------
-// findAndRemoveOperations / moveQubit / removeQubit
+// moveQubit / removeQubit / findAndRemoveOperations
 //
 // Closely-related action-layer helpers that share the wire-count
 // bookkeeping plumbing. Kept here as a small companion section
 // rather than spun out, since none of them have enough surface to
-// warrant their own file.
+// warrant their own file. The flat-grid base cases for
+// `findAndRemoveOperations` live in
+// `circuit-actions/addRemove.test.mjs`; what remains here is the
+// group-recursion case (the predicate walks into expanded-group
+// children).
 // ---------------------------------------------------------------------------
-
-test("findAndRemoveOperations decrements qubitUseCounts and prunes empty columns", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-  addOperation(model, unitary("H"), "0,0", 0);
-  addOperation(model, unitary("X"), "1,0", 1);
-  // Grid: [[H@0], [X@1]].
-  assert.deepEqual(model.qubitUseCounts, [1, 1]);
-
-  findAndRemoveOperations(model, (/** @type {any} */ op) => op.gate === "X");
-
-  assert.equal(model.componentGrid.length, 1);
-  assert.equal(model.componentGrid[0].components[0].gate, "H");
-  // findAndRemoveOperations only decrements counts — it does NOT trim
-  // trailing wires (callers do that explicitly when they need to).
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
-});
 
 test("moveQubit swaps register references and reorders ops within a column", () => {
   const circuit = {
@@ -130,18 +109,6 @@ test("removeQubit shifts higher wire indices down by one", () => {
   assert.equal(op.targets[0].qubit, 1);
   // qubitUseCounts unchanged at the removed index, only the slot is gone.
   assert.deepEqual(model.qubitUseCounts, [0, 1]);
-});
-
-test("findAndRemoveOperations leaves the grid empty when every op matches", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-  addOperation(model, unitary("H"), "0,0", 0);
-  addOperation(model, unitary("X"), "1,0", 1);
-
-  findAndRemoveOperations(model, () => true);
-
-  assert.equal(model.componentGrid.length, 0);
-  // findAndRemoveOperations decrements but does not trim trailing wires.
-  assert.deepEqual(model.qubitUseCounts, [0, 0]);
 });
 
 test("findAndRemoveOperations recurses into expanded-group children", () => {
@@ -4193,225 +4160,6 @@ test("addOperation: omitting sourceWire still rewrites a single-target template 
   assert.equal(/** @type {any} */ (added).targets[0].qubit, 2);
 });
 
-test("addControl: refuses on a classically-controlled GROUP (groups never carry quantum controls by design)", () => {
-  // Per the team's permanent design, groups (any op with `children`)
-  // may carry CLASSICAL controls only — never quantum controls —
-  // and are never adjointable. The editor refuses to author quantum
-  // controls on any group (or any multi-target unitary, for which
-  // there is no canonical visual rule). Loaded data with such
-  // controls still arrives through the parser but won't be rendered
-  // with a special-case quantum-control connector.
-  //
-  // The single-target classically-controlled-unitary case is
-  // unaffected — see the sister test below.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "measurement",
-            gate: "M",
-            qubits: [{ qubit: 0 }],
-            results: [{ qubit: 0, result: 0 }],
-          },
-        ],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "CondGroup",
-            targets: [{ qubit: 0, result: 0 }, { qubit: 1 }, { qubit: 2 }],
-            controls: [{ qubit: 0, result: 0 }],
-            isConditional: true,
-            children: [
-              {
-                components: [
-                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
-                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const group = /** @type {any} */ (model.componentGrid[1].components[0]);
-  const controlsBefore = JSON.parse(JSON.stringify(group.controls));
-
-  // Attempt to add a quantum control on a fresh wire (q3) — the
-  // refusal is about the op SHAPE (has children), not about a
-  // dedup collision.
-  const ok = addControl(model, group, 3);
-
-  assert.equal(ok, false, "addControl must refuse on a group");
-  assert.deepEqual(
-    group.controls,
-    controlsBefore,
-    "group.controls must be untouched by the refused call",
-  );
-});
-
-test("addControl: still succeeds on a classically-controlled single-target UNITARY (no children)", () => {
-  // A classically-controlled unitary with one target and no children
-  // isn't multi-target, so adding a quantum control on a fresh wire
-  // works.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "measurement",
-            gate: "M",
-            qubits: [{ qubit: 0 }],
-            results: [{ qubit: 0, result: 0 }],
-          },
-        ],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0, result: 0 }],
-            isConditional: true,
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const op = /** @type {any} */ (model.componentGrid[1].components[0]);
-
-  // Add a quantum control on q2 — should succeed.
-  const ok = addControl(model, op, 2);
-
-  assert.equal(ok, true);
-  const hasQuantumQ2 = op.controls.some(
-    (/** @type {any} */ c) => c.qubit === 2 && c.result === undefined,
-  );
-  assert.ok(hasQuantumQ2, "single-target unitary must accept the new control");
-});
-
-test("addControl: refuses on a multi-target unitary even without children", () => {
-  // SWAP-shaped op: `targets.length === 2`, no children. The
-  // structural predicate is the same as for groups — multiple
-  // wire-legs and no agreed control-connector visual.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "SWAP",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const swap = /** @type {any} */ (model.componentGrid[0].components[0]);
-
-  const ok = addControl(model, swap, 2);
-
-  assert.equal(ok, false);
-  assert.ok(
-    swap.controls == null || swap.controls.length === 0,
-    "multi-target unitary must not gain a control from the refused call",
-  );
-});
-
-test("addControl: refuses on a plain group (no classical conditions)", () => {
-  // A pure organizational group — children but no controls. Same
-  // refusal: the op has multiple wire-legs.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
-                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const group = /** @type {any} */ (model.componentGrid[0].components[0]);
-
-  const ok = addControl(model, group, 2);
-
-  assert.equal(ok, false);
-  assert.ok(
-    group.controls == null || group.controls.length === 0,
-    "plain group must not gain a control from the refused call",
-  );
-});
-
-test("removeControl: refuses on a multi-target / group op, leaving existing controls in place", () => {
-  // A group loaded with a pre-existing quantum control (e.g. from
-  // a `.qsc` file the editor inherits) renders fine, but the
-  // editor refuses to remove the control. The control survives
-  // the refused call.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 1 }, { qubit: 2 }],
-            controls: [{ qubit: 0 }],
-            children: [
-              {
-                components: [
-                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
-                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const group = /** @type {any} */ (model.componentGrid[0].components[0]);
-
-  const ok = removeControl(model, group, 0);
-
-  assert.equal(ok, false);
-  assert.equal(
-    group.controls.length,
-    1,
-    "the pre-existing control must survive a refused removeControl",
-  );
-  assert.equal(group.controls[0].qubit, 0);
-});
-
 // ---------------------------------------------------------------
 // Group + control move.
 //
@@ -5835,50 +5583,10 @@ test("moveOperation extend: deeply-nested source past a multi-wire ancestor sibl
 // widened the op into a same-column sibling silently left them
 // overlapping. These tests pin the centralized invariant: any
 // path that widens an op must trigger the split-and-shift.
+// The flat (no-group) base case lives in
+// `circuit-actions/addRemove.test.mjs`; what remains here are
+// the group-internal and group-via-ancestor split cases.
 // ---------------------------------------------------------------
-
-test("addControl: top-level widening into a same-column sibling splits the column", () => {
-  // CNOT(target q0, control q1) and unrelated H on q3 share col 0.
-  // Add a control on q3 to the CNOT → CNOT now spans q0..q3 and
-  // overlaps H. The CNOT must end up in its own column, with H
-  // pushed one slot to the right.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 0 }],
-            controls: [{ qubit: 1 }],
-          },
-          { kind: "unitary", gate: "H", targets: [{ qubit: 3 }] },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const cnotOp = /** @type {any} */ (model.componentGrid[0].components[0]);
-  const ok = addControl(model, cnotOp, 3);
-  assert.ok(ok, "addControl should succeed on a fresh wire");
-
-  // Expect two top-level columns: [CNOT] then [H].
-  assert.equal(
-    model.componentGrid.length,
-    2,
-    `expected the column to split into 2; got grid: ${JSON.stringify(
-      model.componentGrid.map((c) =>
-        c.components.map((/** @type {any} */ op) => op.gate),
-      ),
-    )}`,
-  );
-  assert.equal(model.componentGrid[0].components.length, 1);
-  assert.equal(model.componentGrid[0].components[0].gate, "X");
-  assert.equal(model.componentGrid[1].components.length, 1);
-  assert.equal(model.componentGrid[1].components[0].gate, "H");
-});
 
 test("addControl: nested widening into a same-column sibling inside a group splits inside the group", () => {
   // Inside group Foo (top-level), col 0 contains [H(q0), Z(q3)].
@@ -5982,36 +5690,6 @@ test("addControl: widening that pushes the OUTER GROUP into its top-level siblin
   );
   assert.equal(model.componentGrid[0].components[0].gate, "Foo");
   assert.equal(model.componentGrid[1].components[0].gate, "X");
-});
-
-test("addControl: no overlap means no split (centralized path is a no-op)", () => {
-  // Sanity check: when adding the control doesn't introduce a
-  // collision, the column stays as it was.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
-          { kind: "unitary", gate: "Z", targets: [{ qubit: 3 }] },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const hOp = /** @type {any} */ (model.componentGrid[0].components[0]);
-  // Add control on q1 — widens H to q0..q1, doesn't reach Z's q3.
-  addControl(model, hOp, 1);
-  assert.equal(
-    model.componentGrid.length,
-    1,
-    `no collision; column should not split. Got ${JSON.stringify(
-      model.componentGrid.map((c) =>
-        c.components.map((/** @type {any} */ op) => op.gate),
-      ),
-    )}`,
-  );
 });
 
 // ---------------------------------------------------------------

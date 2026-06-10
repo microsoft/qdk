@@ -162,6 +162,28 @@ plus 21 snapshot fixtures in
    ✅ shipped — same wave also closed out the `draggable.ts`
    audit (14 pure-helper tests; no dead code found).
 
+Architectural follow-ups surfaced during the pre-PR test sweep
+(must resolve before the PR, but not blocking the rest of the
+test reorg first):
+
+- **Wire-range helper consolidation.** `utils.ts` has three
+  close-but-not-identical helpers (`getMinMaxRegIdx`,
+  `getQuantumWireRange`, `getWireRange`) for "what wires does
+  this op touch." Each has policy baked in differently, which
+  is inconsistent across call sites. End state: small set of
+  geometry-only helpers, each call site documents its own
+  policy. See
+  [Wire-range helper consolidation — deferred](CIRCUIT_EDITOR_TODO.md#wire-range-helper-consolidation--deferred).
+- **`findAndRemoveOperations` should be action-layer internal.**
+  Exported from the action-layer API but has a non-obvious
+  "callers must trim trailing wires themselves" contract that
+  contradicts every other `remove*` action. The proper shape
+  is a new public `removeQubitWithDependents` orchestrating the
+  cascade + trim (matching the existing `*WithDependents`
+  pattern for measurements), with the primitive demoted to
+  `_findAndRemoveOperations`. See
+  [`findAndRemoveOperations` should be action-layer internal — deferred](CIRCUIT_EDITOR_TODO.md#findandremoveoperations-should-be-action-layer-internal--deferred).
+
 Deferred follow-ups (not blocking PR):
 
 - **Context-menu DOM-test harness** — ✅ shipped.

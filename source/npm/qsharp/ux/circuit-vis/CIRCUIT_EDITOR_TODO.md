@@ -2616,6 +2616,47 @@ carve-outs and should stay on `getQuantumWireRange`
 **Not in this PR** — the cascade in `circuitActions.ts` is a
 hot path; each swap needs its own regression-test plan.
 
+### `findAndRemoveOperations` should be action-layer internal — deferred
+
+Found while moving the action-layer tests into
+[circuit-actions/addRemove.test.mjs](../../test/circuit-editor/circuit-actions/addRemove.test.mjs).
+
+[`findAndRemoveOperations`](actions/circuitActions.ts) is
+exported from the action-layer API but has a non-obvious
+contract: it decrements `qubitUseCounts` and prunes empty
+columns, but does **not** trim trailing unused wires — every
+other `remove*` action does. The asymmetry is load-bearing for
+the only external caller
+([qubitController.ts](editor/controllers/qubitController.ts)
+line 67), which depends on the wire count staying stable
+between the cascade and the immediately-following `removeQubit`
+call (an eager trim would invalidate `qubitIdx`). The two
+in-action-layer callers
+([`moveMeasurementWithDependents`](actions/circuitActions.ts)
+line 899 and
+[`removeMeasurementWithDependents`](actions/circuitActions.ts)
+line 1038) each follow it with a trimming `remove*` of their
+own, so the no-trim contract is also correct for them — but
+incidentally rather than by design.
+
+The proper shape is the same `*WithDependents` pattern those
+two callers already follow: introduce a public
+`removeQubitWithDependents(model, qubitIdx)` that owns the
+cascade + `removeQubit` sequence, then make
+`findAndRemoveOperations` module-internal
+(`_findAndRemoveOperations`). The "callers must trim" footgun
+disappears from the public surface;
+[qubitController.ts](editor/controllers/qubitController.ts)
+collapses to a single call and stops needing the
+`getOperationRegisters` import. Test coverage migrates from
+direct primitive calls to the new public action, which is the
+honest framing — if the function is no longer public, its
+tests shouldn't be either.
+
+**Not in this PR** — production-code refactor, separate
+concern from the test reorganization that surfaced it. Should
+land alongside the next action-layer cleanup pass.
+
 ### B7. Qubit rearrangement doesn't update group contents correctly — ✅ shipped
 
 **Symptom.** Drag a qubit label to reorder wires. Ops whose
