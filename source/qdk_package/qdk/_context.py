@@ -620,8 +620,17 @@ class Context:
         )
         eval_source = generated_source
         callable_name = circuit_operation_name
+        helper_callable_names: list[str] = []
         if program_type == ProgramType.File:
             circuit_helper_name = f"{circuit_operation_name}_Operation"
+            helper_callable_names = [
+                (
+                    f"{operation_name}_Operation"
+                    if circuit_count == 1
+                    else f"{operation_name}{helper_index}_Operation"
+                )
+                for helper_index in range(circuit_count)
+            ]
             generated_source = _mark_visual_circuit_operations_internal(
                 generated_source, operation_name, circuit_count
             )
@@ -634,6 +643,9 @@ class Context:
         # wrapper_source, when present, is assembled from sanitized operation
         # names and type metadata.
         self.eval(eval_source)  # DevSkim: ignore DS189424
+        for helper_callable_name in helper_callable_names:
+            if hasattr(self.code, helper_callable_name):
+                delattr(self.code, helper_callable_name)
         return getattr(self.code, callable_name)
 
     def eval(
