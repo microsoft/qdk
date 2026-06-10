@@ -86,16 +86,13 @@ impl<'a> Lexer<'a> {
         while self.chars.next_if(|i| f(i.1)).is_some() {}
     }
 
-    fn newline(&mut self) {
-        self.eat_while(|c| c == '\n');
-    }
-
     fn whitespace(&mut self) {
         self.eat_while(char::is_whitespace);
     }
 
     fn comment(&mut self) {
         self.eat_while(|c| c != '\n');
+        self.whitespace();
     }
 
     fn scan_number(&mut self) -> TokenKind {
@@ -139,7 +136,7 @@ impl Iterator for Lexer<'_> {
         let lo: u32 = offset.try_into().expect("offset should fit into u32");
         let token_kind = match c {
             '\n' => {
-                self.newline();
+                self.whitespace();
                 TokenKind::Newline
             }
             ' ' | '\t' => {
@@ -148,6 +145,7 @@ impl Iterator for Lexer<'_> {
             }
             '#' => {
                 if self.chars.next_if(|(_, c)| *c == '!').is_some() {
+                    self.eat_while(|c| !c.is_whitespace());
                     TokenKind::InstructionName
                 } else {
                     self.comment();
