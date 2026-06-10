@@ -70,7 +70,7 @@ def trace_from_cirq(
     circuit: cirq.CIRCUIT_LIKE,
     *,
     classical_control_probability: float = 0.5,
-    rotation_threshold: float = 1e-6,
+    rotation_threshold: float = 1e-12,
     track_memory_qubits: bool = True,
 ) -> Trace:
     """Convert a Cirq circuit into a resource estimation Trace.
@@ -88,7 +88,7 @@ def trace_from_cirq(
             this threshold are treated as identity and omitted from the
             trace. This applies to single-qubit rotations (RX, RY, RZ) as
             well as to the rotation components of controlled-Z
-            decompositions. Defaults to 1e-6.
+            decompositions. Defaults to 1e-12.
         track_memory_qubits (bool): When True, memory qubits are tracked
             separately from compute qubits. When False, all qubits are treated
             as compute qubits. Also, if True, read-from-memory and

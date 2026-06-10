@@ -45,12 +45,12 @@ class CirqApplication(Application[CirqApplicationParams]):
             this threshold are treated as identity and omitted from the
             trace. This applies to single-qubit rotations (RX, RY, RZ) as
             well as to the rotation components of controlled-Z
-            decompositions. Defaults to 1e-6.
+            decompositions. Defaults to 1e-12.
     """
 
     circuit_or_qasm: str | cirq.CIRCUIT_LIKE
     classical_control_probability: float = 0.5
-    rotation_threshold: float = 1e-6
+    rotation_threshold: float = 1e-12
 
     def __post_init__(self):
         telemetry_events.on_qre_application_created("CirqApplication")

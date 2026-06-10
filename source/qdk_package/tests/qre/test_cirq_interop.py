@@ -17,7 +17,7 @@ from qdk.qre.interop._cirq import (
 
 def test_with_qft():
     """Test trace generation from a 1025-qubit QFT circuit."""
-    _test_one_circuit(cirq.qft(*cirq.LineQubit.range(1025)), 1025, 74142, 92932)
+    _test_one_circuit(cirq.qft(*cirq.LineQubit.range(1025)), 1025, 78166, 97962)
 
 
 def test_h():
