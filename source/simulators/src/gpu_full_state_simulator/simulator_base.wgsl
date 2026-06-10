@@ -285,13 +285,14 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         return;
     }
 
-    // Before doing further work, if any qubit for the gate is lost, just skip by marking the op as ID
-     if (shot.qubit_state[op.q1].heat == -1.0) ||
-         (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ || op.id == OPID_SWAP || op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ || op.id == OPID_MAT2Q) &&
-       (shot.qubit_state[op.q2].heat == -1.0) {
-        shot.op_type = OPID_ID;
-        shot.op_idx = op_idx;
-        return;
+    // Before doing further work, if any qubit for the gate is lost, dispatch
+    // the gate's configured loss policy (stamped on op.q3). For most policies
+    // this fully handles the op; APPLY_ANYWAY returns false so the gate runs as
+    // usual below.
+    if (gate_has_lost_operand(shot_idx, op_idx, op.q1, op.q2)) {
+        if (handle_lost_operand_policy(shot_idx, op_idx, op.q1, op.q2)) {
+            return;
+        }
     }
 
     // If there is loss noise to apply, do that now

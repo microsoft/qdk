@@ -17,6 +17,51 @@ pub trait Fault {
     fn loss() -> Self;
 }
 
+/// Specifies the behavior of a gate when at least one of its qubit
+/// operands is lost.
+///
+/// This lets users experiment with different lost-qubit gate behaviors
+/// from Python (via the per-gate `on_loss` field of the noise config)
+/// without modifying and recompiling the simulator.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LossPolicy {
+    /// If any of the qubit operands of a gate is lost, skip the gate entirely.
+    #[default]
+    Skip,
+    /// If any of the qubit operands of a gate is lost, propagate the loss to
+    /// the other operands (the surviving operands are measured, reset, and
+    /// flagged as lost) and skip the gate.
+    Propagate,
+    /// For multi-qubit rotations, degrade the unitary to its single-qubit
+    /// version applied to the surviving operand (e.g. `rxx` -> `rx`).
+    /// For gates with no single-qubit reduction (`cx`, `cy`, `cz`, `swap`,
+    /// and single-qubit gates) this falls back to [`LossPolicy::Skip`].
+    Degrade,
+    /// Skip the gate and instead apply an `S` adjoint to each surviving operand.
+    ResidualSDagger,
+    /// Apply the unitary anyway, ignoring the loss. Lost operands (already
+    /// measured and reset to the zero state) remain flagged as lost.
+    ApplyAnyway,
+}
+
+impl LossPolicy {
+    /// Encodes the policy as a `u32` for transport to the GPU shader.
+    ///
+    /// The values match the Python `LossPolicy` enum (`SKIP = 1` ..
+    /// `APPLY_ANYWAY = 5`). The value `0` is reserved by the shader to mean
+    /// "no policy stamped" and is never produced here.
+    #[must_use]
+    pub fn as_u32(self) -> u32 {
+        match self {
+            Self::Skip => 1,
+            Self::Propagate => 2,
+            Self::Degrade => 3,
+            Self::ResidualSDagger => 4,
+            Self::ApplyAnyway => 5,
+        }
+    }
+}
+
 /// Noise description for each operation.
 ///
 /// This is the format in which the user config files are
@@ -80,10 +125,10 @@ impl<T: Float + ConstZero, Q: Float> NoiseConfig<T, Q> {
         cx: NoiseTable::<T>::noiseless(2),
         cy: NoiseTable::<T>::noiseless(2),
         cz: NoiseTable::<T>::noiseless(2),
-        rxx: NoiseTable::<T>::noiseless(2),
-        ryy: NoiseTable::<T>::noiseless(2),
-        rzz: NoiseTable::<T>::noiseless(2),
-        swap: NoiseTable::<T>::noiseless(2),
+        rxx: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        ryy: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        rzz: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        swap: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::ApplyAnyway),
         ccx: NoiseTable::<T>::noiseless(3),
         mov: NoiseTable::<T>::noiseless(1),
         mz: NoiseTable::<T>::noiseless(1),
@@ -135,16 +180,24 @@ pub struct NoiseTable<T: Float> {
     pub pauli_strings: Vec<u64>,
     pub probabilities: Vec<T>,
     pub loss: T,
+    /// The behavior of this gate when at least one of its operands is lost.
+    pub on_loss: LossPolicy,
 }
 
 impl<T: Float + ConstZero> NoiseTable<T> {
     #[must_use]
     pub const fn noiseless(qubits: u32) -> Self {
+        Self::noiseless_with_loss_policy(qubits, LossPolicy::Skip)
+    }
+
+    #[must_use]
+    pub const fn noiseless_with_loss_policy(qubits: u32, on_loss: LossPolicy) -> Self {
         Self {
             qubits,
             pauli_strings: Vec::new(),
             probabilities: Vec::new(),
             loss: num_traits::ConstZero::ZERO,
+            on_loss,
         }
     }
 }
@@ -246,6 +299,8 @@ where
 pub struct CumulativeNoiseTable<T> {
     pub sampler: CorrelatedNoiseSampler<T>,
     pub loss: f64,
+    /// The behavior of this gate when at least one of its operands is lost.
+    pub on_loss: LossPolicy,
 }
 
 impl<F> From<NoiseTable<f64>> for CumulativeNoiseTable<F>
@@ -262,6 +317,7 @@ where
         Self {
             sampler: CorrelatedNoiseSampler::new(choices, probs),
             loss: value.loss,
+            on_loss: value.on_loss,
         }
     }
 }

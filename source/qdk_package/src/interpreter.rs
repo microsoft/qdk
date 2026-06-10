@@ -23,7 +23,7 @@ use crate::{
     },
     noisy_simulator::register_noisy_simulator_submodule,
     qir_simulation::{
-        IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
+        IdleNoiseParams, LossPolicy, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         cpu_simulators::{
             run_clifford, run_clifford_adaptive, run_cpu_adaptive, run_cpu_full_state,
         },
@@ -104,6 +104,7 @@ fn verify_classes_are_sendable() {
     is_send::<NoiseConfig>();
     is_send::<NoiseTable>();
     is_send::<IdleNoiseParams>();
+    is_send::<LossPolicy>();
 }
 
 #[pymodule]
@@ -133,6 +134,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<NoiseConfig>()?;
     m.add_class::<NoiseTable>()?;
     m.add_class::<IdleNoiseParams>()?;
+    m.add_class::<LossPolicy>()?;
     m.add_function(wrap_pyfunction!(physical_estimates, m)?)?;
     m.add_function(wrap_pyfunction!(run_clifford, m)?)?;
     m.add_function(wrap_pyfunction!(try_create_gpu_adapter, m)?)?;

@@ -9,7 +9,7 @@ use crate::qir_simulation::correlated_noise::parse_noise_table;
 
 use num_traits::{Float, Unsigned};
 use pyo3::{
-    Bound, FromPyObject, Py, PyRef, PyResult, Python,
+    Bound, FromPyObject, Py, PyAny, PyRef, PyResult, Python,
     exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError},
     pybacked::PyBackedStr,
     pyclass, pymethods,
@@ -86,6 +86,47 @@ pub enum QirInstruction {
         u32,      /* table id */
         Vec<u32>, /* qubit args */
     ),
+}
+
+/// Specifies the behavior of a gate when at least one of its qubit operands
+/// is lost. Mirrors [`qdk_simulators::noise_config::LossPolicy`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
+pub enum LossPolicy {
+    #[pyo3(name = "SKIP")]
+    Skip = 1,
+    #[pyo3(name = "PROPAGATE")]
+    Propagate = 2,
+    #[pyo3(name = "DEGRADE")]
+    Degrade = 3,
+    #[pyo3(name = "RESIDUAL_S_DAGGER")]
+    ResidualSDagger = 4,
+    #[pyo3(name = "APPLY_ANYWAY")]
+    ApplyAnyway = 5,
+}
+
+impl From<LossPolicy> for qdk_simulators::noise_config::LossPolicy {
+    fn from(value: LossPolicy) -> Self {
+        match value {
+            LossPolicy::Skip => Self::Skip,
+            LossPolicy::Propagate => Self::Propagate,
+            LossPolicy::Degrade => Self::Degrade,
+            LossPolicy::ResidualSDagger => Self::ResidualSDagger,
+            LossPolicy::ApplyAnyway => Self::ApplyAnyway,
+        }
+    }
+}
+
+impl From<qdk_simulators::noise_config::LossPolicy> for LossPolicy {
+    fn from(value: qdk_simulators::noise_config::LossPolicy) -> Self {
+        match value {
+            qdk_simulators::noise_config::LossPolicy::Skip => Self::Skip,
+            qdk_simulators::noise_config::LossPolicy::Propagate => Self::Propagate,
+            qdk_simulators::noise_config::LossPolicy::Degrade => Self::Degrade,
+            qdk_simulators::noise_config::LossPolicy::ResidualSDagger => Self::ResidualSDagger,
+            qdk_simulators::noise_config::LossPolicy::ApplyAnyway => Self::ApplyAnyway,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -360,6 +401,9 @@ pub struct NoiseTable {
     pauli_noise: FxHashMap<u64, Probability>,
     #[pyo3(get, set)]
     pub loss: Probability,
+    /// The behavior of this gate when at least one of its operands is lost.
+    #[pyo3(get)]
+    pub on_loss: LossPolicy,
 }
 
 impl NoiseTable {
@@ -504,6 +548,7 @@ impl NoiseTable {
             qubits: num_qubits,
             pauli_noise: FxHashMap::default(),
             loss: 0.0,
+            on_loss: LossPolicy::Skip,
         }
     }
 
@@ -531,12 +576,19 @@ impl NoiseTable {
     ///
     /// for arbitrary pauli fields. Setting an element that was
     /// previously set overrides that entry with the new value.
-    fn __setattr__(&mut self, name: &str, value: Probability) -> PyResult<()> {
-        if name == "loss" {
-            self.loss = value;
-            Ok(())
-        } else {
-            self.set_pauli_noise_elt(&name.to_uppercase(), value)
+    ///
+    /// The `on_loss` attribute is special-cased to accept a `LossPolicy`.
+    fn __setattr__(&mut self, name: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        match name {
+            "on_loss" => {
+                self.on_loss = value.extract::<LossPolicy>()?;
+                Ok(())
+            }
+            "loss" => {
+                self.loss = value.extract::<Probability>()?;
+                Ok(())
+            }
+            _ => self.set_pauli_noise_elt(&name.to_uppercase(), value.extract::<Probability>()?),
         }
     }
 
@@ -629,6 +681,7 @@ impl<T: Float> From<NoiseTable> for qdk_simulators::noise_config::NoiseTable<T> 
             pauli_strings,
             probabilities,
             loss: generic_float_cast(value.loss),
+            on_loss: value.on_loss.into(),
         }
     }
 }
@@ -648,6 +701,7 @@ fn from_noise_table_ref<T: Float>(
         pauli_strings,
         probabilities,
         loss: generic_float_cast(value.loss),
+        on_loss: value.on_loss.into(),
     }
 }
 
@@ -668,6 +722,7 @@ impl<T: Float> From<qdk_simulators::noise_config::NoiseTable<T>> for NoiseTable 
             qubits: value.qubits,
             pauli_noise,
             loss: generic_float_cast(value.loss),
+            on_loss: value.on_loss.into(),
         }
     }
 }

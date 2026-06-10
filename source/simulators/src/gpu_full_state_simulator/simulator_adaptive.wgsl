@@ -1569,6 +1569,16 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             shot.op_idx = op_idx;
             shot.op_type = op.id;
 
+            // If any operand is lost, dispatch the gate's configured loss
+            // policy (stamped on op.q3). For most policies this fully handles
+            // the op; APPLY_ANYWAY returns false so the gate runs as usual.
+            if gate_has_lost_operand(shot_idx, op_idx, q1, q2) {
+                if handle_lost_operand_policy(shot_idx, op_idx, q1, q2) {
+                    shots[shot_idx].interp.status = STATUS_RUNNING;
+                    return;
+                }
+            }
+
             // Check for noise ops after this gate in the ops pool
             let pauli_op_idx = get_pauli_noise_idx(op_idx);
             let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));

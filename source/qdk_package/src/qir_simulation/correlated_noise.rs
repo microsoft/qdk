@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap;
 use std::fmt;
 use std::str::FromStr;
 
-use crate::qir_simulation::NoiseTable;
+use crate::qir_simulation::{LossPolicy, NoiseTable};
 
 /// Errors that can occur while parsing a noise-table CSV.
 #[derive(Debug)]
@@ -85,6 +85,7 @@ pub fn parse_noise_table(contents: &str) -> Result<NoiseTable, ParseError> {
             qubits: qubits.unwrap_or(0),
             pauli_noise,
             loss: 0.0,
+            on_loss: LossPolicy::Skip,
         });
     }
 
@@ -158,6 +159,7 @@ pub fn parse_noise_table(contents: &str) -> Result<NoiseTable, ParseError> {
         qubits,
         pauli_noise,
         loss: 0.0,
+        on_loss: LossPolicy::Skip,
     })
 }
 
