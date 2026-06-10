@@ -852,7 +852,7 @@ export class LearningService {
         description: activity.description,
         filePath: fileUri.toString(),
         isComplete: this.isComplete(location),
-        hasAlternatives: activity.solutionCodes.length > 1,
+        hasMultipleSolutions: activity.solutionCodes.length > 1,
       } satisfies ExerciseContent;
     }
 

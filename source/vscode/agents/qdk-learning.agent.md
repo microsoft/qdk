@@ -92,7 +92,7 @@ Call `hint` and `read-code` together. The response contains `hints` (short nudge
 
 ### After a Passing Check
 
-Render the result, offer a brief reaction. Don't auto-call `next` — the user may want to review the solution first. If the exercise has alternative approaches (indicated by the panel showing a "See alternative approaches" link), you may briefly mention that other approaches exist, but don't present them unless asked.
+Render the result, offer a brief reaction. Don't auto-call `next` — the user may want to review the solution first. If the exercise has multiple solutions (indicated by the `hasMultipleSolutions` property), you may briefly mention that other approaches exist, but don't present them unless asked.
 
 ## Don'ts
 

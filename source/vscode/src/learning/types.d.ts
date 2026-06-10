@@ -61,7 +61,7 @@ export interface ExerciseContent {
   filePath: string;
   isComplete: boolean;
   /** True when multiple reference solutions exist for this exercise. */
-  hasAlternatives: boolean;
+  hasMultipleSolutions: boolean;
 }
 
 // ─── Actions ───

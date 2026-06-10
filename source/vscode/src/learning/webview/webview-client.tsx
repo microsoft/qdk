@@ -235,9 +235,9 @@ function App() {
         <OutputPanel
           output={output}
           onDismiss={onDismiss}
-          hasAlternatives={
+          hasMultipleSolutions={
             learning.position.content.type === "exercise" &&
-            learning.position.content.hasAlternatives
+            learning.position.content.hasMultipleSolutions
           }
         />
       ) : null}
@@ -386,11 +386,11 @@ function FilePathNote({
 function OutputPanel({
   output: out,
   onDismiss,
-  hasAlternatives,
+  hasMultipleSolutions,
 }: {
   output: OutputState;
   onDismiss: () => void;
-  hasAlternatives: boolean;
+  hasMultipleSolutions: boolean;
 }) {
   const className = "output" + (out.variant ? " " + out.variant : "");
   const label = out.variant ? "Result" : "Output";
@@ -406,17 +406,17 @@ function OutputPanel({
         ×
       </button>
       <div class="out-label">{label}</div>
-      <OutputBody output={out} hasAlternatives={hasAlternatives} />
+      <OutputBody output={out} hasMultipleSolutions={hasMultipleSolutions} />
     </div>
   );
 }
 
 function OutputBody({
   output: out,
-  hasAlternatives,
+  hasMultipleSolutions,
 }: {
   output: OutputState;
-  hasAlternatives: boolean;
+  hasMultipleSolutions: boolean;
 }) {
   switch (out.type) {
     case "loading":
@@ -432,17 +432,20 @@ function OutputBody({
     }
     case "check":
       return (
-        <SolutionResult result={out.result} hasAlternatives={hasAlternatives} />
+        <SolutionResult
+          result={out.result}
+          hasMultipleSolutions={hasMultipleSolutions}
+        />
       );
   }
 }
 
 function SolutionResult({
   result,
-  hasAlternatives,
+  hasMultipleSolutions,
 }: {
   result: SolutionCheckResult;
-  hasAlternatives: boolean;
+  hasMultipleSolutions: boolean;
 }) {
   return (
     <>
@@ -461,7 +464,7 @@ function SolutionResult({
           <span class="codicon codicon-sparkle" /> What went wrong?
         </span>
       )}
-      {result.passed && hasAlternatives && (
+      {result.passed && hasMultipleSolutions && (
         <span
           class="chat-link"
           onClick={() =>
