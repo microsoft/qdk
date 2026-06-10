@@ -74,24 +74,12 @@ fn print_target(target: &Target) {
 }
 
 fn main() {
-    let stim_code = "\
-H 0 1
-CNOT 0 1
-X_ERROR(0.1) 0 1
-M 0 1
-DETECTOR[D0] rec[-1] rec[-2]
-OBSERVABLE_INCLUDE(0) rec[-1]
-REPEAT 100 {
-    H 0
-    CNOT 0 1
-    M 0 1
-    DETECTOR rec[-1] rec[-2]
-}
-";
+    let stim_code = std::fs::read_to_string("examples/example.stim")
+        .expect("Failed to read examples/example.stim");
 
     println!("Input:\n{stim_code}");
     println!("{:=<60}", "");
 
-    let circuit = parse(stim_code);
+    let circuit = parse(&stim_code);
     print_circuit(&circuit);
 }
