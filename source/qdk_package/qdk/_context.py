@@ -138,8 +138,13 @@ def _visual_circuit_signature(circuit_json: str, index: int) -> tuple[int, str, 
 
 
 def _visual_circuit_wrapper_source(
-    operation_name: str, wrapper_name: str, qubit_count: int, return_type: str
+    helper_source: str,
+    operation_name: str,
+    wrapper_name: str,
+    qubit_count: int,
+    return_type: str,
 ) -> str:
+    helper_source = _indent_qsharp_source(helper_source.strip() + "\n\n")
     if qubit_count == 0:
         allocation = ""
         call = f"{operation_name}()"
@@ -152,6 +157,7 @@ def _visual_circuit_wrapper_source(
     if return_type == "Unit":
         return (
             f"operation {wrapper_name}() : Unit {{\n"
+            f"{helper_source}"
             f"{allocation}"
             f"    {call};\n"
             f"{reset}"
@@ -160,6 +166,7 @@ def _visual_circuit_wrapper_source(
 
     return (
         f"operation {wrapper_name}() : {return_type} {{\n"
+        f"{helper_source}"
         f"{allocation}"
         f"    let result = {call};\n"
         f"{reset}"
@@ -168,7 +175,14 @@ def _visual_circuit_wrapper_source(
     )
 
 
-def _mark_visual_circuit_operations_internal(
+def _indent_qsharp_source(source: str) -> str:
+    return "".join(
+        f"    {line}" if line.strip() else line
+        for line in source.splitlines(keepends=True)
+    )
+
+
+def _rename_visual_circuit_operations(
     source: str, operation_name: str, circuit_count: int
 ) -> str:
     for index in range(circuit_count):
@@ -177,7 +191,7 @@ def _mark_visual_circuit_operations_internal(
         )
         source = source.replace(
             f"operation {callable_name}(",
-            f"internal operation {callable_name}_Operation(",
+            f"operation {callable_name}_Operation(",
         )
     return source
 
@@ -620,32 +634,24 @@ class Context:
         )
         eval_source = generated_source
         callable_name = circuit_operation_name
-        helper_callable_names: list[str] = []
         if program_type == ProgramType.File:
             circuit_helper_name = f"{circuit_operation_name}_Operation"
-            helper_callable_names = [
-                (
-                    f"{operation_name}_Operation"
-                    if circuit_count == 1
-                    else f"{operation_name}{helper_index}_Operation"
-                )
-                for helper_index in range(circuit_count)
-            ]
-            generated_source = _mark_visual_circuit_operations_internal(
+            generated_source = _rename_visual_circuit_operations(
                 generated_source, operation_name, circuit_count
             )
             wrapper_source = _visual_circuit_wrapper_source(
-                circuit_helper_name, circuit_operation_name, qubit_count, return_type
+                generated_source,
+                circuit_helper_name,
+                circuit_operation_name,
+                qubit_count,
+                return_type,
             )
-            eval_source = f"{generated_source}\n{wrapper_source}"
+            eval_source = wrapper_source
 
         # generated_source is produced by the native visual-circuit compiler;
         # wrapper_source, when present, is assembled from sanitized operation
         # names and type metadata.
         self.eval(eval_source)  # DevSkim: ignore DS189424
-        for helper_callable_name in helper_callable_names:
-            if hasattr(self.code, helper_callable_name):
-                delattr(self.code, helper_callable_name)
         return getattr(self.code, callable_name)
 
     def eval(
