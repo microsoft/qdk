@@ -124,7 +124,7 @@ export function Editor(props: {
 
     const markers = VSDiagsToMarkers(errs);
     monaco.editor.setModelMarkers(model, "qsharp", markers);
-    
+
     const errList = markers
       // Hints (e.g. grayed-out excluded code) are shown inline only, not in the
       // diagnostics list below the editor, mirroring VS Code's Problems view.
