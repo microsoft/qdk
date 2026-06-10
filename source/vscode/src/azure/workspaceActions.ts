@@ -314,18 +314,31 @@ async function getWorkspaceWithConnectionString(
       }
     } catch (e: any) {
       log.debug("Workspace connection error", e);
-      // e.g. check for 401 (invalid key), 404 (invalid workspace), failed network requests (invalid endpoint), etc.
+      // e.g. check for 401 (invalid key / no access), 403 (no access), 404 (invalid
+      // workspace), failed network requests (invalid endpoint), or a failed/cancelled
+      // interactive sign-in when authenticating via Entra ID (tenant id).
+      const usingEntraId = !workspace.apiKey;
+      const workspaceDescription =
+        `the workspace "${workspace.name}"` +
+        (workspace.tenantId ? ` in tenant ${workspace.tenantId}` : "");
       let errorText = "An unexpected error occurred";
       const message: string | undefined = e.message;
-      if (message?.includes("status 401")) {
-        errorText =
-          "Authentication failed. Please check the ApiKey is valid and active.";
+      if (message?.includes("status 401") || message?.includes("status 403")) {
+        errorText = usingEntraId
+          ? `Authentication failed. The signed-in account does not appear to have access to ${workspaceDescription}. Please verify the account has been granted access to this workspace.`
+          : "Authentication failed. Please check the ApiKey is valid and active.";
       } else if (message?.includes("status 404")) {
         errorText =
           "Workspace not found. Please check the WorkspaceName and ResourceGroupName values.";
       } else if (message?.includes("Failed to fetch")) {
         errorText =
           "Request failed. Please check the QuantumEndpoint value and network connectivity.";
+      } else if (usingEntraId) {
+        // No HTTP status code: the interactive sign-in itself failed or was
+        // cancelled (e.g. the account is not a member of the tenant, or consent
+        // was denied). Without this branch the failure would surface only as a
+        // generic message, appearing to fail silently to the user.
+        errorText = `Authentication failed. Unable to sign in to ${workspaceDescription}. Please verify the account has access to this workspace and try again.`;
       }
       const action = await vscode.window.showErrorMessage(
         errorText,
