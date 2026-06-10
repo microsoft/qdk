@@ -91,7 +91,13 @@ export function Editor(props: {
   setQir: (qir: string) => void;
   activeTab: ActiveTab;
   languageService: ILanguageServiceWorker;
+  language?: "qsharp" | "openqasm";
 }) {
+  // The editor is remounted (keyed on language in the parent) whenever the
+  // language changes, so this is stable for the lifetime of the component.
+  const language = props.language ?? "qsharp";
+  const fileName = language === "openqasm" ? "main.qasm" : "main.qs";
+
   const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const errMarks = useRef<ErrCollection>({ checkDiags: [], shotDiags: [] });
   const editorDiv = useRef<HTMLDivElement>(null);
@@ -124,7 +130,7 @@ export function Editor(props: {
       // diagnostics list below the editor, mirroring VS Code's Problems view.
       .filter((err) => err.severity !== monaco.MarkerSeverity.Hint)
       .map((err) => ({
-        location: `main.qs@(${err.startLineNumber},${err.startColumn})`,
+        location: `${fileName}@(${err.startLineNumber},${err.startColumn})`,
         severity: err.severity,
         msg: err.message.split("\n\n"),
       }));
@@ -139,18 +145,26 @@ export function Editor(props: {
       sources: [["code", code]] as [string, string][],
       languageFeatures: [],
       profile:
-        (await getTargetProfileFromEntryPoint("main.qs", code)) ||
+        (language === "openqasm"
+          ? undefined
+          : await getTargetProfileFromEntryPoint("main.qs", code)) ||
         "adaptive_rif", // Default to adaptive_rif for qir and rir generation
+      projectType: language,
     };
 
     if (props.activeTab === "ast-tab") {
-      props.setAst(await props.compiler.getAst(code, config.languageFeatures));
+      props.setAst(await props.compiler.getAst(config));
+      return;
     }
     if (props.activeTab === "hir-tab") {
-      props.setHir(await props.compiler.getHir(code, config.languageFeatures));
+      props.setHir(await props.compiler.getHir(config));
+      return;
     }
-    const codeGenTimeout = 1000; // ms
+
     if (props.activeTab === "qir-tab" || props.activeTab === "rir-tab") {
+      // OpenQASM codegen runs through the interpreter and is slower than Q#'s
+      // direct path, so allow more time before terminating the worker.
+      const codeGenTimeout = language === "openqasm" ? 10000 : 1000; // ms
       let timedOut = false;
       const compiler = props.compiler_worker_factory();
       const compilerTimeout = setTimeout(() => {
@@ -195,7 +209,12 @@ export function Editor(props: {
     const config = {
       sources: [["code", code]],
       languageFeatures: [],
-      profile: await getTargetProfileFromEntryPoint("main.qs", code),
+      // The entry-point profile annotation is Q#-specific; skip it for OpenQASM.
+      profile:
+        language === "openqasm"
+          ? undefined
+          : await getTargetProfileFromEntryPoint("main.qs", code),
+      projectType: language,
     } as ProgramConfig;
 
     try {
@@ -246,12 +265,12 @@ export function Editor(props: {
     editor.current = newEditor;
     const srcModel =
       monaco.editor.getModel(
-        monaco.Uri.parse(props.kataSection?.id ?? "main.qs"),
+        monaco.Uri.parse(props.kataSection?.id ?? fileName),
       ) ??
       monaco.editor.createModel(
         "",
-        "qsharp",
-        monaco.Uri.parse(props.kataSection?.id ?? "main.qs"),
+        language,
+        monaco.Uri.parse(props.kataSection?.id ?? fileName),
       );
     srcModel.setValue(props.code);
     newEditor.setModel(srcModel);
@@ -272,6 +291,7 @@ export function Editor(props: {
         srcModel.uri.toString(),
         srcModel.getVersionId(),
         srcModel.getValue(),
+        language,
       );
       const measure = performance.measure(
         "update-document",
@@ -289,7 +309,7 @@ export function Editor(props: {
     return () => {
       log.info("Disposing a monaco editor");
       window.removeEventListener("resize", onResize);
-      props.languageService.closeDocument(srcModel.uri.toString());
+      props.languageService.closeDocument(srcModel.uri.toString(), language);
       newEditor.dispose();
     };
   }, []);
@@ -359,6 +379,13 @@ export function Editor(props: {
       // Update or add the current URL parameter 'code'
       const newURL = new URL(window.location.href);
       newURL.searchParams.set("code", escapedCode);
+      // Encode the language so shared OpenQASM links reopen in OpenQASM mode.
+      // Q# is the default, so it's left out to keep existing links working.
+      if (language === "openqasm") {
+        newURL.searchParams.set("lang", language);
+      } else {
+        newURL.searchParams.delete("lang");
+      }
 
       // Copy link to clipboard and update url without reloading the page
       navigator.clipboard.writeText(newURL.toString());
@@ -391,7 +418,7 @@ export function Editor(props: {
   return (
     <div class="editor-column">
       <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div class="file-name">main.qs</div>
+        <div class="file-name">{fileName}</div>
         <div class="icon-row">
           <svg
             onClick={onGetLink}

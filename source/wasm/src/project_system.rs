@@ -493,6 +493,18 @@ pub(crate) fn into_openqasm_arg(
     (sources, profile.into())
 }
 
+/// Extracts the root user sources and language features from a Q# program config.
+/// Used by the AST and HIR views, which compile against the cached core+std store.
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn into_qsharp_ast_args(
+    program: ProgramConfig,
+) -> (qsc::SourceMap, qsc::LanguageFeatures) {
+    let pkg_graph: PackageGraphSources = program.packageGraphSources().into();
+    let pkg_graph: qsc_project::PackageGraphSources = pkg_graph.into();
+    let source_map = qsc::SourceMap::new(pkg_graph.root.sources, None);
+    (source_map, pkg_graph.root.language_features)
+}
+
 pub(crate) fn is_openqasm_program(program: &ProgramConfig) -> bool {
     program.projectType() == "openqasm"
 }
