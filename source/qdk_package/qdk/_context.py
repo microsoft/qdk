@@ -9,10 +9,12 @@ Each Context instance has its own interpreter and code namespace, allowing multi
 independent Q# environments to coexist.
 """
 
+import json
 import sys
 import types
 import weakref
 from dataclasses import make_dataclass
+from pathlib import PurePath, PureWindowsPath
 from time import monotonic
 from typing import (
     Any,
@@ -39,6 +41,7 @@ from ._native import (  # type: ignore
     Output,
     Pauli,
     PrimitiveKind,
+    ProgramType,
     QSharpError,
     Result,
     StateDumpData,
@@ -46,6 +49,7 @@ from ._native import (  # type: ignore
     TypeIR,
     TypeKind,
     UdtValue,
+    compile_visual_circuit_to_qsharp,
 )
 from ._types import (
     BitFlipNoise,
@@ -80,6 +84,24 @@ def ipython_helper():
             from IPython.display import display
     except NameError:
         pass
+
+
+def _path_stem(path: str) -> str:
+    path_type = PureWindowsPath if "\\" in path else PurePath
+    stem = path_type(path).stem
+    return stem or "circuit"
+
+
+def _visual_circuit_count(circuit_json: str) -> int:
+    try:
+        data = json.loads(circuit_json)
+    except json.JSONDecodeError as err:
+        raise QSharpError(f"Failed to parse visual circuit JSON: {err}") from err
+
+    circuits = data.get("circuits") if isinstance(data, dict) else None
+    if not isinstance(circuits, list) or len(circuits) == 0:
+        raise QSharpError("Visual circuit files must contain at least one circuit.")
+    return len(circuits)
 
 
 def make_class_rec(qsharp_type: TypeIR) -> type:
@@ -465,6 +487,63 @@ class Context:
             return
         if getattr(struct_type, "_qdk_context") is not self:
             raise QSharpError("This struct belongs to a different Context. ")
+
+    def import_circuit(
+        self,
+        path: str,
+        *,
+        index: int = 0,
+        name: Optional[str] = None,
+        program_type: ProgramType = ProgramType.File,
+    ) -> Callable:
+        """
+        Imports a visual circuit file as a callable in this context.
+
+        :param path: Path to a ``.qsc`` visual circuit file.
+        :keyword index: Index of the circuit to return when the file contains
+            multiple circuits. Defaults to ``0``.
+        :keyword name: Optional Q# operation name to use for the imported
+            circuit. Defaults to the file name stem.
+        :keyword program_type: Controls how the circuit is imported:
+            ``ProgramType.File`` (default) imports a zero-argument wrapper that
+            allocates the circuit qubits, applies the visual circuit, resets the
+            qubits, and returns any measurement results. ``ProgramType.Operation``
+            imports the visual circuit operation itself, which takes a
+            ``Qubit[]`` argument and is intended for composition from Q# entry
+            expressions.
+        :return: The imported Q# callable.
+        :rtype: Callable
+        :raises QSharpError: If the file cannot be read or converted to Q#.
+        """
+        from ._fs import read_file, resolve
+
+        if program_type not in (ProgramType.File, ProgramType.Operation):
+            raise QSharpError(
+                "Visual circuit import supports ProgramType.File and "
+                "ProgramType.Operation only."
+            )
+
+        resolved_path = resolve(".", path)
+        try:
+            _, circuit_json = read_file(resolved_path)
+        except Exception as err:
+            raise QSharpError(f"Error reading visual circuit file {resolved_path}.") from err
+
+        circuit_count = _visual_circuit_count(circuit_json)
+        operation_base_name = name if name is not None else _path_stem(resolved_path)
+
+        operation_name, generated_source = compile_visual_circuit_to_qsharp(
+            operation_base_name, circuit_json, index, program_type
+        )
+        eval_source = generated_source
+        if program_type == ProgramType.Operation and circuit_count > 1:
+            callable_name = f"{operation_name}{index}"
+        else:
+            callable_name = operation_name
+
+        # generated_source is produced by the native visual-circuit compiler.
+        self.eval(eval_source)  # DevSkim: ignore DS189424
+        return getattr(self.code, callable_name)
 
     def eval(
         self,
