@@ -5564,3 +5564,102 @@ fn complex_literal_does_not_support_mod() {
         "##]],
     );
 }
+
+#[test]
+fn call_expr_unit_arg_assign() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "A.Foo(q = 1)",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-69 "A.Foo(q = 1)" : Unit
+            #17 57-62 "A.Foo" : (Unit -> Unit)
+            #21 62-69 "(q = 1)" : Unit
+            #22 63-68 "q = 1" : Unit
+            #23 63-64 "q" : ?
+            #26 67-68 "1" : Int
+            Error(Resolve(NotFound("q", Span { lo: 63, hi: 64 })))
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_assignop() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "A.Foo(i += 1)",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-70 "A.Foo(i += 1)" : Unit
+            #17 57-62 "A.Foo" : (Unit -> Unit)
+            #21 62-70 "(i += 1)" : Unit
+            #22 63-69 "i += 1" : Unit
+            #23 63-64 "i" : ?
+            #26 68-69 "1" : Int
+            Error(Resolve(NotFound("i", Span { lo: 63, hi: 64 })))
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_assignupdate() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "A.Foo(set arr w/= 0 <- 10)",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-83 "A.Foo(set arr w/= 0 <- 10)" : Unit
+            #17 57-62 "A.Foo" : (Unit -> Unit)
+            #21 62-83 "(set arr w/= 0 <- 10)" : Unit
+            #22 63-82 "set arr w/= 0 <- 10" : Unit
+            #23 67-70 "arr" : ?
+            #26 75-76 "0" : Int
+            #27 80-82 "10" : Int
+            Error(Resolve(NotFound("arr", Span { lo: 67, hi: 70 })))
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_block() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "A.Foo({})",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-66 "A.Foo({})" : Unit
+            #17 57-62 "A.Foo" : (Unit -> Unit)
+            #21 62-66 "({})" : Unit
+            #22 63-65 "{}" : Unit
+            #23 63-65 "{}" : Unit
+        "##]],
+    );
+}

@@ -277,8 +277,14 @@ impl<'a> Context<'a> {
                     // If the outermost element is a tuple, we must wrap it in an `ArgTy::Tuple`.
                     let arg_ty = match ty.ty {
                         Ty::Tuple(tys) => {
-                            let spans: Vec<_> = if let ExprKind::Tuple(items) = inner.kind.as_ref()
-                            {
+                            // Some non-tuple expressions don't go through inference - they just statically have type Unit:
+                            // Assign, AssignOp, AssignUpdate, Block (and maybe more in the future).  This means that they
+                            // have tuple type early enough to hit this branch but aren't tuple expressions (which could lead
+                            // to a panic below).  However, the empty tuple ArgTy doesn't actually need any spans, so we can
+                            // just skip the computation in that case, avoiding the whole problem.
+                            let spans: Vec<_> = if tys.is_empty() {
+                                Vec::new()
+                            } else if let ExprKind::Tuple(items) = inner.kind.as_ref() {
                                 items.iter().map(|item| item.span).collect()
                             } else {
                                 panic!("unexpected syntax kind: {:?}", inner.kind)
