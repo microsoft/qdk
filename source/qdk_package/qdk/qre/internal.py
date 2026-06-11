@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import ClassVar, Optional, Protocol, Union
 
+    from ._application import Application
     from ._architecture import Architecture
     from ._instruction import ISATransform
 
