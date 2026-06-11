@@ -275,32 +275,28 @@ impl<'a> Context<'a> {
                         inner = unwrapped;
                     }
                     // If the outermost element is a tuple, we must wrap it in an `ArgTy::Tuple`.
-                    if let Partial {
-                        ty: Ty::Tuple(tys),
-                        diverges,
-                    } = ty
-                    {
-                        let spans: Vec<_> = if let ExprKind::Tuple(items) = inner.kind.as_ref() {
-                            items.iter().map(|item| item.span).collect()
-                        } else {
-                            panic!("unexpected syntax kind: {:?}", inner.kind)
-                        };
-                        Partial {
-                            ty: ArgTy::Tuple(
+                    let arg_ty = match ty.ty {
+                        Ty::Tuple(tys) => {
+                            let spans: Vec<_> = if let ExprKind::Tuple(items) = inner.kind.as_ref()
+                            {
+                                items.iter().map(|item| item.span).collect()
+                            } else {
+                                panic!("unexpected syntax kind: {:?}", inner.kind)
+                            };
+                            ArgTy::Tuple(
                                 tys.into_iter()
                                     .zip(spans)
                                     .map(|(ty, span)| ArgTy::Given(ty, span))
                                     .collect(),
                                 inner.span,
-                            ),
-                            diverges,
+                            )
                         }
-                    } else {
-                        let arg_span = inner.span;
-                        Partial {
-                            ty: ArgTy::Given(ty.ty, arg_span),
-                            diverges: false,
-                        }
+                        _ => ArgTy::Given(ty.ty, inner.span),
+                    };
+
+                    Partial {
+                        ty: arg_ty,
+                        diverges: ty.diverges,
                     }
                 };
                 let output_ty = if callee.ty == Ty::Err {
