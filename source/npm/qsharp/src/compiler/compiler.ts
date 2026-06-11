@@ -37,9 +37,9 @@ type Wasm = typeof import("../../lib/web/qsc_wasm.js");
 export interface ICompiler {
   checkCode(code: string): Promise<VSDiagnostic[]>;
 
-  getAst(code: string, languageFeatures: string[]): Promise<string>;
+  getAst(program: ProgramConfig): Promise<string>;
 
-  getHir(code: string, languageFeatures: string[]): Promise<string>;
+  getHir(program: ProgramConfig): Promise<string>;
 
   getRir(program: ProgramConfig): Promise<string[]>;
 
@@ -148,12 +148,14 @@ export class Compiler implements ICompiler {
     return diags;
   }
 
-  async getAst(code: string, languageFeatures: string[]): Promise<string> {
-    return this.wasm.get_ast(code, languageFeatures);
+  async getAst(program: ProgramConfig): Promise<string> {
+    const config = toWasmProgramConfig(program, "unrestricted");
+    return callAndTransformExceptions(async () => this.wasm.get_ast(config));
   }
 
-  async getHir(code: string, languageFeatures: string[]): Promise<string> {
-    return this.wasm.get_hir(code, languageFeatures);
+  async getHir(program: ProgramConfig): Promise<string> {
+    const config = toWasmProgramConfig(program, "unrestricted");
+    return callAndTransformExceptions(async () => this.wasm.get_hir(config));
   }
 
   async getRir(program: ProgramConfig): Promise<string[]> {

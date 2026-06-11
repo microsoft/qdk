@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from dataclasses import KW_ONLY, dataclass, field
+from typing import cast, Optional
 
 from ..._architecture import Architecture, ISAContext
 from ...instruction_ids import (
@@ -20,14 +21,21 @@ from ..._instruction import ISA
 class Majorana(Architecture):
     """
     This class models physical instructions that may be relevant for future
-    Majorana qubits. For these qubits, we assume that measurements
-    and the physical T gate each take 1 µs. Owing to topological protection in
-    the hardware, we assume single and two-qubit measurement error rates
-    (Clifford error rates) in $10^{-4}$, $10^{-5}$, and $10^{-6}$ as a range
-    between realistic and optimistic targets.  Non-Clifford operations in this
+    Majorana qubits. For these qubits, we assume that measurements and the
+    physical T gate each take 1 µs. Owing to topological protection in the
+    hardware, we assume single and two-qubit measurement error rates (Clifford
+    error rates) in $10^{-4}$, $10^{-5}$, and $10^{-6}$ as a range between
+    realistic and optimistic targets.  Non-Clifford operations in this
     architecture do not have topological protection, so we assume a 5%, 1.5%,
     and 1% error rate for non-Clifford physical T gates for the three cases,
     respectively.
+
+    Attributes:
+        error_rate: The error rate for physical Clifford operations (state
+            preparation and measurement).  Defaults to 1e-5, with a domain of
+            [1e-4, 1e-5, 1e-6] for use in design space exploration.
+        time: The time (in ns) for physical Clifford operations and the T gate.
+            Defaults to 1000 ns (1 µs).
 
     References:
 
@@ -46,25 +54,37 @@ class Majorana(Architecture):
 
     _: KW_ONLY
     error_rate: float = field(default=1e-5, metadata={"domain": [1e-4, 1e-5, 1e-6]})
+    time: int = 1_000
+    t_error_rate: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if self.t_error_rate is None:
+            if abs(self.error_rate - 1e-4) <= 1e-8:
+                self.t_error_rate = 0.05
+            elif abs(self.error_rate - 1e-5) <= 1e-8:
+                self.t_error_rate = 0.015
+            elif abs(self.error_rate - 1e-6) <= 1e-8:
+                self.t_error_rate = 0.01
+            else:
+                raise ValueError(
+                    "Invalid error_rate value. Must be one of [1e-4, 1e-5, 1e-6]."
+                )
 
     def provided_isa(self, ctx: ISAContext) -> ISA:
-        if abs(self.error_rate - 1e-4) <= 1e-8:
-            t_error_rate = 0.05
-        elif abs(self.error_rate - 1e-5) <= 1e-8:
-            t_error_rate = 0.015
-        elif abs(self.error_rate - 1e-6) <= 1e-8:
-            t_error_rate = 0.01
-
         return ctx.make_isa(
-            ctx.add_instruction(PREP_X, time=1000, error_rate=self.error_rate),
-            ctx.add_instruction(PREP_Z, time=1000, error_rate=self.error_rate),
+            ctx.add_instruction(PREP_X, time=self.time, error_rate=self.error_rate),
+            ctx.add_instruction(PREP_Z, time=self.time, error_rate=self.error_rate),
             ctx.add_instruction(
-                MEAS_XX, arity=2, time=1000, error_rate=self.error_rate
+                MEAS_XX, arity=2, time=self.time, error_rate=self.error_rate
             ),
             ctx.add_instruction(
-                MEAS_ZZ, arity=2, time=1000, error_rate=self.error_rate
+                MEAS_ZZ, arity=2, time=self.time, error_rate=self.error_rate
             ),
-            ctx.add_instruction(MEAS_X, time=1000, error_rate=self.error_rate),
-            ctx.add_instruction(MEAS_Z, time=1000, error_rate=self.error_rate),
-            ctx.add_instruction(T, time=1000, error_rate=t_error_rate),
+            ctx.add_instruction(MEAS_X, time=self.time, error_rate=self.error_rate),
+            ctx.add_instruction(MEAS_Z, time=self.time, error_rate=self.error_rate),
+            # NOTE From __post_init__, t_error_rate is guaranteed to be non-None
+            # if error_rate is valid, so we can safely cast it to float here.
+            ctx.add_instruction(
+                T, time=self.time, error_rate=cast(float, self.t_error_rate)
+            ),
         )

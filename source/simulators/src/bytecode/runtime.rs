@@ -76,6 +76,7 @@ const OP_FADD: u8 = 0x38;
 const OP_FSUB: u8 = 0x39;
 const OP_FMUL: u8 = 0x3A;
 const OP_FDIV: u8 = 0x3B;
+const OP_FREM: u8 = 0x3C;
 
 // Type conversion
 const OP_ZEXT: u8 = 0x40;
@@ -86,6 +87,8 @@ const OP_FPTRUNC: u8 = 0x44;
 const OP_INTTOPTR: u8 = 0x45;
 const OP_FPTOSI: u8 = 0x46;
 const OP_SITOFP: u8 = 0x47;
+const OP_FPTOUI: u8 = 0x48;
+const OP_UITOFP: u8 = 0x49;
 
 // SSA / data movement
 const OP_PHI: u8 = 0x50;
@@ -634,6 +637,17 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
                 rt.pc += 1;
             }
 
+            // Rust documentation says f64::rem is implemented as
+            // `x - (x / y).trunc() * y`
+            // which has the same semantics as C's `fmod`,
+            // satisfying LLVM's semantics for `FREM`.
+            OP_FREM => {
+                let a = rt.resolve_f64(instr.src0, flags, 0);
+                let b = rt.resolve_f64(instr.src1, flags, 1);
+                rt.write_f64(instr.dst, a % b);
+                rt.pc += 1;
+            }
+
             // ----- Type conversion -----
             OP_ZEXT | OP_TRUNC | OP_INTTOPTR => {
                 let val = rt.resolve_u64(instr.src0, flags, 0);
@@ -680,6 +694,18 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
 
             OP_SITOFP => {
                 let val = rt.resolve_i64(instr.src0, flags, 0);
+                rt.write_f64(instr.dst, val as f64);
+                rt.pc += 1;
+            }
+
+            OP_FPTOUI => {
+                let val = rt.resolve_f64(instr.src0, flags, 0);
+                rt.write_reg(instr.dst, val as u64);
+                rt.pc += 1;
+            }
+
+            OP_UITOFP => {
+                let val = rt.resolve_u64(instr.src0, flags, 0);
                 rt.write_f64(instr.dst, val as f64);
                 rt.pc += 1;
             }
