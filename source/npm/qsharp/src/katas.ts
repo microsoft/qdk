@@ -14,7 +14,25 @@ export type TextContent = {
   content: string;
 };
 
-export type ContentItem = Example | TextContent;
+/**
+ * Interactive Bloch sphere widget embedded inline in a kata lesson.
+ *
+ * Authored in markdown as `@[bloch]({"gates": "HZH", "title": "..."})`,
+ * which the kata generator turns into one of these items. The
+ * playground renders it as a live `<BlochSphere initialGates={gates}/>`
+ * so students can see the gate sequence play out and tweak it. Other
+ * renderers (VS Code learning view, static katas site) currently fall
+ * back to an informational text/code stand-in.
+ */
+export type BlochItem = {
+  type: "bloch";
+  /** Gate-code string understood by `BlochSphere` (X Y Z H S s T t). */
+  gates: string;
+  /** Optional caption rendered above the widget. */
+  title?: string;
+};
+
+export type ContentItem = Example | TextContent | BlochItem;
 
 export type Solution = {
   type: "solution";

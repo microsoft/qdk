@@ -429,6 +429,14 @@ Like the Pauli gates, the Hadamard gate is self-adjoint.
 > As a reminder, $e^{i\pi/4} = \frac{1}{\sqrt2} (1 + i)$ and $e^{-i\pi/4} = \frac{1}{\sqrt2} (1 - i)$. This is an application of Euler's formula, $e^{i\theta} = \cos \theta + i\sin \theta$, where $\theta$ is measured in radians.
 > See this [Wikipedia article](https://en.wikipedia.org/wiki/Euler%27s_formula) for an explanation of Euler's formula and/or [this video](https://youtu.be/v0YEaeIClKY) for a more intuitive explanation.
 
+The Bloch sphere makes the Hadamard gate's geometric effect concrete: starting at the north pole $\ket{0}$, applying $H$ rotates the qubit by $\pi$ around the diagonal $X+Z$ axis, landing on the equator at $\ket{+}$. Press play to watch.
+
+@[bloch]({"gates": "H", "title": "Hadamard applied to |0⟩"})
+
+The Hadamard gate is self-inverse, which is easy to verify visually: applying $H$ a second time rotates the qubit back to the north pole.
+
+@[bloch]({"gates": "HH", "title": "HH returns to |0⟩"})
+
 @[exercise]({
     "id": "single_qubit_gates__basis_change",
     "title": "Basis Change",
@@ -487,6 +495,14 @@ The next two gates are known as **phase shift gates**. They apply a phase to the
 
 > Notice that applying the $T$ gate twice is equivalent to applying the $S$ gate, and applying the $S$ gate twice is equivalent to applying the $Z$ gate:
 $$T^2 = S, S^2 = Z$$
+
+You can see the $T$ and $S$ relationship on the Bloch sphere by first preparing the $\ket{+}$ state with $H$ and then applying $S$ — the qubit rotates a quarter turn around the $Z$ axis, landing on $\ket{i}$:
+
+@[bloch]({"gates": "HS", "title": "H then S: |0⟩ → |+⟩ → |i⟩"})
+
+Stepping the same sequence with two $T$ gates instead of one $S$ shows the equivalence $T^2 = S$ — both land on $\ket{i}$:
+
+@[bloch]({"gates": "HTT", "title": "H then T twice equals H then S"})
 
 @[exercise]({
     "id": "single_qubit_gates__phase_i",

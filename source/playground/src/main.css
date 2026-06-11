@@ -193,3 +193,27 @@ pre:has(code) {
   background-color: var(--main-background);
 }
 
+/* Wrapper for `@[bloch](...)` directive embeds in lesson prose. Gives
+   the widget vertical separation from the surrounding markdown so it
+   reads as its own block. The widget itself owns its inner layout. */
+.kata-bloch-embed {
+  margin: 24px 0;
+}
+
+.kata-bloch-embed-title {
+  margin: 0 0 8px 0;
+  font-size: 0.95em;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+/* Static katas site fallback for the same directive when the live
+   widget isn't shipped. Renders as a small inset box that links out
+   to the playground. */
+.bloch-fallback {
+  border: 1px solid var(--qdk-widget-outline, #ccc);
+  background: var(--qdk-background-accent, #f6f6f6);
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 4px;
+}
