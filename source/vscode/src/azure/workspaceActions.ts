@@ -210,15 +210,17 @@ workspace = Workspace(
 
 /**
  * Parses a connection string into a WorkspaceConnection, or returns undefined
- * if any required fields are missing or the authentication fields are invalid.
+ * if any required fields are missing.
  * Does not validate the connection against the service — call
  * getTokenForWorkspace / azureRequest to validate.
  *
  * Required fields: SubscriptionId, ResourceGroupName, WorkspaceName, QuantumEndpoint
- * Authentication (exactly one must be provided):
- *   - ApiKey:   use API key authentication
- *   - TenantId: use Entra ID (AAD) authentication; VS Code will prompt the user
- *               to sign in interactively if not already authenticated to this tenant
+ * Optional fields:
+ *   - ApiKey:   if present, API key authentication is used; otherwise Entra ID
+ *               (AAD) authentication is used and VS Code will prompt the user to
+ *               sign in interactively if not already authenticated.
+ *   - TenantId: scopes Entra ID auth and is used for portal deep links. If
+ *               omitted, it is derived from the SubscriptionId.
  *
  * API key format:
  *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>
@@ -240,20 +242,18 @@ export function parseConnectionString(
     partsMap.set(part.substring(0, eq).trim().toLowerCase(), value);
   });
 
+  // Only the core fields are required. Authentication method and tenant id are
+  // handled independently downstream:
+  //   - Auth uses the ApiKey if present, otherwise Entra ID (see getTokenForWorkspace).
+  //   - A missing TenantId is later derived from the SubscriptionId (see
+  //     getWorkspaceWithConnectionString), so it is not required here.
   const hasRequiredFields =
     partsMap.has("subscriptionid") &&
     partsMap.has("resourcegroupname") &&
     partsMap.has("workspacename") &&
     partsMap.has("quantumendpoint");
 
-  const hasApiKey = partsMap.has("apikey");
-  const hasTenantId = partsMap.has("tenantid");
-
-  // Exactly one authentication method must be provided
-  if (
-    !hasRequiredFields ||
-    hasApiKey === hasTenantId // both true or both false
-  ) {
+  if (!hasRequiredFields) {
     return undefined;
   }
 
@@ -266,7 +266,7 @@ export function parseConnectionString(
     id: workspaceId,
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
-    tenantId: partsMap.get("tenantid") ?? "", // Non-empty triggers Entra ID auth in getTokenForWorkspace
+    tenantId: partsMap.get("tenantid") ?? "", // May be empty; derived from the subscription id if missing
     subscriptionId: partsMap.get("subscriptionid"),
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
@@ -302,6 +302,21 @@ async function getWorkspaceWithConnectionString(
         endEventProperties.reason = "invalid connection string entered";
         endEventProperties.flowStatus = UserFlowStatus.Aborted;
         return;
+      }
+    }
+
+    // Tenant id discovery (independent of the auth method). The tenant id is
+    // needed for Entra ID auth and for building portal deep links. If it wasn't
+    // supplied in the connection string, derive it from the subscription id.
+    // This must happen before validation because the Entra ID auth path below
+    // (used whenever there is no API key) requires a tenant id.
+    if (!workspace.tenantId) {
+      // subscriptionId is a required connection-string field, so it is always
+      // set on a parsed workspace here.
+      const subscriptionId = workspace.subscriptionId;
+      if (subscriptionId) {
+        workspace.tenantId =
+          (await getTenantIdForSubscription(subscriptionId)) ?? "";
       }
     }
 
@@ -356,20 +371,6 @@ async function getWorkspaceWithConnectionString(
         endEventProperties.reason = errorText;
         endEventProperties.flowStatus = UserFlowStatus.Aborted;
         return;
-      }
-    }
-
-    // For API key connections, discover and populate the tenant ID from the
-    // subscription so that Entra ID auth can be used in subsequent requests
-    // (e.g. if the API key is later rotated). Skip this if the tenant ID was
-    // already explicitly provided in the connection string.
-    if (!workspace.tenantId) {
-      const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
-      const subscriptionId =
-        workspace.id.match(idRegex)?.groups?.subscriptionId;
-      if (subscriptionId) {
-        workspace.tenantId =
-          (await getTenantIdForSubscription(subscriptionId)) ?? "";
       }
     }
 
