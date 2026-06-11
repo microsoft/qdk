@@ -12,7 +12,6 @@ Don't allocate extra qubits to perform this operation.
 * If the query register is in the state $\ket{111}$, flip its sign.
 * If the query register is in the state $\ket{010}$ or $\ket{101}$, do nothing.
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  To solve this problem, you need to find a gate that will only flip the sign of the $\ket{111}$ basis state.  Which single-qubit gate flips the sign of the basis state $\ket{1}$ but not $\ket{0}$? How can you modify this gate to solve this problem?
-</details>
+:::hint
+To solve this problem, you need to find a gate that will only flip the sign of the $\ket{111}$ basis state.  Which single-qubit gate flips the sign of the basis state $\ket{1}$ but not $\ket{0}$? How can you modify this gate to solve this problem?
+:::

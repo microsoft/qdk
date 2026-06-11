@@ -21,7 +21,6 @@ represented by `pattern`.
 </details>
 
 <br/>
-<details>
-  <summary><b>Need a hint?</b></summary>
-  Can you transform the state of the input register based on the <code>pattern</code> value so as to have to flip the phase only for the $\ket{1...1}$ state?
-</details>
+:::hint
+Can you transform the state of the input register based on the <code>pattern</code> value so as to have to flip the phase only for the $\ket{1...1}$ state?
+:::

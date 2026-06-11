@@ -9,7 +9,6 @@ Let's take it a step further and generate an $N$-bit number.
 > * <a href="https://learn.microsoft.com/azure/quantum/user-guide/language/expressions/iterations" target="_blank">for loops</a>
 > * <a href="https://learn.microsoft.com/azure/quantum/user-guide/language/typesystem/immutability" target="_blank">mutable variables</a>
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  Remember that you can use previously defined operations to implement your solution. For convenience, the <b>RandomBit</b> operation is already available for you to use in this exercise.
-</details>
+:::hint
+Remember that you can use previously defined operations to implement your solution. For convenience, the <b>RandomBit</b> operation is already available for you to use in this exercise.
+:::
