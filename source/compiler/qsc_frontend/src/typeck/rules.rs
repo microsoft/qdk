@@ -266,21 +266,20 @@ impl<'a> Context<'a> {
             ExprKind::Block(block) => self.infer_block(block),
             ExprKind::Call(callee_expr, input_expr) => {
                 let callee = self.infer_expr(callee_expr);
-                let input_expr = &**input_expr;
                 let input = if has_holes(input_expr) {
                     self.infer_hole_tuple_arg(input_expr)
                 } else {
                     let ty = self.infer_expr(input_expr);
+                    let mut inner = input_expr;
+                    while let ExprKind::Paren(unwrapped) = inner.kind.as_ref() {
+                        inner = unwrapped;
+                    }
                     // If the outermost element is a tuple, we must wrap it in an `ArgTy::Tuple`.
                     if let Partial {
                         ty: Ty::Tuple(tys),
                         diverges,
                     } = ty
                     {
-                        let mut inner = input_expr;
-                        while let ExprKind::Paren(unwrapped) = inner.kind.as_ref() {
-                            inner = unwrapped;
-                        }
                         let spans: Vec<_> = if let ExprKind::Tuple(items) = inner.kind.as_ref() {
                             items.iter().map(|item| item.span).collect()
                         } else {
@@ -297,10 +296,6 @@ impl<'a> Context<'a> {
                             diverges,
                         }
                     } else {
-                        let mut inner = input_expr;
-                        while let ExprKind::Paren(unwrapped) = inner.kind.as_ref() {
-                            inner = unwrapped;
-                        }
                         let arg_span = inner.span;
                         Partial {
                             ty: ArgTy::Given(ty.ty, arg_span),
@@ -764,8 +759,8 @@ impl<'a> Context<'a> {
                 self.record(expr.id, Ty::Tuple(tys.iter().map(ArgTy::to_ty).collect()));
                 let span = expr.span;
                 self.diverge_if_map(
-                    // This seems like it could be the span of the (first?) divergent
-                    // tuple item, but the value doesn't seem to justify the complexity
+                    // We have the option of choosing a narrower span (or multiple) based on which of
+                    // the tuple items are divergent but the extra complexity doesn't seem justified
                     |ty| ArgTy::Given(ty, span),
                     diverges,
                     converge(ArgTy::Tuple(tys, span)),
