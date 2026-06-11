@@ -513,6 +513,31 @@ fn ty_mismatch_span_tuple1_to_given() {
 }
 
 #[test]
+fn ty_mismatch_span_tuple1_to_given_extra_parens() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F(a : Int) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F(((1,)))",
+        &expect![[r##"
+            #6 36-45 "(a : Int)" : Int
+            #7 37-44 "a : Int" : Int
+            #15 55-62 "{ 1.0 }" : Double
+            #17 57-60 "1.0" : Double
+            #18 65-84 "Namespace.F(((1,)))" : Double
+            #19 65-76 "Namespace.F" : (Int -> Double)
+            #23 76-84 "(((1,)))" : (Int,)
+            #24 77-83 "((1,))" : (Int,)
+            #25 78-82 "(1,)" : (Int,)
+            #26 79-80 "1" : Int
+            Error(Type(Error(TyMismatch("Int", "(Int,)", Span { lo: 78, hi: 82 }))))
+        "##]],
+    );
+}
+
+#[test]
 fn ty_mismatch_span_given_to_tuple1() {
     check(
         indoc! {"
