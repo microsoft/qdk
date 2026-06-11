@@ -37,7 +37,15 @@ from ._results import (
     EstimationTableEntry,
     plot_estimates,
 )
-from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
+from ._trace import (
+    LatticeSurgery,
+    PSSPC,
+    TraceQuery,
+    TraceTransform,
+    EvictionStrategy,
+    DynamicMemoryCompute,
+    Unmemory,
+)
 
 # Extend Rust Python types with additional Python-side functionality
 from ._instruction import _isa_as_frame, _requirements_as_frame
@@ -57,6 +65,8 @@ __all__ = [
     "Block",
     "Constraint",
     "ConstraintBound",
+    "EvictionStrategy",
+    "DynamicMemoryCompute",
     "Encoding",
     "EstimationResult",
     "EstimationTable",
@@ -81,6 +91,7 @@ __all__ = [
     "Trace",
     "TraceQuery",
     "TraceTransform",
+    "Unmemory",
     "LOGICAL",
     "PHYSICAL",
 ]
