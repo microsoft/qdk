@@ -92,7 +92,7 @@ def _path_stem(path: str) -> str:
     return stem or "circuit"
 
 
-def _visual_circuit_signature(circuit_json: str, index: int) -> tuple[int, str, int]:
+def _visual_circuit_count(circuit_json: str) -> int:
     try:
         data = json.loads(circuit_json)
     except json.JSONDecodeError as err:
@@ -101,40 +101,7 @@ def _visual_circuit_signature(circuit_json: str, index: int) -> tuple[int, str, 
     circuits = data.get("circuits") if isinstance(data, dict) else None
     if not isinstance(circuits, list) or len(circuits) == 0:
         raise QSharpError("Visual circuit files must contain at least one circuit.")
-
-    if not isinstance(index, int) or isinstance(index, bool):
-        raise QSharpError("Visual circuit index must be an integer.")
-    if index < 0 or index >= len(circuits):
-        raise QSharpError(
-            f"Visual circuit index {index} is out of range for {len(circuits)} circuits."
-        )
-
-    circuit = circuits[index]
-    if not isinstance(circuit, dict):
-        raise QSharpError("Visual circuit JSON contains an invalid circuit.")
-
-    qubits = circuit.get("qubits", [])
-    if not isinstance(qubits, list):
-        raise QSharpError("Visual circuit JSON contains an invalid qubit register.")
-
-    result_count = 0
-    for qubit in qubits:
-        if not isinstance(qubit, dict):
-            raise QSharpError("Visual circuit JSON contains an invalid qubit.")
-        num_results = qubit.get("numResults", 0)
-        if (
-            not isinstance(num_results, int)
-            or isinstance(num_results, bool)
-            or num_results < 0
-        ):
-            raise QSharpError("Visual circuit JSON contains an invalid result count.")
-        result_count += num_results
-
-    if result_count == 0:
-        return len(qubits), "Unit", len(circuits)
-    if result_count == 1:
-        return len(qubits), "Result", len(circuits)
-    return len(qubits), "Result[]", len(circuits)
+    return len(circuits)
 
 
 def make_class_rec(qsharp_type: TypeIR) -> type:
@@ -562,7 +529,7 @@ class Context:
         except Exception as err:
             raise QSharpError(f"Error reading visual circuit file {resolved_path}.") from err
 
-        _, _, circuit_count = _visual_circuit_signature(circuit_json, index)
+        circuit_count = _visual_circuit_count(circuit_json)
         operation_base_name = name if name is not None else _path_stem(resolved_path)
 
         operation_name, generated_source = compile_visual_circuit_to_qsharp(
