@@ -277,17 +277,14 @@ impl<'a> Context<'a> {
                         diverges,
                     } = ty
                     {
-                        let spans: Vec<_> = if let ExprKind::Tuple(items) = input_expr.kind.as_ref()
-                        {
+                        let mut inner = input_expr;
+                        while let ExprKind::Paren(unwrapped) = inner.kind.as_ref() {
+                            inner = unwrapped;
+                        }
+                        let spans: Vec<_> = if let ExprKind::Tuple(items) = inner.kind.as_ref() {
                             items.iter().map(|item| item.span).collect()
-                        } else if let ExprKind::Paren(inner) = input_expr.kind.as_ref() {
-                            if let ExprKind::Tuple(items) = inner.kind.as_ref() {
-                                items.iter().map(|item| item.span).collect()
-                            } else {
-                                panic!("unexpected syntax kind: {:?}", inner.kind)
-                            }
                         } else {
-                            panic!("unexpected syntax kind: {:?}", input_expr.kind)
+                            panic!("unexpected syntax kind: {:?}", inner.kind)
                         };
                         Partial {
                             ty: ArgTy::Tuple(
@@ -295,16 +292,16 @@ impl<'a> Context<'a> {
                                     .zip(spans)
                                     .map(|(ty, span)| ArgTy::Given(ty, span))
                                     .collect(),
-                                input_expr.span,
+                                inner.span,
                             ),
                             diverges,
                         }
                     } else {
-                        let arg_span = if let ExprKind::Paren(inner) = input_expr.kind.as_ref() {
-                            inner.span
-                        } else {
-                            input_expr.span
-                        };
+                        let mut inner = input_expr;
+                        while let ExprKind::Paren(unwrapped) = inner.kind.as_ref() {
+                            inner = unwrapped;
+                        }
+                        let arg_span = inner.span;
                         Partial {
                             ty: ArgTy::Given(ty.ty, arg_span),
                             diverges: false,

@@ -507,8 +507,8 @@ fn ty_mismatch_span_tuple1_to_given() {
             #23 76-82 "((1,))" : (Int,)
             #24 77-81 "(1,)" : (Int,)
             #25 78-79 "1" : Int
-            Error(Type(Error(TyMismatch("Int", "(Int,)", Span { lo: 76, hi: 82 }))))
-        "##]], // 77-81 would be better, but the parens are fine
+            Error(Type(Error(TyMismatch("Int", "(Int,)", Span { lo: 77, hi: 81 }))))
+        "##]],
     );
 }
 
@@ -607,9 +607,9 @@ fn length_type_error() {
             #24 92-93 "1" : Int
             #25 95-96 "2" : Int
             #26 98-99 "3" : Int
-            Error(Type(Error(TyMismatch("?[]", "(Int, Int, Int)", Span { lo: 90, hi: 101 }))))
+            Error(Type(Error(TyMismatch("?[]", "(Int, Int, Int)", Span { lo: 91, hi: 100 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 84, hi: 90 }))))
-        "##]], // 91-100 would be better, but the parens are fine
+        "##]],
     );
 }
 
