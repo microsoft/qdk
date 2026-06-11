@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { log } from "qsharp-lang";
 import {
   azureRequest,
+  AzureError,
   AzureUris,
   QuantumUris,
   ResponseTypes,
@@ -232,7 +233,11 @@ export function parseConnectionString(
   connStr.split(";").forEach((part) => {
     const eq = part.indexOf("=");
     if (eq === -1) return;
-    partsMap.set(part.substring(0, eq).toLowerCase(), part.substring(eq + 1));
+    const value = part.substring(eq + 1).trim();
+    // Skip keys with empty values so that `partsMap.has(...)` reliably means
+    // "present and non-empty" (e.g. "ApiKey=" should not count as an API key).
+    if (!value) return;
+    partsMap.set(part.substring(0, eq).trim().toLowerCase(), value);
   });
 
   const hasRequiredFields =
@@ -247,8 +252,7 @@ export function parseConnectionString(
   // Exactly one authentication method must be provided
   if (
     !hasRequiredFields ||
-    (!hasApiKey && !hasTenantId) ||
-    (hasApiKey && hasTenantId)
+    hasApiKey === hasTenantId // both true or both false
   ) {
     return undefined;
   }
@@ -312,7 +316,7 @@ async function getWorkspaceWithConnectionString(
         // There should always be providers, so this is an exceptional condition
         throw Error("No providers returned");
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       log.debug("Workspace connection error", e);
       // e.g. check for 401 (invalid key / no access), 403 (no access), 404 (invalid
       // workspace), failed network requests (invalid endpoint), or a failed/cancelled
@@ -321,13 +325,14 @@ async function getWorkspaceWithConnectionString(
       const workspaceDescription =
         `the workspace "${workspace.name}"` +
         (workspace.tenantId ? ` in tenant ${workspace.tenantId}` : "");
+      const status = e instanceof AzureError ? e.status : undefined;
+      const message = e instanceof Error ? e.message : undefined;
       let errorText = "An unexpected error occurred";
-      const message: string | undefined = e.message;
-      if (message?.includes("status 401") || message?.includes("status 403")) {
+      if (status === 401 || status === 403) {
         errorText = usingEntraId
           ? `Authentication failed. The signed-in account does not appear to have access to ${workspaceDescription}. Please verify the account has been granted access to this workspace.`
           : "Authentication failed. Please check the ApiKey is valid and active.";
-      } else if (message?.includes("status 404")) {
+      } else if (status === 404) {
         errorText =
           "Workspace not found. Please check the WorkspaceName and ResourceGroupName values.";
       } else if (message?.includes("Failed to fetch")) {
