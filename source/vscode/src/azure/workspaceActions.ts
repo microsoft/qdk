@@ -50,7 +50,7 @@ function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
     workspace.offeringId ?? workspace.providers[0]?.providerId ?? "";
 
   return (
-    `tenantId=${workspace.tenantId}` +
+    `tenantId=${workspace.tenantId ?? ""}` +
     `&subscriptionId=${subscriptionId}` +
     `&role=Researcher` +
     (offeringId ? `&offeringId=${offeringId}` : "") +
@@ -266,7 +266,7 @@ export function parseConnectionString(
     id: workspaceId,
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
-    tenantId: partsMap.get("tenantid") ?? "", // May be empty; derived from the subscription id if missing
+    tenantId: partsMap.get("tenantid"), // May be undefined; derived from the subscription id if missing
     subscriptionId: partsMap.get("subscriptionid"),
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
@@ -315,8 +315,7 @@ async function getWorkspaceWithConnectionString(
       // set on a parsed workspace here.
       const subscriptionId = workspace.subscriptionId;
       if (subscriptionId) {
-        workspace.tenantId =
-          (await getTenantIdForSubscription(subscriptionId)) ?? "";
+        workspace.tenantId = await getTenantIdForSubscription(subscriptionId);
       }
     }
 
