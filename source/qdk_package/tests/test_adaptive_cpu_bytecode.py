@@ -784,6 +784,11 @@ FLOAT_ARITH_PARAMS = [
     ("fsub", 3.0, 10.0, -7.0),
     ("fmul", 6.0, 7.0, 42.0),
     ("fdiv", 8.0, 2.0, 4.0),
+    ("frem", 8.0, 2.0, 0.0),
+    ("frem", 7.0, 3.0, 1.0),
+    ("frem", 10.5, 3.0, 1.5),
+    ("frem", 10.5, -3.0, 1.5),  # remainder has the same sign as dividend
+    ("frem", -10.5, 3.0, -1.5),  # remainder has the same sign as dividend
 ]
 
 
@@ -866,6 +871,21 @@ def test_float_arith_negative_test(sim_type, bin_op, lhs, rhs, expected):
         "0",
         sim_type=sim_type,
     )
+
+
+# Dividing by zero with `frem` must fail gracefully by producing NaN
+# (matching C's `fmod`) rather than crashing the interpreter. NaN never
+# compares equal to itself, so `fcmp one %a, %a` (not-equal) is true iff the
+# result is NaN.
+FREM_BY_ZERO_QIR = """
+  %a = frem double 8.0, 0.0
+  %flag = fcmp one double %a, %a
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_frem_by_zero_is_nan(sim_type):
+    check_arith_result(FREM_BY_ZERO_QIR, "1", sim_type=sim_type)
 
 
 # #########################################################################
@@ -992,6 +1012,102 @@ SITOFP_QIR = """
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_sitofp(sim_type):
     check_arith_result(SITOFP_QIR, "1", sim_type=sim_type)
+
+
+# =========================================================================
+# OP_FPTOUI — float to unsigned int
+# =========================================================================
+
+FPTOUI_QIR = """
+  ; fptoui 3.7 → 3 (truncation toward zero), check 3 == 3 → true
+  %i = fptoui double 3.7 to i64
+  %flag = icmp eq i64 %i, 3
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_fptoui(sim_type):
+    check_arith_result(FPTOUI_QIR, "1", sim_type=sim_type)
+
+
+FPTOUI_ZERO_QIR = """
+  ; fptoui 0.0 → 0
+  %i = fptoui double 0.0 to i64
+  %flag = icmp eq i64 %i, 0
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_fptoui_zero(sim_type):
+    check_arith_result(FPTOUI_ZERO_QIR, "1", sim_type=sim_type)
+
+
+FPTOUI_LARGE_QIR = """
+  ; fptoui 255.9 → 255
+  %i = fptoui double 255.9 to i64
+  %flag = icmp eq i64 %i, 255
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_fptoui_large(sim_type):
+    check_arith_result(FPTOUI_LARGE_QIR, "1", sim_type=sim_type)
+
+
+FPTOUI_NEGATIVE_QIR = """
+  ; fptoui of a negative float is out of range for an unsigned int;
+  ; but we still round towards the nearest uint value, which is zero.
+  %neg = fsub double 0.0, 3.7
+  %i = fptoui double %neg to i64
+  %flag = icmp eq i64 %i, 0
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_fptoui_negative(sim_type):
+    check_arith_result(FPTOUI_NEGATIVE_QIR, "1", sim_type=sim_type)
+
+
+# =========================================================================
+# OP_UITOFP — unsigned int to float
+# =========================================================================
+
+UITOFP_QIR = """
+  ; uitofp 5 → 5.0, then 5.0 > 4.0 → true
+  %f = uitofp i64 5 to double
+  %flag = fcmp ogt double %f, 4.0
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_uitofp(sim_type):
+    check_arith_result(UITOFP_QIR, "1", sim_type=sim_type)
+
+
+UITOFP_ZERO_QIR = """
+  ; uitofp 0 → 0.0
+  %f = uitofp i64 0 to double
+  %flag = fcmp oeq double %f, 0.0
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_uitofp_zero(sim_type):
+    check_arith_result(UITOFP_ZERO_QIR, "1", sim_type=sim_type)
+
+
+UITOFP_ROUNDTRIP_QIR = """
+  ; uitofp 42 → 42.0, then fptoui 42.0 → 42
+  %f = uitofp i64 42 to double
+  %i = fptoui double %f to i64
+  %flag = icmp eq i64 %i, 42
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_uitofp_fptoui_roundtrip(sim_type):
+    """Round-trip: uitofp then fptoui must recover the original value."""
+    check_arith_result(UITOFP_ROUNDTRIP_QIR, "1", sim_type=sim_type)
 
 
 # #########################################################################

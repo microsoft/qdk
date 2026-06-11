@@ -789,14 +789,20 @@ class AdaptiveProfilePass:
                 self._emit_binary(OP_FMUL | FLAG_FLOAT, instr)
             case pyqir.Opcode.FDIV:
                 self._emit_binary(OP_FDIV | FLAG_FLOAT, instr)
+            case pyqir.Opcode.FREM:
+                self._emit_binary(OP_FREM | FLAG_FLOAT, instr)
             case pyqir.Opcode.FP_EXT:
                 self._emit_unary(OP_FPEXT | FLAG_FLOAT, instr)
             case pyqir.Opcode.FP_TRUNC:
                 self._emit_unary(OP_FPTRUNC | FLAG_FLOAT, instr)
             case pyqir.Opcode.FP_TO_SI:
                 self._emit_unary(OP_FPTOSI, instr)
+            case pyqir.Opcode.FP_TO_UI:
+                self._emit_unary(OP_FPTOUI, instr)
             case pyqir.Opcode.SI_TO_FP:
                 self._emit_unary(OP_SITOFP | FLAG_FLOAT, instr)
+            case pyqir.Opcode.UI_TO_FP:
+                self._emit_unary(OP_UITOFP | FLAG_FLOAT, instr)
             case pyqir.Opcode.INT_TO_PTR:
                 self._emit_inttoptr(instr)
             case pyqir.Opcode.ALLOCA:

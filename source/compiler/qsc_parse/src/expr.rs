@@ -16,8 +16,8 @@ use crate::{
         TokenKind,
     },
     prim::{
-        ident, opt, parse_or_else, pat, recovering_parse_or_else, recovering_path, seq, shorten,
-        token,
+        barrier, ident, opt, parse_or_else, pat, recovering_parse_or_else, recovering_path, seq,
+        shorten, token,
     },
     scan::ParserContext,
     stmt,
@@ -786,8 +786,19 @@ fn index_op(s: &mut ParserContext, lhs: Box<Expr>) -> Result<Box<ExprKind>> {
 
 fn call_op(s: &mut ParserContext, lhs: Box<Expr>) -> Result<Box<ExprKind>> {
     let lo = s.span(0).hi - 1;
-    let (args, final_sep) = seq(s, expr)?;
-    token(s, TokenKind::Close(Delim::Paren))?;
+    // If there's a nested object initializer, we want its recovery to know about rparen, so we add a barrier
+    let (args, final_sep) = barrier(s, &[TokenKind::Close(Delim::Paren)], |s| seq(s, expr))?;
+    // If the rparen is missing, we report an error but keep the call node so the language service can offer signature help, etc.
+    // We also skip trivia so that the args span extends to the next token, ensuring the cursor
+    // position is inside the span for language service features like signature help.
+    if token(s, TokenKind::Close(Delim::Paren)).is_err() {
+        s.push_error(Error::new(ErrorKind::Token(
+            TokenKind::Close(Delim::Paren),
+            s.peek().kind,
+            s.peek().span,
+        )));
+        s.skip_trivia();
+    }
     let rhs = Box::new(Expr {
         id: NodeId::default(),
         span: s.span(lo),

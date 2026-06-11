@@ -1,4 +1,6 @@
 namespace Kata {
+    import Std.Math.*;
+
     operation RandomNumberInRange(min : Int, max : Int) : Int {
         // Implement your solution here...
 

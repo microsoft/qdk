@@ -190,7 +190,7 @@ def wasm_checks(install, installed_rust_targets):
     try:
         wasm_bindgen_version = subprocess.check_output(["wasm-bindgen", "--version"])
         print(f"Detected wasm-bindgen version: {wasm_bindgen_version.decode()}")
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
         if install == True:
             print("wasm-bindgen not found. Attempting to install...")
             install_wasm_bindgen()
@@ -223,7 +223,7 @@ def wasm_checks(install, installed_rust_targets):
     try:
         binaryen_version = subprocess.check_output(["wasm-opt", "--version"])
         print(f"Detected wasm-opt version: {binaryen_version.decode()}")
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
         if install == True:
             print("wasm-opt not found. Attempting to install...")
             install_binaryen()
