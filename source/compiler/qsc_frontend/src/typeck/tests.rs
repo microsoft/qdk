@@ -2110,6 +2110,37 @@ fn fail_in_call_args_checks_non_divergent_types() {
 }
 
 #[test]
+fn fail_in_single_call_arg_diverges() {
+    check(
+        "namespace Test { function Foo(a : Int) : Double { 0.0 } }",
+        indoc! {r#"
+            if true {
+                Test.Foo(fail "oops")
+            } else {
+                0
+            }
+        "#},
+        &expect![[r##"
+            #6 29-38 "(a : Int)" : Int
+            #7 30-37 "a : Int" : Int
+            #15 48-55 "{ 0.0 }" : Double
+            #17 50-53 "0.0" : Double
+            #18 57-109 "if true {\n    Test.Foo(fail \"oops\")\n} else {\n    0\n}" : Int
+            #19 60-64 "true" : Bool
+            #20 65-94 "{\n    Test.Foo(fail \"oops\")\n}" : Int
+            #22 71-92 "Test.Foo(fail \"oops\")" : Double
+            #23 71-79 "Test.Foo" : (Int -> Double)
+            #27 79-92 "(fail \"oops\")" : Int
+            #28 80-91 "fail \"oops\"" : Int
+            #29 85-91 "\"oops\"" : String
+            #30 95-109 "else {\n    0\n}" : Int
+            #31 100-109 "{\n    0\n}" : Int
+            #33 106-107 "0" : Int
+        "##]],
+    );
+}
+
+#[test]
 fn fail_in_call_args_alone_diverges() {
     check(
         "",

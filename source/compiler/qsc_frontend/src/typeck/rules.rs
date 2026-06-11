@@ -299,7 +299,7 @@ impl<'a> Context<'a> {
                         let arg_span = inner.span;
                         Partial {
                             ty: ArgTy::Given(ty.ty, arg_span),
-                            diverges: false,
+                            diverges: ty.diverges,
                         }
                     }
                 };
