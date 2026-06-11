@@ -1,14 +1,16 @@
 use qsc_stim_parser::lex::Lexer;
 use std::fs;
+use std::io::Write;
 
 fn main() {
     let stim_code =
         fs::read_to_string("examples/example.stim").expect("Failed to read examples/example.stim");
 
-    println!("Input:\n{stim_code}");
-    println!("{:-<50}", "");
-    println!("{:<20} {:<10} {:}", "TOKEN KIND", "SPAN", "TEXT");
-    println!("{:-<50}", "");
+    let mut out =
+        fs::File::create("examples/lex_output.txt").expect("Failed to create output file");
+
+    writeln!(out, "{:<20} {:<10} {:}", "TOKEN KIND", "SPAN", "TEXT").unwrap();
+    writeln!(out, "{:-<50}", "").unwrap();
 
     let lexer = Lexer::new(&stim_code);
     for token in lexer {
@@ -17,11 +19,15 @@ fn main() {
             qsc_stim_parser::lex::TokenKind::Newline => "\\n".to_string(),
             _ => format!("{:?}", text),
         };
-        println!(
+        writeln!(
+            out,
             "{:<20} {:<10} {}",
             token.kind.to_string(),
             format!("{}..{}", token.span.lo, token.span.hi),
             text_display
-        );
+        )
+        .unwrap();
     }
+
+    println!("Wrote examples/lex_output.txt");
 }

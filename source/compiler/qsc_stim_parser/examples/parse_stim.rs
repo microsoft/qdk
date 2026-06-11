@@ -1,85 +1,89 @@
 use qsc_stim_parser::parser::{Circuit, Instruction, Item, Pauli, Target, TargetKind, parse};
+use std::fs;
+use std::io::Write;
 
-fn print_circuit(circuit: &Circuit) {
-    println!("(circuit");
+fn write_circuit(out: &mut impl Write, circuit: &Circuit) {
+    writeln!(out, "(circuit").unwrap();
     for item in &circuit.items {
-        print_item(item, 1);
+        write_item(out, item, 1);
     }
-    println!(")");
+    writeln!(out, ")").unwrap();
 }
 
-fn print_item(item: &Item, indent: usize) {
+fn write_item(out: &mut impl Write, item: &Item, indent: usize) {
     let pad = "  ".repeat(indent);
     match item {
         Item::Line(line) => {
-            print!("{pad}(");
-            print_instruction(&line.instruction);
-            println!(")");
+            write!(out, "{pad}(").unwrap();
+            write_instruction(out, &line.instruction);
+            writeln!(out, ")").unwrap();
         }
         Item::Block(block) => {
-            print!("{pad}(");
-            print_instruction(&block.block_instruction);
-            println!();
+            write!(out, "{pad}(").unwrap();
+            write_instruction(out, &block.block_instruction);
+            writeln!(out).unwrap();
             for item in &block.items {
-                print_item(item, indent + 1);
+                write_item(out, item, indent + 1);
             }
-            println!("{pad})");
+            writeln!(out, "{pad})").unwrap();
         }
     }
 }
 
-fn print_instruction(instr: &Instruction) {
-    print!("{}", instr.name);
+fn write_instruction(out: &mut impl Write, instr: &Instruction) {
+    write!(out, "{}", instr.name).unwrap();
     if let Some(tag) = &instr.tag {
-        print!("[{}]", tag);
+        write!(out, "[{}]", tag).unwrap();
     }
     if !instr.args.is_empty() {
         for arg in &instr.args {
-            print!(" {}", arg);
+            write!(out, " {}", arg).unwrap();
         }
     }
     for target in &instr.targets {
-        print!(" ");
-        print_target(target);
+        write!(out, " ").unwrap();
+        write_target(out, target);
     }
 }
 
-fn print_target(target: &Target) {
+fn write_target(out: &mut impl Write, target: &Target) {
     match &target.kind {
         TargetKind::Qubit { negated, value } => {
             if *negated {
-                print!("!");
+                write!(out, "!").unwrap();
             }
-            print!("{}", value);
+            write!(out, "{}", value).unwrap();
         }
-        TargetKind::MeasurementRecord { value } => print!("rec[-{}]", value),
-        TargetKind::SweepBit { value } => print!("sweep[{}]", value),
+        TargetKind::MeasurementRecord { value } => write!(out, "rec[-{}]", value).unwrap(),
+        TargetKind::SweepBit { value } => write!(out, "sweep[{}]", value).unwrap(),
         TargetKind::Pauli {
             negated,
             pauli,
             value,
         } => {
             if *negated {
-                print!("!");
+                write!(out, "!").unwrap();
             }
             let p = match pauli {
                 Pauli::X => "X",
                 Pauli::Y => "Y",
                 Pauli::Z => "Z",
             };
-            print!("{}{}", p, value);
+            write!(out, "{}{}", p, value).unwrap();
         }
-        TargetKind::Combiner => print!("*"),
+        TargetKind::Combiner => write!(out, "*").unwrap(),
     }
 }
 
 fn main() {
-    let stim_code = std::fs::read_to_string("examples/example.stim")
-        .expect("Failed to read examples/example.stim");
-
-    println!("Input:\n{stim_code}");
-    println!("{:=<60}", "");
+    let stim_code =
+        fs::read_to_string("examples/example.stim").expect("Failed to read examples/example.stim");
 
     let circuit = parse(&stim_code);
-    print_circuit(&circuit);
+
+    let mut out =
+        fs::File::create("examples/parse_output.txt").expect("Failed to create output file");
+    write_circuit(&mut out, &circuit);
+
+    println!("Wrote examples/parse_output.txt");
 }
