@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::too_many_lines)]
+
 mod arrays;
 mod assigns;
 mod bindings;
@@ -83,7 +85,7 @@ pub fn get_partial_evaluation_error_with_capabilities(
         },
     );
     match maybe_program {
-        Ok(_) => panic!("partial evaluation succeeded"),
+        Ok(program) => panic!("partial evaluation succeeded: {program}"),
         Err(error) => error,
     }
 }

@@ -42,7 +42,7 @@ fn check_rca_for_dynamic_result_assign_to_local() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -284,8 +284,8 @@ fn check_rca_for_assign_dynamic_static_mix_call_result_to_tuple_of_vars() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
     compilation_context.update(
@@ -298,8 +298,8 @@ fn check_rca_for_assign_dynamic_static_mix_call_result_to_tuple_of_vars() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -444,7 +444,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_dynamic_result() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicResult | UseOfStaticResultInVariable)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -472,7 +472,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_result_from_classical_conditi
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -500,7 +500,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_call_with_dynamic_args() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicResult | UseOfStaticResultInVariable)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

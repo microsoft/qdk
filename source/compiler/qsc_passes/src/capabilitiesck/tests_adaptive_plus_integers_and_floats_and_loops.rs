@@ -22,11 +22,11 @@ use expect_test::{Expect, expect};
 use qsc_data_structures::target::Profile;
 
 fn check_profile(source: &str, expect: &Expect) {
-    check(source, expect, Profile::AdaptiveRIF.into());
+    check(source, expect, Profile::AdaptiveRIFLA.into());
 }
 
 fn check_profile_for_exe(source: &str, expect: &Expect) {
-    check_for_exe(source, expect, Profile::AdaptiveRIF.into());
+    check_for_exe(source, expect, Profile::AdaptiveRIFLA.into());
 }
 
 #[test]
@@ -108,14 +108,7 @@ fn use_of_dynamic_qubit_yields_errors() {
     check_profile(
         USE_DYNAMIC_QUBIT,
         &expect![[r#"
-            [
-                UseOfDynamicQubit(
-                    Span {
-                        lo: 146,
-                        hi: 162,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }
@@ -381,14 +374,7 @@ fn use_of_dynamic_index_yields_errors() {
     check_profile(
         USE_DYNAMIC_INDEX,
         &expect![[r#"
-            [
-                UseOfDynamicIndex(
-                    Span {
-                        lo: 299,
-                        hi: 303,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }
@@ -444,12 +430,6 @@ fn loop_with_dynamic_condition_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicRange(
-                    Span {
-                        lo: 141,
-                        hi: 159,
-                    },
-                ),
-                LoopWithDynamicCondition(
                     Span {
                         lo: 141,
                         hi: 159,
@@ -600,12 +580,6 @@ fn use_of_dynamic_result_literal_errors() {
         DYNAMIC_RESULT_LITERAL,
         &expect![[r#"
             [
-                UseOfDynamicResult(
-                    Span {
-                        lo: 98,
-                        hi: 190,
-                    },
-                ),
                 UseOfStaticResultInVariable(
                     Span {
                         lo: 98,

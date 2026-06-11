@@ -360,8 +360,15 @@ impl ApplicationGeneratorSet {
         {
             match param_application {
                 ParamApplication::Element(param_compute_kind) => {
-                    if arg_compute_kind.is_variable_value_kind() {
-                        compute_kind = compute_kind.aggregate(*param_compute_kind);
+                    if let ComputeKind::Dynamic { value_kind, .. } = arg_compute_kind {
+                        match value_kind {
+                            ValueKind::Variable => {
+                                compute_kind = compute_kind.aggregate(param_compute_kind.variable);
+                            }
+                            ValueKind::Constant => {
+                                compute_kind = compute_kind.aggregate(param_compute_kind.constant);
+                            }
+                        }
                     }
                 }
                 ParamApplication::Array(array_param_application) => {
@@ -383,7 +390,8 @@ impl ApplicationGeneratorSet {
                                     compute_kind.aggregate(array_param_application.static_size);
                             }
                             ValueKind::Constant => {
-                                // No aggregation needed for static arrays.
+                                compute_kind = compute_kind
+                                    .aggregate(array_param_application.constant_content);
                             }
                         }
                     }
@@ -396,7 +404,7 @@ impl ApplicationGeneratorSet {
 
 #[derive(Clone, Debug)]
 pub enum ParamApplication {
-    Element(ComputeKind),
+    Element(ElemParamApplication),
     Array(ArrayParamApplication),
 }
 
@@ -413,9 +421,27 @@ impl Display for ParamApplication {
 }
 
 #[derive(Clone, Debug)]
+pub struct ElemParamApplication {
+    pub constant: ComputeKind,
+    pub variable: ComputeKind,
+}
+
+impl Display for ElemParamApplication {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let mut indent = set_indentation(indented(f), 0);
+        write!(indent, "ElemParamApplication:")?;
+        indent = set_indentation(indent, 1);
+        write!(indent, "\nconstant: {}", self.constant)?;
+        write!(indent, "\nvariable: {}", self.variable)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ArrayParamApplication {
     pub static_size: ComputeKind,
     pub dynamic_size: ComputeKind,
+    pub constant_content: ComputeKind,
 }
 
 impl Display for ArrayParamApplication {
@@ -425,6 +451,7 @@ impl Display for ArrayParamApplication {
         indent = set_indentation(indent, 1);
         write!(indent, "\nstatic_size: {}", self.static_size)?;
         write!(indent, "\ndynamic_size: {}", self.dynamic_size)?;
+        write!(indent, "\nconstant_content: {}", self.constant_content)?;
         Ok(())
     }
 }
@@ -601,7 +628,7 @@ bitflags! {
     /// Runtime features represent anything a program can do that is more complex than executing quantum operations on
     /// statically allocated qubits and using constant arguments.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct RuntimeFeatureFlags: u32 {
+    pub struct RuntimeFeatureFlags: u64 {
         /// Use of a dynamic `Bool`.
         const UseOfDynamicBool = 1 << 0;
         /// Use of a dynamic `Int`.
@@ -666,6 +693,8 @@ bitflags! {
         const CallToCustomReset = 1 << 30;
         /// Use of a dynamic generic parameter.
         const UseOfDynamicGeneric = 1 << 31;
+        /// Use of a static `Result` value as a dynamic variable.
+        const UseOfStaticResultInVariable = 1 << 32;
     }
 }
 
@@ -774,7 +803,7 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicResult) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+            capabilities |= TargetCapabilityFlags::StaticSizedArrays;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicTuple) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
@@ -786,6 +815,9 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::Adaptive;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfStaticResultInVariable) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         capabilities

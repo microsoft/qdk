@@ -3,7 +3,7 @@
 
 use crate::{
     ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ComputePropertiesLookup,
-    ParamApplication, RuntimeFeatureFlags, ValueKind,
+    ElemParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
         AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
@@ -19,9 +19,9 @@ use qsc_fir::{
     extensions::InputParam,
     fir::{
         Attr, BinOp, Block, BlockId, CallableDecl, CallableImpl, CallableKind, Expr, ExprId,
-        ExprKind, FieldAssign, Global, Ident, Item, ItemKind, LocalVarId, Mutability, Package,
-        PackageId, PackageLookup, PackageStore, PackageStoreLookup, Pat, PatId, PatKind, Res,
-        SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreExprId, StoreItemId, StorePatId,
+        ExprKind, Field, FieldAssign, Global, Ident, Item, ItemKind, LocalVarId, Mutability,
+        Package, PackageId, PackageLookup, PackageStore, PackageStoreLookup, Pat, PatId, PatKind,
+        Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreExprId, StoreItemId, StorePatId,
         StringComponent,
     },
     ty::{Arrow, FunctorSetValue, Prim, Ty},
@@ -260,12 +260,16 @@ impl<'a> Analyzer<'a> {
             value_kind,
         } = &mut compute_kind
         {
+            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
+            if is_any_result(lhs_expr_ty) {
+                *value_kind = ValueKind::Variable;
+            }
+
             *runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(*value_kind, expr_type);
 
-            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
             if *value_kind == ValueKind::Variable
-                && matches!(lhs_expr_ty, Ty::Prim(Prim::String))
+                && *lhs_expr_ty == Ty::Prim(Prim::String)
                 && expr_type == &Ty::Prim(Prim::Bool)
             {
                 // Strings can only be concatenated or compared for equality, and only equality comparison
@@ -614,7 +618,12 @@ impl<'a> Analyzer<'a> {
         compute_kind
     }
 
-    fn analyze_expr_field(&mut self, record_expr_id: ExprId, expr_type: &Ty) -> ComputeKind {
+    fn analyze_expr_field(
+        &mut self,
+        record_expr_id: ExprId,
+        expr_type: &Ty,
+        field: &Field,
+    ) -> ComputeKind {
         // Visit the record expression to determine its compute kind.
         self.visit_expr(record_expr_id);
 
@@ -622,15 +631,24 @@ impl<'a> Analyzer<'a> {
         // the value kind adapted to the expression's type.
         let application_instance = self.get_current_application_instance();
         let record_expr_compute_kind = *application_instance.get_expr_compute_kind(record_expr_id);
-        let runtime_kind = if record_expr_compute_kind.is_variable_value_kind() {
-            ValueKind::new_variable_from_type(expr_type)
+        let value_kind = if let ComputeKind::Dynamic { value_kind, .. } = record_expr_compute_kind {
+            if value_kind == ValueKind::Constant {
+                if matches!(field, Field::Prim(_)) {
+                    // This is a special case: a primitive field is a range accessor, which for constant ranges
+                    // should be treated as a static.
+                    return ComputeKind::Static;
+                }
+                ValueKind::Constant
+            } else {
+                ValueKind::new_variable_from_type(expr_type)
+            }
         } else {
             ValueKind::Constant
         };
 
         let mut compute_kind = ComputeKind::Static;
         compute_kind =
-            compute_kind.aggregate_runtime_features(record_expr_compute_kind, runtime_kind);
+            compute_kind.aggregate_runtime_features(record_expr_compute_kind, value_kind);
         compute_kind
     }
 
@@ -679,14 +697,18 @@ impl<'a> Analyzer<'a> {
         compute_kind = compute_kind
             .aggregate_runtime_features(condition_expr_compute_kind, ValueKind::Constant);
         let body_expr_compute_kind = *application_instance.get_expr_compute_kind(body_expr_id);
+        let body_expr_is_static = matches!(body_expr_compute_kind, ComputeKind::Static);
         compute_kind =
             compute_kind.aggregate_runtime_features(body_expr_compute_kind, ValueKind::Constant);
-        if let Some(otherwise_expr_id) = otherwise_expr_id {
+        let otherwise_expr_is_static = if let Some(otherwise_expr_id) = otherwise_expr_id {
             let otherwise_expr_compute_kind =
                 *application_instance.get_expr_compute_kind(otherwise_expr_id);
             compute_kind = compute_kind
                 .aggregate_runtime_features(otherwise_expr_compute_kind, ValueKind::Constant);
-        }
+            matches!(otherwise_expr_compute_kind, ComputeKind::Static)
+        } else {
+            false
+        };
 
         // If any of the sub-expressions is variable, then the compute kind of an if-expression is variable and additional
         // runtime features are aggregated.
@@ -712,6 +734,10 @@ impl<'a> Analyzer<'a> {
             if condition_expr_compute_kind.is_variable_value_kind() {
                 if is_any_result(expr_type) {
                     dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicResult;
+                    if body_expr_is_static || otherwise_expr_is_static {
+                        dynamic_runtime_features |=
+                            RuntimeFeatureFlags::UseOfStaticResultInVariable;
+                    }
                 }
                 match expr_type {
                     Ty::Tuple(tup) if !tup.is_empty() => {
@@ -850,12 +876,18 @@ impl<'a> Analyzer<'a> {
         compute_kind = compute_kind.aggregate(step_expr_compute_kind);
         compute_kind = compute_kind.aggregate(end_expr_compute_kind);
 
-        // Additionally, if the compute kind of the range is variable, mark it with the appropriate runtime feature.
-        if compute_kind.is_variable_value_kind() {
-            compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
-                runtime_features: RuntimeFeatureFlags::UseOfDynamicRange,
-                value_kind: ValueKind::Constant,
-            });
+        if let ComputeKind::Dynamic {
+            runtime_features,
+            value_kind,
+        } = &mut compute_kind
+        {
+            // Additionally, if the compute kind of the range is variable, mark it with the appropriate runtime feature.
+            if value_kind == &ValueKind::Variable {
+                *runtime_features |= RuntimeFeatureFlags::UseOfDynamicRange;
+            } else if runtime_features.is_empty() {
+                // If the runtime features are empty and the value is constant, we can treat the whole range as static.
+                compute_kind = ComputeKind::Static;
+            }
         }
         compute_kind
     }
@@ -1174,13 +1206,15 @@ impl<'a> Analyzer<'a> {
             }
         };
 
-        // If the condition is dynamic, we require an additional runtime feature.
-        if !matches!(condition_expr_compute_kind, ComputeKind::Static) {
+        // If the condition is dynamic, we may require an additional runtime feature.
+        if let ComputeKind::Dynamic { value_kind, .. } = condition_expr_compute_kind
+            && (value_kind == ValueKind::Variable || self.should_emit_classical_loops())
+        {
             let ComputeKind::Dynamic {
                 runtime_features, ..
             } = &mut compute_kind
             else {
-                panic!("if the loop condition is quantum, the loop expression must be quantum too");
+                panic!("if the loop condition is dynamic, the loop expression must be dynamic too");
             };
             *runtime_features |= RuntimeFeatureFlags::LoopWithDynamicCondition;
         }
@@ -1930,8 +1964,8 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             }
             ExprKind::Closure(..) => ComputeKind::Static,
             ExprKind::Fail(msg_expr_id) => self.analyze_expr_fail(*msg_expr_id),
-            ExprKind::Field(record_expr_id, _) => {
-                self.analyze_expr_field(*record_expr_id, &expr.ty)
+            ExprKind::Field(record_expr_id, field) => {
+                self.analyze_expr_field(*record_expr_id, &expr.ty, field)
             }
             ExprKind::Hole | ExprKind::Lit(_) => {
                 // Hole and literal expressions are always static.
@@ -2278,7 +2312,10 @@ fn derive_intrinsic_function_application_generator_set(
             Ty::Array(_) => {
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
-            _ => ParamApplication::Element(param_compute_kind),
+            _ => ParamApplication::Element(ElemParamApplication {
+                constant: ComputeKind::Static,
+                variable: param_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }
@@ -2303,6 +2340,10 @@ fn array_param_application_from_runtime_features(
             runtime_features: runtime_features | RuntimeFeatureFlags::UseOfDynamicallySizedArray,
             value_kind,
         },
+        constant_content: ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::empty(),
+            value_kind: ValueKind::Constant,
+        },
     })
 }
 
@@ -2311,10 +2352,12 @@ fn derive_instrinsic_operation_application_generator_set(
 ) -> ApplicationGeneratorSet {
     assert!(matches!(callable_context.kind, CallableKind::Operation));
 
-    // The value kind of intrinsic operations is inherently dynamic if their output is not `Unit` or `Qubit`.
-    let runtime_kind = if callable_context.output_type == Ty::UNIT
-        || callable_context.output_type == Ty::Prim(Prim::Qubit)
-    {
+    // The value kind of intrinsic operations is inherently dynamic if their output is not `Unit`, `Qubit` or `Result`.
+    let inherent_value_kind = if callable_context.output_type == Ty::UNIT
+        || matches!(
+            callable_context.output_type,
+            Ty::Prim(Prim::Qubit | Prim::Result)
+        ) {
         ValueKind::Constant
     } else {
         ValueKind::new_variable_from_type(&callable_context.output_type)
@@ -2331,7 +2374,7 @@ fn derive_instrinsic_operation_application_generator_set(
     // The compute kind of intrinsic operations is always dynamic.
     let inherent_compute_kind = ComputeKind::Dynamic {
         runtime_features: inherent_runtime_features,
-        value_kind: runtime_kind,
+        value_kind: inherent_value_kind,
     };
 
     // Determine the compute kind of all dynamic parameter applications.
@@ -2339,14 +2382,18 @@ fn derive_instrinsic_operation_application_generator_set(
         Vec::<ParamApplication>::with_capacity(callable_context.input_params.len());
     for param in &callable_context.input_params {
         // For intrinsic operations, we assume any parameter can contribute to the output, so if any parameter is
-        // dynamic the output of the operation is dynamic.
+        // dynamic the output of the operation is dynamic, unless it is of type `Result`.
         // When a parameter is bound to a dynamic value, its type contributes to the runtime features used by the
         // operation application.
         let runtime_features = derive_runtime_features_for_value_kind_associated_to_type(
             ValueKind::new_variable_from_type(&param.ty),
             &param.ty,
         );
-        let value_kind = ValueKind::new_variable_from_type(&callable_context.output_type);
+        let value_kind = if matches!(callable_context.output_type, Ty::Prim(Prim::Result)) {
+            ValueKind::Constant
+        } else {
+            ValueKind::new_variable_from_type(&callable_context.output_type)
+        };
         let param_compute_kind = ComputeKind::Dynamic {
             runtime_features,
             value_kind,
@@ -2357,7 +2404,13 @@ fn derive_instrinsic_operation_application_generator_set(
             Ty::Array(_) => {
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
-            _ => ParamApplication::Element(param_compute_kind),
+            _ => ParamApplication::Element(ElemParamApplication {
+                constant: ComputeKind::Dynamic {
+                    runtime_features: inherent_runtime_features,
+                    value_kind: inherent_value_kind,
+                },
+                variable: param_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }

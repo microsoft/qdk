@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::capabilitiesck::tests_common::DYNAMIC_RESULT_LITERAL;
+
 use super::tests_common::{
     CALL_DYNAMIC_FUNCTION, CALL_DYNAMIC_OPERATION, CALL_TO_CYCLIC_FUNCTION_WITH_CLASSICAL_ARGUMENT,
     CALL_TO_CYCLIC_FUNCTION_WITH_DYNAMIC_ARGUMENT,
@@ -970,6 +972,29 @@ fn binary_op_with_dynamic_array_error() {
                     Span {
                         lo: 66,
                         hi: 97,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn use_of_dynamic_result_literal_errors() {
+    check_profile(
+        DYNAMIC_RESULT_LITERAL,
+        &expect![[r#"
+            [
+                UseOfDynamicBool(
+                    Span {
+                        lo: 101,
+                        hi: 112,
+                    },
+                ),
+                MeasurementWithinDynamicScope(
+                    Span {
+                        lo: 172,
+                        hi: 176,
                     },
                 ),
             ]

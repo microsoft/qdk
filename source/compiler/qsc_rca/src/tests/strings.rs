@@ -67,7 +67,7 @@ fn check_rca_for_dynamic_interpolated_string() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -169,8 +169,8 @@ fn check_rca_for_dynamic_string_comparison() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicString)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }

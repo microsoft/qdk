@@ -1307,28 +1307,6 @@ fn if_else_expression_with_dynamic_condition_and_subsequent_call_to_operation() 
 }
 
 #[test]
-fn if_else_expression_with_result_literal_fails() {
-    let error = get_partial_evaluation_error(indoc! {
-        r#"
-        namespace Test {
-            @EntryPoint()
-            operation Main() : Result {
-                use q = Qubit();
-                MResetZ(q) == One ? One | MResetZ(q)
-            }
-        }
-        "#,
-    });
-
-    assert_error(
-        &error,
-        &expect![[
-            r#"Unexpected("dynamic value of type Result in conditional expression", PackageSpan { package: PackageId(2), span: Span { lo: 101, hi: 137 } })"#
-        ]],
-    );
-}
-
-#[test]
 fn if_expression_with_classical_operand_from_hybrid_results_array_comparing_to_literal_zero() {
     let program = get_rir_program(indoc! {r#"
         @EntryPoint()

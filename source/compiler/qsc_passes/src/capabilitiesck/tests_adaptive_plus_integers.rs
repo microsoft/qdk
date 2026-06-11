@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::capabilitiesck::tests_common::USE_DYNAMIC_RANGE;
+use crate::capabilitiesck::tests_common::{DYNAMIC_RESULT_LITERAL, USE_DYNAMIC_RANGE};
 
 use super::tests_common::{
     CALL_DYNAMIC_FUNCTION, CALL_DYNAMIC_OPERATION, CALL_TO_CYCLIC_FUNCTION_WITH_CLASSICAL_ARGUMENT,
@@ -19,22 +19,14 @@ use super::tests_common::{
     USE_ENTRY_POINT_STATIC_RANGE, USE_ENTRY_POINT_STATIC_STRING, check, check_for_exe,
 };
 use expect_test::{Expect, expect};
-use qsc_data_structures::target::TargetCapabilityFlags;
+use qsc_data_structures::target::Profile;
 
 fn check_profile(source: &str, expect: &Expect) {
-    check(
-        source,
-        expect,
-        TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
-    );
+    check(source, expect, Profile::AdaptiveRI.into());
 }
 
 fn check_profile_for_exe(source: &str, expect: &Expect) {
-    check_for_exe(
-        source,
-        expect,
-        TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
-    );
+    check_for_exe(source, expect, Profile::AdaptiveRI.into());
 }
 
 #[test]
@@ -624,6 +616,29 @@ fn use_of_static_sized_array_in_tuple_allowed() {
         USE_ENTRY_POINT_INT_ARRAY_IN_TUPLE,
         &expect![[r#"
             []
+        "#]],
+    );
+}
+
+#[test]
+fn use_of_dynamic_result_literal_errors() {
+    check_profile(
+        DYNAMIC_RESULT_LITERAL,
+        &expect![[r#"
+            [
+                UseOfDynamicResult(
+                    Span {
+                        lo: 98,
+                        hi: 190,
+                    },
+                ),
+                UseOfStaticResultInVariable(
+                    Span {
+                        lo: 98,
+                        hi: 190,
+                    },
+                ),
+            ]
         "#]],
     );
 }
