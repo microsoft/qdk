@@ -160,6 +160,11 @@ impl StabilizerSimulator {
         }
     }
 
+    /// Forces the state of a qubit to collapse to a specific value.
+    pub fn post_select_z(&mut self, result: bool, target: QubitID) -> Result<(), String> {
+        self.state.post_select_z(result, target)
+    }
+
     fn apply_gate_in_place(&mut self, gate: &Operation) {
         match *gate {
             Operation::I { .. } => (),
