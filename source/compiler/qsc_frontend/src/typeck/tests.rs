@@ -5574,18 +5574,21 @@ fn call_expr_unit_arg_assign() {
                 }
             }
         "},
-        "A.Foo(q = 1)",
+        "{ let q = 2; A.Foo(q = 1) }",
         &expect![[r##"
             #6 30-39 "(u: Unit)" : Unit
             #7 31-38 "u: Unit" : Unit
             #15 47-54 "{\n    }" : Unit
-            #16 57-69 "A.Foo(q = 1)" : Unit
-            #17 57-62 "A.Foo" : (Unit -> Unit)
-            #21 62-69 "(q = 1)" : Unit
-            #22 63-68 "q = 1" : Unit
-            #23 63-64 "q" : ?
-            #26 67-68 "1" : Int
-            Error(Resolve(NotFound("q", Span { lo: 63, hi: 64 })))
+            #16 57-84 "{ let q = 2; A.Foo(q = 1) }" : Unit
+            #17 57-84 "{ let q = 2; A.Foo(q = 1) }" : Unit
+            #19 63-64 "q" : Int
+            #21 67-68 "2" : Int
+            #23 70-82 "A.Foo(q = 1)" : Unit
+            #24 70-75 "A.Foo" : (Unit -> Unit)
+            #28 75-82 "(q = 1)" : Unit
+            #29 76-81 "q = 1" : Unit
+            #30 76-77 "q" : Int
+            #33 80-81 "1" : Int
         "##]],
     );
 }
@@ -5599,18 +5602,21 @@ fn call_expr_unit_arg_assignop() {
                 }
             }
         "},
-        "A.Foo(i += 1)",
+        "{ let i = 1; A.Foo(i += 1) }",
         &expect![[r##"
             #6 30-39 "(u: Unit)" : Unit
             #7 31-38 "u: Unit" : Unit
             #15 47-54 "{\n    }" : Unit
-            #16 57-70 "A.Foo(i += 1)" : Unit
-            #17 57-62 "A.Foo" : (Unit -> Unit)
-            #21 62-70 "(i += 1)" : Unit
-            #22 63-69 "i += 1" : Unit
-            #23 63-64 "i" : ?
-            #26 68-69 "1" : Int
-            Error(Resolve(NotFound("i", Span { lo: 63, hi: 64 })))
+            #16 57-85 "{ let i = 1; A.Foo(i += 1) }" : Unit
+            #17 57-85 "{ let i = 1; A.Foo(i += 1) }" : Unit
+            #19 63-64 "i" : Int
+            #21 67-68 "1" : Int
+            #23 70-83 "A.Foo(i += 1)" : Unit
+            #24 70-75 "A.Foo" : (Unit -> Unit)
+            #28 75-83 "(i += 1)" : Unit
+            #29 76-82 "i += 1" : Unit
+            #30 76-77 "i" : Int
+            #33 81-82 "1" : Int
         "##]],
     );
 }
@@ -5624,19 +5630,23 @@ fn call_expr_unit_arg_assignupdate() {
                 }
             }
         "},
-        "A.Foo(set arr w/= 0 <- 10)",
+        "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }",
         &expect![[r##"
             #6 30-39 "(u: Unit)" : Unit
             #7 31-38 "u: Unit" : Unit
             #15 47-54 "{\n    }" : Unit
-            #16 57-83 "A.Foo(set arr w/= 0 <- 10)" : Unit
-            #17 57-62 "A.Foo" : (Unit -> Unit)
-            #21 62-83 "(set arr w/= 0 <- 10)" : Unit
-            #22 63-82 "set arr w/= 0 <- 10" : Unit
-            #23 67-70 "arr" : ?
-            #26 75-76 "0" : Int
-            #27 80-82 "10" : Int
-            Error(Resolve(NotFound("arr", Span { lo: 67, hi: 70 })))
+            #16 57-102 "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }" : Unit
+            #17 57-102 "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }" : Unit
+            #19 63-66 "arr" : Int[]
+            #21 69-72 "[1]" : Int[]
+            #22 70-71 "1" : Int
+            #24 74-100 "A.Foo(set arr w/= 0 <- 10)" : Unit
+            #25 74-79 "A.Foo" : (Unit -> Unit)
+            #29 79-100 "(set arr w/= 0 <- 10)" : Unit
+            #30 80-99 "set arr w/= 0 <- 10" : Unit
+            #31 84-87 "arr" : Int[]
+            #34 92-93 "0" : Int
+            #35 97-99 "10" : Int
         "##]],
     );
 }
