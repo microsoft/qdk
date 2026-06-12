@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { log } from "qsharp-lang";
 import {
   azureRequest,
+  AzureError,
   AzureUris,
   QuantumUris,
   ResponseTypes,
@@ -49,7 +50,7 @@ function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
     workspace.offeringId ?? workspace.providers[0]?.providerId ?? "";
 
   return (
-    `tenantId=${workspace.tenantId}` +
+    `tenantId=${workspace.tenantId ?? ""}` +
     `&subscriptionId=${subscriptionId}` +
     `&role=Researcher` +
     (offeringId ? `&offeringId=${offeringId}` : "") +
@@ -209,11 +210,23 @@ workspace = Workspace(
 
 /**
  * Parses a connection string into a WorkspaceConnection, or returns undefined
- * if any required fields are missing. Does not validate the connection against
- * the service — call getTokenForWorkspace / azureRequest to validate.
+ * if any required fields are missing.
+ * Does not validate the connection against the service — call
+ * getTokenForWorkspace / azureRequest to validate.
  *
- * Expected format:
- *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri>
+ * Required fields: SubscriptionId, ResourceGroupName, WorkspaceName, QuantumEndpoint
+ * Optional fields:
+ *   - ApiKey:   if present, API key authentication is used; otherwise Entra ID
+ *               (AAD) authentication is used and VS Code will prompt the user to
+ *               sign in interactively if not already authenticated.
+ *   - TenantId: scopes Entra ID auth and is used for portal deep links. If
+ *               omitted, it is derived from the SubscriptionId.
+ *
+ * API key format:
+ *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>
+ *
+ * Entra ID format:
+ *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;TenantId=<tenant-guid>;QuantumEndpoint=<https://...>
  */
 export function parseConnectionString(
   connStr: string,
@@ -222,16 +235,25 @@ export function parseConnectionString(
   connStr.split(";").forEach((part) => {
     const eq = part.indexOf("=");
     if (eq === -1) return;
-    partsMap.set(part.substring(0, eq).toLowerCase(), part.substring(eq + 1));
+    const value = part.substring(eq + 1).trim();
+    // Skip keys with empty values so that `partsMap.has(...)` reliably means
+    // "present and non-empty" (e.g. "ApiKey=" should not count as an API key).
+    if (!value) return;
+    partsMap.set(part.substring(0, eq).trim().toLowerCase(), value);
   });
 
-  if (
-    !partsMap.has("subscriptionid") ||
-    !partsMap.has("resourcegroupname") ||
-    !partsMap.has("workspacename") ||
-    !partsMap.has("apikey") ||
-    !partsMap.has("quantumendpoint")
-  ) {
+  // Only the core fields are required. Authentication method and tenant id are
+  // handled independently downstream:
+  //   - Auth uses the ApiKey if present, otherwise Entra ID (see getTokenForWorkspace).
+  //   - A missing TenantId is later derived from the SubscriptionId (see
+  //     getWorkspaceWithConnectionString), so it is not required here.
+  const hasRequiredFields =
+    partsMap.has("subscriptionid") &&
+    partsMap.has("resourcegroupname") &&
+    partsMap.has("workspacename") &&
+    partsMap.has("quantumendpoint");
+
+  if (!hasRequiredFields) {
     return undefined;
   }
 
@@ -244,7 +266,7 @@ export function parseConnectionString(
     id: workspaceId,
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
-    tenantId: "", // Blank means not authenticated via a token
+    tenantId: partsMap.get("tenantid"), // May be undefined; derived from the subscription id if missing
     subscriptionId: partsMap.get("subscriptionid"),
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
@@ -259,7 +281,7 @@ async function getWorkspaceWithConnectionString(
     const connStr = await vscode.window.showInputBox({
       prompt: "Enter the connection string",
       placeHolder:
-        "SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri>;",
+        "SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri> (or replace ApiKey with TenantId=<tenant-guid> for Entra ID auth)",
     });
     if (!connStr) {
       endEventProperties.reason = "no connection string entered";
@@ -283,6 +305,20 @@ async function getWorkspaceWithConnectionString(
       }
     }
 
+    // Tenant id discovery (independent of the auth method). The tenant id is
+    // needed for Entra ID auth and for building portal deep links. If it wasn't
+    // supplied in the connection string, derive it from the subscription id.
+    // This must happen before validation because the Entra ID auth path below
+    // (used whenever there is no API key) requires a tenant id.
+    if (!workspace.tenantId) {
+      // subscriptionId is a required connection-string field, so it is always
+      // set on a parsed workspace here.
+      const subscriptionId = workspace.subscriptionId;
+      if (subscriptionId) {
+        workspace.tenantId = await getTenantIdForSubscription(subscriptionId);
+      }
+    }
+
     // Validate the connection string info before returning as valid for further use.
     try {
       const token = await getTokenForWorkspace(workspace);
@@ -294,20 +330,34 @@ async function getWorkspaceWithConnectionString(
         // There should always be providers, so this is an exceptional condition
         throw Error("No providers returned");
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       log.debug("Workspace connection error", e);
-      // e.g. check for 401 (invalid key), 404 (invalid workspace), failed network requests (invalid endpoint), etc.
+      // e.g. check for 401 (invalid key / no access), 403 (no access), 404 (invalid
+      // workspace), failed network requests (invalid endpoint), or a failed/cancelled
+      // interactive sign-in when authenticating via Entra ID (tenant id).
+      const usingEntraId = !workspace.apiKey;
+      const workspaceDescription =
+        `the workspace "${workspace.name}"` +
+        (workspace.tenantId ? ` in tenant ${workspace.tenantId}` : "");
+      const status = e instanceof AzureError ? e.status : undefined;
+      const message = e instanceof Error ? e.message : undefined;
       let errorText = "An unexpected error occurred";
-      const message: string | undefined = e.message;
-      if (message?.includes("status 401")) {
-        errorText =
-          "Authentication failed. Please check the ApiKey is valid and active.";
-      } else if (message?.includes("status 404")) {
+      if (status === 401 || status === 403) {
+        errorText = usingEntraId
+          ? `Authentication failed. The signed-in account does not appear to have access to ${workspaceDescription}. Please verify the account has been granted access to this workspace.`
+          : "Authentication failed. Please check the ApiKey is valid and active.";
+      } else if (status === 404) {
         errorText =
           "Workspace not found. Please check the WorkspaceName and ResourceGroupName values.";
       } else if (message?.includes("Failed to fetch")) {
         errorText =
           "Request failed. Please check the QuantumEndpoint value and network connectivity.";
+      } else if (usingEntraId) {
+        // No HTTP status code: the interactive sign-in itself failed or was
+        // cancelled (e.g. the account is not a member of the tenant, or consent
+        // was denied). Without this branch the failure would surface only as a
+        // generic message, appearing to fail silently to the user.
+        errorText = `Authentication failed. Unable to sign in to ${workspaceDescription}. Please verify the account has access to this workspace and try again.`;
       }
       const action = await vscode.window.showErrorMessage(
         errorText,
@@ -321,14 +371,6 @@ async function getWorkspaceWithConnectionString(
         endEventProperties.flowStatus = UserFlowStatus.Aborted;
         return;
       }
-    }
-
-    // Discover and populate the tenant ID from the subscription.
-    const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
-    const subscriptionId = workspace.id.match(idRegex)?.groups?.subscriptionId;
-    if (subscriptionId) {
-      workspace.tenantId =
-        (await getTenantIdForSubscription(subscriptionId)) ?? "";
     }
 
     return workspace;

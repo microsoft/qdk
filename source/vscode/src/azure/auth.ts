@@ -141,7 +141,7 @@ export async function getTenantIdAndToken(
 
 export async function getTokenForWorkspace(workspace: {
   apiKey?: string;
-  tenantId: string;
+  tenantId?: string;
 }) {
   // If using an API key, just return that as the 'token'
   if (workspace.apiKey) return `apiKey=${workspace.apiKey}`;
@@ -149,7 +149,7 @@ export async function getTokenForWorkspace(workspace: {
   const associationId = getRandomGuid();
 
   const workspaceAuth = await getAuthSession(
-    [scopes.quantum, `VSCODE_TENANT:${workspace.tenantId}`],
+    [scopes.quantum, `VSCODE_TENANT:${workspace.tenantId ?? ""}`],
     associationId,
   );
   return workspaceAuth.accessToken;

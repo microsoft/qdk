@@ -79,8 +79,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         const subscriptionId =
           workspace.id.match(idRegex)?.groups?.subscriptionId;
         if (subscriptionId) {
-          workspace.tenantId =
-            (await getTenantIdForSubscription(subscriptionId)) ?? "";
+          workspace.tenantId = await getTenantIdForSubscription(subscriptionId);
         }
       }
       workspaceTreeProvider.updateWorkspace(workspace);
@@ -548,8 +547,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       const subscriptionId =
         workspace.id.match(idRegex)?.groups?.subscriptionId;
       if (subscriptionId) {
-        workspace.tenantId =
-          (await getTenantIdForSubscription(subscriptionId)) ?? "";
+        workspace.tenantId = await getTenantIdForSubscription(subscriptionId);
       }
       workspaceTreeProvider.updateWorkspace(workspace);
       await saveWorkspaceList();

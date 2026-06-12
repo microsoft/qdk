@@ -106,7 +106,7 @@ export type WorkspaceConnection = {
   id: string;
   name: string;
   endpointUri: string;
-  tenantId: string;
+  tenantId?: string;
   subscriptionId?: string;
   offeringId?: string;
   apiKey?: string;
