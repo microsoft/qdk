@@ -521,7 +521,7 @@ class BlochRenderer {
         );
         trackBall.position.set(0, 5, 0);
 
-        // Conver to world space
+        // Convert to world space
         trackBall.position.applyQuaternion(val.pos);
 
         // Save along with the interpolation point
@@ -832,7 +832,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   //     applied (standard time-travel semantics).
   //
   // Inspect mode (cursor < gates.length) is signalled visually by a
-  // persistent banner, dimmed/italicised future rows, and disabled
+  // persistent banner, dimmed/italicized future rows, and disabled
   // Undo/Redo buttons. Applying a new gate while inspecting commits the
   // truncation (future rows become discarded). This mirrors how
   // browsers and most editors handle "navigate back, then act".
@@ -1077,7 +1077,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const inInspectMode = cursor < gates.length;
   const canUndo = !inInspectMode && cursor > 0 && !isPlaying;
   const canRedo = !inInspectMode && redoStack.length > 0 && !isPlaying;
-  // Playback affordances. These cover the media-control row; everything
+  // Playback affordance. These cover the media-control row; everything
   // is derived from `cursor` / `gates` / `isPlaying` so the buttons can
   // never disagree with what the sphere is actually doing.
   const atStart = cursor === 0;
@@ -1456,7 +1456,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           they feel "instant"; the centre button is the only animated
           path and is also where Pause is wired. We render unicode media
           glyphs so the bar reads as the standard transport control even
-          without colour or icons.
+          without color or icons.
         */}
         <div class="qs-bloch-media-controls" role="group" aria-label="Playback">
           <button
