@@ -5673,3 +5673,38 @@ fn call_expr_unit_arg_block() {
         "##]],
     );
 }
+
+#[test]
+fn call_expr_non_tuple_expr() {
+    check_allow_parse_errors(
+        "",
+        indoc! {"
+            {
+                let f = (a, b) -> a + b;
+                let x = (1, 2.);
+                f(x)
+            }
+        "},
+        &expect![[r##"
+            #1 0-62 "{\n    let f = (a, b) -> a + b;\n    let x = (1, 2.);\n    f(x)\n}" : Double
+            #2 0-62 "{\n    let f = (a, b) -> a + b;\n    let x = (1, 2.);\n    f(x)\n}" : Double
+            #4 10-11 "f" : ((Double, Double) -> Double)
+            #6 14-29 "(a, b) -> a + b" : ((Double, Double) -> Double)
+            #7 14-20 "(a, b)" : (Double, Double)
+            #8 15-16 "a" : Double
+            #10 18-19 "b" : Double
+            #12 24-29 "a + b" : Double
+            #13 24-25 "a" : Double
+            #16 28-29 "b" : Double
+            #20 39-40 "x" : (Int, Double)
+            #22 43-50 "(1, 2.)" : (Int, Double)
+            #23 44-45 "1" : Int
+            #24 47-49 "2." : Double
+            #26 56-60 "f(x)" : Double
+            #27 56-57 "f" : ((Double, Double) -> Double)
+            #30 57-60 "(x)" : (Int, Double)
+            #31 58-59 "x" : (Int, Double)
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 58, hi: 59 }))))
+        "##]],
+    );
+}
