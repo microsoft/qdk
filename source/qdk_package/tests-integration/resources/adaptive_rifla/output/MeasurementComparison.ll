@@ -6,8 +6,8 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  %var_1 = alloca i1
-  %var_9 = alloca i1
+  %var_2 = alloca i1
+  %var_10 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
   call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -15,30 +15,30 @@ block_0:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__reset__body(ptr inttoptr (i64 1 to ptr))
-  %var_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  store i1 %var_0, ptr %var_1
-  %var_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  %var_3 = icmp eq i1 %var_2, false
-  %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  %var_6 = icmp eq i1 %var_4, %var_5
-  %var_7 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  %var_8 = icmp eq i1 %var_7, false
-  br i1 %var_8, label %block_1, label %block_2
+  %var_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  store i1 %var_1, ptr %var_2
+  %var_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_4 = icmp eq i1 %var_3, false
+  %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_6 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  %var_7 = icmp eq i1 %var_5, %var_6
+  %var_8 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  %var_9 = icmp eq i1 %var_8, false
+  br i1 %var_9, label %block_1, label %block_2
 block_1:
-  store i1 false, ptr %var_9
+  store i1 false, ptr %var_10
   br label %block_3
 block_2:
-  store i1 true, ptr %var_9
+  store i1 true, ptr %var_10
   br label %block_3
 block_3:
   call void @__quantum__rt__tuple_record_output(i64 4, ptr @0)
-  %var_12 = load i1, ptr %var_1
-  call void @__quantum__rt__bool_record_output(i1 %var_12, ptr @1)
-  call void @__quantum__rt__bool_record_output(i1 %var_3, ptr @2)
-  call void @__quantum__rt__bool_record_output(i1 %var_6, ptr @3)
-  %var_13 = load i1, ptr %var_9
-  call void @__quantum__rt__bool_record_output(i1 %var_13, ptr @4)
+  %var_13 = load i1, ptr %var_2
+  call void @__quantum__rt__bool_record_output(i1 %var_13, ptr @1)
+  call void @__quantum__rt__bool_record_output(i1 %var_4, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 %var_7, ptr @3)
+  %var_14 = load i1, ptr %var_10
+  call void @__quantum__rt__bool_record_output(i1 %var_14, ptr @4)
   ret i64 0
 }
 

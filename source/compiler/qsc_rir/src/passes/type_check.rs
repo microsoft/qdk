@@ -33,6 +33,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
         | Instruction::Fsub(opr1, opr2, var)
         | Instruction::Fmul(opr1, opr2, var)
         | Instruction::Fdiv(opr1, opr2, var)
+        | Instruction::Frem(opr1, opr2, var)
         | Instruction::LogicalAnd(opr1, opr2, var)
         | Instruction::LogicalOr(opr1, opr2, var)
         | Instruction::BitwiseAnd(opr1, opr2, var)

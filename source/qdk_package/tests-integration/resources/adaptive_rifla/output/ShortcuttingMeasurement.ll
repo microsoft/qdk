@@ -4,22 +4,25 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  %var_2 = alloca i1
+  %var_3 = alloca i1
+  %var_6 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
   call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  store i1 true, ptr %var_2
-  br i1 %var_0, label %block_2, label %block_1
+  %var_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  store i1 true, ptr %var_3
+  br i1 %var_1, label %block_2, label %block_1
 block_1:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-  %var_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  store i1 %var_3, ptr %var_2
+  %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  store i1 %var_4, ptr %var_3
   br label %block_2
 block_2:
-  %var_6 = load i1, ptr %var_2
-  br i1 %var_6, label %block_3, label %block_4
+  %var_9 = load i1, ptr %var_3
+  store i1 %var_9, ptr %var_6
+  %var_11 = load i1, ptr %var_6
+  br i1 %var_11, label %block_3, label %block_4
 block_3:
   call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))

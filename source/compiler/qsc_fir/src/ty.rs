@@ -465,6 +465,19 @@ impl FunctorSetValue {
     }
 }
 
+impl FunctorSetValue {
+    /// Returns a compact identifier suitable for name mangling.
+    #[must_use]
+    pub fn mangle_name(&self) -> &'static str {
+        match self {
+            Self::Empty => "Empty",
+            Self::Adj => "Adj",
+            Self::Ctl => "Ctl",
+            Self::CtlAdj => "AdjCtl",
+        }
+    }
+}
+
 impl Display for FunctorSetValue {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {

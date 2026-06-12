@@ -89,3 +89,7 @@ pub mod target {
 }
 
 pub mod openqasm;
+
+pub mod fir_transforms {
+    pub use qsc_fir_transforms::run_pipeline_with_diagnostics;
+}

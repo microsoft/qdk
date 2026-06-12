@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{assert_block_instructions, assert_blocks, assert_callable, get_rir_program};
+use super::{
+    assert_block_instructions, assert_blocks, assert_callable, assert_error,
+    get_partial_evaluation_error, get_rir_program,
+};
 use expect_test::{Expect, expect};
 use indoc::{formatdoc, indoc};
 use qsc_rir::rir::{BlockId, CallableId};
@@ -1310,11 +1313,8 @@ fn call_to_intrinsic_operation_that_returns_double_value_should_produce_variable
 }
 
 #[test]
-#[should_panic(
-    expected = "partial evaluation failed: UnsupportedCustomIntrinsicType(\"Result\", PackageSpan { package: PackageId(2), span: Span { lo: 137, hi: 140 } })"
-)]
 fn call_to_intrinsic_operation_that_returns_result_value_should_fail() {
-    let _ = get_rir_program(indoc! {"
+    let error = get_partial_evaluation_error(indoc! {"
         namespace Test {
             operation Op1() : Result {
                 body intrinsic;
@@ -1325,14 +1325,17 @@ fn call_to_intrinsic_operation_that_returns_result_value_should_fail() {
             }
         }
     "});
+    assert_error(
+        &error,
+        &expect![[
+            r#"UnsupportedCustomIntrinsicType("Result", PackageSpan { package: PackageId(2), span: Span { lo: 137, hi: 140 } })"#
+        ]],
+    );
 }
 
 #[test]
-#[should_panic(
-    expected = "partial evaluation failed: UnsupportedCustomIntrinsicType(\"Qubit\", PackageSpan { package: PackageId(2), span: Span { lo: 142, hi: 145 } })"
-)]
 fn call_to_intrinsic_operation_that_returns_qubit_value_should_fail() {
-    let _ = get_rir_program(indoc! {"
+    let error = get_partial_evaluation_error(indoc! {"
         namespace Test {
             operation Op1() : Qubit {
                 body intrinsic;
@@ -1343,14 +1346,17 @@ fn call_to_intrinsic_operation_that_returns_qubit_value_should_fail() {
             }
         }
     "});
+    assert_error(
+        &error,
+        &expect![[
+            r#"UnsupportedCustomIntrinsicType("Qubit", PackageSpan { package: PackageId(2), span: Span { lo: 142, hi: 145 } })"#
+        ]],
+    );
 }
 
 #[test]
-#[should_panic(
-    expected = "partial evaluation failed: UnsupportedCustomIntrinsicType(\"(Qubit)[]\", PackageSpan { package: PackageId(2), span: Span { lo: 36, hi: 48 } })"
-)]
 fn call_to_intrinsic_operation_that_takes_qubit_array_should_fail() {
-    let _ = get_rir_program(indoc! {"
+    let error = get_partial_evaluation_error(indoc! {"
         namespace Test {
             operation Op1(qs : Qubit[]) : Unit {
                 body intrinsic;
@@ -1362,4 +1368,34 @@ fn call_to_intrinsic_operation_that_takes_qubit_array_should_fail() {
             }
         }
     "});
+    assert_error(
+        &error,
+        &expect![[
+            r#"UnsupportedCustomIntrinsicType("(Qubit)[]", PackageSpan { package: PackageId(2), span: Span { lo: 36, hi: 48 } })"#
+        ]],
+    );
+}
+
+#[test]
+fn call_to_simulatable_intrinsic_with_tuple_param_should_fail() {
+    // A `@SimulatableIntrinsic` callable is valid in simulation, but when it is
+    // reachable from a codegen entry point its unsupported tuple parameter is
+    // rejected by partial evaluation (the codegen deferral point), not by the
+    // FIR-transform precheck or RCA.
+    let error = get_partial_evaluation_error(indoc! {"
+        namespace Test {
+            @SimulatableIntrinsic()
+            operation Op1(pair : (Int, Int)) : Unit {}
+            @EntryPoint()
+            operation Main() : Unit {
+                Op1((1, 2));
+            }
+        }
+    "});
+    assert_error(
+        &error,
+        &expect![[
+            r#"UnsupportedCustomIntrinsicType("(Int, Int)", PackageSpan { package: PackageId(2), span: Span { lo: 64, hi: 81 } })"#
+        ]],
+    );
 }
