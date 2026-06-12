@@ -22,7 +22,7 @@ use qsc_ast::ast::NodeId;
 use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     hir::{CallableKind, ItemId},
-    ty::{FunctorSet, GenericArg, Ty, Udt},
+    ty::{FunctorSet, GenericArg, InferTyId, Prim, Ty, Udt},
 };
 use rustc_hash::FxHashMap;
 use std::fmt::Debug;
@@ -47,11 +47,53 @@ pub struct Table {
 #[error(transparent)]
 pub(super) struct Error(ErrorKind);
 
+/// Simplified type info for error reporting. Same shape as `Ty`, but without `Rc`
+/// so it can be included in `ErrorKind` (which must be `Send + Sync`).
+#[derive(Clone, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
+pub enum TyInfo {
+    Array(Box<TyInfo>),
+    Arrow,
+    Infer(InferTyId),
+    Param,
+    Prim(Prim),
+    Tuple(Vec<TyInfo>),
+    Udt,
+    #[default]
+    Err,
+}
+
+impl From<&Ty> for TyInfo {
+    fn from(ty: &Ty) -> Self {
+        match ty {
+            Ty::Array(item) => TyInfo::Array(Box::new(TyInfo::from(item.as_ref()))),
+            Ty::Arrow(_) => TyInfo::Arrow,
+            Ty::Infer(id) => TyInfo::Infer(*id),
+            Ty::Param { .. } => TyInfo::Param,
+            Ty::Prim(prim) => TyInfo::Prim(*prim),
+            Ty::Tuple(items) => TyInfo::Tuple(items.iter().map(TyInfo::from).collect()),
+            Ty::Udt(_, _) => TyInfo::Udt,
+            Ty::Err => TyInfo::Err,
+        }
+    }
+}
+
+impl From<Ty> for TyInfo {
+    fn from(ty: Ty) -> Self {
+        TyInfo::from(&ty)
+    }
+}
+
 #[derive(Clone, Debug, Diagnostic, Error)]
 enum ErrorKind {
     #[error("expected {0}, found {1}")]
     #[diagnostic(code("Qsc.TypeCk.TyMismatch"))]
-    TyMismatch(String, String, #[label] Span),
+    TyMismatch(
+        /*expected*/ String,
+        /*actual*/ String,
+        /*expected*/ TyInfo,
+        /*actual*/ TyInfo,
+        #[label] Span,
+    ),
     #[error("expected {0}, found {1}")]
     #[diagnostic(code("Qsc.TypeCk.CallableMismatch"))]
     CallableMismatch(CallableKind, CallableKind, #[label] Span),
@@ -192,6 +234,17 @@ enum ErrorKind {
     ))]
     #[diagnostic(code("Qsc.TypeCk.RecursiveTypeConstraint"))]
     RecursiveTypeConstraint(#[label] Span),
+}
+
+impl Error {
+    /// If this is a type-mismatch error, returns (expected, actual, span).
+    #[must_use]
+    pub fn ty_mismatch(&self) -> Option<(&TyInfo, &TyInfo, Span)> {
+        match &self.0 {
+            ErrorKind::TyMismatch(_, _, expected, actual, span) => Some((expected, actual, *span)),
+            _ => None,
+        }
+    }
 }
 
 impl From<TyConversionError> for Error {

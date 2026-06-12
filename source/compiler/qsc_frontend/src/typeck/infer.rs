@@ -358,9 +358,13 @@ impl ArgTy {
             (Self::Tuple(args, tuple_span), Ty::Tuple(params)) => {
                 let mut errors = Vec::new();
                 if args.len() != params.len() {
+                    let expected_ty = Ty::Tuple(params.clone());
+                    let actual_ty = self.to_ty();
                     errors.push(Error(ErrorKind::TyMismatch(
-                        Ty::Tuple(params.clone()).display(),
-                        self.to_ty().display(),
+                        expected_ty.display(),
+                        actual_ty.display(),
+                        expected_ty.into(),
+                        actual_ty.into(),
                         *tuple_span,
                     )));
                 }
@@ -400,6 +404,8 @@ impl ArgTy {
                 errors: vec![Error(ErrorKind::TyMismatch(
                     param.display(),
                     self.to_ty().display(),
+                    param.into(),
+                    self.to_ty().into(),
                     *tuple_span,
                 ))],
             },
@@ -793,6 +799,8 @@ impl Solver {
                     self.errors.push(Error(ErrorKind::TyMismatch(
                         ty1.display(),
                         ty2.display(),
+                        ty1.into(),
+                        ty2.into(),
                         span,
                     )));
                 }
@@ -808,6 +816,8 @@ impl Solver {
                 self.errors.push(Error(ErrorKind::TyMismatch(
                     ty1.display(),
                     ty2.display(),
+                    ty1.into(),
+                    ty2.into(),
                     span,
                 )));
                 Vec::new()
