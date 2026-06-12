@@ -2,7 +2,14 @@
 // Licensed under the MIT License.
 
 /*
-This file generates the rz-array.json file that contains the gates for Rz rotation synthesis.
+Generator source for checked-in Rz synthesis lookup artifacts.
+
+This script regenerates:
+  - source/npm/qsharp/rz-array.json
+  - source/npm/qsharp/rz-details.json
+
+It is intentionally not on the normal build path. Keep this file in-repo so
+the lookup data remains reproducible when synthesis parameters are updated.
 
 Run with: npm run rz
 */

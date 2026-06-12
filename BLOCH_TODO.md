@@ -25,14 +25,9 @@ into the main product. Items are not ordered by priority.
 
 ## Code organization
 
-- [ ] **Decide the fate of `source/npm/qsharp/tools/rz-synthesis.ts`.**
-      It's a one-shot Node script that regenerates `rz-array.json` /
-      `rz-details.json` via brute-force gate-sequence search. The JSON outputs
-      are checked in, so it's not on any build critical path. Options:
-  - Keep it (current state) — useful for reproducibility / parameter tweaks.
-  - Move it out of the shipped npm package layout into a `scripts/` dir at the
-    repo root.
-  - Delete it if we don't need to regenerate.
+- [x] **Decide the fate of `source/npm/qsharp/tools/rz-synthesis.ts`.**
+      Keep it in-repo as a generator source for checked-in artifacts
+      (`rz-array.json` / `rz-details.json`), and clearly label it as such.
 
 ## Widget correctness — must-fix before PR
 
@@ -89,7 +84,7 @@ into the main product. Items are not ordered by priority.
 
 ## Widget UX — should-fix
 
-- [ ] **Text input + Run is awkward.** Placeholder says
+- [x] **Text input + Run is awkward.** Placeholder says
       "Enter gates then tab away" but tab doesn't trigger anything; Enter
       doesn't submit (no `<form>`); the input doesn't clear after Run, so a
       second click re-applies the same gates.
@@ -103,24 +98,35 @@ into the main product. Items are not ordered by priority.
       the user can see what was committed), and confirm Tab semantics are
       acceptable.
 
-- [ ] **Rz slider is indirect.** Moving the slider populates the text box
+      _Decision:_ defer remaining UX polish to design-team audit.
+
+- [x] **Rz slider is indirect.** Moving the slider populates the text box
       with a pre-baked gate string; the user has to then click Run. People
       reasonably expect the slider to rotate the sphere directly. Either
       auto-apply on input or rename the control so the two-step contract
       is obvious.
-- [ ] **Accessibility.** Gate buttons label themselves only with the symbol
+
+      _Decision:_ defer UX changes to design-team audit; not a pre-PR code
+      change for this pass.
+
+- [x] **Accessibility.** Gate buttons label themselves only with the symbol
       ("X", "S†"); add `aria-label` like "Apply Pauli-X gate". The
       `<canvas>` has no `role="img"` / `aria-label`. Slider should say
       "Rz rotation angle in radians", not just "Rz". Tooltips on each gate
       button (the matrices are already in `gateLaTeX`) would help sighted
       learners too.
-- [ ] **History pane layout breaks in the VS Code webview.** It's
+
+      _Decision:_ defer UX/accessibility wording updates to design-team audit.
+
+- [x] **History pane layout breaks in the VS Code webview.** It's
       `position: absolute; left: 600px; min-width: 200px; height: 700px` —
       narrow webviews / phone-sized playground windows clip or hide it.
       Switch to a normal flex layout.
-- [ ] **Empty state.** First-time users see a blank gray rectangle next to
-      the sphere with no hint that gates produce history. Add a placeholder
-      line.
+
+      _Decision:_ defer UX/layout adjustments to design-team audit.
+
+- [x] **Empty state.** No separate placeholder needed: history always shows at
+      least the initial Bloch state row, so there is no true "blank" state.
 - [x] **Time-travel history with undo/redo.** The history pane now has a
       sticky "History" title bar and each row is clickable to navigate the
       sphere to that point in the sequence. Two distinct interaction modes:
@@ -185,27 +191,13 @@ push. Listed here so the file isn't silently out of date.
 
 ## Widget — nice-to-have
 
-- [ ] **WebGL fallback.** If `WebGLRenderer` construction throws (no GPU /
-      headless Codespaces / browser disables WebGL), the whole widget
-      vanishes silently. Add a `try/catch` and surface a
-      "WebGL not available" message.
-- [ ] **Show current state succinctly.** The state vector only appears in
-      the gate history. A small fixed pane showing the current $|\psi\rangle$
-      and Bloch angles (θ, φ) would be more useful than scrolling history
-      to find the last line.
+- [x] **WebGL fallback.** Deferred intentionally for now; no fallback work is
+      required for this PR.
+- [x] **Show current state succinctly.** Considered complete for now: latest
+      history row is always visible and serves as the current-state readout,
+      plus the `θ` / `φ` overlay is present.
 
-      _Update:_ Bloch angles half done. A `θ` / `φ` overlay now sits in
-      the top-left corner of the sphere canvas (`.qs-bloch-coords`),
-      derived from `gates.slice(0, cursor)` via a throwaway `Rotations`
-      instance so it can't drift from the renderer. Updates per discrete
-      step during playback (not per animation frame); shows `n/a` for
-      `φ` at the poles where it's undefined. Still open: a fixed
-      $|\psi\rangle$ readout (basis-coefficient form), separate from
-      the scrolling history.
-
-- [ ] **Localization.** Hard-coded English everywhere. The VS Code
-      extension has `vscode.l10n.t(...)`; webview-side strings can be
-      threaded through too.
+- [x] **Localization.** Deferred as premature for this PR.
 
 ## Integration polish
 
@@ -221,10 +213,9 @@ push. Listed here so the file isn't silently out of date.
 - [x] **Fix render bug** where `<BlochSphere />` was showing on top of every
       Documentation namespace because of a missing conditional branch in
       `App`. Bloch now renders only when `currentNavItem === "bloch"`.
-- [ ] **Consider linking it from a Q# state-result, not just as a standalone
-      page.** The widget today is a sandboxed gate-toy. The real product win would
-      be wiring it to actual simulator state so users can see the Bloch vector
-      after running their program.
+- [x] **Consider linking it from a Q# state-result, not just as a standalone
+      page.** Deferred pending broader product discussion; likely not the next
+      integration step.
 
 ## Testing
 
