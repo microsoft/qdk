@@ -146,7 +146,7 @@ jobs:
             echo "TO_MINIMIZE_FNAME: $TO_MINIMIZE_FNAME"
 
             # Minimize the input:
-            ( cargo fuzz --fuzz-dir ./fuzz tmin --release --sanitizer=none --features do_fuzz -r 10000 ${{ matrix.target_name }} $ARTIFACTS_RDPATH/${{ matrix.target_name }}/$TO_MINIMIZE_FNAME 2>&1 ) > \
+            ( cargo fuzz tmin --fuzz-dir ./fuzz --release --sanitizer=none --features do_fuzz -r 10000 ${{ matrix.target_name }} $ARTIFACTS_RDPATH/${{ matrix.target_name }}/$TO_MINIMIZE_FNAME 2>&1 ) > \
               $TMIN_LOG_FNAME || MINIMIZATION_FAILED=1
 
             # Get the minimized input relative faile path:
