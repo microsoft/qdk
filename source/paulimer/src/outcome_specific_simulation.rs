@@ -61,6 +61,10 @@ impl OutcomeSpecificSimulation {
     pub fn outcome_vector(&self) -> &Vec<bool> {
         &self.outcome_vector
     }
+
+    pub fn post_select_z(&mut self, value: bool, index: usize) -> Result<(), String> {
+        measure_pauli_forced(self, &SparsePauli::from([quantum_core::z(index)]), value)
+    }
 }
 
 pub fn apply_hadamard(simulation: &mut OutcomeSpecificSimulation, qubit_index: usize) {
@@ -113,6 +117,7 @@ pub fn measure_pauli_with_hint<HintBits: PauliBits, HintPhase: PhaseExponent>(
     simulation: &mut OutcomeSpecificSimulation,
     observable: &SparsePauli,
     hint: &PauliUnitary<HintBits, HintPhase>,
+    forced_bit: Option<bool>,
 ) {
     assert!(
         anti_commutes_with(observable, hint),
@@ -127,7 +132,13 @@ pub fn measure_pauli_with_hint<HintBits: PauliBits, HintPhase: PhaseExponent>(
         let mut pauli = observable.clone() * hint;
         pauli *= Phase::from_exponent(3u8.wrapping_sub(preimage.xz_phase_exponent().raw_value()));
         PauliExponent::new(pauli) * &mut simulation.clifford;
-        allocate_random_bit(simulation);
+        if let Some(forced) = forced_bit {
+            simulation.outcome_vector.push(forced);
+            simulation.random_outcome_indicator.push(true);
+            simulation.num_random_bits += 1;
+        } else {
+            allocate_random_bit(simulation);
+        }
         apply_conditional_pauli(
             simulation,
             hint,
@@ -153,12 +164,34 @@ pub fn measure_pauli(simulation: &mut OutcomeSpecificSimulation, observable: &Sp
     match non_zero_pos {
         Some(pos) => {
             let hint = simulation.clifford.image_z(pos);
-            measure_pauli_with_hint(simulation, observable, &hint);
+            measure_pauli_with_hint(simulation, observable, &hint, None);
         }
         None => {
             measure_deterministic(simulation, &preimage);
         }
     }
+}
+
+pub fn measure_pauli_forced(
+    simulation: &mut OutcomeSpecificSimulation,
+    observable: &SparsePauli,
+    forced_bit: bool,
+) -> Result<(), String> {
+    let preimage = simulation.clifford.preimage(observable);
+    let non_zero_pos = preimage.x_bits().support().next();
+    match non_zero_pos {
+        Some(pos) => {
+            let hint = simulation.clifford.image_z(pos);
+            measure_pauli_with_hint(simulation, observable, &hint, Some(forced_bit));
+        }
+        None => {
+            measure_deterministic(simulation, &preimage);
+            if simulation.outcome_vector().last() != Some(&forced_bit) {
+                return Err("post-selection condition has zero probability".into());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn measure_deterministic<Bits: PauliBits, Phase: PhaseExponent>(
@@ -252,7 +285,7 @@ impl Simulation for OutcomeSpecificSimulation {
     ) -> usize {
         let pauli = SparsePauli::from(observable);
         let hint = SparsePauli::from(hint);
-        measure_pauli_with_hint(self, &pauli, &hint);
+        measure_pauli_with_hint(self, &pauli, &hint, None);
         self.outcome_vector().len() - 1
     }
 
