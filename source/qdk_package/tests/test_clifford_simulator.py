@@ -278,7 +278,7 @@ def test_clifford_run_bitflip_noise():
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["0000000011000001"]
+    assert result == ["0000010000001000"]
 
     # Same execution should work with the operation itself.
     output = qsharp.run(
@@ -296,7 +296,7 @@ def test_clifford_run_bitflip_noise():
     )
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
-    assert result == ["0000000011000001"]
+    assert result == ["0000010000001000"]
 
 
 def test_clifford_run_mixed_noise():
@@ -319,7 +319,7 @@ def test_clifford_run_mixed_noise():
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["00000-0000000001"]
+    assert result == ["000000000--000-0"]
 
 
 def test_clifford_run_isolated_loss():

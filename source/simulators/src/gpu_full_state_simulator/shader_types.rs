@@ -98,7 +98,9 @@ pub struct ShotData {
     pub rand_damping: f32,
     pub rand_dephase: f32,
     pub rand_measure: f32,
-    pub rand_loss: f32,
+    // Bitmask of qubits that the most recent noise sampler decided to lose. A
+    // following loss-commit op consumes (and clears) its qubit's bit.
+    pub pending_loss_mask: u32,
     pub op_type: u32,
     pub op_idx: u32,
     pub duration: f32,
@@ -664,76 +666,45 @@ impl Op {
 
     #[must_use]
     pub fn new_pauli_noise_1q(qubit: u32, p_x: f32, p_y: f32, p_z: f32) -> Self {
-        let mut op = Self::new_1q_gate(ops::PAULI_NOISE_1Q, qubit);
-        op.r00 = 1.0 - (p_x + p_y + p_z);
-        op.r01 = p_x;
-        op.r02 = p_y;
-        op.r03 = p_z;
-        op
+        Self::new_pauli_noise_1q_with_loss(qubit, p_x, p_y, p_z, 0.0)
     }
 
+    /// Build a 1-qubit per-gate noise op whose categorical distribution covers
+    /// the Pauli faults and qubit loss. Outcome probabilities are stored at flat
+    /// slots indexed by the 3-bit term encoding (X=1, Z=2, Y=3, L=4); the implicit
+    /// identity slot (0) holds the remaining probability at sample time.
     #[must_use]
-    #[allow(clippy::similar_names)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_pauli_noise_2q(
-        q1: u32,
-        q2: u32,
-        p_ix: f32,
-        p_iy: f32,
-        p_iz: f32,
-        p_xi: f32,
-        p_xx: f32,
-        p_xy: f32,
-        p_xz: f32,
-        p_yi: f32,
-        p_yx: f32,
-        p_yy: f32,
-        p_yz: f32,
-        p_zi: f32,
-        p_zx: f32,
-        p_zy: f32,
-        p_zz: f32,
+    pub fn new_pauli_noise_1q_with_loss(
+        qubit: u32,
+        p_x: f32,
+        p_y: f32,
+        p_z: f32,
+        p_loss: f32,
     ) -> Self {
-        let mut op = Self::new_2q_gate(ops::PAULI_NOISE_2Q, q1, q2);
-        op.r00 = 1.0
-            - (p_ix
-                + p_iy
-                + p_iz
-                + p_xi
-                + p_xx
-                + p_xy
-                + p_xz
-                + p_yi
-                + p_yx
-                + p_yy
-                + p_yz
-                + p_zi
-                + p_zx
-                + p_zy
-                + p_zz);
-        op.r01 = p_ix;
-        op.r02 = p_iy;
-        op.r03 = p_iz;
-        op.r10 = p_xi;
-        op.r11 = p_xx;
-        op.r12 = p_xy;
-        op.r13 = p_xz;
-        op.r20 = p_yi;
-        op.r21 = p_yx;
-        op.r22 = p_yy;
-        op.r23 = p_yz;
-        op.r30 = p_zi;
-        op.r31 = p_zx;
-        op.r32 = p_zy;
-        op.r33 = p_zz;
+        let mut op = Self::new_1q_gate(ops::PAULI_NOISE_1Q, qubit);
+        op.set_noise_prob_slot(1, p_x);
+        op.set_noise_prob_slot(2, p_z);
+        op.set_noise_prob_slot(3, p_y);
+        op.set_noise_prob_slot(4, p_loss);
         op
     }
 
+    /// Store the probability `prob` for the categorical noise outcome `slot`
+    /// in the op's matrix-storage floats. The host and shader agree that flat
+    /// slot `k` maps to WGSL `unitary[k / 2][k % 2]`.
+    pub fn set_noise_prob_slot(&mut self, slot: usize, prob: f32) {
+        // Op is 4 leading u32 fields followed by 32 matrix floats
+        // (r00, i00, r01, i01, ...), so matrix flat slot `k` lives at index `4 + k`.
+        let floats: &mut [f32; 36] = bytemuck::cast_mut(self);
+        floats[4 + slot] = prob;
+    }
+
     #[must_use]
-    pub fn new_loss_noise(qubit: u32, p_loss: f32) -> Self {
-        let mut op = Self::new_1q_gate(ops::LOSS_NOISE, qubit);
-        op.r00 = p_loss;
-        op
+    pub fn new_loss_commit(qubit: u32) -> Self {
+        // A loss-commit op carries no probability. It commits a loss (measure +
+        // reset) when the preceding noise sampler set this qubit's bit in
+        // `pending_loss_mask`, and otherwise acts as identity.
+        Self::new_1q_gate(ops::LOSS_NOISE, qubit)
     }
 
     /// Create a new 2-qubit gate Op with default values
@@ -950,6 +921,24 @@ impl Op {
             }
         }
         op
+    }
+
+    /// Read the qubit ID at `index` from a correlated-noise op, the inverse of
+    /// the qubit packing done in `new_correlated_noise_gate` (qubit `i` is stored
+    /// in matrix flat slot `i`).
+    #[must_use]
+    pub fn correlated_noise_qubit(&self, index: u32) -> u32 {
+        let floats: &[f32; 36] = bytemuck::cast_ref(self);
+        // The 4 leading u32 fields precede the 32 matrix floats. Qubit ids are
+        // stored as exact f32 values (range limited to 32), mirroring how the
+        // shader reads them back as u32.
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "qubit ids are small non-negative integers stored exactly as f32"
+        )]
+        let qubit = floats[4 + index as usize] as u32;
+        qubit
     }
 
     /// Custom 1-qubit operation with arbitrary matrix elements
