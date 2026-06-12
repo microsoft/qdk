@@ -629,6 +629,7 @@ pub mod qir {
     /// For callable-typed positions, uses the corresponding callable from `args`.
     /// For non-callable positions, uses `lower_value_to_expr` if the value is available
     /// in `args`, otherwise creates a typed placeholder literal.
+    #[allow(clippy::too_many_lines)]
     fn build_synthetic_args(
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
@@ -671,6 +672,7 @@ pub mod qir {
                                     package,
                                     assigner,
                                     args,
+                                    None,
                                     callable_types,
                                     pending_stmts,
                                 ));
@@ -723,7 +725,20 @@ pub mod qir {
             }
             qsc_fir::ty::Ty::Arrow(_) => {
                 // Arrow-typed position — the args must be a callable value.
-                lower_value_to_expr(package, assigner, args, callable_types, pending_stmts)
+                lower_value_to_expr(package, assigner, args, None, callable_types, pending_stmts)
+            }
+            qsc_fir::ty::Ty::Array(elem_ty) => {
+                // Array position — lower the value, threading the declared element
+                // type so empty (and nested-empty) arrays carry their real element
+                // type instead of `Ty::Err`.
+                lower_value_to_expr(
+                    package,
+                    assigner,
+                    args,
+                    Some(elem_ty.as_ref()),
+                    callable_types,
+                    pending_stmts,
+                )
             }
             _ => {
                 // Non-callable position — lower value if possible, otherwise placeholder.
@@ -731,9 +746,14 @@ pub mod qir {
                     Value::Qubit(_) | Value::Var(_) => {
                         make_placeholder_expr(package, assigner, input_ty)
                     }
-                    _ => {
-                        lower_value_to_expr(package, assigner, args, callable_types, pending_stmts)
-                    }
+                    _ => lower_value_to_expr(
+                        package,
+                        assigner,
+                        args,
+                        None,
+                        callable_types,
+                        pending_stmts,
+                    ),
                 }
             }
         }
@@ -873,6 +893,7 @@ pub mod qir {
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
         value: &Value,
+        elem_ty_hint: Option<&qsc_fir::ty::Ty>,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, qsc_fir::ty::Ty>,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
@@ -913,8 +934,14 @@ pub mod qir {
                 let mut lowered_ids = Vec::with_capacity(vs.len());
                 let mut lowered_tys = Vec::with_capacity(vs.len());
                 for v in vs.iter() {
-                    let id =
-                        lower_value_to_expr(package, assigner, v, callable_types, pending_stmts);
+                    let id = lower_value_to_expr(
+                        package,
+                        assigner,
+                        v,
+                        None,
+                        callable_types,
+                        pending_stmts,
+                    );
                     lowered_tys.push(package.exprs.get(id).expect("just inserted").ty.clone());
                     lowered_ids.push(id);
                 }
@@ -924,19 +951,29 @@ pub mod qir {
                 )
             }
             Value::Array(vs) => {
+                // Decompose the declared element-type hint so empty (and nested-empty)
+                // arrays can recover their real element type instead of `Ty::Err`.
+                let inner_hint: Option<&qsc_fir::ty::Ty> = match elem_ty_hint {
+                    Some(qsc_fir::ty::Ty::Array(inner)) => Some(inner.as_ref()),
+                    _ => None,
+                };
                 let mut lowered_ids = Vec::with_capacity(vs.len());
                 for v in vs.iter() {
                     lowered_ids.push(lower_value_to_expr(
                         package,
                         assigner,
                         v,
+                        inner_hint,
                         callable_types,
                         pending_stmts,
                     ));
                 }
-                let elem_ty = lowered_ids.first().map_or(qsc_fir::ty::Ty::Err, |id| {
-                    package.exprs.get(*id).expect("just inserted").ty.clone()
-                });
+                let elem_ty = match lowered_ids.first() {
+                    Some(id) => package.exprs.get(*id).expect("just inserted").ty.clone(),
+                    // For an empty array the element type is the declared hint
+                    // for this array, not the element's element type.
+                    None => elem_ty_hint.cloned().unwrap_or(qsc_fir::ty::Ty::Err),
+                };
                 (
                     qsc_fir::fir::ExprKind::Array(lowered_ids),
                     qsc_fir::ty::Ty::Array(Box::new(elem_ty)),
@@ -1146,8 +1183,14 @@ pub mod qir {
         // reconstructs the closure's fixed arguments correctly.
         let mut capture_locals = Vec::with_capacity(closure.fixed_args.len());
         for capture in closure.fixed_args.iter() {
-            let value_expr_id =
-                lower_value_to_expr(package, assigner, capture, callable_types, pending_stmts);
+            let value_expr_id = lower_value_to_expr(
+                package,
+                assigner,
+                capture,
+                None,
+                callable_types,
+                pending_stmts,
+            );
             let value_ty = package
                 .exprs
                 .get(value_expr_id)

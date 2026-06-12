@@ -2546,6 +2546,126 @@ fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() 
     );
 }
 
+#[test]
+fn synthetic_path_array_arg_preserves_element_values() {
+    // A `Value::Array` argument must survive materialization on the synthetic
+    // path with its element VALUES intact (not just its length). Each nonzero
+    // element drives one `op(q)` call, so the gate count proves the concrete
+    // contents `[1, 0, 1]` were threaded through `build_synthetic_args`.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation RunWith(op : Qubit => Unit, data : Int[]) : Result {
+                use q = Qubit();
+                for x in data {
+                    if x != 0 {
+                        op(q);
+                    }
+                }
+                MResetZ(q)
+            }
+            operation DoX(q : Qubit) : Unit { X(q); }
+        }
+    "#};
+    let caps = Profile::AdaptiveRIF.into();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("RunWith", true), ("DoX", true)], caps);
+
+    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let args = Value::Tuple(
+        vec![
+            do_x,
+            Value::Array(vec![Value::Int(1), Value::Int(0), Value::Int(1)].into()),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunWith"], &args, caps);
+    // Count call sites only (the bare symbol also appears in the `declare` line).
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        2,
+        "expected exactly 2 X gates (one per nonzero element) in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_empty_array_arg_does_not_panic() {
+    // Regression: an empty `Value::Array` argument previously lowered to
+    // `Ty::Array(Ty::Err)`, which panicked at `PostAll` in release builds.
+    // The element-type hint fix lets the empty array carry its real element
+    // type, so codegen succeeds and emits no `op(q)` calls.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation RunWith(op : Qubit => Unit, data : Int[]) : Result {
+                use q = Qubit();
+                for x in data {
+                    if x != 0 {
+                        op(q);
+                    }
+                }
+                MResetZ(q)
+            }
+            operation DoX(q : Qubit) : Unit { X(q); }
+        }
+    "#};
+    let caps = Profile::AdaptiveRIF.into();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("RunWith", true), ("DoX", true)], caps);
+
+    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let args = Value::Tuple(vec![do_x, Value::Array(vec![].into())].into(), None);
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunWith"], &args, caps);
+    // Count call sites only (the bare symbol also appears in the `declare` line).
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        0,
+        "expected no X gates for an empty array argument in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_nested_empty_array_arg_does_not_panic() {
+    // Regression: a nested array `[[]] : Int[][]` whose inner array is empty
+    // previously poisoned the OUTER element type with `Ty::Err`, panicking at
+    // `PostAll`. The element-type hint must recurse so the outer array keeps
+    // its `Int[]` element type even when an inner array is empty.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation RunNested(op : Qubit => Unit, data : Int[][]) : Result {
+                use q = Qubit();
+                for inner in data {
+                    for x in inner {
+                        if x != 0 {
+                            op(q);
+                        }
+                    }
+                }
+                MResetZ(q)
+            }
+            operation DoX(q : Qubit) : Unit { X(q); }
+        }
+    "#};
+    let caps = Profile::AdaptiveRIF.into();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("RunNested", true), ("DoX", true)], caps);
+
+    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let args = Value::Tuple(
+        vec![do_x, Value::Array(vec![Value::Array(vec![].into())].into())].into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunNested"], &args, caps);
+    // Count call sites only (the bare symbol also appears in the `declare` line).
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        0,
+        "expected no X gates for a nested empty array argument in QIR:\n{qir}"
+    );
+}
+
 // ---- SyntheticEntry vs ReinvokeOriginal early-return-in-dynamic-branch parity ----
 
 /// Target body shared by the early-return parity tests below. Its early `return` sits
