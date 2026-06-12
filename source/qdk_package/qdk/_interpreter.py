@@ -159,6 +159,15 @@ def _get_default_context() -> Context:
     return _default_context
 
 
+def _get_context_or_default(obj: Any) -> Context:
+    """Returns context associated with given object, if available.
+    Otherwise falls back to the default context.
+    """
+    if hasattr(obj, "_qdk_context"):
+        return getattr(obj, "_qdk_context")
+    return _get_default_context()
+
+
 # ---------------------------------------------------------------------------
 # Functions accessing global context, for compatibility.
 # ---------------------------------------------------------------------------
