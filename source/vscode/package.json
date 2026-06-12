@@ -295,6 +295,9 @@
           "when": "resourceLangId == qsharp"
         },
         {
+          "command": "qsharp-vscode.showBloch"
+        },
+        {
           "command": "qsharp-vscode.showCircuit",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm"
         },
@@ -550,6 +553,11 @@
       {
         "command": "qsharp-vscode.showHelp",
         "title": "Help",
+        "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.showBloch",
+        "title": "Bloch sphere",
         "category": "QDK"
       },
       {

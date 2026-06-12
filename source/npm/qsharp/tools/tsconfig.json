@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "module": "node16",
+    "moduleResolution": "node16",
+    "target": "ES2022",
+    "lib": ["DOM", "ES2022"],
+    "outDir": "../dist/tools",
+    "rootDir": "..",
+    "declaration": false,
+    "strict": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["./*.ts", "../ux/cplx.ts"]
+}

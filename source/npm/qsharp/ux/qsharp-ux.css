@@ -535,6 +535,391 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   color: red;
 }
 
+.qs-gate-buttons button {
+  margin-top: 8px;
+  width: 50px;
+  height: 25px;
+}
+
+/* ---- Bloch widget: themed form controls ----
+   Browser-default <button>, <input type="text">, and <input type="range">
+   styling looks badly out of place on a dark theme (white inputs on a
+   dark pane, light buttons with chrome borders). The rules below give
+   every interactive control inside the Bloch widget a consistent set
+   of theme-token colors so they swap correctly with VS Code / Jupyter
+   theme changes.
+
+   We scope by `[class^="qs-bloch"]` and `.qs-gate-buttons` rather than
+   bare `button { ... }` so this stays a local override and never
+   leaks into katas, circuits, or other widgets that style their own
+   buttons. */
+.qs-bloch-history button,
+.qs-bloch-gate-editor button,
+.qs-gate-buttons button {
+  background: var(--qdk-menu-fill);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.qs-bloch-history button:hover:not(:disabled),
+.qs-bloch-gate-editor button:hover:not(:disabled),
+.qs-gate-buttons button:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-history button:focus-visible,
+.qs-bloch-gate-editor button:focus-visible,
+.qs-gate-buttons button:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-history button:disabled,
+.qs-bloch-gate-editor button:disabled,
+.qs-gate-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Themed text input. Matches the pane background and foreground so
+   the textbox blends in rather than dropping a white plate onto a
+   dark widget. */
+.qs-bloch-gate-editor input[type="text"] {
+  background: var(--qdk-host-background);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+}
+.qs-bloch-gate-editor input[type="text"]:focus {
+  outline: none;
+  border-color: var(--qdk-focus-border, var(--qdk-atom-fill));
+}
+
+/* Themed range sliders. `accent-color` is the simplest cross-browser
+   knob for the thumb + track tint; both Chromium and Firefox honour
+   it on <input type="range">. We use the menu-selected fill so the
+   slider thumb stands out against the menu background of its row. */
+.qs-bloch-history input[type="range"],
+.qs-bloch-gate-editor input[type="range"],
+.qs-bloch input[type="range"] {
+  accent-color: var(--qdk-menu-fill-selected);
+}
+/* End Bloch themed form controls */
+
+/* Bloch sphere widget: the gate-history pane sitting to the right of the
+   3D canvas. Uses the shared QDK theme tokens so the pane swaps colors
+   along with VS Code / playground theme changes. The 3D canvas itself
+   (sphere material, axis labels) is themed imperatively from bloch.tsx
+   since it's drawn via WebGL. */
+.qs-bloch-history {
+  background: var(--qdk-background-accent);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+}
+
+/* Overlay in the top-left corner of the sphere canvas showing the
+   current Bloch-sphere spherical coordinates (theta, phi). Sits above
+   the WebGL canvas, doesn't intercept pointer events so OrbitControls
+   still works, and pulls colors from the shared QDK tokens so the
+   text stays legible against either palette. */
+.qs-bloch-coords {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  pointer-events: none;
+  color: var(--qdk-host-foreground);
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: 1.05em;
+  line-height: 1.35;
+  opacity: 0.9;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
+
+/* The Greek letters render with the expected lowercase glyph (theta as
+   a circle with a horizontal bar) when drawn in a serif/UI font rather
+   than the editor's monospace font, which on some platforms swaps in
+   the script variant. Italics match how these symbols appear in math
+   typesetting. */
+.qs-bloch-coords-greek {
+  font-style: italic;
+  font-family: var(--vscode-font-family, serif);
+}
+
+/* Sticky title bar at the top of the history pane. Stays visible while
+   the user scrolls through a long sequence so they always know which
+   pane they're in. The step counter sits on the right and only renders
+   once the user has applied at least one gate, so an empty history
+   just reads "History". */
+.qs-bloch-history-title {
+  font-weight: bold;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-menu-fill);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Step counter pinned to the right of the history title bar. Lighter
+   weight than the title itself so it reads as a subordinate piece of
+   metadata, not a competing heading. */
+.qs-bloch-history-step-counter {
+  font-weight: normal;
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+/* Media-player-style transport bar below the history title. The row
+   spans the full pane width so its background and border line up with
+   the rest of the pane, but the buttons inside sit at a fixed size on
+   the left and don't stretch when the pane grows wider to accommodate
+   long LaTeX history rows. Background uses the pane-accent token
+   rather than the menu-fill token so the themed buttons (which are
+   filled with menu-fill) stand out against the row instead of
+   blending in. */
+.qs-bloch-media-controls {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-background-accent);
+}
+.qs-bloch-media-controls button {
+  /* Square-ish, font-size scaled up so the unicode media glyphs
+     (U+23E9 .. U+23EF range) render at a legible size. The default
+     button font often hands those glyphs to a fallback face that
+     renders them tiny. Fixed width (no flex stretch) keeps the
+     cluster compact when the pane is wider than the buttons need. */
+  width: 36px;
+  height: 24px;
+  padding: 0;
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+.qs-bloch-media-controls button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* Speed slider row immediately below the transport controls. Same
+   background as the transport bar so the two controls read as a
+   single playback cluster. The row spans the full pane width so its
+   background lines up with the rest of the pane, but the slider
+   inside stays at a fixed width and doesn't stretch when the pane
+   grows wider. */
+.qs-bloch-speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-background-accent);
+  font-size: 0.95em;
+}
+.qs-bloch-speed-control input[type="range"] {
+  width: 120px;
+}
+.qs-bloch-speed-readout {
+  /* Fixed width so the layout doesn't jitter as the readout cycles
+     through "0.25x" .. "4.00x" while dragging. */
+  min-width: 3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Each entry in the history list. Clickable to navigate; hover hints
+   at this affordance via the menu-hover token. */
+.qs-bloch-history-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+}
+.qs-bloch-history-item:hover {
+  background: var(--qdk-menu-fill-hover);
+}
+
+/* The row matching the current cursor position. Highlighted so the
+   user can tell at a glance where the sphere is "stopped". */
+.qs-bloch-history-item-current {
+  background: var(--qdk-menu-fill-selected);
+}
+.qs-bloch-history-item-current:hover {
+  /* Keep the selected highlight visible on hover instead of letting
+     the hover background paint over it. */
+  background: var(--qdk-menu-fill-selected);
+}
+
+/* Rows after the cursor when inspecting an earlier step. Dimmed and
+   italicised to signal they are "future" steps that will be lost if
+   the user applies a new gate from this position. The opacity is
+   scoped to the row's children (rather than the row itself) so the
+   pinned "latest" row keeps its opaque background -- otherwise rows
+   scrolling underneath bleed through when the cursor is upstream of
+   the latest. */
+.qs-bloch-history-item-future {
+  font-style: italic;
+}
+.qs-bloch-history-item-future > * {
+  opacity: 0.5;
+}
+
+/* The bottom-most row in the history list -- pinned to the bottom of
+   the scroll viewport via `position: sticky` so the most recent state
+   stays visible while older rows scroll above it. When the list is
+   short enough to fit in the panel, sticky has no effect and the row
+   sits in its natural place at the end of the flow. Needs an opaque
+   background (matching the pane) so rows scrolling underneath are
+   visually occluded, and a top border to separate the pinned row
+   from whichever row last scrolled past it. */
+.qs-bloch-history-item-latest {
+  position: sticky;
+  bottom: 0;
+  background: var(--qdk-background-accent);
+  border-top: 1px solid var(--qdk-widget-outline);
+  z-index: 1;
+}
+/* When the pinned row also happens to be the current cursor row,
+   keep the selected highlight instead of the plain pane background.
+   Class order in the JSX doesn't guarantee specificity order, so we
+   call this out explicitly. */
+.qs-bloch-history-item-latest.qs-bloch-history-item-current {
+  background: var(--qdk-menu-fill-selected);
+}
+
+/* Live gate-string editor. Sits below the canvas and provides the
+   "see the program you're building" textbox. The input proper looks
+   like any other text field; the per-char feedback row below it shows
+   the same string broken into spans so we can mark invalid chars and
+   a small status line shows the unsaved-draft indicator and char
+   count. The visible char row is intentionally offset and slightly
+   smaller so it reads as a hint rather than a duplicate.
+
+   Capped at the canvas width (600px) so the editor and its feedback
+   row don't run into the history panel on the right or stretch to the
+   far edge of the page. */
+.qs-bloch-gate-editor {
+  font-family: var(--qdk-font-family-monospace);
+  max-width: 600px;
+  /* Breathing room between the gate-button toolbar above and the
+     textbox row, so the two groups read as separate clusters. */
+  margin-top: 8px;
+}
+.qs-bloch-gate-editor-row {
+  display: flex;
+  align-items: center;
+}
+.qs-bloch-gate-editor-input {
+  font-family: var(--qdk-font-family-monospace);
+  font-size: 1em;
+  padding: 4px 6px;
+  /* Grow to fill the available width up to the editor's max-width,
+     but shrink down to a sensible minimum on narrow viewports. The
+     Run button next to it stays at its natural width. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Invalid-draft state: red outline (and matching focus ring) so the
+   user can tell at a glance that Run is disabled because of what's
+   currently typed. We use `outline` rather than `border` so we don't
+   shift the layout when the state toggles. */
+.qs-bloch-gate-editor-input-invalid {
+  outline: 2px solid var(--qdk-text-error, #d83b01);
+  outline-offset: -1px;
+}
+.qs-bloch-gate-editor-input-invalid:focus {
+  outline: 2px solid var(--qdk-text-error, #d83b01);
+  outline-offset: -1px;
+}
+.qs-bloch-gate-editor-feedback {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 4px;
+  /* Align the char row with the input contents (the input has 6px of
+     left padding plus its border). Without this the per-char display
+     drifts a couple of pixels left of the input text and the visual
+     correspondence breaks down. */
+  padding: 0 7px;
+  font-size: 0.85em;
+  min-height: 1.4em;
+}
+/* Gate breakdown row: one chip per gate type used in the sanitized
+   draft, followed by a T-count callout. Wraps to a second line if it
+   would otherwise push the status block off the right edge. The
+   status block on the right (unsaved indicator + char count) stays
+   pinned via its own `flex-shrink: 0`. */
+.qs-bloch-gate-editor-breakdown {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: var(--qdk-host-foreground);
+  opacity: 0.85;
+}
+.qs-bloch-gate-editor-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--qdk-menu-fill);
+  border: 1px solid var(--qdk-widget-outline);
+}
+.qs-bloch-gate-editor-chip-name {
+  font-family: var(--qdk-font-family-monospace);
+  font-weight: 600;
+}
+.qs-bloch-gate-editor-chip-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+/* T-count callout. Italicised and lightly tinted so it reads as
+   secondary metadata, not another chip. T-count is the standard
+   quantum-cost metric in fault-tolerant designs since T gates are
+   the expensive primitive; surfacing it lets users see at a glance
+   how heavy their program is. */
+.qs-bloch-gate-editor-tcount {
+  margin-left: 4px;
+  font-style: italic;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+/* Placeholder shown when the sanitized draft contains no gates
+   (empty input, or whitespace-only). Quieter than the chips so it
+   doesn't compete visually. */
+.qs-bloch-gate-editor-empty {
+  font-style: italic;
+  opacity: 0.5;
+}
+.qs-bloch-gate-editor-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.qs-bloch-gate-editor-unsaved-indicator {
+  color: var(--qdk-text-warning, #b58900);
+  font-style: italic;
+}
+.qs-bloch-gate-editor-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.qs-bloch-gate-editor-count-warn {
+  /* When the sanitized version is shorter than the typed value,
+     emphasise the count so the user notices that "Run" won't apply
+     everything they see. */
+  color: var(--qdk-text-error, #d83b01);
+  opacity: 1;
+  font-weight: bold;
+}
+
 .qs-estimatesOverview-saveIcon {
   cursor: pointer;
   width: 3em;
