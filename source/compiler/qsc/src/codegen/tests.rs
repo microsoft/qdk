@@ -10,7 +10,9 @@ use std::rc::Rc;
 use expect_test::expect;
 use miette::Report;
 use qsc_data_structures::{
-    functors::FunctorApp, language_features::LanguageFeatures, source::SourceMap,
+    functors::FunctorApp,
+    language_features::LanguageFeatures,
+    source::SourceMap,
     target::{Profile, TargetCapabilityFlags},
 };
 use qsc_eval::val::Value;
