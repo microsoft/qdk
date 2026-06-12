@@ -38,8 +38,25 @@ def dump_operation_on_state(
     if type(op) is str:
         op = context.eval(op)
 
+    if not hasattr(context.code, "_DumpOperationOnState"):
+        context.eval("""
+        operation _DumpOperationOnState(
+            op : (Qubit[] => Unit),
+            num_qubits : Int,
+            initial_state : Double[]
+        ) : Unit {
+            use qubits = Qubit[num_qubits];
+            if (Length(initial_state) > 1) {
+                Std.StatePreparation.PreparePureStateD(initial_state, qubits);
+            }
+            op(qubits);
+            Std.Diagnostics.DumpRegister(qubits);
+            ResetAll(qubits);
+        }
+        """)
+
     result = context.run(
-        context.eval("Std.Diagnostics.DumpOperationOnState"),
+        context.code._DumpOperationOnState,
         1,  # shots
         op,
         num_qubits,

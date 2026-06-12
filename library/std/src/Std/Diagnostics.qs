@@ -480,29 +480,6 @@ operation PostSelectZ(res : Result, qubit : Qubit) : Unit {
     body intrinsic;
 }
 
-/// # Summary
-/// Dumps statevector after applying operation to the given state.
-///
-/// # Input
-/// ## op
-/// The operation to apply.
-/// ## num_qubits
-/// The number of qubits in the register on which the operation is applied.
-/// ## initial_state
-operation DumpOperationOnState(
-    op : (Qubit[] => Unit),
-    num_qubits : Int,
-    initial_state : Double[]
-) : Unit {
-    use qubits = Qubit[num_qubits];
-    if (Length(initial_state) > 1) {
-        Std.StatePreparation.PreparePureStateD(initial_state, qubits);
-    }
-    op(qubits);
-    DumpRegister(qubits);
-    ResetAll(qubits);
-}
-
 export
     DumpMachine,
     DumpRegister,
@@ -524,5 +501,4 @@ export
     PhaseFlipNoise,
     DepolarizingNoise,
     NoNoise,
-    PostSelectZ,
-    DumpOperationOnState;
+    PostSelectZ;
