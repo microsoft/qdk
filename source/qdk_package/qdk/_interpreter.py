@@ -244,7 +244,9 @@ def run(
     :param *args: The arguments to pass to the callable, if one is provided.
     :param on_result: A callback function that will be called with each result.
     :param save_events: If true, the output of each shot will be saved. If false, they will be printed.
-    :param noise: The noise to use in simulation.
+    :param noise: The noise to use in simulation. Can be a tuple of ``(x, y, z)``
+        Pauli error probabilities, a :class:`~qdk.qsharp.PauliNoise` subclass, or a
+        :class:`~qdk.simulation.NoiseConfig` for per-gate noise configuration.
     :param qubit_loss: The probability of qubit loss in simulation.
     :param seed: The seed to use for the random number generator in simulation, if any.
     :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
