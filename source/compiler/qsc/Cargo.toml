@@ -26,6 +26,7 @@ qsc_linter = { path = "../qsc_linter" }
 qsc_lowerer = { path = "../qsc_lowerer" }
 qsc_ast = { path = "../qsc_ast" }
 qsc_fir = { path = "../qsc_fir" }
+qsc_fir_transforms = { path = "../qsc_fir_transforms" }
 qsc_hir = { path = "../qsc_hir" }
 qsc_passes = { path = "../qsc_passes" }
 qsc_parse = { path = "../qsc_parse" }

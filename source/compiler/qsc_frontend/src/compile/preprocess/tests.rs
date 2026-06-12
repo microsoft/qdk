@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::compile::preprocess::RemoveCircuitSpans;
+use crate::compile::preprocess::{Conditional, RemoveCircuitSpans};
 use crate::compile::{SourceMap, parse_all};
 use qsc_ast::ast::{
     Attr, CallableBody, CallableDecl, Expr, ExprKind, Ident, NodeId, Path, PathKind,
@@ -101,6 +101,25 @@ fn find_callable<'a>(package: &'a Package, name: &str) -> &'a CallableDecl {
             }
         })
         .unwrap_or_else(|| panic!("{name} callable not found"))
+}
+
+#[test]
+fn dropped_item_spans_cover_the_excluded_item() {
+    let source = "namespace Test { @Config(Adaptive) operation Excluded() : Unit {} operation Included() : Unit {} }";
+    let sources = SourceMap::new([(Arc::from("test.qs"), Arc::from(source))], None);
+    let (mut package, errs) = parse_all(&sources, LanguageFeatures::default());
+    assert!(errs.is_empty(), "{errs:?}");
+
+    // Base profile (empty capabilities) drops the `@Config(Adaptive)` item.
+    let mut cond = Conditional::new(TargetCapabilityFlags::empty());
+    cond.visit_package(&mut package);
+    let dropped_spans = cond.take_dropped_spans();
+
+    assert_eq!(dropped_spans.len(), 1, "exactly one item should be dropped");
+    let span = dropped_spans[0];
+    // The span should start at the `@Config` attribute and cover the operation.
+    let excluded = &source[span.lo as usize..span.hi as usize];
+    assert_eq!(excluded, "@Config(Adaptive) operation Excluded() : Unit {}");
 }
 
 #[test]

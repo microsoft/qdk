@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import cirq
 
@@ -15,7 +15,22 @@ from ..interop import trace_from_cirq
 
 
 @dataclass
-class CirqApplication(Application[None]):
+class CirqApplicationParams:
+    """Application parameters that control how the resource estimation trace is generated from a Cirq circuit.
+
+    Args:
+        track_memory_qubits (bool): When True, memory qubits are tracked
+            separately from compute qubits. When False, all qubits are treated
+            as compute qubits. Also, if True, read-from-memory and
+            write-to-memory instructions are preserved in the trace, otherwise,
+            they are decompsed into SWAP and RESET instructions.  Defaults to
+            True.
+    """
+    track_memory_qubits: bool = field(default=True, metadata={"domain": [True]})
+
+
+@dataclass
+class CirqApplication(Application[CirqApplicationParams]):
     """Application that produces a resource estimation trace from a Cirq circuit.
 
     Accepts either a Cirq ``Circuit`` object or an OpenQASM string. When a
@@ -26,10 +41,16 @@ class CirqApplication(Application[None]):
         circuit_or_qasm: A Cirq Circuit or an OpenQASM string.
         classical_control_probability: Probability that a classically
             controlled operation is included in the trace. Defaults to 0.5.
+        rotation_threshold: Rotation exponents with absolute value below
+            this threshold are treated as identity and omitted from the
+            trace. This applies to single-qubit rotations (RX, RY, RZ) as
+            well as to the rotation components of controlled-Z
+            decompositions. Defaults to 1e-12.
     """
 
     circuit_or_qasm: str | cirq.CIRCUIT_LIKE
     classical_control_probability: float = 0.5
+    rotation_threshold: float = 1e-12
 
     def __post_init__(self):
         telemetry_events.on_qre_application_created("CirqApplication")
@@ -46,7 +67,7 @@ class CirqApplication(Application[None]):
         else:
             self._circuit = self.circuit_or_qasm
 
-    def get_trace(self, parameters: None = None) -> Trace:
+    def get_trace(self, parameters: CirqApplicationParams = CirqApplicationParams()) -> Trace:
         """Return the resource estimation trace for the Cirq circuit.
 
         Args:
@@ -55,4 +76,9 @@ class CirqApplication(Application[None]):
         Returns:
             Trace: The resource estimation trace.
         """
-        return trace_from_cirq(self._circuit)
+        return trace_from_cirq(
+            self._circuit,
+            classical_control_probability=self.classical_control_probability,
+            rotation_threshold=self.rotation_threshold,
+            track_memory_qubits=parameters.track_memory_qubits,
+        )

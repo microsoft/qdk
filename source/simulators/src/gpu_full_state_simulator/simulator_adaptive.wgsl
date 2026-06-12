@@ -358,6 +358,7 @@ const OP_FADD:          u32 = 0x38;
 const OP_FSUB:          u32 = 0x39;
 const OP_FMUL:          u32 = 0x3A;
 const OP_FDIV:          u32 = 0x3B;
+const OP_FREM:          u32 = 0x3C;
 
 // -- Type Conversion ----------------------------------------------------------
 const OP_ZEXT:          u32 = 0x40;
@@ -368,6 +369,8 @@ const OP_FPTRUNC:       u32 = 0x44;
 const OP_INTTOPTR:      u32 = 0x45;
 const OP_FPTOSI:        u32 = 0x46;
 const OP_SITOFP:        u32 = 0x47;
+const OP_FPTOUI:        u32 = 0x48;
+const OP_UITOFP:        u32 = 0x49;
 
 // -- SSA / Data Movement -----------------------------------------------------
 const OP_PHI:           u32 = 0x50;
@@ -1210,6 +1213,16 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc++;
             }
 
+            // FREM: Float remainder. LLVM docs say this instruction has
+            // the same semantics as C's fmod, which is implemented as:
+            // dst = src0 - trunc(src0/src1) * src1
+            case OP_FREM {
+                let a = resolve_f32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_f32(shot_idx, instr.src1, flags, 1u);
+                write_reg_f32(shot_idx, instr.dst, a - trunc(a / b) * b);
+                pc++;
+            }
+
             // -------------------------------------------------------------
             // TYPE CONVERSIONS
             // -------------------------------------------------------------
@@ -1273,6 +1286,18 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // SITOFP: Signed integer to float conversion. dst = f32(src0).
             case OP_SITOFP {
                 write_reg_f32(shot_idx, instr.dst, f32(resolve_i32(shot_idx, instr.src0, flags, 0u)));
+                pc++;
+            }
+
+            // FPTOUI: Float to unsigned integer conversion. dst = u32(src0).
+            case OP_FPTOUI {
+                write_reg(shot_idx, instr.dst, u32(resolve_f32(shot_idx, instr.src0, flags, 0u)));
+                pc++;
+            }
+
+            // UITOFP: Unsigned integer to float conversion. dst = f32(src0).
+            case OP_UITOFP {
+                write_reg_f32(shot_idx, instr.dst, f32(resolve_u32(shot_idx, instr.src0, flags, 0u)));
                 pc++;
             }
 

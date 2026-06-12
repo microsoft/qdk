@@ -16,6 +16,8 @@ mod core;
 mod cycle_detection;
 mod cyclic_callables;
 pub mod errors;
+#[cfg(debug_assertions)]
+mod invariants;
 mod overrider;
 mod scaffolding;
 
@@ -352,7 +354,15 @@ impl ApplicationGeneratorSet {
         &self,
         args_compute_kinds: &[ComputeKind],
     ) -> ComputeKind {
-        assert!(self.dynamic_param_applications.len() == args_compute_kinds.len());
+        // RCA generators record one `ParamApplication` per flattened input
+        // parameter of the owning callable. The runtime arg vector must match
+        // exactly; any skew indicates a bug in the analyzer's recording path.
+        assert!(
+            self.dynamic_param_applications.len() == args_compute_kinds.len(),
+            "application generator recorded {} parameter applications for {} runtime arguments",
+            self.dynamic_param_applications.len(),
+            args_compute_kinds.len()
+        );
         let mut compute_kind = self.inherent;
         for (arg_compute_kind, param_application) in args_compute_kinds
             .iter()

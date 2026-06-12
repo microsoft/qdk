@@ -8,7 +8,13 @@ use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
 };
 use qsc_frontend::compile::{self, PackageStore, compile};
-use qsc_hir::{mut_visit::MutVisitor, validate::Validator, visit::Visitor};
+use qsc_hir::{
+    hir::{ItemKind, PatKind, SpecBody, StmtKind},
+    mut_visit::MutVisitor,
+    ty::{Prim, Ty},
+    validate::Validator,
+    visit::Visitor,
+};
 
 fn check(file: &str, expect: &Expect) {
     let store = PackageStore::new(compile::core());
@@ -26,43 +32,52 @@ fn check(file: &str, expect: &Expect) {
     expect.assert_eq(&unit.package.to_string());
 }
 
-#[test]
-fn test_single_qubit() {
-    check(
-        indoc! { "namespace input {
-            operation Foo() : Unit {
-                use q = Qubit();
-                let x = 3;
-            }
-        }" },
-        &expect![[r#"
-            Package:
-                Item 0 [0-98] (Public):
-                    Namespace (Ident 13 [10-15] "input"): Item 1
-                Item 1 [22-96] (Internal):
-                    Parent: 0
-                    Callable 0 [22-96] (operation):
-                        name: Ident 1 [32-35] "Foo"
-                        input: Pat 2 [35-37] [Type Unit]: Unit
-                        output: Unit
-                        functors: empty set
-                        body: SpecDecl 3 [22-96]: Impl:
-                            Block 4 [45-96] [Type Unit]:
-                                Stmt 17 [55-71]: Local (Immutable):
-                                    Pat 18 [55-71] [Type Qubit]: Bind: Ident 7 [55-71] "q"
-                                    Expr 15 [55-71] [Type Qubit]: Call:
-                                        Expr 14 [55-71] [Type (Unit => Qubit)]: Var: Item 8 (Package 0)
-                                        Expr 16 [55-71] [Type Unit]: Unit
-                                Stmt 9 [80-90]: Local (Immutable):
-                                    Pat 10 [84-85] [Type Int]: Bind: Ident 11 [84-85] "x"
-                                    Expr 12 [88-89] [Type Int]: Lit: Int(3)
-                                Stmt 20 [0-0]: Semi: Expr 21 [55-71] [Type Unit]: Call:
-                                    Expr 19 [55-71] [Type (Qubit => Unit)]: Var: Item 10 (Package 0)
-                                    Expr 22 [55-71] [Type Qubit]: Var: Local 7
-                        adj: <none>
-                        ctl: <none>
-                        ctl-adj: <none>"#]],
+fn rewrite(file: &str) -> qsc_hir::hir::Package {
+    let store = PackageStore::new(compile::core());
+    let sources = SourceMap::new([("test".into(), file.into())], None);
+    let mut unit = compile(
+        &store,
+        &[],
+        sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
     );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    ReplaceQubitAllocation::new(store.core(), &mut unit.assigner).visit_package(&mut unit.package);
+    Validator::default().visit_package(&unit.package);
+    unit.package
+}
+
+#[test]
+fn test_explicitly_annotated_single_qubit_rewrite_preserves_binding_name_and_types() {
+    let package = rewrite(indoc! { "namespace input {
+        operation Foo() : Unit {
+            use q : Qubit = Qubit();
+            let x = 3;
+        }
+    }" });
+
+    let callable = package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(callable) if callable.name.name.as_ref() == "Foo" => Some(callable),
+            _ => None,
+        })
+        .expect("Foo callable should exist");
+    let SpecBody::Impl(_, block) = &callable.body.body else {
+        panic!("Foo should have an implementation body");
+    };
+    let StmtKind::Local(_, pat, expr) = &block.stmts[0].kind else {
+        panic!("first statement should be the rewritten qubit allocation local");
+    };
+
+    assert_eq!(pat.ty, Ty::Prim(Prim::Qubit));
+    assert_eq!(expr.ty, Ty::Prim(Prim::Qubit));
+    let PatKind::Bind(ident) = &pat.kind else {
+        panic!("rewritten qubit allocation should still bind q");
+    };
+    assert_eq!(ident.name.as_ref(), "q");
 }
 
 #[test]
@@ -730,7 +745,7 @@ fn test_array_expr() {
 }
 
 #[test]
-fn test_rtrn_expr() {
+fn return_expression_with_nested_qubit_scope_rewrites_correctly() {
     check(
         indoc! { "namespace input {
             operation Foo() : Int {

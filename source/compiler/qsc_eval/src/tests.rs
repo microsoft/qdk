@@ -213,6 +213,31 @@ fn block_empty_is_unit_expr() {
 }
 
 #[test]
+fn qubit_array_length_expr() {
+    check_expr(
+        "",
+        indoc! {"{
+            use qs = Qubit[4];
+            Length(qs)
+        }"},
+        &expect!["4"],
+    );
+}
+
+#[test]
+fn qubit_array_chunks_expr() {
+    check_expr(
+        "",
+        indoc! {"{
+            use qs = Qubit[4];
+            let chunks = Std.Arrays.Chunks(2, qs);
+            Length(chunks[0])
+        }"},
+        &expect!["2"],
+    );
+}
+
+#[test]
 fn block_shadowing_expr() {
     check_expr(
         "",
@@ -4123,14 +4148,14 @@ fn partial_eval_stmt_function_calls() {
                         Namespace (Ident 1 [51-55] "Test"): Item 1
                     Item 1 [62-100] (Internal):
                         Parent: 0
-                        Callable 0 [62-100] (function):
+                        Callable [62-100] (function):
                             name: Ident 0 [71-75] "Add1"
                             input: 1
                             output: Int
                             functors: empty set
                             implementation: Spec:
                                 SpecImpl:
-                                    body: SpecDecl 1 [62-100]: None 2
+                                    body: SpecDecl [62-100]: None 2
                                     adj: <none>
                                     ctl: <none>
                                     ctl-adj: <none>

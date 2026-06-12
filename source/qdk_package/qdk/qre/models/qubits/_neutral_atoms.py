@@ -1,7 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from dataclasses import KW_ONLY, dataclass, field
+from dataclasses import KW_ONLY, dataclass
+from typing import Optional
 
 from ..._qre import _float_to_bits
 from ..._architecture import Architecture, ISAContext
@@ -53,14 +54,23 @@ class NeutralAtom(Architecture):
             modeled as twice this value.
         atom_spacing: The nominal spacing (in microns) between atoms during
             transport or placement (based on atoms being in storage).
+        data_qubit_spacing: The nominal spacing (in microns) between data qubits
+            during transport or placement.
         max_velocity: The maximum atom transport velocity (in m/s).
         max_acceleration: The maximum atom transport acceleration (in m/s^2).
+        surface_code_two_qubit_time_factor: A factor by which to multiply the time of
+            two-qubit gates when performing syndrome extraction in a surface code.
+        surface_code_one_qubit_time_factor: A factor by which to multiply the time of
+            one-qubit gates when performing syndrome extraction in a surface code.
+        target_year: If set, this target year is assigned to the 2-qubit gates
+            in the provided ISA.  This can be used by transforms that select
+            gates based on target year.
 
     References:
 
     - M. Saffman, T. G. Walker, K. Molmer: Quantum information with Rydberg
-      atoms,
-      [arXiv:0909.4777](https://arxiv.org/abs/0909.4777)
+        atoms,
+        [arXiv:0909.4777](https://arxiv.org/abs/0909.4777)
     - H. Bernien, S. Schwartz, A. Keesling, et al.: Probing many-body
         dynamics on a 51-atom quantum simulator,
         [arXiv:1707.04344](https://arxiv.org/abs/1707.04344)
@@ -91,22 +101,25 @@ class NeutralAtom(Architecture):
     """
 
     _: KW_ONLY
-    rydberg_time: int = field(default=500)  # In units of ns.
-    rydberg_error: float = field(default=1e-3)
-    one_qubit_time: int = field(default=1000)  # In units of ns.
-    one_qubit_error: float = field(default=1e-4)
-    measurement_time: int = field(default=10000)  # In units of ns.
-    measurement_error: float = field(default=1e-4)
-    handoff_time: int = field(default=0)  # In units of ns.
+    rydberg_time: int = 500  # In units of ns.
+    rydberg_error: float = 1e-3
+    one_qubit_time: int = 1000  # In units of ns.
+    one_qubit_error: float = 1e-4
+    measurement_time: int = 10_000  # In units of ns.
+    measurement_error: float = 1e-4
+    handoff_time: int = 0  # In units of ns.
     # These transport defaults are optimistic representative values and are
     # not intended to model any specific neutral-atom platform.
-    atom_spacing: float = field(default=3.0)  # In units of microns.
-    max_velocity: float = field(default=0.25)  # In units m/s.
-    max_acceleration: float = field(default=5000.0)  # In units m/s^2.
+    atom_spacing: float = 3.0  # In units of microns.
+    data_qubit_spacing: float = 12.0  # In units of microns
+    max_velocity: float = 0.25  # In units m/s.
+    max_acceleration: float = 5000.0  # In units m/s^2.
     # These properties can modify syndrome measurement in surface codes by
     # assumining a larger depth required to perform 2-qubit and 1-qubit gates.
     surface_code_two_qubit_time_factor: int = 1
     surface_code_one_qubit_time_factor: int = 1
+    # If set, this target_year is assigned to the 2-qubit gates
+    target_year: Optional[int] = None
 
     def provided_isa(self, ctx: ISAContext) -> ISA:
         return ctx.make_isa(
@@ -121,7 +134,11 @@ class NeutralAtom(Architecture):
                 T,
                 encoding=Encoding.PHYSICAL,
                 arity=1,
-                time=0,
+                # NOTE: We assume a time of 0, however, some transforms may use
+                # the time in arithmetic expressions, which require its value to
+                # be non-zero.  Setting it to 1 leads to no or at most
+                # negligible contributions to the overall resource estimates.
+                time=1,
                 error_rate=0.00001,
             ),
             ctx.add_instruction(
@@ -147,6 +164,7 @@ class NeutralAtom(Architecture):
                 time=self.rydberg_time,
                 error_rate=self.rydberg_error,
                 surface_code_two_qubit_time_factor=self.surface_code_two_qubit_time_factor,
+                target_year=self.target_year,
             ),
             ctx.add_instruction(
                 CNOT,
@@ -155,6 +173,7 @@ class NeutralAtom(Architecture):
                 time=self.rydberg_time + 2 * self.one_qubit_time,
                 error_rate=self.rydberg_error,
                 surface_code_two_qubit_time_factor=self.surface_code_two_qubit_time_factor,
+                target_year=self.target_year,
             ),
             ctx.add_instruction(
                 MEAS_Z,
@@ -178,6 +197,7 @@ class NeutralAtom(Architecture):
                 error_rate=1e-4,
                 acceleration=_float_to_bits(self.max_acceleration),
                 atom_spacing=_float_to_bits(self.atom_spacing),
+                data_qubit_spacing=_float_to_bits(self.data_qubit_spacing),
                 velocity=_float_to_bits(self.max_velocity),
             ),
         )
