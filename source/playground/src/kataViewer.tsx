@@ -160,14 +160,15 @@ function ExerciseEl(props: { exercise: Exercise }) {
 
 function ExplainedSolution(props: { item: ExplainedSolutionItem }) {
   const item = props.item;
-  if (item.type === "text-content") {
-    return <div dangerouslySetInnerHTML={{ __html: item.content }}></div>;
-  }
   return (
     <div>
-      <pre>
-        <code>{item.code}</code>
-      </pre>
+      {item.type === "text-content" ? (
+        <div dangerouslySetInnerHTML={{ __html: item.content }}></div>
+      ) : (
+        <pre>
+          <code>{item.code}</code>
+        </pre>
+      )}
     </div>
   );
 }
