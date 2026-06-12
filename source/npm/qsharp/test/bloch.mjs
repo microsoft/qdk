@@ -23,7 +23,7 @@ import {
   KetMinusI,
   Rotations,
   compare,
-} from "../dist/cplx.js";
+} from "../dist/ux/cplx.js";
 import {
   VALID_GATE_CODES,
   MAX_GATE_SEQUENCE_LENGTH,
