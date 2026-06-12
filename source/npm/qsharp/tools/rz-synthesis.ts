@@ -37,7 +37,7 @@ let phaseCountFound = 0;
 // i.e. If A is a matrix after multiplying "HTHTHT...", and B is a matrix after multiplying "HtHtHt...",
 // then B.mul(A) is just one matrix multiplication that is equivalent to "HTHTHT...HtHtHt..."
 //
-// To optimze space and avoid saving the list of operations, we can simply map the index to a list of operations.
+// To optimize space and avoid saving the list of operations, we can simply map the index to a list of operations.
 // The power of 2 indicates how many operations are in that index, i.e.
 // - Indices 0 & 1 have 1 op (2 permutations)
 // - Indices 2, 3, 4, 5 have 2 ops (4 permutations)
@@ -81,10 +81,10 @@ const MatrixLenBytes = 4 * 2 * 4; // 4 bytes in a float, 2 floats in a complex, 
 const EntryCount = startIndexForOpCount(25); // Test up to 2^24 permutations
 
 console.log(`Matrix entries to pre-calculate: ${EntryCount}`);
-console.log(`Using an espilon of ${epsilon}`);
+console.log(`Using an epsilon of ${epsilon}`);
 console.log(`Phases to find: ${phaseCount}`);
 
-// Buffer (and view) for the pre-calcuated matrices
+// Buffer (and view) for the pre-calculated matrices
 const entryBuffer = new ArrayBuffer(EntryCount * MatrixLenBytes);
 const bufferView = new DataView(entryBuffer);
 
@@ -239,7 +239,7 @@ onPhaseFound(0, [], Ident.mul(1));
 
 if (!fillBuffer()) {
   // Just filling the buffer didn't find all the intervals, so we need to start running further
-  // permutations of the pre-calcuated matrices to find the remaining intervals.
+  // permutations of the pre-calculated matrices to find the remaining intervals.
 
   // No point having the first matrix be less than 24 gates, so the inner-loop will just run
   // over all permutations of the 24-gate matrices.

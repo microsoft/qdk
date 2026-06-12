@@ -44,15 +44,15 @@ export class Rotations {
        To calculate the distance a point travels around a unit sphere as a rotation is applied.
        - Calculate the angle (theta) between the axis of rotation and the point
        - Get the radius for the circle around the (unit) sphere at theta
-       - Calculate the distance travelled as the rotation angle * radius
+       - Calculate the distance traveled as the rotation angle * radius
     */
 
     const pointStart = new Vector3(0, 1, 0);
     const pointCurrent = pointStart.applyQuaternion(this.currPosition);
     const pointToAxisAngle = pointCurrent.angleTo(axis);
     const arcRadius = Math.sin(pointToAxisAngle);
-    const pathTravelled = arcRadius * rotationAngle;
-    return Math.abs(pathTravelled);
+    const pathTraveled = arcRadius * rotationAngle;
+    return Math.abs(pathTraveled);
   }
 
   applyGate(name: string, axis: Vector3, angle: number): AppliedGate {
