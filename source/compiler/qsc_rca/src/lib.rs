@@ -18,7 +18,6 @@ mod cyclic_callables;
 pub mod errors;
 #[cfg(debug_assertions)]
 mod invariants;
-mod overrider;
 mod scaffolding;
 
 use crate::common::set_indentation;

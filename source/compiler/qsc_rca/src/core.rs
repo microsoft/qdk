@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::rc::Rc;
+
 use crate::{
     ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ComputePropertiesLookup,
     ParamApplication, RuntimeFeatureFlags, ValueKind,
@@ -427,7 +429,7 @@ impl<'a> Analyzer<'a> {
             fixed_args
                 .into_iter()
                 .map(|local_var_id| {
-                    self.get_current_application_instance()
+                    application_instance
                         .locals_map
                         .find_local_compute_kind(local_var_id)
                         .map_or(ComputeKind::Static, |v| v.compute_kind)
@@ -1260,6 +1262,7 @@ impl<'a> Analyzer<'a> {
         let input_params = package.derive_callable_input_params(callable_decl);
         let current_callable_context = self.get_current_item_context_mut();
         current_callable_context.set_callable_context(
+            Rc::clone(&callable_decl.name.name),
             callable_decl.kind,
             input_params,
             callable_decl.output.clone(),
@@ -1826,6 +1829,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
         let input_params = package.derive_callable_input_params(decl);
         let current_callable_context = self.get_current_item_context_mut();
         current_callable_context.set_callable_context(
+            Rc::clone(&decl.name.name),
             decl.kind,
             input_params,
             decl.output.clone(),
@@ -2169,6 +2173,7 @@ impl ItemContext {
 
     pub fn set_callable_context(
         &mut self,
+        name: Rc<str>,
         kind: CallableKind,
         input_params: Vec<InputParam>,
         output_type: Ty,
@@ -2176,6 +2181,7 @@ impl ItemContext {
     ) {
         assert!(self.callable_context.is_none());
         self.callable_context = Some(CallableContext {
+            name,
             kind,
             input_params,
             output_type,
@@ -2190,6 +2196,7 @@ impl ItemContext {
 }
 
 struct CallableContext {
+    pub name: Rc<str>,
     pub kind: CallableKind,
     pub input_params: Vec<InputParam>,
     pub output_type: Ty,
@@ -2256,6 +2263,19 @@ fn derive_intrinsic_function_application_generator_set(
     callable_context: &CallableContext,
 ) -> ApplicationGeneratorSet {
     assert!(matches!(callable_context.kind, CallableKind::Function));
+
+    if callable_context.name.as_ref() == "Length" {
+        return ApplicationGeneratorSet {
+            inherent: ComputeKind::Static,
+            dynamic_param_applications: vec![ParamApplication::Array(ArrayParamApplication {
+                static_size: ComputeKind::Static,
+                dynamic_size: ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
+                    value_kind: ValueKind::Variable,
+                },
+            })],
+        };
+    }
 
     // Determine the compute kind for all dynamic parameter applications.
     let mut dynamic_param_applications =
