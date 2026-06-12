@@ -25,11 +25,9 @@ from ._application import ApplicationContext, DataclassProtocol
 from ._instruction import (
     _InstructionSourceNodeReference as InstructionSourceNodeReference,
 )
-from ._qre import Instruction
 
 __all__ = [
     "ApplicationContext",
     "DataclassProtocol",
-    "Instruction",
     "InstructionSourceNodeReference",
 ]

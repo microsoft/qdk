@@ -16,6 +16,7 @@ from ._isa_enumeration import ISAQuery, ISARefNode, ISA_ROOT
 from ._qre import (
     ISA,
     InstructionFrontier,
+    Instruction,
     Constraint,
     ConstraintBound,
     EstimationResult,
@@ -66,6 +67,7 @@ __all__ = [
     "generic_function",
     "instruction_name",
     "InstructionFrontier",
+    "Instruction",
     "InstructionSource",
     "ISA",
     "ISA_ROOT",
