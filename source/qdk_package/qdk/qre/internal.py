@@ -21,79 +21,11 @@ Warning:
     directly, use the corresponding public API instead.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from typing import ClassVar, Optional, Protocol, Union
-
-    from ._application import Application
-    from ._architecture import Architecture
-    from ._instruction import ISATransform
-
-    # ------------------------------------------------------------------
-    # ApplicationContext
-    #   (runtime: _application.ApplicationContext)
-    # ------------------------------------------------------------------
-    class ApplicationContext(Protocol):
-        """Enumeration context wrapping an application instance.
-
-        Obtained via :meth:`~qdk.qre.Application.context` and passed to
-        :meth:`~qdk.qre.TraceQuery.enumerate`.
-        """
-
-        @property
-        def application(self) -> "Application": ...
-
-    # ------------------------------------------------------------------
-    # DataclassProtocol
-    #   (runtime: _application.DataclassProtocol)
-    # ------------------------------------------------------------------
-    class DataclassProtocol(Protocol):
-        """Structural type satisfied by any ``@dataclass`` class.
-
-        Used as a constraint on :data:`~qdk.qre.TraceParameters`.
-        """
-
-        __dataclass_fields__: ClassVar[dict]
-
-    # ------------------------------------------------------------------
-    # InstructionSourceNodeReference
-    #   (runtime: _instruction._InstructionSourceNodeReference)
-    # ------------------------------------------------------------------
-    class InstructionSourceNodeReference(Protocol):
-        """Reference to a node in an :class:`~qdk.qre.InstructionSource` graph."""
-
-        @property
-        def instruction(self) -> Instruction: ...
-        @property
-        def transform(self) -> Union[ISATransform, Architecture, None]: ...
-
-    # ------------------------------------------------------------------
-    # Instruction  (runtime: _qre.Instruction — Rust native)
-    # ------------------------------------------------------------------
-    class Instruction(Protocol):
-        """A quantum instruction with resource properties."""
-
-        @property
-        def id(self) -> int: ...
-        @property
-        def encoding(self) -> int: ...
-        @property
-        def arity(self) -> int | None: ...
-        def space(self, arity: int | None = None) -> int | None: ...
-        def time(self, arity: int | None = None) -> int | None: ...
-        def error_rate(self, arity: int | None = None) -> float | None: ...
-        def expect_time(self, arity: int | None = None) -> int: ...
-        def expect_error_rate(self, arity: int | None = None) -> float: ...
-
-else:
-    from ._application import ApplicationContext, DataclassProtocol
-    from ._instruction import (
-        _InstructionSourceNodeReference as InstructionSourceNodeReference,
-    )
-    from ._qre import Instruction
+from ._application import ApplicationContext, DataclassProtocol
+from ._instruction import (
+    _InstructionSourceNodeReference as InstructionSourceNodeReference,
+)
+from ._qre import Instruction
 
 __all__ = [
     "ApplicationContext",
