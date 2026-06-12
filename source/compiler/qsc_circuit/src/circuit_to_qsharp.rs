@@ -18,6 +18,24 @@ pub fn circuits_to_qsharp(file_name: &str, circuits_json: &str) -> Result<String
     json_to_circuits(circuits_json).map(|circuits| build_circuits(file_name, &circuits.circuits))
 }
 
+pub fn circuit_to_standalone_qsharp(
+    file_name: &str,
+    circuits_json: &str,
+    index: usize,
+) -> Result<String, String> {
+    json_to_circuits(circuits_json).and_then(|circuits| {
+        circuits.circuits.get(index).map_or_else(
+            || {
+                Err(format!(
+                    "Circuit index {index} is out of range for {} circuits.",
+                    circuits.circuits.len()
+                ))
+            },
+            |circuit| Ok(build_standalone_operation_def(file_name, circuit)),
+        )
+    })
+}
+
 fn build_circuits(file_name: &str, circuits: &[Circuit]) -> String {
     if circuits.len() == 1 {
         build_operation_def(file_name, &circuits[0])
@@ -33,38 +51,19 @@ fn build_circuits(file_name: &str, circuits: &[Circuit]) -> String {
 }
 
 fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
-    let mut indentation_level = 0;
     let qubits = circuit
         .qubits
         .iter()
         .enumerate()
         .map(|(i, q)| (q.id, format!("qs[{i}]")))
         .collect::<FxHashMap<_, _>>();
-
     let parameter = if qubits.is_empty() {
         String::new()
     } else {
         "qs : Qubit[]".to_string()
     };
-
-    // The return type is determined by the number of qubits "children".
-    // However, the actual return statement is determined by the variables storing measurements.
-    // If there is an inconsistency between these, which would happen if there was a mismatch between
-    // the number of qubit children specified on the circuit and the number of qubit children specified
-    // on the measurements, incorrect Q# could be generated.
-    let return_type = match circuit.qubits.iter().fold(0, |sum, q| sum + q.num_results) {
-        0 => "Unit",
-        1 => "Result",
-        _ => "Result[]",
-    };
-
-    // Check if all operations are Unitary
-    let is_ctl_adj = !circuit.component_grid.iter().any(|col| {
-        col.components
-            .iter()
-            .any(|op| !matches!(op, Operation::Unitary(_)))
-    });
-
+    let return_type = operation_return_type(circuit);
+    let is_ctl_adj = supports_ctl_adj(circuit);
     let characteristics = if is_ctl_adj { "is Ctl + Adj " } else { "" };
     let summary = if qubits.is_empty() {
         String::new()
@@ -78,18 +77,10 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
     let mut qsharp_str = format!(
         "{summary}operation {circuit_name}({parameter}) : {return_type} {characteristics}{{\n"
     );
-    indentation_level += 1;
-
-    let mut measure_results = vec![];
-    let indent = "    ".repeat(indentation_level);
+    let indentation_level = 1;
 
     // If there are operation, add an assert for the number of qubits
-    if !circuit.component_grid.is_empty()
-        && circuit
-            .component_grid
-            .iter()
-            .any(|col| !col.components.is_empty())
-    {
+    if has_operations(circuit) {
         qsharp_str.push_str(&generate_qubit_validation(
             circuit_name,
             &qubits,
@@ -97,6 +88,81 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
         ));
     }
 
+    let indent = "    ".repeat(indentation_level);
+    let (body_str, result_expression) = generate_operation_body(circuit, &qubits, &indent);
+    qsharp_str.push_str(body_str.as_str());
+    if let Some(result_expression) = result_expression {
+        writeln!(qsharp_str, "{indent}return {result_expression};")
+            .expect("could not write to qsharp_str");
+    }
+    qsharp_str.push_str("}\n\n");
+    qsharp_str
+}
+
+fn build_standalone_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
+    let qubits = circuit
+        .qubits
+        .iter()
+        .enumerate()
+        .map(|(i, q)| (q.id, format!("qs[{i}]")))
+        .collect::<FxHashMap<_, _>>();
+    let return_type = operation_return_type(circuit);
+    let mut qsharp_str = format!("operation {circuit_name}() : {return_type} {{\n");
+    let indent = "    ";
+
+    if !qubits.is_empty() {
+        writeln!(qsharp_str, "{indent}use qs = Qubit[{}];", qubits.len())
+            .expect("could not write to qsharp_str");
+    }
+
+    let (body_str, result_expression) = generate_operation_body(circuit, &qubits, indent);
+    qsharp_str.push_str(body_str.as_str());
+    if !qubits.is_empty() {
+        writeln!(qsharp_str, "{indent}ResetAll(qs);").expect("could not write to qsharp_str");
+    }
+    if let Some(result_expression) = result_expression {
+        writeln!(qsharp_str, "{indent}return {result_expression};")
+            .expect("could not write to qsharp_str");
+    }
+    qsharp_str.push_str("}\n\n");
+    qsharp_str
+}
+
+fn operation_return_type(circuit: &Circuit) -> &'static str {
+    // The return type is determined by the number of qubits "children".
+    // However, the actual return statement is determined by the variables storing measurements.
+    // If there is an inconsistency between these, which would happen if there was a mismatch between
+    // the number of qubit children specified on the circuit and the number of qubit children specified
+    // on the measurements, incorrect Q# could be generated.
+    match circuit.qubits.iter().fold(0, |sum, q| sum + q.num_results) {
+        0 => "Unit",
+        1 => "Result",
+        _ => "Result[]",
+    }
+}
+
+fn supports_ctl_adj(circuit: &Circuit) -> bool {
+    !circuit.component_grid.iter().any(|col| {
+        col.components
+            .iter()
+            .any(|op| !matches!(op, Operation::Unitary(_)))
+    })
+}
+
+fn has_operations(circuit: &Circuit) -> bool {
+    !circuit.component_grid.is_empty()
+        && circuit
+            .component_grid
+            .iter()
+            .any(|col| !col.components.is_empty())
+}
+
+fn generate_operation_body(
+    circuit: &Circuit,
+    qubits: &FxHashMap<usize, String>,
+    indent: &str,
+) -> (String, Option<String>) {
+    let mut measure_results = vec![];
     let mut body_str = String::new();
     let mut should_add_pi = false;
 
@@ -108,18 +174,18 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
                     body_str.push_str(
                         generate_measurement_call(
                             measurement,
-                            &qubits,
-                            &indent,
+                            qubits,
+                            indent,
                             &mut measure_results,
                         )
                         .as_str(),
                     );
                 }
                 Operation::Unitary(unitary) => {
-                    body_str.push_str(generate_unitary_call(unitary, &qubits, &indent).as_str());
+                    body_str.push_str(generate_unitary_call(unitary, qubits, indent).as_str());
                 }
                 Operation::Ket(ket) => {
-                    body_str.push_str(generate_ket_call(ket, &qubits, &indent).as_str());
+                    body_str.push_str(generate_ket_call(ket, qubits, indent).as_str());
                 }
             }
 
@@ -133,14 +199,10 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
 
     if should_add_pi {
         // Add the π constant
-        writeln!(qsharp_str, "{indent}let π = Std.Math.PI();")
-            .expect("could not write to qsharp_str");
+        body_str.insert_str(0, &format!("{indent}let π = Std.Math.PI();\n"));
     }
 
-    qsharp_str.push_str(body_str.as_str());
-    qsharp_str.push_str(&generate_return_statement(&mut measure_results, &indent));
-    qsharp_str.push_str("}\n\n");
-    qsharp_str
+    (body_str, generate_result_expression(&mut measure_results))
 }
 
 fn generate_qubit_validation(
@@ -222,25 +284,22 @@ fn generate_ket_call(ket: &Ket, qubits: &FxHashMap<usize, String>, indent: &str)
     }
 }
 
-fn generate_return_statement(
-    measure_results: &mut [(String, (usize, usize))],
-    indent: &str,
-) -> String {
+fn generate_result_expression(measure_results: &mut [(String, (usize, usize))]) -> Option<String> {
     if measure_results.is_empty() {
-        return String::new();
+        return None;
     }
 
     measure_results.sort_by_key(|(_, (q_id, c_id))| (*q_id, *c_id));
     if measure_results.len() == 1 {
         let (name, _) = measure_results[0].clone();
-        format!("{indent}return {name};\n")
+        Some(name)
     } else {
         let results = measure_results
             .iter()
             .map(|(name, _)| name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        format!("{indent}return [{results}];\n")
+        Some(format!("[{results}]"))
     }
 }
 

@@ -253,10 +253,9 @@ pub struct QasmCompileUnit {
     /// The signature of the operation created from the QASM source code.
     /// None if the program type is `ProgramType::Fragments`.
     signature: Option<OperationSignature>,
-    /// The QIR profile used for the compilation.
-    /// This is used to determine the QIR profile that the generated code
-    /// will use.
-    profile: Profile,
+    /// The QIR profile for compilation, derived from pragmas.
+    /// Returns `None` if no profile pragma was specified in the `OpenQASM` source.
+    profile: Option<Profile>,
 }
 
 /// Represents a QASM compilation unit.
@@ -270,7 +269,7 @@ impl QasmCompileUnit {
         errors: Vec<WithSource<crate::Error>>,
         package: Package,
         signature: Option<OperationSignature>,
-        profile: Profile,
+        profile: Option<Profile>,
     ) -> Self {
         Self {
             source_map,
@@ -293,9 +292,9 @@ impl QasmCompileUnit {
         self.errors.clone()
     }
 
-    /// Returns the QIR target profile associated with the compilation unit.
+    /// Returns the optional QIR profile from `OpenQASM` pragmas.
     #[must_use]
-    pub fn profile(&self) -> Profile {
+    pub fn profile(&self) -> Option<Profile> {
         self.profile
     }
 
@@ -308,7 +307,7 @@ impl QasmCompileUnit {
         Vec<WithSource<crate::Error>>,
         Package,
         Option<OperationSignature>,
-        Profile,
+        Option<Profile>,
     ) {
         (
             self.source_map,

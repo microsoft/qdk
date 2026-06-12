@@ -264,25 +264,39 @@ impl<'a> Context<'a> {
             }
             ExprKind::BinOp(op, lhs, rhs) => self.infer_binop(expr.span, *op, lhs, rhs),
             ExprKind::Block(block) => self.infer_block(block),
-            ExprKind::Call(callee, input) => {
-                let callee = self.infer_expr(callee);
-                let input = if has_holes(input) {
-                    self.infer_hole_tuple_arg(input)
+            ExprKind::Call(callee_expr, input_expr) => {
+                let callee = self.infer_expr(callee_expr);
+                let input = if has_holes(input_expr) {
+                    self.infer_hole_tuple_arg(input_expr)
                 } else {
-                    let ty = self.infer_expr(input);
+                    let ty = self.infer_expr(input_expr);
+                    let mut inner = input_expr;
+                    while let ExprKind::Paren(unwrapped) = inner.kind.as_ref() {
+                        inner = unwrapped;
+                    }
                     // If the outermost element is a tuple, we must wrap it in an `ArgTy::Tuple`.
-                    match ty {
-                        Partial {
-                            ty: Ty::Tuple(tys),
-                            diverges,
-                        } => Partial {
-                            ty: ArgTy::Tuple(tys.into_iter().map(ArgTy::Given).collect()),
-                            diverges,
-                        },
-                        _ => Partial {
-                            ty: ArgTy::Given(ty.ty),
-                            diverges: false,
-                        },
+                    let arg_ty = match ty.ty {
+                        Ty::Tuple(tys) => {
+                            let spans: Vec<_> = if let ExprKind::Tuple(items) = inner.kind.as_ref()
+                            {
+                                items.iter().map(|item| item.span).collect()
+                            } else {
+                                panic!("unexpected syntax kind: {:?}", inner.kind)
+                            };
+                            ArgTy::Tuple(
+                                tys.into_iter()
+                                    .zip(spans)
+                                    .map(|(ty, span)| ArgTy::Given(ty, span))
+                                    .collect(),
+                                inner.span,
+                            )
+                        }
+                        _ => ArgTy::Given(ty.ty, inner.span),
+                    };
+
+                    Partial {
+                        ty: arg_ty,
+                        diverges: ty.diverges,
                     }
                 };
                 let output_ty = if callee.ty == Ty::Err {
@@ -723,7 +737,7 @@ impl<'a> Context<'a> {
             ExprKind::Hole => {
                 let ty = self.inferrer.fresh_ty(TySource::not_divergent(expr.span));
                 self.record(expr.id, ty.clone());
-                converge(ArgTy::Hole(ty))
+                converge(ArgTy::Hole(ty, expr.span))
             }
             ExprKind::Paren(inner) => {
                 let inner = self.infer_hole_tuple_arg(inner);
@@ -739,9 +753,19 @@ impl<'a> Context<'a> {
                     tys.push(item.ty);
                 }
                 self.record(expr.id, Ty::Tuple(tys.iter().map(ArgTy::to_ty).collect()));
-                self.diverge_if_map(ArgTy::Given, diverges, converge(ArgTy::Tuple(tys)))
+                let span = expr.span;
+                self.diverge_if_map(
+                    // We have the option of choosing a narrower span (or multiple) based on which of
+                    // the tuple items are divergent but the extra complexity doesn't seem justified
+                    |ty| ArgTy::Given(ty, span),
+                    diverges,
+                    converge(ArgTy::Tuple(tys, span)),
+                )
             }
-            _ => self.infer_expr(expr).map(ArgTy::Given),
+            _ => {
+                let span = expr.span;
+                self.infer_expr(expr).map(|ty| ArgTy::Given(ty, span))
+            }
         }
     }
 

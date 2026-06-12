@@ -52,7 +52,7 @@ pub struct ExecGraphBuilder {
 
 impl ExecGraphBuilder {
     /// Takes the built execution graph and resets the builder.
-    fn take(&mut self) -> ExecGraph {
+    pub fn take(&mut self) -> ExecGraph {
         let debug_exec_graph = self
             .debug
             .drain(..)
@@ -71,18 +71,18 @@ impl ExecGraphBuilder {
     }
 
     /// Pushes a node to *only* the debug execution graph.
-    fn debug_push(&mut self, node: ExecGraphDebugNode) {
+    pub fn debug_push(&mut self, node: ExecGraphDebugNode) {
         self.debug.push(ExecGraphNode::Debug(node));
     }
 
     /// Pushes a node to the execution graph.
-    fn push(&mut self, node: ExecGraphNode) {
+    pub fn push(&mut self, node: ExecGraphNode) {
         self.no_debug.push(node);
         self.debug.push(node);
     }
 
     /// Constructs a node with the given argument, then pushes it to the execution graph.
-    fn push_with_arg<F>(&mut self, node_fn: F, arg: ExecGraphIdx)
+    pub fn push_with_arg<F>(&mut self, node_fn: F, arg: ExecGraphIdx)
     where
         F: Fn(u32) -> ExecGraphNode,
     {
@@ -98,14 +98,15 @@ impl ExecGraphBuilder {
     }
 
     /// Pushes a return node to the execution graph.
-    fn push_ret(&mut self) {
+    pub fn push_ret(&mut self) {
         self.no_debug.push(ExecGraphNode::Ret);
         self.debug
             .push(ExecGraphNode::Debug(ExecGraphDebugNode::RetFrame));
     }
 
     /// Returns the current length of the execution graph.
-    fn len(&self) -> ExecGraphIdx {
+    #[must_use]
+    pub fn len(&self) -> ExecGraphIdx {
         ExecGraphIdx {
             no_debug_idx: self.no_debug.len(),
             debug_idx: self.debug.len(),
@@ -113,7 +114,7 @@ impl ExecGraphBuilder {
     }
 
     /// Constructs a node with the given argument, then sets it at the given index in the execution graph.
-    fn set_with_arg<F>(&mut self, node_fn: F, index: ExecGraphIdx, arg: ExecGraphIdx)
+    pub fn set_with_arg<F>(&mut self, node_fn: F, index: ExecGraphIdx, arg: ExecGraphIdx)
     where
         F: Fn(u32) -> ExecGraphNode,
     {
@@ -131,20 +132,19 @@ impl ExecGraphBuilder {
     }
 
     /// Removes all nodes after and including the given index.
-    fn truncate(&mut self, idx: ExecGraphIdx) {
+    pub fn truncate(&mut self, idx: ExecGraphIdx) {
         self.no_debug.truncate(idx.no_debug_idx);
         self.debug.truncate(idx.debug_idx);
     }
 
     /// Removes the last pushed node.
-    fn pop(&mut self) {
+    pub fn pop(&mut self) {
         self.no_debug.pop();
         self.debug.pop();
     }
 }
 
 pub struct Lowerer {
-    nodes: IndexMap<hir::NodeId, fir::NodeId>,
     locals: IndexMap<hir::NodeId, fir::LocalVarId>,
     exprs: IndexMap<ExprId, Expr>,
     pats: IndexMap<PatId, Pat>,
@@ -165,7 +165,6 @@ impl Lowerer {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            nodes: IndexMap::new(),
             locals: IndexMap::new(),
             exprs: IndexMap::new(),
             pats: IndexMap::new(),
@@ -179,6 +178,13 @@ impl Lowerer {
 
     pub fn take_exec_graph(&mut self) -> ExecGraph {
         self.exec_graph.take()
+    }
+
+    /// Consumes the lowerer and returns the Assigner with watermarks
+    /// representing one-past-max for every ID category.
+    #[must_use]
+    pub fn into_assigner(self) -> Assigner {
+        self.assigner
     }
 
     pub fn lower_package(
@@ -346,7 +352,6 @@ impl Lowerer {
         self.assigner.stash_local();
         let locals = self.locals.drain().collect::<Vec<_>>();
 
-        let id = self.lower_id(decl.id);
         let kind = lower_callable_kind(decl.kind);
         let name = self.lower_ident(&decl.name);
         let input = self.lower_pat(&decl.input);
@@ -384,7 +389,6 @@ impl Lowerer {
         }
 
         fir::CallableDecl {
-            id,
             span: decl.span,
             kind,
             name,
@@ -404,7 +408,6 @@ impl Lowerer {
         let input = pat.as_ref().map(|p| self.lower_spec_decl_pat(p));
         let block = self.lower_block(block);
         fir::SpecDecl {
-            id: self.lower_id(decl.id),
             span: decl.span,
             block,
             input,
@@ -829,7 +832,6 @@ impl Lowerer {
 
     fn lower_field_assign(&mut self, field_assign: &hir::FieldAssign) -> fir::FieldAssign {
         fir::FieldAssign {
-            id: self.lower_id(field_assign.id),
             span: field_assign.span,
             field: lower_field(&field_assign.field),
             value: self.lower_expr(&field_assign.value),
@@ -870,14 +872,6 @@ impl Lowerer {
         };
         self.pats.insert(id, pat);
         id
-    }
-
-    fn lower_id(&mut self, id: hir::NodeId) -> fir::NodeId {
-        self.nodes.get(id).copied().unwrap_or_else(|| {
-            let new_id = self.assigner.next_node();
-            self.nodes.insert(id, new_id);
-            new_id
-        })
     }
 
     fn lower_local_id(&mut self, id: hir::NodeId) -> fir::LocalVarId {

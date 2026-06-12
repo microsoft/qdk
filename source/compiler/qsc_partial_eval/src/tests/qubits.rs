@@ -311,6 +311,136 @@ fn qubit_array_allocation_and_access() {
 }
 
 #[test]
+fn qubit_array_length_is_preserved() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use qs = Qubit[4];
+                Length(qs)
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Variable(0, Integer) = Store Integer(1)
+                Variable(0, Integer) = Store Integer(2)
+                Variable(0, Integer) = Store Integer(3)
+                Variable(0, Integer) = Store Integer(4)
+                Call id(2), args( Integer(4), Tag(0, 3), )
+                Return"#]],
+    );
+    assert_eq!(program.num_qubits, 4);
+    assert_eq!(program.num_results, 0);
+}
+
+#[test]
+fn qubit_array_chunks_can_be_indexed() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            import Std.Arrays.*;
+
+            operation Op(q : Qubit) : Unit { body intrinsic; }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use qs = Qubit[4];
+                let chunks = Chunks(2, qs);
+                Op(chunks[0][0]);
+                Op(chunks[1][1]);
+            }
+        }
+        "#,
+    });
+    let op_callable_id = CallableId(1);
+    assert_callable(
+        &program,
+        op_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let tuple_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        tuple_callable_id,
+        &expect![[r#"
+            Callable:
+                name: Op
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Variable(0, Integer) = Store Integer(1)
+                Variable(0, Integer) = Store Integer(2)
+                Variable(0, Integer) = Store Integer(3)
+                Variable(0, Integer) = Store Integer(4)
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(3), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return"#]],
+    );
+    assert_eq!(program.num_qubits, 4);
+    assert_eq!(program.num_results, 0);
+}
+
+#[test]
+fn qubit_array_chunk_count_is_preserved() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            import Std.Arrays.*;
+
+            @EntryPoint()
+            operation Main() : Int {
+                use qs = Qubit[4];
+                let chunks = Chunks(2, qs);
+                Length(chunks)
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Variable(0, Integer) = Store Integer(1)
+                Variable(0, Integer) = Store Integer(2)
+                Variable(0, Integer) = Store Integer(3)
+                Variable(0, Integer) = Store Integer(4)
+                Call id(2), args( Integer(2), Tag(0, 3), )
+                Return"#]],
+    );
+    assert_eq!(program.num_qubits, 4);
+    assert_eq!(program.num_results, 0);
+}
+
+#[test]
 fn qubit_escaping_scope_triggers_runtime_error() {
     let error = get_partial_evaluation_error(indoc! {
         r#"

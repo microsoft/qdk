@@ -318,6 +318,11 @@ impl GeneratorSetsBuilder {
                 inherent: block_inherent_compute_kind,
                 dynamic_param_applications: block_dynamic_param_applications,
             };
+            debug_assert!(
+                application_generator_set.dynamic_param_applications.len() == input_params_count,
+                "RCA invariant: block {block_id:?} application generator has {} param applications but callable has {input_params_count} input params",
+                application_generator_set.dynamic_param_applications.len(),
+            );
             package_compute_properties
                 .blocks
                 .insert(block_id, application_generator_set);
@@ -340,6 +345,11 @@ impl GeneratorSetsBuilder {
                 inherent: stmt_inherent_compute_kind,
                 dynamic_param_applications: stmt_dynamic_param_applications,
             };
+            debug_assert!(
+                application_generator_set.dynamic_param_applications.len() == input_params_count,
+                "RCA invariant: stmt {stmt_id:?} application generator has {} param applications but callable has {input_params_count} input params",
+                application_generator_set.dynamic_param_applications.len(),
+            );
             package_compute_properties
                 .stmts
                 .insert(stmt_id, application_generator_set);
@@ -362,6 +372,11 @@ impl GeneratorSetsBuilder {
                 inherent: expr_inherent_compute_kind,
                 dynamic_param_applications: expr_dynamic_param_applications,
             };
+            debug_assert!(
+                application_generator_set.dynamic_param_applications.len() == input_params_count,
+                "RCA invariant: expr {expr_id:?} application generator has {} param applications but callable has {input_params_count} input params",
+                application_generator_set.dynamic_param_applications.len(),
+            );
             package_compute_properties
                 .exprs
                 .insert(expr_id, application_generator_set);

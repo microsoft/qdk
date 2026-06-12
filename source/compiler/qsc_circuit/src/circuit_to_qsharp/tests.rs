@@ -20,6 +20,14 @@ fn check_circuit_group(contents: &str, expect: &Expect) {
     expect.assert_eq(&actual);
 }
 
+fn check_standalone(contents: &str, index: usize, expect: &Expect) {
+    let actual = match circuit_to_standalone_qsharp("Test", contents, index) {
+        Ok(circuit) => circuit,
+        Err(e) => e,
+    };
+    expect.assert_eq(&actual);
+}
+
 #[test]
 fn qsharp_from_circuit() {
     check_circuit_group(
@@ -56,6 +64,47 @@ fn qsharp_from_circuit() {
                 S(qs[1]);
                 Z(qs[0]);
                 X(qs[1]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn standalone_qsharp_from_circuit() {
+    check_standalone(
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] },
+            { "kind": "unitary", "gate": "S", "targets": [{ "qubit": 1 }] }
+          ]
+        },
+        {
+          "components": [
+            { "kind": "unitary", "gate": "Z", "targets": [{ "qubit": 0 }] },
+            { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 1 }] }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }, { "id": 1 }]
+    }
+  ]
+}"#,
+        0,
+        &expect![[r#"
+            operation Test() : Unit {
+                use qs = Qubit[2];
+                H(qs[0]);
+                S(qs[1]);
+                Z(qs[0]);
+                X(qs[1]);
+                ResetAll(qs);
             }
 
         "#]],
@@ -366,6 +415,60 @@ fn circuit_with_measurement_gate() {
                 S(qs[1]);
                 Z(qs[0]);
                 let c0_0 = M(qs[0]);
+                return c0_0;
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn standalone_circuit_with_measurement_gate() {
+    check_standalone(
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] },
+            { "kind": "unitary", "gate": "S", "targets": [{ "qubit": 1 }] }
+          ]
+        },
+        {
+          "components": [
+            { "kind": "unitary", "gate": "Z", "targets": [{ "qubit": 0 }] }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "measurement",
+              "gate": "Measure",
+              "qubits": [{ "qubit": 0 }],
+              "results": [{ "qubit": 0, "result": 0 }]
+            }
+          ]
+        }
+      ],
+      "qubits": [
+        { "id": 0, "numResults": 1 },
+        { "id": 1 }
+      ]
+    }
+  ]
+}"#,
+        0,
+        &expect![[r#"
+            operation Test() : Result {
+                use qs = Qubit[2];
+                H(qs[0]);
+                S(qs[1]);
+                Z(qs[0]);
+                let c0_0 = M(qs[0]);
+                ResetAll(qs);
                 return c0_0;
             }
 
