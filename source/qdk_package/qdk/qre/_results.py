@@ -60,7 +60,7 @@ class EstimationTable(list["EstimationTableEntry"]):
             function (Callable[[EstimationTableEntry], Any]): A function that
                 takes an EstimationTableEntry and returns the value for this
                 column.
-            formatter (Callable[[Any], Any]): An optional function
+            formatter (Optional[Callable[[Any], Any]]): An optional function
                 that formats the output of ``function`` for display purposes.
         """
         self._columns.append((name, EstimationTableColumn(function, formatter)))
