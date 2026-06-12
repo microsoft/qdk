@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 import assert from "node:assert";
 import { describe, it } from "node:test";
 
