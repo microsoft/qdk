@@ -1,0 +1,1045 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "DEQ",
+  "scopeName": "source.deq",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#mako-def-block"
+    },
+    {
+      "include": "#mako-block"
+    },
+    {
+      "include": "#mako-line"
+    },
+    {
+      "include": "#mako-expression"
+    },
+    {
+      "include": "#import-statement"
+    },
+    {
+      "include": "#decorator"
+    },
+    {
+      "include": "#code-definition"
+    },
+    {
+      "include": "#gadget-definition"
+    },
+    {
+      "include": "#compose-definition"
+    },
+    {
+      "include": "#program-definition"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.deq"
+    },
+    "import-statement": {
+      "match": "\\b(IMPORT)\\s+(\"(?:[^\"\\\\]|\\\\.)*\")",
+      "captures": {
+        "1": {
+          "name": "keyword.control.import.deq"
+        },
+        "2": {
+          "name": "string.quoted.double.deq"
+        }
+      }
+    },
+    "decorator": {
+      "begin": "(@[a-zA-Z][a-zA-Z0-9_]*)\\s*(\\()?",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.function.decorator.deq"
+        },
+        "2": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "(\\))|(?=$|#)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#decorator-string"
+        },
+        {
+          "include": "#decorator-kwarg"
+        },
+        {
+          "match": "-?\\d+(?:\\.\\d*)?(?:[eE][+-]?\\d+)?",
+          "name": "constant.numeric.deq"
+        }
+      ]
+    },
+    "decorator-string": {
+      "match": "\"(?:[^\"\\\\]|\\\\.)*\"",
+      "name": "string.quoted.double.deq"
+    },
+    "decorator-kwarg": {
+      "match": "\\b([a-zA-Z][a-zA-Z0-9_]*)\\s*(=)",
+      "captures": {
+        "1": {
+          "name": "variable.parameter.deq"
+        },
+        "2": {
+          "name": "keyword.operator.assignment.deq"
+        }
+      }
+    },
+    "code-definition": {
+      "begin": "\\b(CODE)\\s+([a-zA-Z][a-zA-Z0-9_]*)\\s*(\\[\\[)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.deq"
+        },
+        "2": {
+          "name": "entity.name.type.deq"
+        },
+        "3": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "^\\s*(\\})",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#code-params"
+        },
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#logical-declaration"
+        },
+        {
+          "include": "#stabilizer-declaration"
+        },
+        {
+          "include": "#pauli-product"
+        }
+      ]
+    },
+    "code-params": {
+      "match": "(\\d+|\\$\\{[^}]*\\})\\s*,\\s*(\\d+|\\$\\{[^}]*\\})(?:\\s*,\\s*(\\d+|\\$\\{[^}]*\\}))?\\s*(\\]\\])\\s*(\\{)",
+      "captures": {
+        "1": {
+          "name": "constant.numeric.deq"
+        },
+        "2": {
+          "name": "constant.numeric.deq"
+        },
+        "3": {
+          "name": "constant.numeric.deq"
+        },
+        "4": {
+          "name": "punctuation.bracket.deq"
+        },
+        "5": {
+          "name": "punctuation.bracket.deq"
+        }
+      }
+    },
+    "logical-declaration": {
+      "begin": "\\b(LOGICAL)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.declaration.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#pauli-product"
+        }
+      ]
+    },
+    "stabilizer-declaration": {
+      "begin": "\\b(STABILIZER)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.declaration.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#pauli-product"
+        }
+      ]
+    },
+    "pauli-product": {
+      "match": "[IXYZ]\\d+",
+      "name": "storage.type.pauli.deq"
+    },
+    "gadget-definition": {
+      "begin": "\\b(GADGET)\\s+((?:[a-zA-Z][a-zA-Z0-9_]*|\\$\\{[^}]*\\})+)\\s*(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.deq"
+        },
+        "2": {
+          "name": "entity.name.function.deq"
+        },
+        "3": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "^\\s*(\\})",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#gadget-body"
+        }
+      ]
+    },
+    "compose-definition": {
+      "begin": "\\b(COMPOSE)\\s+((?:[a-zA-Z][a-zA-Z0-9_]*|\\$\\{[^}]*\\})+)\\s*(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.deq"
+        },
+        "2": {
+          "name": "entity.name.function.deq"
+        },
+        "3": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "^\\s*(\\})",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#compose-body"
+        }
+      ]
+    },
+    "program-definition": {
+      "begin": "\\b(PROGRAM)\\s+((?:[a-zA-Z][a-zA-Z0-9_]*|\\$\\{[^}]*\\})+)\\s*(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.deq"
+        },
+        "2": {
+          "name": "entity.name.function.deq"
+        },
+        "3": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "^\\s*(\\})",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#program-body"
+        }
+      ]
+    },
+    "gadget-body": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#mako-line"
+        },
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#decorator"
+        },
+        {
+          "include": "#repeat-block-gadget"
+        },
+        {
+          "include": "#port-statement"
+        },
+        {
+          "include": "#readout-statement"
+        },
+        {
+          "include": "#check-statement"
+        },
+        {
+          "include": "#error-statement"
+        },
+        {
+          "include": "#conditional-statement"
+        },
+        {
+          "include": "#virtual-logical-statement"
+        },
+        {
+          "include": "#propagate-statement"
+        },
+        {
+          "include": "#preselect-statement"
+        },
+        {
+          "include": "#stim-instruction"
+        }
+      ]
+    },
+    "compose-body": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#mako-line"
+        },
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#decorator"
+        },
+        {
+          "include": "#repeat-block-compose"
+        },
+        {
+          "include": "#port-statement"
+        },
+        {
+          "include": "#gadget-application"
+        },
+        {
+          "include": "#stim-instruction"
+        }
+      ]
+    },
+    "program-body": {
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#mako-line"
+        },
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#decorator"
+        },
+        {
+          "include": "#repeat-block-program"
+        },
+        {
+          "include": "#port-statement"
+        },
+        {
+          "include": "#assert-statement"
+        },
+        {
+          "include": "#virtual-correction"
+        },
+        {
+          "include": "#gadget-application"
+        },
+        {
+          "include": "#stim-instruction"
+        }
+      ]
+    },
+    "repeat-block-gadget": {
+      "begin": "\\b(REPEAT)\\s+(\\d+|\\$\\{[^}]*\\})\\s*(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.deq"
+        },
+        "2": {
+          "name": "constant.numeric.deq"
+        },
+        "3": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "^\\s*(\\})",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#gadget-body"
+        }
+      ]
+    },
+    "repeat-block-compose": {
+      "begin": "\\b(REPEAT)\\s+(\\d+|\\$\\{[^}]*\\})\\s*(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.deq"
+        },
+        "2": {
+          "name": "constant.numeric.deq"
+        },
+        "3": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "^\\s*(\\})",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#compose-body"
+        }
+      ]
+    },
+    "repeat-block-program": {
+      "begin": "\\b(REPEAT)\\s+(\\d+|\\$\\{[^}]*\\})\\s*(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.deq"
+        },
+        "2": {
+          "name": "constant.numeric.deq"
+        },
+        "3": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "^\\s*(\\})",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#program-body"
+        }
+      ]
+    },
+    "port-statement": {
+      "begin": "\\b(INPUT|OUTPUT)\\s+([a-zA-Z][a-zA-Z0-9_]*)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        },
+        "2": {
+          "name": "entity.name.type.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "\\d+",
+          "name": "constant.numeric.deq"
+        }
+      ]
+    },
+    "readout-statement": {
+      "begin": "\\b(READOUT|OBSERVABLE_INCLUDE)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "\\b(FLIP)\\b",
+          "name": "keyword.directive.deq"
+        },
+        {
+          "include": "#readout-targets"
+        }
+      ]
+    },
+    "readout-targets": {
+      "patterns": [
+        {
+          "match": "(?:IN|OUT)\\d+\\.L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "match": "L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "include": "#targets"
+        }
+      ]
+    },
+    "error-statement": {
+      "begin": "\\b(ERROR)\\s*(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        },
+        "2": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "-?\\d+(?:\\.\\d*)?(?:[eE][+-]?\\d+)?",
+          "name": "constant.numeric.deq"
+        },
+        {
+          "match": "\\)",
+          "name": "punctuation.bracket.deq"
+        },
+        {
+          "include": "#error-targets"
+        }
+      ]
+    },
+    "error-targets": {
+      "patterns": [
+        {
+          "match": "(?:IN|OUT)\\d+\\.L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "match": "L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "match": "[XYZ]\\d+",
+          "name": "storage.type.pauli.deq"
+        },
+        {
+          "match": "C\\d+",
+          "name": "support.class.check.deq"
+        },
+        {
+          "match": "R\\d+",
+          "name": "support.variable.readout.deq"
+        }
+      ]
+    },
+    "conditional-statement": {
+      "begin": "\\b(CONDITIONAL)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "R\\d+",
+          "name": "support.variable.readout.deq"
+        },
+        {
+          "match": "M\\d+",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "(?:IN|OUT)\\d+\\.S\\d+",
+          "name": "support.class.check.deq"
+        },
+        {
+          "match": "rec\\[-\\d+\\]",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "(?:IN|OUT)\\d+\\.L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "match": "L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        }
+      ]
+    },
+    "virtual-logical-statement": {
+      "begin": "\\b(VIRTUAL)\\s+(?=(?:IN|OUT)?\\d*\\.?L[XYZ]|L[XYZ])",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "(?:IN|OUT)\\d+\\.L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "match": "L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        }
+      ]
+    },
+    "propagate-statement": {
+      "begin": "\\b(PROPAGATE)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "\\b(FROM|FLIP)\\b",
+          "name": "keyword.directive.deq"
+        },
+        {
+          "match": "(?:IN|OUT)\\d+\\.L[XYZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "match": "L[XZ]\\d+",
+          "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "match": "IN\\d+\\.DS\\d+",
+          "name": "support.class.check.deq"
+        },
+        {
+          "match": "M\\d+",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "rec\\[-\\d+\\]",
+          "name": "variable.other.deq"
+        }
+      ]
+    },
+    "check-statement": {
+      "begin": "\\b(CHECK|DETECTOR)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "\\b(FLIP)\\b",
+          "name": "keyword.directive.deq"
+        },
+        {
+          "include": "#targets"
+        }
+      ]
+    },
+    "preselect-statement": {
+      "begin": "\\b(PRESELECT)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "M\\d+",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "rec\\[-\\d+\\]",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "\\d+",
+          "name": "constant.numeric.deq"
+        }
+      ]
+    },
+    "assert-statement": {
+      "begin": "\\b(ASSERT_EQ)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "M\\d+",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "rec\\[-\\d+\\]",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "\\d+",
+          "name": "constant.numeric.deq"
+        }
+      ]
+    },
+    "virtual-correction": {
+      "match": "\\b(VIRTUAL)\\s+((?:[XYZ]\\d+)(?:\\*[XYZ]\\d+)*)\\s+(\\d+)",
+      "captures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        },
+        "2": {
+          "name": "support.type.pauli.deq"
+        },
+        "3": {
+          "name": "constant.numeric.deq"
+        }
+      }
+    },
+    "gadget-application": {
+      "begin": "((?:[a-zA-Z][a-zA-Z0-9_]*|\\$\\{[^}]*\\})+)\\s+(?=(IN|OUT)\\(|\\(\\)|\\d|\\$\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.function.call.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#port-binding"
+        },
+        {
+          "match": "\\(\\)",
+          "name": "punctuation.bracket.deq"
+        },
+        {
+          "match": "\\d+",
+          "name": "constant.numeric.deq"
+        }
+      ]
+    },
+    "port-binding": {
+      "begin": "\\b(IN|OUT)(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.modifier.deq"
+        },
+        "2": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "match": "\\d+",
+          "name": "constant.numeric.deq"
+        }
+      ]
+    },
+    "stim-instruction": {
+      "begin": "\\b([a-zA-Z][a-zA-Z0-9_]*)\\b",
+      "beginCaptures": {
+        "1": {
+          "name": "support.function.deq"
+        }
+      },
+      "end": "(?=#)|$",
+      "patterns": [
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#tag"
+        },
+        {
+          "include": "#parenthesized-arguments"
+        },
+        {
+          "include": "#targets"
+        },
+        {
+          "include": "#port-binding"
+        }
+      ]
+    },
+    "tag": {
+      "match": "\\[[^\\]]*\\]",
+      "name": "string.other.deq"
+    },
+    "parenthesized-arguments": {
+      "begin": "\\(",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.bracket.deq"
+        }
+      },
+      "patterns": [
+        {
+          "match": "-?\\d+(?:\\.\\d*)?(?:[eE][+-]?\\d+)?",
+          "name": "constant.numeric.deq"
+        }
+      ]
+    },
+    "targets": {
+      "patterns": [
+        {
+          "match": "rec\\[-\\d+\\]",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "sweep\\[\\d+\\]",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "M\\d+",
+          "name": "variable.other.deq"
+        },
+        {
+          "match": "(?:IN|OUT)\\d+\\.S\\d+",
+          "name": "support.class.check.deq"
+        },
+        {
+          "match": "!?[XYZ]\\d+",
+          "name": "storage.type.pauli.deq"
+        },
+        {
+          "match": "\\*",
+          "name": "keyword.operator.deq"
+        },
+        {
+          "match": "!",
+          "name": "keyword.operator.deq"
+        },
+        {
+          "match": "\\d+",
+          "name": "constant.numeric.deq"
+        }
+      ]
+    },
+    "mako-expression": {
+      "begin": "\\$\\{",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.mako"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.mako"
+        }
+      },
+      "name": "meta.embedded.expression.mako",
+      "patterns": [
+        {
+          "include": "#mako-nested-braces"
+        },
+        {
+          "include": "source.python"
+        }
+      ]
+    },
+    "mako-block": {
+      "begin": "<%(?![a-zA-Z/])",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.mako"
+        }
+      },
+      "end": "%>",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.mako"
+        }
+      },
+      "name": "meta.embedded.block.python.mako",
+      "patterns": [
+        {
+          "include": "source.python"
+        }
+      ]
+    },
+    "mako-line": {
+      "begin": "^(\\s*)(%)(?!%)\\s+",
+      "beginCaptures": {
+        "2": {
+          "name": "keyword.control.directive.mako"
+        }
+      },
+      "end": "$",
+      "name": "meta.embedded.line.python.mako",
+      "patterns": [
+        {
+          "include": "source.python"
+        }
+      ]
+    },
+    "mako-nested-braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        {
+          "include": "#mako-nested-braces"
+        },
+        {
+          "include": "#mako-string"
+        }
+      ]
+    },
+    "mako-string": {
+      "patterns": [
+        {
+          "match": "\"(?:[^\"\\\\]|\\\\.)*\"",
+          "name": "string.quoted.double.mako"
+        },
+        {
+          "match": "'(?:[^'\\\\]|\\\\.)*'",
+          "name": "string.quoted.single.mako"
+        }
+      ]
+    },
+    "mako-def-block": {
+      "begin": "(<%)((def))\\b([^>]*)(>)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.section.embedded.begin.mako"
+        },
+        "2": {
+          "name": "keyword.control.directive.mako"
+        },
+        "4": {
+          "patterns": [
+            {
+              "include": "#mako-tag-attributes"
+            }
+          ]
+        },
+        "5": {
+          "name": "punctuation.section.embedded.end.mako"
+        }
+      },
+      "end": "(</%)(def)(>)",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.section.embedded.begin.mako"
+        },
+        "2": {
+          "name": "keyword.control.directive.mako"
+        },
+        "3": {
+          "name": "punctuation.section.embedded.end.mako"
+        }
+      },
+      "name": "meta.mako.def-block",
+      "patterns": [
+        {
+          "include": "#comment"
+        },
+        {
+          "include": "#mako-line"
+        },
+        {
+          "include": "#mako-expression"
+        },
+        {
+          "include": "#decorator"
+        },
+        {
+          "include": "#gadget-body"
+        },
+        {
+          "include": "#compose-body"
+        },
+        {
+          "include": "#program-body"
+        }
+      ]
+    },
+    "mako-tag-attributes": {
+      "patterns": [
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(=)\\s*(\"[^\"]*\")",
+          "captures": {
+            "1": {
+              "name": "entity.other.attribute-name.mako"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.mako"
+            },
+            "3": {
+              "name": "string.quoted.double.mako"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
