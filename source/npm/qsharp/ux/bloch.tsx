@@ -451,8 +451,6 @@ class BlochRenderer {
       rotationAxis.add(finBoxMesh);
     });
 
-    // TODO: Only to be added when rotating
-    // scene.add(rotationAxis);
     this.rotationAxis = rotationAxis;
 
     // See https://threejs.org/manual/#en/rendering-on-demand
