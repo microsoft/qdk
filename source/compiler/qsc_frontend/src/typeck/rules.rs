@@ -281,7 +281,10 @@ impl<'a> Context<'a> {
                             {
                                 items.iter().map(|item| item.span).collect()
                             } else {
-                                panic!("unexpected syntax kind: {:?}", inner.kind)
+                                // There are lots of expressions that are statically known to have a tuple type
+                                // (include surprising things like Assign, which return Unit - the empty tuple type).
+                                // In those cases, just use the span of the whole expression.
+                                vec![inner.span; tys.len()]
                             };
                             ArgTy::Tuple(
                                 tys.into_iter()

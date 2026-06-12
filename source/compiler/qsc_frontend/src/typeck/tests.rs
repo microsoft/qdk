@@ -5564,3 +5564,147 @@ fn complex_literal_does_not_support_mod() {
         "##]],
     );
 }
+
+#[test]
+fn call_expr_unit_arg_assign() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "{ let q = 2; A.Foo(q = 1) }",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-84 "{ let q = 2; A.Foo(q = 1) }" : Unit
+            #17 57-84 "{ let q = 2; A.Foo(q = 1) }" : Unit
+            #19 63-64 "q" : Int
+            #21 67-68 "2" : Int
+            #23 70-82 "A.Foo(q = 1)" : Unit
+            #24 70-75 "A.Foo" : (Unit -> Unit)
+            #28 75-82 "(q = 1)" : Unit
+            #29 76-81 "q = 1" : Unit
+            #30 76-77 "q" : Int
+            #33 80-81 "1" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_assignop() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "{ let i = 1; A.Foo(i += 1) }",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-85 "{ let i = 1; A.Foo(i += 1) }" : Unit
+            #17 57-85 "{ let i = 1; A.Foo(i += 1) }" : Unit
+            #19 63-64 "i" : Int
+            #21 67-68 "1" : Int
+            #23 70-83 "A.Foo(i += 1)" : Unit
+            #24 70-75 "A.Foo" : (Unit -> Unit)
+            #28 75-83 "(i += 1)" : Unit
+            #29 76-82 "i += 1" : Unit
+            #30 76-77 "i" : Int
+            #33 81-82 "1" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_assignupdate() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-102 "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }" : Unit
+            #17 57-102 "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }" : Unit
+            #19 63-66 "arr" : Int[]
+            #21 69-72 "[1]" : Int[]
+            #22 70-71 "1" : Int
+            #24 74-100 "A.Foo(set arr w/= 0 <- 10)" : Unit
+            #25 74-79 "A.Foo" : (Unit -> Unit)
+            #29 79-100 "(set arr w/= 0 <- 10)" : Unit
+            #30 80-99 "set arr w/= 0 <- 10" : Unit
+            #31 84-87 "arr" : Int[]
+            #34 92-93 "0" : Int
+            #35 97-99 "10" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_block() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "A.Foo({})",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-66 "A.Foo({})" : Unit
+            #17 57-62 "A.Foo" : (Unit -> Unit)
+            #21 62-66 "({})" : Unit
+            #22 63-65 "{}" : Unit
+            #23 63-65 "{}" : Unit
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_non_tuple_expr() {
+    check_allow_parse_errors(
+        "",
+        indoc! {"
+            {
+                let f = (a, b) -> a + b;
+                let x = (1, 2.);
+                f(x)
+            }
+        "},
+        &expect![[r##"
+            #1 0-62 "{\n    let f = (a, b) -> a + b;\n    let x = (1, 2.);\n    f(x)\n}" : Double
+            #2 0-62 "{\n    let f = (a, b) -> a + b;\n    let x = (1, 2.);\n    f(x)\n}" : Double
+            #4 10-11 "f" : ((Double, Double) -> Double)
+            #6 14-29 "(a, b) -> a + b" : ((Double, Double) -> Double)
+            #7 14-20 "(a, b)" : (Double, Double)
+            #8 15-16 "a" : Double
+            #10 18-19 "b" : Double
+            #12 24-29 "a + b" : Double
+            #13 24-25 "a" : Double
+            #16 28-29 "b" : Double
+            #20 39-40 "x" : (Int, Double)
+            #22 43-50 "(1, 2.)" : (Int, Double)
+            #23 44-45 "1" : Int
+            #24 47-49 "2." : Double
+            #26 56-60 "f(x)" : Double
+            #27 56-57 "f" : ((Double, Double) -> Double)
+            #30 57-60 "(x)" : (Int, Double)
+            #31 58-59 "x" : (Int, Double)
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 58, hi: 59 }))))
+        "##]],
+    );
+}
