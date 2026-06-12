@@ -44,7 +44,7 @@ pub struct StabilizerSimulator {
 ///   reference to `self` at the same time. So, the obvious way express
 ///   this,
 ///   ```ignore
-///   fn apply_noise(&mut self, noise_table: &CumulativeNoiseTable<Fault>, targets: &[QubitID]) {
+///   fn apply_noise(&mut self, noise_table: &CumulativeNoiseTable, targets: &[QubitID]) {
 ///       for target in targets {
 ///           if matches!(noise_table.sample_noise(&mut self.rng), Fault::Loss) {
 ///               ...
@@ -73,7 +73,7 @@ pub struct StabilizerSimulator {
 ///   ```ignore
 ///   fn apply_noise(
 ///     state: &mut StateType,
-///     noise_table: &CumulativeNoiseTable<Fault>,
+///     noise_table: &CumulativeNoiseTable,
 ///     targets: &[QubitID],
 ///     rng: &mut Rng,
 ///     loss: &mut Vec<bool>

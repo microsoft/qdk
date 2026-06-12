@@ -22,8 +22,7 @@ mod bench {
     fn setup(gates: Vec<Operation>) -> (StabilizerSimulator, Vec<Operation>) {
         const NUM_QUBITS: usize = 1224;
         const NUM_RESULTS: usize = NUM_QUBITS;
-        let noise: Arc<CumulativeNoiseConfig<Fault>> =
-            Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
+        let noise: Arc<CumulativeNoiseConfig> = Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
         let simulator = StabilizerSimulator::new(NUM_QUBITS, NUM_RESULTS, SEED, noise);
         (simulator, gates)
     }
