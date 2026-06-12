@@ -52,9 +52,9 @@ def constraint(
     Args:
         id (int): The instruction ID.
         encoding (Encoding): The instruction encoding. PHYSICAL (0) or LOGICAL (1).
-        arity (int): The instruction arity. If None, instruction is
+        arity (Optional[int]): The instruction arity. If None, instruction is
             assumed to have variable arity.  Default is 1.
-        error_rate (ConstraintBound): The constraint on the error rate.
+        error_rate (Optional[ConstraintBound]): The constraint on the error rate.
         **kwargs (bool): Required properties that matching instructions must have.
             Valid property names: distance. Set to True to require the property.
 
@@ -149,7 +149,7 @@ class ISATransform(ABC):
         Create an ISAQuery node for this transform.
 
         Args:
-            source (Node): The source node providing implementation ISAs.
+            source (Node | None): The source node providing implementation ISAs.
                 Defaults to ISA_ROOT.
             **kwargs: Fixed values or domains for dataclass fields.  Keyword-only
                 fields with a ``metadata["domain"]`` are enumerated automatically;
@@ -259,7 +259,7 @@ class InstructionSource:
 
         Args:
             instruction (Instruction): The instruction for this node.
-            transform (ISATransform | Architecture): The transform
+            transform (Optional[ISATransform | Architecture]): The transform
                 that produced the instruction.
             children (list[int]): Indices of child nodes.
 
@@ -328,11 +328,11 @@ class InstructionSource:
 
         Args:
             id (int): The instruction ID to search for.
-            default (_InstructionSourceNodeReference): The value to return if no
+            default (Optional[_InstructionSourceNodeReference]): The value to return if no
                 node with the given ID is found. Default is None.
 
         Returns:
-            _InstructionSourceNodeReference: The first instruction source node with the
+            Optional[_InstructionSourceNodeReference]: The first instruction source node with the
                 given instruction ID, or default if no such node exists.
         """
         for root in self.roots:
@@ -406,11 +406,11 @@ class _InstructionSourceNodeReference:
 
         Args:
             id (int): The instruction ID to search for.
-            default (_InstructionSourceNodeReference): The value to return if no
+            default (Optional[_InstructionSourceNodeReference]): The value to return if no
                 node with the given ID is found. Default is None.
 
         Returns:
-            _InstructionSourceNodeReference: The first child instruction source
+            Optional[_InstructionSourceNodeReference]: The first child instruction source
                 node with the given instruction ID, or default if no such node
                 exists.
         """

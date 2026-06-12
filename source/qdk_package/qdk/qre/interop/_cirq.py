@@ -335,7 +335,7 @@ class TraceGate:
     Attributes:
         id (int): The instruction ID.
         qubits (list[cirq.Qid] | cirq.Qid): The target qubits.
-        params (list[float] | float): Optional gate parameters.
+        params (list[float] | float | None): Optional gate parameters.
     """
 
     id: int

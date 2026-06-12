@@ -80,7 +80,7 @@ class EstimationTable(list["EstimationTableEntry"]):
             function (Callable[[EstimationTableEntry], Any]): A function that
                 takes an EstimationTableEntry and returns the value for this
                 column.
-            formatter (Callable[[Any], Any]): An optional function
+            formatter (Optional[Callable[[Any], Any]]): An optional function
                 that formats the output of ``function`` for display purposes.
         """
         self._columns.insert(index, (name, EstimationTableColumn(function, formatter)))
@@ -123,7 +123,7 @@ class EstimationTable(list["EstimationTableEntry"]):
 
         Args:
             property_key (int): The property key to add as a column.
-            column_name (str): An optional name for the column. If not provided, the column will be named "property_{property_key}".
+            column_name (Optional[str]): An optional name for the column. If not provided, the column will be named "property_{property_key}".
             default_value (Any): The default value to use if the property key is not present in an entry's properties. Defaults to None.
         """
         if column_name is None:

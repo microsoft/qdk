@@ -295,7 +295,7 @@ class _Pipeline:
         """Create a pipeline if the configuration is feasible.
 
         Returns:
-            _Pipeline: The pipeline, or None if the required
+            Optional[_Pipeline]: The pipeline, or None if the required
                 number of units per round is infeasible.
         """
         pipeline = cls(

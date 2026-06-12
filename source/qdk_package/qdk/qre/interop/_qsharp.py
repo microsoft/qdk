@@ -137,7 +137,7 @@ def trace_from_entry_expr_cached(
     Args:
         entry_expr (str or :class:`~typing.Callable` or :class:`~qdk.estimator.LogicalCounts`): A Q# entry expression
             string, a callable, or pre-computed logical counts.
-        cache_path (:class:`~pathlib.Path`): Path for reading/writing the cached
+        cache_path (Optional[Path]): Path for reading/writing the cached
             trace. If None, caching is disabled.
 
     Returns:
