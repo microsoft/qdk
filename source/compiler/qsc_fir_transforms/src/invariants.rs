@@ -814,6 +814,12 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
             assert_expr(*cond);
             assert_block(*block);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                assert_expr(*l);
+            }
+            assert_expr(*body);
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -1234,6 +1240,12 @@ fn scan_expr_for_operand_flag_writes(
                     );
                 }
             }
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                scan_expr_for_operand_flag_writes(package, *l, true, flag_locals, callable_name);
+            }
+            scan_expr_for_operand_flag_writes(package, *body, true, flag_locals, callable_name);
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
@@ -2066,7 +2078,11 @@ fn check_configured_exec_graph(
                 | ExecGraphDebugNode::RetFrame
                 | ExecGraphDebugNode::LoopIteration => {}
             },
-            ExecGraphNode::Store | ExecGraphNode::Unit | ExecGraphNode::Ret => {}
+            ExecGraphNode::Store
+            | ExecGraphNode::Unit
+            | ExecGraphNode::ParStart(_)
+            | ExecGraphNode::ParEnd
+            | ExecGraphNode::Ret => {}
         }
     }
 }

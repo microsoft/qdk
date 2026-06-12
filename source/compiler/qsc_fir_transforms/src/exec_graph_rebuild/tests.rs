@@ -223,6 +223,8 @@ fn format_exec_graph_nodes(
             ExecGraphNode::Ret => format!("{index}: Ret"),
             ExecGraphNode::Store => format!("{index}: Store"),
             ExecGraphNode::Unit => format!("{index}: Unit"),
+            ExecGraphNode::ParStart(has_limit) => format!("{index}: ParStart({has_limit})"),
+            ExecGraphNode::ParEnd => format!("{index}: ParEnd"),
             ExecGraphNode::Debug(_) => {
                 unreachable!("NoDebug exec graph should not contain debug nodes")
             }

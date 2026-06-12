@@ -685,6 +685,10 @@ impl FirCloner {
                 self.clone_expr(source, *cond, target),
                 self.clone_block(source, *block, target),
             ),
+            ExprKind::Parallel(limit, expr) => ExprKind::Parallel(
+                limit.map(|e| self.clone_expr(source, e, target)),
+                self.clone_expr(source, *expr, target),
+            ),
         }
     }
 
@@ -700,6 +704,8 @@ impl FirCloner {
             ExecGraphNode::Jump(_)
             | ExecGraphNode::JumpIf(_)
             | ExecGraphNode::JumpIfNot(_)
+            | ExecGraphNode::ParStart(_)
+            | ExecGraphNode::ParEnd
             | ExecGraphNode::Store
             | ExecGraphNode::Unit
             | ExecGraphNode::Ret => node,

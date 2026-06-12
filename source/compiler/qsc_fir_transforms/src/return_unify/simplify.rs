@@ -703,6 +703,12 @@ pub(super) fn push_children(package: &Package, expr_id: ExprId, stack: &mut Vec<
             }
             stack.extend(fields.iter().map(|f| f.value));
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                stack.push(*l);
+            }
+            stack.push(*body);
+        }
         ExprKind::Closure(_, _) | ExprKind::Var(_, _) | ExprKind::Lit(_) | ExprKind::Hole => {}
     }
 }
@@ -800,6 +806,12 @@ pub(super) fn local_use_count(package: &Package, root: ExprId, target: LocalVarI
                     stack.push(*c);
                 }
                 stack.extend(fields.iter().map(|f| f.value));
+            }
+            ExprKind::Parallel(limit, body) => {
+                if let Some(l) = limit {
+                    stack.push(*l);
+                }
+                stack.push(*body);
             }
             ExprKind::Lit(_) | ExprKind::Hole | ExprKind::Var(_, _) => {}
         }

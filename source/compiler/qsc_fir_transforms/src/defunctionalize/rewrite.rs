@@ -912,6 +912,12 @@ fn find_local_init_expr_in_expr(
             }),
         ExprKind::While(cond, block_id) => find_local_init_expr_in_expr(package, *cond, local_var)
             .or_else(|| find_local_init_expr_in_block(package, *block_id, local_var)),
+        ExprKind::Parallel(limit, expr) => if let Some(l) = limit {
+            find_local_init_expr_in_expr(package, *l, local_var)
+        } else {
+            None
+        }
+        .or_else(|| find_local_init_expr_in_expr(package, *expr, local_var)),
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => None,
     }
 }
@@ -1324,6 +1330,12 @@ fn prune_dead_callable_locals_in_expr(package: &mut Package, expr_id: ExprId) {
             prune_dead_callable_locals_in_expr(package, cond);
             prune_dead_callable_locals_in_block(package, block_id);
         }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(l) = limit {
+                prune_dead_callable_locals_in_expr(package, l);
+            }
+            prune_dead_callable_locals_in_expr(package, expr);
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -1416,6 +1428,12 @@ fn remove_dead_callable_local_from_expr(
         ExprKind::While(cond, block_id) => {
             remove_dead_callable_local_from_expr(package, cond, local_var);
             remove_dead_callable_local_from_block(package, block_id, local_var);
+        }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(l) = limit {
+                remove_dead_callable_local_from_expr(package, l, local_var);
+            }
+            remove_dead_callable_local_from_expr(package, expr, local_var);
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
@@ -1575,6 +1593,12 @@ fn find_var_tuple_field_path_in_expr(
             find_var_tuple_field_path_in_expr(package, *cond, local_var)
                 .or_else(|| find_var_tuple_field_path_in_block(package, *block_id, local_var))
         }
+        ExprKind::Parallel(limit, expr) => if let Some(l) = limit {
+            find_var_tuple_field_path_in_expr(package, *l, local_var)
+        } else {
+            None
+        }
+        .or_else(|| find_var_tuple_field_path_in_expr(package, *expr, local_var)),
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => None,
     }
 }

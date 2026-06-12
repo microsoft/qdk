@@ -344,6 +344,11 @@ fn count_operand_returns_in_expr(package: &Package, expr_id: ExprId, in_operand:
                 StringComponent::Lit(_) => 0,
             })
             .sum(),
+        ExprKind::Parallel(limit, body) => {
+            let limit_count = limit.map_or(0, |l| count_operand_returns_in_expr(package, l, true));
+            let body_count = count_operand_returns_in_expr(package, *body, true);
+            limit_count + body_count
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => 0,
     }
 }
@@ -475,6 +480,12 @@ fn scan_operand_tree_for_unsupported_lifts(
                     check_operand_for_unsupported_lift(package, package_id, *e, rejected);
                 }
             }
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                check_operand_for_unsupported_lift(package, package_id, l, rejected);
+            }
+            check_operand_for_unsupported_lift(package, package_id, body, rejected);
         }
         // Leaves and statement-carrying constructs are not operand sites here.
         ExprKind::Block(_)
@@ -672,6 +683,23 @@ pub(super) fn anf_lift_in_expr(
                     StringComponent::Lit(_) => None,
                 })
                 .collect();
+            anf_lift_operands(
+                package,
+                assigner,
+                package_id,
+                expr_id,
+                &operands,
+                temp_counter,
+            )
+        }
+        // Parallel expression with optional limit, where the limit is evaluated first
+        // and the body is evaluated next unconditionally.
+        ExprKind::Parallel(limit, body) => {
+            let mut operands = Vec::with_capacity(2);
+            if let Some(l) = limit {
+                operands.push(l);
+            }
+            operands.push(body);
             anf_lift_operands(
                 package,
                 assigner,
@@ -1094,6 +1122,19 @@ fn replace_operand_slot(package: &mut Package, parent_id: ExprId, old_id: ExprId
                 }
             }
             unreachable!("operand slot not found in string parent");
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit
+                && *l == old_id
+            {
+                *limit = Some(new_id);
+                return;
+            }
+            if *body == old_id {
+                *body = new_id;
+                return;
+            }
+            unreachable!("operand slot not found in parallel parent");
         }
         // Only the condition is an unconditional ANF operand site.
         ExprKind::If(cond, _, _) | ExprKind::While(cond, _) => {

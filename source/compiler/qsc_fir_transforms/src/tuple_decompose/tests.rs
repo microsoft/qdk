@@ -1167,6 +1167,12 @@ fn collect_local_patterns_in_expr(
             collect_local_patterns_in_expr(package, *cond, patterns);
             collect_local_patterns_in_block(package, *block, patterns);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                collect_local_patterns_in_expr(package, *l, patterns);
+            }
+            collect_local_patterns_in_expr(package, *body, patterns);
+        }
     }
 }
 

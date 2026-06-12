@@ -172,6 +172,7 @@ fn walker_visits_nested_expression_kinds_in_program() {
             ExprKind::UpdateField(_, _, _) => "UpdateField",
             ExprKind::Var(_, _) => "Var",
             ExprKind::While(_, _) => "While",
+            ExprKind::Parallel(_, _) => "Parallel",
         };
         kinds.push(kind_str.to_string());
     });
