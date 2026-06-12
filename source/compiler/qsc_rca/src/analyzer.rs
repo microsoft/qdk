@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    PackageStoreComputeProperties, core, cyclic_callables, overrider::Overrider,
+    PackageStoreComputeProperties, core, cyclic_callables,
     scaffolding::InternalPackageStoreComputeProperties,
 };
 use qsc_data_structures::target::TargetCapabilityFlags;
@@ -43,9 +43,7 @@ impl<'a> Analyzer<'a> {
 
     #[must_use]
     pub fn analyze_all(self) -> PackageStoreComputeProperties {
-        // First, we populate the elements for which we override its compute properties.
-        let overrider = Overrider::new(self.package_store, self.scaffolding);
-        let scaffolding = overrider.populate_overrides();
+        let scaffolding = InternalPackageStoreComputeProperties::init(self.package_store);
 
         // Then, we need to analyze the callable specializations with cycles. Otherwise, we cannot safely analyze the
         // rest of the items without causing an infinite analysis loop.

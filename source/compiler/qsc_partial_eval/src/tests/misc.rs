@@ -979,3 +979,28 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
             Jump(6)"#]],
     );
 }
+
+#[test]
+fn test_length_with_embedded_qubit_operations() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+        r#"
+        operation Main() : Int {
+            Length({use q = Qubit(); M(q); [1]})
+        }
+        "#,
+        },
+        Profile::AdaptiveRIFLA.into(),
+    );
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Call id(3), args( Integer(1), Tag(0, 3), )
+            Return"#]],
+    );
+}

@@ -1287,10 +1287,9 @@ impl<'a> PartialEvaluator<'a> {
                 "literal should have been classically evaluated".to_string(),
                 expr_package_span,
             )),
-            ExprKind::Range(_, _, _) => Err(Error::Unexpected(
-                "dynamic ranges are invalid".to_string(),
-                expr_package_span,
-            )),
+            ExprKind::Range(start, step, end) => {
+                self.eval_expr_range(*start, *step, *end, expr_package_span)
+            }
             ExprKind::Return(expr_id) => self.eval_expr_return(*expr_id),
             ExprKind::Struct(..) => Err(Error::Unexpected(
                 "instruction generation for struct constructor expressions is invalid".to_string(),
@@ -1813,23 +1812,49 @@ impl<'a> PartialEvaluator<'a> {
             )),
             // The following intrinsic functions and operations should never make it past conditional compilation and
             // the capabilities check pass.
-            "DrawRandomInt" | "DrawRandomDouble" | "DrawRandomBool" | "Length" => {
-                Err(Error::Unexpected(
-                    format!(
-                        "`{}` is not a supported by partial evaluation",
-                        callable_decl.name.name
-                    ),
-                    callee_expr_span,
-                ))
+            "DrawRandomInt" | "DrawRandomDouble" | "DrawRandomBool" => Err(Error::Unexpected(
+                format!(
+                    "`{}` is not a supported by partial evaluation",
+                    callable_decl.name.name
+                ),
+                callee_expr_span,
+            )),
+            "Length" => {
+                let Value::Array(arr) = args_value else {
+                    return Err(Error::Unexpected(
+                        "length call on dynamically sized array".to_string(),
+                        callee_expr_span,
+                    ));
+                };
+                match arr.len().try_into() {
+                    Ok(len) => Ok(Value::Int(len)),
+                    Err(_) => Err(EvalError::ArrayTooLarge(args_span).into()),
+                }
             }
-            "IntAsDouble" => {
-                let variable_id = self.resource_manager.next_var();
-                self.convert_value(&args_value, rir::Variable::new_double(variable_id))
-            }
-            "Truncate" => {
-                let variable_id = self.resource_manager.next_var();
-                self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
-            }
+            "IntAsDouble" => match args_value {
+                #[allow(clippy::cast_precision_loss)]
+                Value::Int(i) => Ok(Value::Double(i as f64)),
+                Value::Var(_) => {
+                    let variable_id = self.resource_manager.next_var();
+                    self.convert_value(&args_value, rir::Variable::new_double(variable_id))
+                }
+                _ => panic!(
+                    "Unexpected value type for IntAsDouble: {}",
+                    args_value.type_name()
+                ),
+            },
+            "Truncate" => match args_value {
+                #[allow(clippy::cast_possible_truncation)]
+                Value::Double(d) => Ok(Value::Int(d as i64)),
+                Value::Var(_) => {
+                    let variable_id = self.resource_manager.next_var();
+                    self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
+                }
+                _ => panic!(
+                    "Unexpected value type for Truncate: {}",
+                    args_value.type_name()
+                ),
+            },
             _ => self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
                 callable_decl,
@@ -2392,7 +2417,7 @@ impl<'a> PartialEvaluator<'a> {
             .config
             .capabilities
             .contains(TargetCapabilityFlags::BackwardsBranching)
-            && !self.is_static_expr(condition_expr_id)
+            && self.is_variable_expr(condition_expr_id)
         {
             // If backwards branching is supported and the loop condition is not static,
             // we can generate a while loop structure in RIR without unrolling the loop.
@@ -3033,6 +3058,11 @@ impl<'a> PartialEvaluator<'a> {
     fn is_static_expr(&self, expr_id: ExprId) -> bool {
         let compute_kind = self.get_expr_compute_kind(expr_id);
         matches!(compute_kind, ComputeKind::Static)
+    }
+
+    fn is_variable_expr(&self, expr_id: ExprId) -> bool {
+        let compute_kind = self.get_expr_compute_kind(expr_id);
+        compute_kind.is_variable_value_kind()
     }
 
     fn allocate_qubit(&mut self) -> Value {
@@ -4050,6 +4080,52 @@ impl<'a> PartialEvaluator<'a> {
         })?;
 
         Ok(Value::Var(eval_variable))
+    }
+
+    fn eval_expr_range(
+        &mut self,
+        start: Option<ExprId>,
+        step: Option<ExprId>,
+        end: Option<ExprId>,
+        span: PackageSpan,
+    ) -> Result<EvalControlFlow, Error> {
+        let mut exprs = Vec::new();
+        for expr in [start, step, end] {
+            // Try to evaluate the sub-expression.
+            let expr_control_flow = expr.map(|id| self.try_eval_expr(id)).transpose()?;
+            // From there, get the value, assuming that any embedded returns are invalid and produce an error.
+            let expr_value = expr_control_flow
+                .map(|cf| match cf {
+                    EvalControlFlow::Continue(val) => Ok(val),
+                    EvalControlFlow::Return(_) => Err(Error::Unexpected(
+                        "embedded return in Range expression".to_string(),
+                        span,
+                    )),
+                })
+                .transpose()?;
+            // Convert the value to an integer, if possible. Non-integer values should never happen,
+            // variable values should be caught by RCA but may sneak through so fail gracefully.
+            let expr_int = expr_value
+                .map(|v| match v {
+                    Value::Int(i) => Ok(i),
+                    Value::Var(_) => Err(Error::Unexpected(
+                        "dynamic variable in Range expression".to_string(),
+                        span,
+                    )),
+                    _ => panic!("invalid type for Range expression: {}", v.type_name()),
+                })
+                .transpose()?;
+            exprs.push(expr_int);
+        }
+
+        // Create a new range value from the processed sub-expressions, using the default step if not specified.
+        Ok(EvalControlFlow::Continue(Value::Range(Box::new(
+            val::Range {
+                start: exprs[0],
+                step: exprs[1].unwrap_or(val::DEFAULT_RANGE_STEP),
+                end: exprs[2],
+            },
+        ))))
     }
 }
 
