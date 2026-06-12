@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use crate::lex::Delim::Brace;
 use crate::lex::Delim::Paren;
 use crate::lex::Lexer;
