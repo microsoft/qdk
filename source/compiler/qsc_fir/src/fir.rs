@@ -16,9 +16,7 @@ use qsc_data_structures::{
     span::Span,
 };
 use std::{
-    cmp::Ordering,
     fmt::{self, Debug, Display, Formatter, Write},
-    hash::{Hash, Hasher},
     ops,
     rc::Rc,
     result,
@@ -34,81 +32,6 @@ fn set_indentation<'a, 'b>(
         1 => indent.with_str("    "),
         2 => indent.with_str("        "),
         _ => unimplemented!("indentation level not supported"),
-    }
-}
-
-/// A unique identifier for an FIR node.
-#[derive(Clone, Copy, Debug)]
-pub struct NodeId(u32);
-
-impl NodeId {
-    /// The ID of the first node.
-    pub const FIRST: Self = Self(0);
-
-    /// The successor of this ID.
-    #[must_use]
-    pub fn successor(self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-
-impl Display for NodeId {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-impl From<NodeId> for usize {
-    fn from(value: NodeId) -> Self {
-        value.0 as usize
-    }
-}
-
-impl From<usize> for NodeId {
-    fn from(value: usize) -> Self {
-        NodeId(
-            value
-                .try_into()
-                .expect("Type Node ID does not fit into u32"),
-        )
-    }
-}
-
-impl From<NodeId> for u32 {
-    fn from(value: NodeId) -> Self {
-        value.0
-    }
-}
-
-impl From<u32> for NodeId {
-    fn from(value: u32) -> Self {
-        NodeId(value)
-    }
-}
-
-impl PartialEq for NodeId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl Eq for NodeId {}
-
-impl PartialOrd for NodeId {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NodeId {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
-impl Hash for NodeId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
     }
 }
 
@@ -129,18 +52,6 @@ macro_rules! fir_id {
         impl Default for $id {
             fn default() -> Self {
                 Self(0)
-            }
-        }
-
-        impl From<NodeId> for $id {
-            fn from(val: NodeId) -> Self {
-                $id(val.into())
-            }
-        }
-
-        impl From<$id> for NodeId {
-            fn from(val: $id) -> Self {
-                NodeId(val.into())
             }
         }
 
@@ -468,7 +379,7 @@ pub trait PackageStoreLookup {
 }
 
 /// A FIR package store.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct PackageStore(IndexMap<PackageId, Package>);
 
 impl PackageStoreLookup for PackageStore {
@@ -556,14 +467,13 @@ pub trait PackageLookup {
 /// The root node of the FIR.
 /// ### Notes
 /// We maintain a dense map of ids within the package.
-/// `BlockId`, `ExprId`, `PatId`, `StmtId`, and `NodeId`s are all assigned
+/// `BlockId`, `ExprId`, `PatId`, and `StmtId`s are all assigned
 /// from a type specific counter in the assigner.
 ///
 /// `BlockId`, `ExprId`, `PatId`, `StmtId` ids don't leak and are only used
-/// within the containing node. Node ids are used to identify nodes within
-/// the package and require mapping from the HIR node id to the new FIR node id.
+/// within the containing node.
 /// `PackageId`s and `LocalItemId`s are 1:1 from the HIR and are not remapped.
-#[derive(Debug)]
+#[derive(Debug, Clone, Default)]
 pub struct Package {
     /// The items in the package.
     pub items: IndexMap<LocalItemId, Item>,
@@ -746,8 +656,6 @@ impl Display for ItemKind {
 /// A callable declaration header.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CallableDecl {
-    /// The node ID.
-    pub id: NodeId,
     /// The span.
     pub span: Span,
     /// The callable kind.
@@ -787,11 +695,7 @@ impl CallableDecl {
 impl Display for CallableDecl {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(
-            indent,
-            "Callable {} {} ({}):",
-            self.id, self.span, self.kind
-        )?;
+        write!(indent, "Callable {} ({}):", self.span, self.kind)?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nname: {}", self.name)?;
         if !self.generics.is_empty() {
@@ -882,8 +786,6 @@ impl Display for SpecImpl {
 /// A specialization declaration.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpecDecl {
-    /// The node ID.
-    pub id: NodeId,
     /// The span.
     pub span: Span,
     /// The block that implements the specialization.
@@ -896,11 +798,7 @@ pub struct SpecDecl {
 
 impl Display for SpecDecl {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "SpecDecl {} {}: {:?} {}",
-            self.id, self.span, self.input, self.block
-        )
+        write!(f, "SpecDecl {}: {:?} {}", self.span, self.input, self.block)
     }
 }
 
@@ -937,7 +835,7 @@ impl ExecGraph {
 
     #[must_use]
     /// Selects the execution graph based on the configuration.
-    fn select_ref(&self, exec_graph_config: ExecGraphConfig) -> &ConfiguredExecGraph {
+    pub fn select_ref(&self, exec_graph_config: ExecGraphConfig) -> &ConfiguredExecGraph {
         match exec_graph_config {
             ExecGraphConfig::Debug => &self.debug,
             ExecGraphConfig::NoDebug => &self.no_debug,
@@ -992,6 +890,13 @@ pub struct ExecGraphIdx {
 }
 
 impl ExecGraphIdx {
+    /// A zero-valued index, used as a placeholder for synthesized FIR nodes
+    /// that do not participate in the execution graph.
+    pub const ZERO: Self = Self {
+        no_debug_idx: 0,
+        debug_idx: 0,
+    };
+
     /// Selects the index based on the configuration.
     fn select(self, exec_graph_config: ExecGraphConfig) -> usize {
         match exec_graph_config {
@@ -1555,8 +1460,6 @@ fn display_while(mut indent: Indented<Formatter>, cond: ExprId, block: BlockId) 
 /// A field assignment in a struct constructor expression.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldAssign {
-    /// The node ID.
-    pub id: NodeId,
     /// The span.
     pub span: Span,
     /// The field to assign.
@@ -1569,8 +1472,8 @@ impl Display for FieldAssign {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "FieldsAssign {} {}: ({}) {}",
-            self.id, self.span, self.field, self.value
+            "FieldsAssign {}: ({}) {}",
+            self.span, self.field, self.value
         )
     }
 }

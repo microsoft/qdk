@@ -60,6 +60,20 @@ def test_enumerate_instances_bool():
     assert instances[1].flag is False
 
 
+def test_enumerate_instances_bool_with_domain():
+    """Test that boolean fields with a domain only enumerate specified values."""
+    from qdk.qre._enumeration import _enumerate_instances
+
+    @dataclass
+    class BoolConfig:
+        _: KW_ONLY
+        flag: bool = field(default=True, metadata={"domain": [True]})
+
+    instances = list(_enumerate_instances(BoolConfig))
+    assert len(instances) == 1
+    assert instances[0].flag is True
+
+
 def test_enumerate_instances_enum():
     """Test that Enum dataclass fields enumerate all members."""
     from qdk.qre._enumeration import _enumerate_instances
