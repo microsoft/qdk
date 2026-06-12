@@ -100,21 +100,6 @@ macro_rules! apply_noise {
     }};
 }
 
-// macro_rules! apply_noise {
-//     ($slf:expr, $noise_table:ident, $targets:expr) => {{
-//         let fault = $slf.noise_config.$noise_table.sample_noise(&mut $slf.rng);
-//         if let Fault::Pauli(pauli_observables) = fault {
-//             let observable: Vec<_> = pauli_observables
-//                 .into_iter()
-//                 .zip($targets)
-//                 .filter(|(_, q)| !$slf.loss[**q]) // We don't apply faults on lost qubits.
-//                 .map(|(pauli, q)| (pauli, *q).into())
-//                 .collect();
-//             $slf.state.pauli(&observable);
-//         };
-//     }};
-// }
-
 impl StabilizerSimulator {
     /// Sets the random seed of the simulator.
     pub fn set_seed(&mut self, seed: u64) {
