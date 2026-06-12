@@ -11,7 +11,6 @@ mod bench {
         noise_config::{CumulativeNoiseConfig, NoiseConfig},
         stabilizer_simulator::{
             StabilizerSimulator,
-            noise::Fault,
             operation::{Operation, cz, h, id, mz, s, x, y, z},
         },
     };
