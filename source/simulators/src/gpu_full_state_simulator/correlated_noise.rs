@@ -14,8 +14,8 @@ use crate::noise_config::{NoiseConfig, NoiseTable, encode_pauli, uq1_63};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct NoiseTableEntry {
-    /// The correlated pauli string as bits (2 bits per qubit). If bit 0 is set, then it has bit-flip
-    /// noise, and if bit 1 is set then it has phase-flip noise. e.g., `110001 == "YIX"`
+    /// The correlated pauli + loss string as bits (3 bits per qubit). If bit 0 is set, then it has bit-flip
+    /// noise, and if bit 1 is set then it has phase-flip noise. e.g., `100_011_000_001 == "LYIX"`
     paulis: u64,
     /// The probability of the noise occurring in `Q1_63` format. This is a float format where the high
     /// order bit (bit 63) has the value 1.0 (`2^0 / 1`), bit 62 has the value 0.5 (`2^1 / 1`), etc.

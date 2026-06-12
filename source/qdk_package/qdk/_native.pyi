@@ -845,6 +845,12 @@ class IdleNoiseParams:
     s_probability: float
 
 class NoiseTable:
+    # Deprecated. Setting `loss` distributes the per-qubit loss probability
+    # across the correlated loss fault strings ('L' for a single-qubit
+    # operation; 'IL', 'LI', and 'LL' for a two-qubit operation), so that it
+    # is equivalent to applying loss independently to each qubit. Reading
+    # `loss` reconstructs that per-qubit probability. Prefer setting the loss
+    # fault strings directly via `set_pauli_noise`.
     loss: float
 
     def __init__(self, num_qubits: int):
@@ -870,6 +876,13 @@ class NoiseTable:
 
         for arbitrary pauli fields. Setting an element that was
         previously set overrides that entry with the new value.
+
+        In addition to the Pauli characters 'I', 'X', 'Y', 'Z', a string
+        may contain 'L' to indicate that the corresponding qubit is lost
+        when this entry is sampled. Loss is correlated with the rest of the
+        string: the Pauli is applied to the non-lost qubits and the qubits
+        marked 'L' are lost (measured and reset). For example, `noise_table.xl`
+        applies an X to the first qubit and loses the second.
         """
 
     @overload
@@ -878,10 +891,17 @@ class NoiseTable:
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
 
+        In addition to the Pauli characters 'I', 'X', 'Y', 'Z', a string
+        may contain 'L' to indicate that the corresponding qubit is lost
+        when this entry is sampled. Loss is correlated with the rest of the
+        string: the Pauli is applied to the non-lost qubits and the qubits
+        marked 'L' are lost (measured and reset). For example, `noise_table.xl`
+        applies an X to the first qubit and loses the second.
+
         Example::
 
             noise_table = NoiseTable(2)
-            noise_table.set_pauli_noise([("XI", 1e-10), ("XZ", 1e-8)])
+            noise_table.set_pauli_noise([("XI", 1e-10), ("XL", 1e-8)])
         """
 
     @overload
