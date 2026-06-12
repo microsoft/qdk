@@ -458,6 +458,18 @@ if build_qdk:
         build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
     step_end()
 
+    if args.check or run_tests:
+        # The API surface check and the test suite both import the freshly
+        # built qdk in-process, which requires the package (with its native
+        # extension) and its runtime dependencies to be installed. In editable
+        # mode the editable install above already provides an importable
+        # package with the native extension built in-tree. For a wheel build we
+        # install the wheel here. Dependencies (pyqir, etc.) come from
+        # test_requirements; --no-index can't resolve them from PyPI.
+        install_python_test_requirements(qdk_python_src, python_bin)
+        if not args.editable:
+            install_from_wheels(python_bin, "qdk", cwd=qdk_python_src)
+
     if args.check:
         step_start("Checking qdk public API surface for private type leakage")
         run(
@@ -468,14 +480,6 @@ if build_qdk:
 
     if run_tests:
         step_start("Running tests for the qdk python package")
-        # Install per-package test requirements (pytest, etc.)
-        install_python_test_requirements(qdk_python_src, python_bin)
-
-        if not args.editable:
-            # Install qdk from the freshly built wheel. Dependencies (pyqir, etc.)
-            # come from test_requirements; --no-index can't resolve them from PyPI.
-            install_from_wheels(python_bin, "qdk", cwd=qdk_python_src)
-
         # Run its test suite
         run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin, pip_env)
         step_end()

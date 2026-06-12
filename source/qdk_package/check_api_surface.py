@@ -31,6 +31,7 @@ import argparse
 import importlib
 import inspect
 import json
+import os
 import pkgutil
 import sys
 import types
@@ -301,9 +302,46 @@ def _check_class(
 # ---------------------------------------------------------------------------
 
 
+def _import_root_package() -> types.ModuleType:
+    """Import the *installed* qdk package, not the in-tree source.
+
+    This script lives inside the ``qdk_package`` source directory, alongside
+    the ``qdk/`` source tree.  When run as ``python check_api_surface.py``,
+    Python puts that directory at ``sys.path[0]``, so a bare ``import qdk``
+    resolves to the *source* package -- which has no compiled native
+    extension (``qdk._native``) and therefore fails to import.
+
+    We attempt the import normally first (this succeeds for editable installs,
+    where the native extension is built in-tree).  If that fails specifically
+    because the native extension is missing, we drop this script's own
+    directory from ``sys.path`` and retry, so the import resolves to the
+    installed (wheel) package instead.
+    """
+    try:
+        return importlib.import_module(ROOT_PACKAGE)
+    except ModuleNotFoundError as exc:
+        if f"{ROOT_PACKAGE}._native" not in str(exc):
+            raise
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        sys.path[:] = [p for p in sys.path if p and os.path.abspath(p) != here]
+
+        # Purge any partially-imported source modules so the retry resolves
+        # cleanly against the installed package.
+        for name in [
+            n
+            for n in sys.modules
+            if n == ROOT_PACKAGE or n.startswith(ROOT_PACKAGE + ".")
+        ]:
+            del sys.modules[name]
+        importlib.invalidate_caches()
+
+        return importlib.import_module(ROOT_PACKAGE)
+
+
 def _iter_qdk_modules() -> list[tuple[str, types.ModuleType]]:
     """Import and yield all public qdk submodules."""
-    root = importlib.import_module(ROOT_PACKAGE)
+    root = _import_root_package()
     result: list[tuple[str, types.ModuleType]] = [(ROOT_PACKAGE, root)]
 
     for importer, modname, ispkg in pkgutil.walk_packages(
