@@ -33,6 +33,7 @@ pub struct Analyzer<'a> {
     package_store_compute_properties: InternalPackageStoreComputeProperties,
     active_contexts: Vec<AnalysisContext>,
     target_capabilities: TargetCapabilityFlags,
+    in_parallel_expr: bool,
 }
 
 impl<'a> Analyzer<'a> {
@@ -46,6 +47,7 @@ impl<'a> Analyzer<'a> {
             package_store_compute_properties,
             active_contexts: Vec::<AnalysisContext>::default(),
             target_capabilities,
+            in_parallel_expr: false,
         }
     }
 
@@ -237,6 +239,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_bin_op(
         &mut self,
+        bin_op: BinOp,
         lhs_expr_id: ExprId,
         rhs_expr_id: ExprId,
         expr_type: &Ty,
@@ -252,6 +255,21 @@ impl<'a> Analyzer<'a> {
         let mut compute_kind = ComputeKind::Static;
         compute_kind = compute_kind.aggregate(lhs_compute_kind);
         compute_kind = compute_kind.aggregate(rhs_compute_kind);
+
+        if self.in_parallel_expr
+            && matches!(bin_op, BinOp::AndL | BinOp::OrL)
+            && lhs_compute_kind.is_variable_value_kind()
+        {
+            // Binary boolean operators with a variable left-hand side are short-circuiting expressions, which means they incur
+            // dynamic branching in code-gen. Since this is a parallel expression, we need to track this as a runtime feature.
+            compute_kind = compute_kind.aggregate_runtime_features(
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicBranchingInParallelExpr,
+                    value_kind: ValueKind::Constant,
+                },
+                ValueKind::Constant,
+            );
+        }
 
         // Additionally, since the new compute kind can be of a different type than its operands (e.g. 1 == 1),
         // aggregate additional runtime features depending on the binary operator expression's type (if it's dynamic).
@@ -382,6 +400,15 @@ impl<'a> Analyzer<'a> {
         {
             *runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(*value_kind, expr_type);
+
+            if self.in_parallel_expr
+                && runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicBool)
+            {
+                // A Call expression that includes use of a dynamic Boolean (before aggreating the features from the
+                // callee and arguments) means that the callable itself incurs the dynamic Boolean runtime feature.
+                // This would cause branching in a parallel expression, which requires an additional runtime feature to be tracked.
+                *runtime_features |= RuntimeFeatureFlags::UseOfDynamicBranchingInParallelExpr;
+            }
         }
 
         // Aggregate the runtime features of the callee and arguments expressions.
@@ -721,6 +748,11 @@ impl<'a> Analyzer<'a> {
                         dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicallySizedArray;
                     }
                     _ => {}
+                }
+                if self.in_parallel_expr {
+                    // A dynamic branch in a parallel expression requires an additional runtime feature to be tracked.
+                    dynamic_runtime_features |=
+                        RuntimeFeatureFlags::UseOfDynamicBranchingInParallelExpr;
                 }
             }
             let dynamic_compute_kind = ComputeKind::Dynamic {
@@ -1088,7 +1120,11 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_expr_while(&mut self, condition_expr_id: ExprId, block_id: BlockId) -> ComputeKind {
-        let mut should_emit_classical_loop = self.should_emit_classical_loops();
+        // We only want to emit classical loops if the current target capabilities allow it and we are not in a parallel expression.
+        // Checking both conditions here avoids the speculative generation of loop capabilities in cases where we know it
+        // wouldn't be allowed anyway.
+        let mut should_emit_classical_loop =
+            self.should_emit_classical_loops() && !self.in_parallel_expr;
         let mut cached_locals_map = if should_emit_classical_loop {
             Some(self.get_current_application_instance().locals_map.clone())
         } else {
@@ -1183,9 +1219,31 @@ impl<'a> Analyzer<'a> {
                 panic!("if the loop condition is quantum, the loop expression must be quantum too");
             };
             *runtime_features |= RuntimeFeatureFlags::LoopWithDynamicCondition;
+            if self.in_parallel_expr {
+                // A dynamic loop in a parallel expression requires an additional runtime feature to be tracked.
+                *runtime_features |= RuntimeFeatureFlags::UseOfDynamicBranchingInParallelExpr;
+            }
         }
 
         compute_kind
+    }
+
+    fn analyze_expr_parallel_limit(&mut self, limit: ExprId) {
+        self.visit_expr(limit);
+        // A limit on a parallel expression must be static, so we check that here.
+        let application_instance = self.get_current_application_instance_mut();
+        let limit_compute_kind = *application_instance.get_expr_compute_kind(limit);
+        if !matches!(limit_compute_kind, ComputeKind::Static) {
+            // Add the runtime feature of dynamic parallelism to the compute kind of the parallel expression.
+            let new_limit_compute_kind = limit_compute_kind.aggregate_runtime_features(
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicLimitInParallelExpr,
+                    value_kind: ValueKind::Constant,
+                },
+                ValueKind::Constant,
+            );
+            application_instance.insert_expr_compute_kind(limit, new_limit_compute_kind);
+        }
     }
 
     // Analyzes the currently active callable assuming it is intrinsic.
@@ -1292,6 +1350,8 @@ impl<'a> Analyzer<'a> {
 
         // Push the context of the callable the specialization belongs to.
         self.push_item_context(id.callable);
+        let previous_in_parallel = self.in_parallel_expr;
+        self.in_parallel_expr = false;
         let package = self.package_store.get(id.callable.package);
         let input_params = package.derive_callable_input_params(callable_decl);
         let current_callable_context = self.get_current_item_context_mut();
@@ -1332,6 +1392,7 @@ impl<'a> Analyzer<'a> {
         // Since we are done analyzing the specialization, pop the active item context.
         let popped_item_id = self.pop_item_context();
         assert!(popped_item_id == id.callable);
+        self.in_parallel_expr = previous_in_parallel;
     }
 
     fn analyze_spec_decl(&mut self, decl: &'a SpecDecl, functor_set_value: FunctorSetValue) {
@@ -1928,8 +1989,8 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::BinOp(BinOp::Exp, lhs_expr_id, rhs_expr_id) => {
                 self.analyze_expr_bin_op_exp(*lhs_expr_id, *rhs_expr_id)
             }
-            ExprKind::BinOp(_, lhs_expr_id, rhs_expr_id) => {
-                self.analyze_expr_bin_op(*lhs_expr_id, *rhs_expr_id, &expr.ty)
+            ExprKind::BinOp(bin_op, lhs_expr_id, rhs_expr_id) => {
+                self.analyze_expr_bin_op(*bin_op, *lhs_expr_id, *rhs_expr_id, &expr.ty)
             }
             ExprKind::Block(block_id) => self.analyze_expr_block(*block_id),
             ExprKind::Call(callee_expr_id, args_expr_id) => {
@@ -1955,6 +2016,20 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             }
             ExprKind::Index(array_expr_id, index_expr_id) => {
                 self.analyze_expr_index(*array_expr_id, *index_expr_id, &expr.ty)
+            }
+            ExprKind::Parallel(limit, body) => {
+                if let Some(limit) = limit {
+                    self.analyze_expr_parallel_limit(*limit);
+                }
+                // We need to track when we are analyzing a parallel expression to understand whether certain constructs should
+                // be allowed.
+                let previous_in_parallel_expr = self.in_parallel_expr;
+                self.in_parallel_expr = true;
+                self.visit_expr(*body);
+                self.in_parallel_expr = previous_in_parallel_expr;
+                // The compute kind of a parallel expression is the same as the compute kind of its inner expression.
+                let application_instance = self.get_current_application_instance();
+                *application_instance.get_expr_compute_kind(*body)
             }
             ExprKind::Range(start_expr_id, step_expr_id, end_expr_id) => self.analyze_expr_range(
                 start_expr_id.to_owned(),

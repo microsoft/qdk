@@ -172,6 +172,12 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: ExprId) {
             vis.visit_expr(*array);
             vis.visit_expr(*index);
         }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(limit) = limit {
+                vis.visit_expr(*limit);
+            }
+            vis.visit_expr(*expr);
+        }
         ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
             vis.visit_expr(*expr);
         }

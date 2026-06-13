@@ -225,6 +225,12 @@ pub(crate) fn for_each_direct_child<F: FnMut(DirectChild)>(kind: &ExprKind, mut 
             visit(DirectChild::Expr(*cond));
             visit(DirectChild::Block(*block));
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                visit(DirectChild::Expr(*l));
+            }
+            visit(DirectChild::Expr(*body));
+        }
     }
 }
 
@@ -485,6 +491,12 @@ fn for_each_use_event<F: FnMut(UseEvent)>(
                 for_each_use_event(package, fa.value, local_id, false, visit);
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                for_each_use_event(package, *l, local_id, false, visit);
+            }
+            for_each_use_event(package, *body, local_id, false, visit);
+        }
         ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -641,6 +653,13 @@ pub(crate) fn expr_is_side_effect_free(package: &Package, expr_id: ExprId) -> bo
                 },
                 _ => false,
             }
+        }
+        ExprKind::Parallel(limit, body) => {
+            (if let Some(l) = limit {
+                expr_is_side_effect_free(package, *l)
+            } else {
+                true
+            }) && expr_is_side_effect_free(package, *body)
         }
         // Side-effecting or potentially-trapping variants. `If` without an
         // else arm is included here: it has `Unit` type but its `then` branch

@@ -686,6 +686,7 @@ pub fn expr_kind_short(package: &Package, expr_id: ExprId) -> String {
         ExprKind::UpdateIndex(_, _, _) => "UpdateIndex".to_string(),
         ExprKind::Var(_, _) => "Var".to_string(),
         ExprKind::While(_, _) => "While".to_string(),
+        ExprKind::Parallel(_, _) => "Parallel".to_string(),
     }
 }
 

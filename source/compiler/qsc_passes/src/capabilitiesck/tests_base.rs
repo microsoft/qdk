@@ -8,14 +8,16 @@ use super::tests_common::{
     CALL_TO_CYCLIC_OPERATION_WITH_DYNAMIC_ARGUMENT, CALL_UNRESOLVED_FUNCTION, CUSTOM_MEASUREMENT,
     CUSTOM_MEASUREMENT_WITH_SIMULATABLE_INTRINSIC_ATTR, CUSTOM_RESET,
     CUSTOM_RESET_WITH_SIMULATABLE_INTRINSIC_ATTR, DYNAMIC_ARRAY_BINARY_OP,
-    LOOP_WITH_DYNAMIC_CONDITION, MEASUREMENT_WITHIN_DYNAMIC_SCOPE, MINIMAL,
-    RETURN_WITHIN_DYNAMIC_SCOPE, USE_CLOSURE_FUNCTION, USE_DYNAMIC_BIG_INT, USE_DYNAMIC_BOOLEAN,
-    USE_DYNAMIC_DOUBLE, USE_DYNAMIC_FUNCTION, USE_DYNAMIC_INDEX, USE_DYNAMIC_INT,
-    USE_DYNAMIC_LHS_EXP_BINOP, USE_DYNAMIC_OPERATION, USE_DYNAMIC_PAULI, USE_DYNAMIC_QUBIT,
-    USE_DYNAMIC_RANGE, USE_DYNAMIC_RHS_EXP_BINOP, USE_DYNAMIC_STRING, USE_DYNAMIC_UDT,
-    USE_DYNAMICALLY_SIZED_ARRAY, USE_ENTRY_POINT_INT_ARRAY_IN_TUPLE,
-    USE_ENTRY_POINT_STATIC_BIG_INT, USE_ENTRY_POINT_STATIC_BOOL, USE_ENTRY_POINT_STATIC_DOUBLE,
-    USE_ENTRY_POINT_STATIC_INT, USE_ENTRY_POINT_STATIC_INT_IN_TUPLE, USE_ENTRY_POINT_STATIC_PAULI,
+    LOOP_WITH_DYNAMIC_CONDITION, MEASUREMENT_WITHIN_DYNAMIC_SCOPE, MINIMAL, PARALLEL_STATIC_BODY,
+    PARALLEL_WITH_DYNAMIC_BRANCH, PARALLEL_WITH_INDIRECT_BRANCH_VIA_CALL,
+    PARALLEL_WITHIN_DYNAMIC_LIMIT, PARALLEL_WITHIN_STATIC_LIMIT, RETURN_WITHIN_DYNAMIC_SCOPE,
+    USE_CLOSURE_FUNCTION, USE_DYNAMIC_BIG_INT, USE_DYNAMIC_BOOLEAN, USE_DYNAMIC_DOUBLE,
+    USE_DYNAMIC_FUNCTION, USE_DYNAMIC_INDEX, USE_DYNAMIC_INT, USE_DYNAMIC_LHS_EXP_BINOP,
+    USE_DYNAMIC_OPERATION, USE_DYNAMIC_PAULI, USE_DYNAMIC_QUBIT, USE_DYNAMIC_RANGE,
+    USE_DYNAMIC_RHS_EXP_BINOP, USE_DYNAMIC_STRING, USE_DYNAMIC_UDT, USE_DYNAMICALLY_SIZED_ARRAY,
+    USE_ENTRY_POINT_INT_ARRAY_IN_TUPLE, USE_ENTRY_POINT_STATIC_BIG_INT,
+    USE_ENTRY_POINT_STATIC_BOOL, USE_ENTRY_POINT_STATIC_DOUBLE, USE_ENTRY_POINT_STATIC_INT,
+    USE_ENTRY_POINT_STATIC_INT_IN_TUPLE, USE_ENTRY_POINT_STATIC_PAULI,
     USE_ENTRY_POINT_STATIC_RANGE, USE_ENTRY_POINT_STATIC_STRING, check, check_for_exe,
 };
 use expect_test::{Expect, expect};
@@ -970,6 +972,113 @@ fn binary_op_with_dynamic_array_error() {
                     Span {
                         lo: 66,
                         hi: 97,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_with_static_body_yields_no_errors() {
+    check_profile(
+        PARALLEL_STATIC_BODY,
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_with_static_limit_yields_no_errors() {
+    check_profile(
+        PARALLEL_WITHIN_STATIC_LIMIT,
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_with_dynamic_branch_yields_error() {
+    check_profile(
+        PARALLEL_WITH_DYNAMIC_BRANCH,
+        &expect![[r#"
+            [
+                UseOfDynamicBool(
+                    Span {
+                        lo: 107,
+                        hi: 122,
+                    },
+                ),
+                UseOfDynamicBool(
+                    Span {
+                        lo: 199,
+                        hi: 200,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_with_dynamic_limit_yields_error() {
+    check_profile(
+        PARALLEL_WITHIN_DYNAMIC_LIMIT,
+        &expect![[r#"
+            [
+                UseOfDynamicBool(
+                    Span {
+                        lo: 107,
+                        hi: 122,
+                    },
+                ),
+                UseOfDynamicBool(
+                    Span {
+                        lo: 160,
+                        hi: 161,
+                    },
+                ),
+                UseOfDynamicInt(
+                    Span {
+                        lo: 160,
+                        hi: 161,
+                    },
+                ),
+                UseOfDynamicLimitInParallelExpr(
+                    Span {
+                        lo: 160,
+                        hi: 161,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_with_indirect_branch_via_call_yields_error() {
+    check_profile(
+        PARALLEL_WITH_INDIRECT_BRANCH_VIA_CALL,
+        &expect![[r#"
+            [
+                UseOfDynamicBool(
+                    Span {
+                        lo: 79,
+                        hi: 91,
+                    },
+                ),
+                UseOfDynamicBool(
+                    Span {
+                        lo: 217,
+                        hi: 223,
+                    },
+                ),
+                UseOfDynamicBranchingInParallelExpr(
+                    Span {
+                        lo: 217,
+                        hi: 223,
                     },
                 ),
             ]

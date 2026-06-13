@@ -3117,3 +3117,168 @@ fn call_with_incomplete_struct_arg() {
             ]"#]],
     );
 }
+
+#[test]
+fn parallel_expr() {
+    check(
+        expr,
+        "parallel x",
+        &expect![[
+            r#"Expr _id_ [0-10]: Parallel: Expr _id_ [9-10]: Path: Path _id_ [9-10] (Ident _id_ [9-10] "x")"#
+        ]],
+    );
+}
+
+#[test]
+fn parallel_with_block_body() {
+    check(
+        expr,
+        "parallel { x }",
+        &expect![[r#"
+            Expr _id_ [0-14]: Parallel: Expr _id_ [9-14]: Expr Block: Block _id_ [9-14]:
+                Stmt _id_ [11-12]: Expr: Expr _id_ [11-12]: Path: Path _id_ [11-12] (Ident _id_ [11-12] "x")"#]],
+    );
+}
+
+#[test]
+fn parallel_with_block_body_multiple_stmts() {
+    check(
+        expr,
+        "parallel { let a = 1; a }",
+        &expect![[r#"
+            Expr _id_ [0-25]: Parallel: Expr _id_ [9-25]: Expr Block: Block _id_ [9-25]:
+                Stmt _id_ [11-21]: Local (Immutable):
+                    Pat _id_ [15-16]: Bind:
+                        Ident _id_ [15-16] "a"
+                    Expr _id_ [19-20]: Lit: Int(1)
+                Stmt _id_ [22-23]: Expr: Expr _id_ [22-23]: Path: Path _id_ [22-23] (Ident _id_ [22-23] "a")"#]],
+    );
+}
+
+#[test]
+fn parallel_nested() {
+    check(
+        expr,
+        "parallel { parallel x }",
+        &expect![[r#"
+            Expr _id_ [0-23]: Parallel: Expr _id_ [9-23]: Expr Block: Block _id_ [9-23]:
+                Stmt _id_ [11-21]: Expr: Expr _id_ [11-21]: Parallel: Expr _id_ [20-21]: Path: Path _id_ [20-21] (Ident _id_ [20-21] "x")"#]],
+    );
+}
+
+#[test]
+fn parallel_limited_expr() {
+    check(
+        expr,
+        "parallel within 4 { }",
+        &expect![[r#"
+            Expr _id_ [0-21]: ParallelLimited: Expr _id_ [16-17]: Lit: Int(4) Expr _id_ [18-21]: Expr Block: Block _id_ [18-21]: <empty>"#]],
+    );
+}
+
+#[test]
+fn parallel_limited_with_path_body() {
+    check(
+        expr,
+        "parallel within 2 x",
+        &expect![[
+            r#"Expr _id_ [0-19]: ParallelLimited: Expr _id_ [16-17]: Lit: Int(2) Expr _id_ [18-19]: Path: Path _id_ [18-19] (Ident _id_ [18-19] "x")"#
+        ]],
+    );
+}
+
+#[test]
+fn parallel_limited_with_block_body() {
+    check(
+        expr,
+        "parallel within 3 { x }",
+        &expect![[r#"
+            Expr _id_ [0-23]: ParallelLimited: Expr _id_ [16-17]: Lit: Int(3) Expr _id_ [18-23]: Expr Block: Block _id_ [18-23]:
+                Stmt _id_ [20-21]: Expr: Expr _id_ [20-21]: Path: Path _id_ [20-21] (Ident _id_ [20-21] "x")"#]],
+    );
+}
+
+#[test]
+fn parallel_limited_with_computed_limit() {
+    check(
+        expr,
+        "parallel within (2 + 3) x",
+        &expect![[r#"
+            Expr _id_ [0-25]: ParallelLimited: Expr _id_ [16-23]: Paren: Expr _id_ [17-22]: BinOp (Add):
+                Expr _id_ [17-18]: Lit: Int(2)
+                Expr _id_ [21-22]: Lit: Int(3) Expr _id_ [24-25]: Path: Path _id_ [24-25] (Ident _id_ [24-25] "x")"#]],
+    );
+}
+
+#[test]
+fn parallel_limited_nested_in_parallel() {
+    check(
+        expr,
+        "parallel { parallel within 2 x }",
+        &expect![[r#"
+            Expr _id_ [0-32]: Parallel: Expr _id_ [9-32]: Expr Block: Block _id_ [9-32]:
+                Stmt _id_ [11-30]: Expr: Expr _id_ [11-30]: ParallelLimited: Expr _id_ [27-28]: Lit: Int(2) Expr _id_ [29-30]: Path: Path _id_ [29-30] (Ident _id_ [29-30] "x")"#]],
+    );
+}
+
+#[test]
+fn parallel_within_without_limit_parses_within_as_limit() {
+    // `parallel within { }` — the parser consumes `{ }` as the limit expression (a block),
+    // then fails to find a body expression since the input ends.
+    check(
+        expr,
+        "parallel within { }",
+        &expect![[r#"
+            Error(
+                Rule(
+                    "expression",
+                    Eof,
+                    Span {
+                        lo: 19,
+                        hi: 19,
+                    },
+                ),
+            )
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_apply_is_error() {
+    // `parallel within {} apply {}` — the parser sees `parallel within` and tries to parse
+    // a ParallelLimited. It consumes `{}` as the limit and then `apply` as the start of the
+    // body expression, but `apply` is not a valid expression keyword, producing an error.
+    check(
+        expr,
+        "parallel within {} apply {}",
+        &expect![[r#"
+            Error(
+                Rule(
+                    "expression",
+                    Keyword(
+                        Apply,
+                    ),
+                    Span {
+                        lo: 19,
+                        hi: 24,
+                    },
+                ),
+            )
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_with_paren_within_apply_is_conjugate() {
+    // `parallel (within {} apply {})` — the parser sees `parallel` (without an immediately
+    // following `within`), so it parses `parallel <expr>` where <expr> is the parenthesized
+    // within/apply (Conjugate) expression.
+    check(
+        expr,
+        "parallel (within {} apply {})",
+        &expect![[r#"
+            Expr _id_ [0-29]: Parallel: Expr _id_ [9-29]: Paren: Expr _id_ [10-28]: Conjugate:
+                Block _id_ [17-19]: <empty>
+                Block _id_ [26-28]: <empty>"#]],
+    );
+}

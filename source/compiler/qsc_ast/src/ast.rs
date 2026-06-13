@@ -917,6 +917,10 @@ pub enum ExprKind {
     Lambda(CallableKind, Box<Pat>, Box<Expr>),
     /// A literal.
     Lit(Box<Lit>),
+    /// A parallel expression: `parallel a`
+    Parallel(Box<Expr>),
+    /// A parallel-limited expression: `parallel within n a`
+    ParallelLimited(Box<Expr>, Box<Expr>),
     /// Parentheses: `(a)`.
     Paren(Box<Expr>),
     /// A path: `a` or `a.b`.
@@ -964,6 +968,10 @@ impl Display for ExprKind {
             ExprKind::Interpolate(components) => display_interpolate(indent, components)?,
             ExprKind::Lambda(kind, param, expr) => display_lambda(indent, *kind, param, expr)?,
             ExprKind::Lit(lit) => write!(indent, "Lit: {lit}")?,
+            ExprKind::Parallel(e) => write!(indent, "Parallel: {e}")?,
+            ExprKind::ParallelLimited(limit, body) => {
+                write!(indent, "ParallelLimited: {limit} {body}")?;
+            }
             ExprKind::Paren(e) => write!(indent, "Paren: {e}")?,
             ExprKind::Path(p) => write!(indent, "Path: {p}")?,
             ExprKind::Range(start, step, end) => {
