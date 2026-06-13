@@ -1,0 +1,10 @@
+[package]
+name = "qsc_stim_parser"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+enum-iterator.workspace = true
+qsc_data_structures = { path = "../qsc_data_structures" }
+
+[dev-dependencies]

@@ -2548,6 +2548,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "qsc_stim_parser"
+version = "0.0.0"
+dependencies = [
+ "enum-iterator",
+ "qsc_data_structures",
+]
+
+[[package]]
 name = "qsc_wasm"
 version = "0.0.0"
 dependencies = [
