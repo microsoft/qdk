@@ -360,13 +360,7 @@ impl ArgTy {
                 if args.len() != params.len() {
                     let expected_ty = Ty::Tuple(params.clone());
                     let actual_ty = self.to_ty();
-                    errors.push(Error(ErrorKind::TyMismatch(
-                        expected_ty.display(),
-                        actual_ty.display(),
-                        expected_ty.into(),
-                        actual_ty.into(),
-                        *tuple_span,
-                    )));
+                    errors.push(ty_mismatch(&expected_ty, &actual_ty, *tuple_span));
                 }
 
                 let mut holes = Vec::new();
@@ -401,13 +395,7 @@ impl ArgTy {
             (Self::Tuple(_, tuple_span), _) => App {
                 holes: Vec::new(),
                 constraints: Vec::new(),
-                errors: vec![Error(ErrorKind::TyMismatch(
-                    param.display(),
-                    self.to_ty().display(),
-                    param.into(),
-                    self.to_ty().into(),
-                    *tuple_span,
-                ))],
+                errors: vec![ty_mismatch(param, &self.to_ty(), *tuple_span)],
             },
         }
     }
@@ -796,13 +784,7 @@ impl Solver {
             (Ty::Prim(prim1), Ty::Prim(prim2)) if prim1 == prim2 => Vec::new(),
             (Ty::Tuple(items1), Ty::Tuple(items2)) => {
                 if items1.len() != items2.len() {
-                    self.errors.push(Error(ErrorKind::TyMismatch(
-                        ty1.display(),
-                        ty2.display(),
-                        ty1.into(),
-                        ty2.into(),
-                        span,
-                    )));
+                    self.errors.push(ty_mismatch(ty1, ty2, span));
                 }
 
                 items1
@@ -813,13 +795,7 @@ impl Solver {
             }
             (Ty::Udt(_, res1), Ty::Udt(_, res2)) if res1 == res2 => Vec::new(),
             _ => {
-                self.errors.push(Error(ErrorKind::TyMismatch(
-                    ty1.display(),
-                    ty2.display(),
-                    ty1.into(),
-                    ty2.into(),
-                    span,
-                )));
+                self.errors.push(ty_mismatch(ty1, ty2, span));
                 Vec::new()
             }
         }
@@ -1497,6 +1473,17 @@ fn check_unwrap(
             span,
         ))],
     )
+}
+
+/// Creates a `TyMismatch` error from expected and actual types at the given span.
+fn ty_mismatch(expected: &Ty, actual: &Ty, span: Span) -> Error {
+    Error(ErrorKind::TyMismatch(
+        expected.display(),
+        actual.display(),
+        expected.into(),
+        actual.into(),
+        span,
+    ))
 }
 
 /// Given an HIR class constraint, produce an actual type system constraint.
