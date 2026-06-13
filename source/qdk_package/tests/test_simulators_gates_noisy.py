@@ -7,7 +7,7 @@ import pytest
 from qdk import qsharp
 from qdk._interpreter import compile
 from qdk import Result, TargetProfile
-from qdk.simulation import run_qir as _run_qir, NoiseConfig
+from qdk.simulation import run_qir as _run_qir, NoiseConfig, LossPolicy
 from qdk.simulation._simulation import try_create_gpu_adapter
 from typing import Literal, List, Optional, TypeAlias
 
@@ -254,6 +254,135 @@ def test_two_qubit_loss(sim_type):
     check_histogram(
         results, {"--": 0.01, "-0": 0.09, "0-": 0.09, "00": 0.81}, tolerance=0.02
     )
+
+
+# ===========================================================================
+# Loss-policy (on_loss) tests
+# ===========================================================================
+#
+# These exercise the per-gate `NoiseConfig.<gate>.on_loss` behavior.
+#
+# A qubit is lost deterministically by giving a single-qubit gate a loss
+# probability of 1.0 and then applying that gate. The gate under test then sees
+# a lost operand and applies its configured policy. All outcomes are
+# deterministic, so a single shot is sufficient.
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_default_controlled_gate_skips(sim_type):
+    # `cz.on_loss` defaults to SKIP: the lost control means CZ is skipped, so
+    # the surviving target qubit is left untouched in |0>.
+    noise = NoiseConfig()
+    noise.x.loss = 1.0  # deterministically lose qs[0] after X
+    results = compile_and_run(
+        "{use qs = Qubit[2]; X(qs[0]); H(qs[1]); CZ(qs[0], qs[1]); H(qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=1,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    check_histogram(results, {"-0": 1.0})
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_propagate_marks_other_operand_lost(sim_type):
+    # PROPAGATE: a lost operand propagates the loss to the other operand, so
+    # both qubits measure as Loss.
+    noise = NoiseConfig()
+    noise.x.loss = 1.0
+    noise.cz.on_loss = LossPolicy.PROPAGATE
+    results = compile_and_run(
+        "{use qs = Qubit[2]; X(qs[0]); CZ(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=1,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    check_histogram(results, {"--": 1.0})
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_rxx_degrade_reduces_to_single_qubit(sim_type):
+    # `rxx.on_loss` defaults to DEGRADE: with one operand lost, Rxx reduces to
+    # Rx on the survivor. Rx(PI) flips qs[1] to |1>.
+    noise = NoiseConfig()
+    noise.x.loss = 1.0
+    results = compile_and_run(
+        "{use qs = Qubit[2]; X(qs[0]); Rxx(Std.Math.PI(), qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=1,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    check_histogram(results, {"-1": 1.0})
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_rxx_skip_leaves_survivor_untouched(sim_type):
+    # Overriding `rxx.on_loss` to SKIP leaves the surviving qubit in |0>.
+    noise = NoiseConfig()
+    noise.x.loss = 1.0
+    noise.rxx.on_loss = LossPolicy.SKIP
+    results = compile_and_run(
+        "{use qs = Qubit[2]; X(qs[0]); Rxx(Std.Math.PI(), qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=1,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    check_histogram(results, {"-0": 1.0})
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_residual_s_dagger_applies_s_adjoint(sim_type):
+    # RESIDUAL_S_DAGGER: the gate is skipped but an S-dagger is applied to each
+    # surviving operand. qs[1] is prepared in |+i> = S H |0>; the residual
+    # S-dagger maps it back to |+>, and a final H rotates it to |0>.
+    noise = NoiseConfig()
+    noise.x.loss = 1.0
+    noise.cx.on_loss = LossPolicy.RESIDUAL_S_DAGGER
+    results = compile_and_run(
+        "{use qs = Qubit[2]; H(qs[1]); S(qs[1]); X(qs[0]); CNOT(qs[0], qs[1]); H(qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=1,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    check_histogram(results, {"-0": 1.0})
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_swap_apply_anyway_exchanges_state(sim_type):
+    # `swap.on_loss` defaults to APPLY_ANYWAY: the SWAP unitary still runs, so
+    # qs[1]'s |1> moves into qs[0]. The loss flag is always exchanged, so qs[1]
+    # becomes the lost qubit. qs[0] is lost via Y so X-prepared qs[1] is intact.
+    noise = NoiseConfig()
+    noise.y.loss = 1.0
+    results = compile_and_run(
+        "{use qs = Qubit[2]; X(qs[1]); Y(qs[0]); SWAP(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=1,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    check_histogram(results, {"1-": 1.0})
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_swap_skip_keeps_state_but_swaps_loss_flag(sim_type):
+    # Overriding `swap.on_loss` to SKIP skips the SWAP unitary, but the loss
+    # flag is still exchanged. qs[0] keeps its reset |0> and qs[1] becomes lost.
+    noise = NoiseConfig()
+    noise.y.loss = 1.0
+    noise.swap.on_loss = LossPolicy.SKIP
+    results = compile_and_run(
+        "{use qs = Qubit[2]; X(qs[1]); Y(qs[0]); SWAP(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=1,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    check_histogram(results, {"0-": 1.0})
 
 
 # ===========================================================================

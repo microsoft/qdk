@@ -867,8 +867,27 @@ class QirInstruction: ...
 class IdleNoiseParams:
     s_probability: float
 
+class LossPolicy(Enum):
+    """
+    Specifies the behavior of a gate when at least one of its qubit operands is lost.
+    """
+
+    # If any operand of a gate is lost, skip the gate entirely.
+    SKIP: int
+    # If any operand of a gate is lost, propagate the loss to the other operands.
+    PROPAGATE: int
+    # For multi-qubit rotations, degrade the unitary to its single-qubit version
+    # on the surviving operand (e.g. rxx -> rx). Falls back to SKIP for gates with
+    # no single-qubit reduction (cx, cy, cz, swap, and single-qubit gates).
+    DEGRADE: int
+    # Skip the gate and instead apply an S adjoint to each surviving operand.
+    RESIDUAL_S_DAGGER: int
+    # Apply the unitary anyway, ignoring the loss.
+    APPLY_ANYWAY: int
+
 class NoiseTable:
     loss: float
+    on_loss: LossPolicy
 
     def __init__(self, num_qubits: int):
         """
