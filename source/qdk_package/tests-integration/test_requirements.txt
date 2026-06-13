@@ -3,6 +3,9 @@ cryptography==48.0.1
 # cryptography 49 and later dropped intel mac support. Unfix the version when we drop Intel mac support.
 qirrunner==0.9.0
 pyqir>=0.12.5,<0.13
+# Qiskit Aer will pull in Qiskit, and for Intel Mac we want to ensure Qiskit 2.4.1 is used, which is the last version with wheels for that platform.
+# Remove the qiskit requirement when we drop Intel Mac support, as it will be pulled in by qiskit-aer.
+qiskit<=2.4.1; platform_system == "Darwin" and platform_machine == "x86_64"
 qiskit-aer==0.17.2
 qiskit_qasm3_import==0.6.0
 expecttest==0.3.0
