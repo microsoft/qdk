@@ -260,9 +260,7 @@ def test_two_qubit_loss(sim_type):
 # Loss-policy (on_loss) tests
 # ===========================================================================
 #
-# These exercise the per-gate `NoiseConfig.<gate>.on_loss` behavior. The
-# `on_loss` policy is honored by the cpu (full-state) and clifford (stabilizer)
-# simulators, so these tests are parametrized over just those two.
+# These exercise the per-gate `NoiseConfig.<gate>.on_loss` behavior.
 #
 # A qubit is lost deterministically by giving a single-qubit gate a loss
 # probability of 1.0 and then applying that gate. The gate under test then sees
@@ -270,17 +268,14 @@ def test_two_qubit_loss(sim_type):
 # deterministic, so a single shot is sufficient.
 
 
-LOSS_POLICY_SIM_TYPES = ["cpu", "clifford", gpu_param()]
-
-
-@pytest.mark.parametrize("sim_type", LOSS_POLICY_SIM_TYPES)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_on_loss_default_controlled_gate_skips(sim_type):
     # `cz.on_loss` defaults to SKIP: the lost control means CZ is skipped, so
     # the surviving target qubit is left untouched in |0>.
     noise = NoiseConfig()
     noise.x.loss = 1.0  # deterministically lose qs[0] after X
     results = compile_and_run(
-        "{use qs = Qubit[2]; X(qs[0]); CZ(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        "{use qs = Qubit[2]; X(qs[0]); H(qs[1]); CZ(qs[0], qs[1]); H(qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
         shots=1,
         seed=SEED,
         noise=noise,
@@ -289,7 +284,7 @@ def test_on_loss_default_controlled_gate_skips(sim_type):
     check_histogram(results, {"-0": 1.0})
 
 
-@pytest.mark.parametrize("sim_type", LOSS_POLICY_SIM_TYPES)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_on_loss_propagate_marks_other_operand_lost(sim_type):
     # PROPAGATE: a lost operand propagates the loss to the other operand, so
     # both qubits measure as Loss.
@@ -306,7 +301,7 @@ def test_on_loss_propagate_marks_other_operand_lost(sim_type):
     check_histogram(results, {"--": 1.0})
 
 
-@pytest.mark.parametrize("sim_type", LOSS_POLICY_SIM_TYPES)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_on_loss_rxx_degrade_reduces_to_single_qubit(sim_type):
     # `rxx.on_loss` defaults to DEGRADE: with one operand lost, Rxx reduces to
     # Rx on the survivor. Rx(PI) flips qs[1] to |1>.
@@ -322,7 +317,7 @@ def test_on_loss_rxx_degrade_reduces_to_single_qubit(sim_type):
     check_histogram(results, {"-1": 1.0})
 
 
-@pytest.mark.parametrize("sim_type", LOSS_POLICY_SIM_TYPES)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_on_loss_rxx_skip_leaves_survivor_untouched(sim_type):
     # Overriding `rxx.on_loss` to SKIP leaves the surviving qubit in |0>.
     noise = NoiseConfig()
@@ -338,7 +333,7 @@ def test_on_loss_rxx_skip_leaves_survivor_untouched(sim_type):
     check_histogram(results, {"-0": 1.0})
 
 
-@pytest.mark.parametrize("sim_type", LOSS_POLICY_SIM_TYPES)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_on_loss_residual_s_dagger_applies_s_adjoint(sim_type):
     # RESIDUAL_S_DAGGER: the gate is skipped but an S-dagger is applied to each
     # surviving operand. qs[1] is prepared in |+i> = S H |0>; the residual
@@ -356,7 +351,7 @@ def test_on_loss_residual_s_dagger_applies_s_adjoint(sim_type):
     check_histogram(results, {"-0": 1.0})
 
 
-@pytest.mark.parametrize("sim_type", LOSS_POLICY_SIM_TYPES)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_on_loss_swap_apply_anyway_exchanges_state(sim_type):
     # `swap.on_loss` defaults to APPLY_ANYWAY: the SWAP unitary still runs, so
     # qs[1]'s |1> moves into qs[0]. The loss flag is always exchanged, so qs[1]
@@ -373,7 +368,7 @@ def test_on_loss_swap_apply_anyway_exchanges_state(sim_type):
     check_histogram(results, {"1-": 1.0})
 
 
-@pytest.mark.parametrize("sim_type", LOSS_POLICY_SIM_TYPES)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_on_loss_swap_skip_keeps_state_but_swaps_loss_flag(sim_type):
     # Overriding `swap.on_loss` to SKIP skips the SWAP unitary, but the loss
     # flag is still exchanged. qs[0] keeps its reset |0> and qs[1] becomes lost.
