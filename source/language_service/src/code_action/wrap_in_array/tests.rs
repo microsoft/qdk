@@ -109,10 +109,9 @@ fn no_action_for_tuple_to_tuple_array() {
 }
 
 #[test]
-fn array_to_nested_array() {
-    // Qubit[] passed where Qubit[][] expected - wrapping in [...] is valid.
-    // Qubit[] isn't a primitive type, but it's actually complaining at the element
-    // level so the error contains Qubit and Qubit[].
+fn no_action_for_array_to_nested_array() {
+    // Qubit[] passed where Qubit[][] expected - the expression type is Qubit[] (not
+    // a primitive), so the code action should not be offered.
     let source = "namespace A {
     operation Foo(qs: Qubit[][]) : Unit {}
     operation Bar(qs: Qubit[]) : Unit {
@@ -121,10 +120,5 @@ fn array_to_nested_array() {
 }
 ";
     let actions = get_wrap_in_array_actions(source);
-    assert_eq!(actions.len(), 1, "Expected 1 action, got: {actions:?}");
-    let action = &actions[0];
-    let edit = action.edit.as_ref().expect("expected edit");
-    let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), 1);
-    assert_eq!(text_edits[0].new_text, "[qs]");
+    assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }

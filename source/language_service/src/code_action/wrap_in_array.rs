@@ -10,7 +10,10 @@ mod tests;
 
 use qsc::{
     Span,
+    ast::{self, Expr},
     compile::{ErrorKind, TyInfo},
+    display::Lookup,
+    hir::ty::Ty,
     line_column::{Encoding, Range},
 };
 
@@ -28,8 +31,10 @@ pub(crate) fn wrap_in_array_fixes(
 ) -> Vec<CodeAction> {
     let mut code_actions = Vec::new();
 
-    let source = compilation
-        .user_unit()
+    let unit = compilation.user_unit();
+    let package = &unit.ast.package;
+
+    let source = unit
         .sources
         .find_by_name(source_name)
         .expect("source should exist");
@@ -50,6 +55,17 @@ pub(crate) fn wrap_in_array_fixes(
             && item_ty.as_ref() == actual
             && matches!(actual, TyInfo::Prim(_))
         {
+            // Verify via the type table that the expression is truly a primitive type.
+            // The error's `actual` field can be simplified (e.g. an array mismatch
+            // decomposes to element-level), so we check the real expression type.
+            let expr_id = find_expr_at(package, error_span);
+            if let Some(id) = expr_id
+                && let Some(ty) = compilation.get_ty(id)
+                && !matches!(ty, Ty::Prim(_))
+            {
+                continue;
+            }
+
             // Generate the fix: wrap the expression in [...]
             // Note that this depends on the error span excluding surrounding parens
             // so we don't end up with something like `F[(q)]`.
@@ -70,4 +86,29 @@ pub(crate) fn wrap_in_array_fixes(
     }
 
     code_actions
+}
+
+/// Finds the AST expression whose span exactly matches `target` and returns its `NodeId`.
+fn find_expr_at(package: &ast::Package, target: Span) -> Option<ast::NodeId> {
+    let mut finder = ExprSpanFinder {
+        target,
+        found: None,
+    };
+    ast::visit::Visitor::visit_package(&mut finder, package);
+    finder.found
+}
+
+struct ExprSpanFinder {
+    target: Span,
+    found: Option<ast::NodeId>,
+}
+
+impl<'a> ast::visit::Visitor<'a> for ExprSpanFinder {
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        if expr.span == self.target {
+            self.found = Some(expr.id);
+        } else if self.target.intersection(&expr.span).is_some() {
+            ast::visit::walk_expr(self, expr);
+        }
+    }
 }
