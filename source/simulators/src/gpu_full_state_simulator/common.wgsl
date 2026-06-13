@@ -344,9 +344,7 @@ fn gate_has_lost_operand(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> bool {
     if (shot.qubit_state[q1].heat == -1.0) {
         return true;
     }
-    let is_2q = (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ ||
-                 op.id == OPID_SWAP || op.id == OPID_RXX || op.id == OPID_RYY ||
-                 op.id == OPID_RZZ || op.id == OPID_MAT2Q);
+    let is_2q = !is_1q_op(op.id);
     return is_2q && (shot.qubit_state[q2].heat == -1.0);
 }
 
@@ -472,9 +470,7 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
     // operand of a two-qubit gate (if any). For single-qubit gates the only
     // operand is lost, so there is no survivor and these collapse to SKIP.
     let q1_lost = shot.qubit_state[q1].heat == -1.0;
-    let is_2q = (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ ||
-                 op.id == OPID_SWAP || op.id == OPID_RXX || op.id == OPID_RYY ||
-                 op.id == OPID_RZZ || op.id == OPID_MAT2Q);
+    let is_2q = !is_1q_op(op.id);
     let q2_lost = is_2q && (shot.qubit_state[q2].heat == -1.0);
     let has_survivor = is_2q && !(q1_lost && q2_lost);
     // The surviving operand (only meaningful when has_survivor is true).
