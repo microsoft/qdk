@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 use crate::parser::*;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt::Write;
 
 #[derive(Clone, Copy)]
@@ -17,7 +16,7 @@ struct QirWriter {
     output: String,
     qubit_map: HashMap<u32, u32>,
     num_results: u32,
-    used_intrinsics: HashSet<String>,
+    used_intrinsics: HashMap<String, usize>,
 }
 
 impl QirWriter {
@@ -26,7 +25,7 @@ impl QirWriter {
             output: String::new(),
             qubit_map: HashMap::new(),
             num_results: 0,
-            used_intrinsics: HashSet::new(),
+            used_intrinsics: HashMap::new(),
         }
     }
 
@@ -45,7 +44,8 @@ impl QirWriter {
             self.write_operand(operand);
         }
         writeln!(self.output, ")").unwrap();
-        self.used_intrinsics.insert(intrinsic.to_string());
+        self.used_intrinsics
+            .insert(intrinsic.to_string(), operands.len());
     }
 
     // Resolves an Operand to its QIR ID and writes: `ptr inttoptr (i64 N to ptr)`
@@ -57,9 +57,106 @@ impl QirWriter {
         write!(self.output, "ptr inttoptr (i64 {id} to ptr)").unwrap();
     }
 
-    fn write_header(&mut self) {}
+    fn write_header(&mut self) {
+        writeln!(self.output, "define i64 @ENTRYPOINT__main() #0 {{").unwrap();
+        writeln!(
+            self.output,
+            "  call void @__quantum__rt__initialize(ptr null)"
+        )
+        .unwrap();
+    }
 
-    fn write_footer(&mut self) {}
+    fn write_record_output(&mut self) {
+        let num_results = self.num_results;
+        writeln!(
+            self.output,
+            "  call void @__quantum__rt__array_record_output(i64 {num_results}, ptr null)"
+        )
+        .unwrap();
+        for i in 0..num_results {
+            writeln!(
+                self.output,
+                "  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 {i} to ptr), ptr null)"
+            )
+            .unwrap();
+        }
+    }
+
+    fn write_declarations(&mut self) {
+        writeln!(self.output).unwrap();
+        writeln!(self.output, "declare void @__quantum__rt__initialize(ptr)").unwrap();
+        writeln!(self.output, "declare void @__quantum__rt__array_record_output(i64, ptr)").unwrap();
+        writeln!(self.output, "declare void @__quantum__rt__result_record_output(ptr, ptr)").unwrap();
+        for (intrinsic, arity) in &self.used_intrinsics {
+            let params = (0..*arity).map(|_| "ptr").collect::<Vec<_>>().join(", ");
+            writeln!(
+                self.output,
+                "declare void @__quantum__qis__{intrinsic}__body({params})"
+            )
+            .unwrap();
+        }
+    }
+
+    fn write_footer(&mut self) {
+        self.write_record_output();
+        writeln!(self.output, "  ret i64 0").unwrap();
+        writeln!(self.output, "}}").unwrap();
+        self.write_declarations();
+
+        let num_qubits = self.qubit_map.len();
+        let num_results = self.num_results;
+        writeln!(self.output).unwrap();
+        writeln!(
+            self.output,
+            "attributes #0 = {{ \"entry_point\" \"output_labeling_schema\" \"qir_profiles\"=\"adaptive_profile\" \"required_num_qubits\"=\"{num_qubits}\" \"required_num_results\"=\"{num_results}\" }}"
+        ).unwrap();
+        writeln!(self.output, "attributes #1 = {{ \"irreversible\" }}").unwrap();
+        writeln!(self.output).unwrap();
+        writeln!(self.output, "; module flags").unwrap();
+        writeln!(self.output).unwrap();
+        writeln!(
+            self.output,
+            "!llvm.module.flags = !{{!0, !1, !2, !3, !4, !5, !6, !7}}"
+        )
+        .unwrap();
+        writeln!(self.output).unwrap();
+        writeln!(
+            self.output,
+            "!0 = !{{i32 1, !\"qir_major_version\", i32 2}}"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "!1 = !{{i32 7, !\"qir_minor_version\", i32 1}}"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "!2 = !{{i32 1, !\"dynamic_qubit_management\", i1 false}}"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "!3 = !{{i32 1, !\"dynamic_result_management\", i1 false}}"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "!4 = !{{i32 5, !\"int_computations\", !{{!\"i64\"}}}}"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "!5 = !{{i32 5, !\"float_computations\", !{{!\"double\"}}}}"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "!6 = !{{i32 7, !\"backwards_branching\", i2 3}}"
+        )
+        .unwrap();
+        writeln!(self.output, "!7 = !{{i32 1, !\"arrays\", i1 true}}").unwrap();
+    }
 
     // Maps a Stim qubit index to a dense 0-based QIR qubit ID.
     fn map_qubit(&mut self, stim_index: u32) -> u32 {
@@ -356,8 +453,8 @@ impl Compiler {
     }
 
     fn into_qir(mut self, circuit: &Circuit) -> String {
-        self.compile_circuit(circuit);
         self.writer.write_header();
+        self.compile_circuit(circuit);
         self.writer.write_footer();
         self.writer.output
     }
