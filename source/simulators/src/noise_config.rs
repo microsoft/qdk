@@ -47,17 +47,17 @@ pub enum LossPolicy {
 impl LossPolicy {
     /// Encodes the policy as a `u32` for transport to the GPU shader.
     ///
-    /// The values match the Python `LossPolicy` enum (`SKIP = 1` ..
-    /// `APPLY_ANYWAY = 5`). The value `0` is reserved by the shader to mean
+    /// The values match the Python `LossPolicy` enum (`SKIP = 0` ..
+    /// `APPLY_ANYWAY = 4`). The value `0` is reserved by the shader to mean
     /// "no policy stamped" and is never produced here.
     #[must_use]
     pub fn as_u32(self) -> u32 {
         match self {
-            Self::Skip => 1,
-            Self::Propagate => 2,
-            Self::Degrade => 3,
-            Self::ResidualSDagger => 4,
-            Self::ApplyAnyway => 5,
+            Self::Skip => 0,
+            Self::Propagate => 1,
+            Self::Degrade => 2,
+            Self::ResidualSDagger => 3,
+            Self::ApplyAnyway => 4,
         }
     }
 }

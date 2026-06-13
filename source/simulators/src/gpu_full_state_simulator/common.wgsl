@@ -330,12 +330,11 @@ fn get_loss_idx(op_idx: u32) -> u32 {
 // (see `LossPolicy::as_u32` on the Rust side) and tell the shader how to handle
 // the gate when one of its operands is lost. `0` means "no policy stamped",
 // which the shader treats the same as SKIP.
-const LOSS_POLICY_NONE              = 0u;
-const LOSS_POLICY_SKIP              = 1u;
-const LOSS_POLICY_PROPAGATE         = 2u;
-const LOSS_POLICY_DEGRADE           = 3u;
-const LOSS_POLICY_RESIDUAL_S_DAGGER = 4u;
-const LOSS_POLICY_APPLY_ANYWAY      = 5u;
+const LOSS_POLICY_SKIP              = 0u;
+const LOSS_POLICY_PROPAGATE         = 1u;
+const LOSS_POLICY_DEGRADE           = 2u;
+const LOSS_POLICY_RESIDUAL_S_DAGGER = 3u;
+const LOSS_POLICY_APPLY_ANYWAY      = 4u;
 
 // Returns true if the gate at `op_idx` touches at least one lost qubit.
 // `q1`/`q2` are the (resolved) operands of the gate.

@@ -94,15 +94,15 @@ pub enum QirInstruction {
 #[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
 pub enum LossPolicy {
     #[pyo3(name = "SKIP")]
-    Skip = 1,
+    Skip = 0,
     #[pyo3(name = "PROPAGATE")]
-    Propagate = 2,
+    Propagate = 1,
     #[pyo3(name = "DEGRADE")]
-    Degrade = 3,
+    Degrade = 2,
     #[pyo3(name = "RESIDUAL_S_DAGGER")]
-    ResidualSDagger = 4,
+    ResidualSDagger = 3,
     #[pyo3(name = "APPLY_ANYWAY")]
-    ApplyAnyway = 5,
+    ApplyAnyway = 4,
 }
 
 impl From<LossPolicy> for qdk_simulators::noise_config::LossPolicy {
