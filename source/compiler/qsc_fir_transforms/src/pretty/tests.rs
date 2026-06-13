@@ -255,3 +255,73 @@ fn ty_rendering_handles_primitives_and_tuples() {
         "Bool[]"
     );
 }
+
+#[test]
+fn parallel_expression_renders() {
+    check_render(
+        indoc! {r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel {
+                        use q = Qubit();
+                        H(q);
+                    }
+                }
+            }
+        "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Unit {
+                body {
+                    parallel {
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        H(q);
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_limit_renders() {
+    check_render(
+        indoc! {r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel within 4 {
+                        use q = Qubit();
+                        H(q);
+                    }
+                }
+            }
+        "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Unit {
+                body {
+                    parallel within 4 {
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        H(q);
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}

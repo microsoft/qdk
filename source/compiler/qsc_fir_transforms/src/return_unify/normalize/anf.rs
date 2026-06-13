@@ -692,23 +692,16 @@ pub(super) fn anf_lift_in_expr(
                 temp_counter,
             )
         }
-        // Parallel expression with optional limit, where the limit is evaluated first
-        // and the body is evaluated next unconditionally.
-        ExprKind::Parallel(limit, body) => {
-            let mut operands = Vec::with_capacity(2);
-            if let Some(l) = limit {
-                operands.push(l);
-            }
-            operands.push(body);
-            anf_lift_operands(
-                package,
-                assigner,
-                package_id,
-                expr_id,
-                &operands,
-                temp_counter,
-            )
-        }
+        // Parallel expression with a limit, where we need to hoist the limit since it may
+        // contain a return and need to short-circuit the body evaluation.
+        ExprKind::Parallel(Some(limit), _) => anf_lift_operands(
+            package,
+            assigner,
+            package_id,
+            expr_id,
+            &[limit],
+            temp_counter,
+        ),
         // An `If` condition is an unconditional operand site: it is evaluated
         // in full before either branch, so a `Return` buried there fires
         // before the `If` chooses a branch. Treat the condition as the `If`'s
@@ -745,6 +738,7 @@ pub(super) fn anf_lift_in_expr(
         | ExprKind::Hole
         | ExprKind::Lit(_)
         | ExprKind::Return(_)
+        | ExprKind::Parallel(None, _)
         | ExprKind::Var(_, _) => None,
     }
 }

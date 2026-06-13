@@ -713,7 +713,6 @@ fn rebuild_expr(
             builder.push(ExecGraphNode::ParStart(limit.is_some()));
             rebuild_expr(package, builder, body, ranges);
             builder.push(ExecGraphNode::ParEnd);
-            builder.push(ExecGraphNode::Expr(expr_id));
         }
 
         // Eliminated variant

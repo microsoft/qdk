@@ -1995,3 +1995,61 @@ fn cross_package_tuple_pipeline_completes() {
     "#]]
     .assert_eq(&rendered);
 }
+
+#[test]
+fn tuple_inside_parallel_decomposes() {
+    // Tuple destructuring inside a parallel block should behave the same as
+    // outside a parallel block.
+    check(
+        indoc! {"
+            function MakePair(a: Int, b: Int) : (Int, Int) { (a, b) }
+            @EntryPoint()
+            operation Main() : Int {
+                parallel {
+                    let (x, y) = MakePair(3, 4);
+                    x + y
+                }
+            }
+        "},
+        &expect![[r#"
+            Callable Main: input=Tuple()
+            Callable MakePair: input=Tuple(Bind(a: Int), Bind(b: Int))"#]],
+    );
+}
+
+#[test]
+fn tuple_inside_parallel_within_limit_decomposes() {
+    // Tuple destructuring inside a parallel-within-limit block should also decompose.
+    check(
+        indoc! {"
+            function MakePair(a: Int, b: Int) : (Int, Int) { (a, b) }
+            @EntryPoint()
+            operation Main() : Int {
+                parallel within 2 {
+                    let (x, y) = MakePair(3, 4);
+                    x + y
+                }
+            }
+        "},
+        &expect![[r#"
+            Callable Main: input=Tuple()
+            Callable MakePair: input=Tuple(Bind(a: Int), Bind(b: Int))"#]],
+    );
+}
+
+#[test]
+fn tuple_inside_parallel_within_limit_expr_decomposes() {
+    // Tuple used inside the limit expression of parallel-within should also decompose.
+    check(
+        indoc! {"
+            struct Pair { Fst : Int, Snd : Int }
+            @EntryPoint()
+            operation Main() : Int {
+                parallel within { let p = new Pair { Fst = 2, Snd = 3 }; p.Fst } {
+                    42
+                }
+            }
+        "},
+        &expect!["Callable Main: input=Tuple()"],
+    );
+}
