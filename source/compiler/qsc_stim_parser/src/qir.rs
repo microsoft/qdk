@@ -1,11 +1,79 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-
-use qsc_data_structures::target;
-
 use crate::parser::*;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Write;
+
+#[derive(Clone, Copy)]
+enum Operand {
+    /// A qubit operand, carrying the raw Stim qubit index.
+    Qubit(u32),
+    /// A result operand — the writer allocates the next result ID.
+    Result,
+}
+
+struct QirWriter {
+    output: String,
+    qubit_map: HashMap<u32, u32>,
+    num_results: u32,
+    used_intrinsics: HashSet<String>,
+}
+
+impl QirWriter {
+    fn new() -> Self {
+        Self {
+            output: String::new(),
+            qubit_map: HashMap::new(),
+            num_results: 0,
+            used_intrinsics: HashSet::new(),
+        }
+    }
+
+    // Writes: `  call void @__quantum__qis__{intrinsic}__body(ptr inttoptr (i64 N to ptr), ...)`
+    // Resolves qubit indices via the qubit map and allocates result IDs internally.
+    fn write_call(&mut self, intrinsic: &str, operands: &[Operand]) {
+        write!(
+            self.output,
+            "  call void @__quantum__qis__{intrinsic}__body("
+        )
+        .unwrap();
+        for (i, &operand) in operands.iter().enumerate() {
+            if i > 0 {
+                write!(self.output, ", ").unwrap();
+            }
+            self.write_operand(operand);
+        }
+        writeln!(self.output, ")").unwrap();
+        self.used_intrinsics.insert(intrinsic.to_string());
+    }
+
+    // Resolves an Operand to its QIR ID and writes: `ptr inttoptr (i64 N to ptr)`
+    fn write_operand(&mut self, operand: Operand) {
+        let id = match operand {
+            Operand::Qubit(stim_index) => self.map_qubit(stim_index),
+            Operand::Result => self.next_result(),
+        };
+        write!(self.output, "ptr inttoptr (i64 {id} to ptr)").unwrap();
+    }
+
+    fn write_header(&mut self) {}
+
+    fn write_footer(&mut self) {}
+
+    // Maps a Stim qubit index to a dense 0-based QIR qubit ID.
+    fn map_qubit(&mut self, stim_index: u32) -> u32 {
+        let next_id = self.qubit_map.len() as u32;
+        *self.qubit_map.entry(stim_index).or_insert(next_id)
+    }
+
+    // Allocates the next result ID.
+    fn next_result(&mut self) -> u32 {
+        let id = self.num_results;
+        self.num_results += 1;
+        id
+    }
+}
 
 enum InstructionKind {
     PauliGate,
@@ -20,244 +88,215 @@ enum InstructionKind {
     CustomInstruction,
 }
 
-struct Emitter {
-    qir_output: String,
-    num_qubits: u32,
-    num_results: u32,
+struct Compiler {
+    writer: QirWriter,
     last_preselect_begin: Option<u32>,
     num_preselect_expects: u32,
-    used_intrinsics: HashSet<String>,
-    labels: Vec<String>,
 }
 
-impl Emitter {
+impl Compiler {
     fn new() -> Self {
         Self {
-            qir_output: String::new(),
-            num_qubits: 0,
-            num_results: 0,
+            writer: QirWriter::new(),
             last_preselect_begin: None,
             num_preselect_expects: 0,
-            used_intrinsics: HashSet::new(),
-            labels: Vec::new(),
         }
     }
 
-    fn emit_circuit(&mut self, circuit: &Circuit) {
-        let items = &circuit.items;
-        for item in items {
-            self.emit_item(&item);
+    fn compile_circuit(&mut self, circuit: &Circuit) {
+        for item in &circuit.items {
+            self.compile_item(item);
         }
     }
 
-    fn emit_item(&mut self, item: &Item) {
+    fn compile_item(&mut self, item: &Item) {
         match item {
-            Item::Block(block) => self.emit_block(block),
-            Item::Line(line) => self.emit_line(line),
+            Item::Block(block) => self.compile_block(block),
+            Item::Line(line) => self.compile_line(line),
         }
     }
 
-    fn emit_block(&mut self, block: &Block) {
+    fn compile_block(&mut self, block: &Block) {
         let Block {
             block_instruction,
             items,
             ..
         } = block;
 
-        self.emit_instruction(block_instruction);
+        self.compile_instruction(block_instruction);
         for item in items {
-            self.emit_item(item);
+            self.compile_item(item);
         }
     }
 
-    fn emit_line(&mut self, line: &Line) {
+    fn compile_line(&mut self, line: &Line) {
         let Line { instruction, .. } = line;
-        self.emit_instruction(instruction);
+        self.compile_instruction(instruction);
     }
 
-    fn emit_instruction(&mut self, instruction: &Instruction) {
-        match self.instruction_kind(instruction.name) {
+    fn compile_instruction(&mut self, instruction: &Instruction) {
+        match Self::instruction_kind(&instruction.name) {
             InstructionKind::PauliGate => {
-                self.emit_pauli_gate(instruction);
+                self.compile_pauli_gate(instruction);
             }
             InstructionKind::SingleQubitCliffordGate => {
-                self.emit_single_qubit_clifford_gate(instruction);
+                self.compile_single_qubit_clifford_gate(instruction);
             }
             InstructionKind::TwoQubitCliffordGate => {
-                self.emit_two_qubit_clifford_gate(instruction);
+                self.compile_two_qubit_clifford_gate(instruction);
             }
             InstructionKind::NoiseChannel => {
-                self.emit_noise_channel(instruction);
+                self.compile_noise_channel(instruction);
             }
             InstructionKind::CollapsingGate => {
-                self.emit_collapsing_gate(instruction);
+                self.compile_collapsing_gate(instruction);
             }
             InstructionKind::PairMeasurementGate => {
-                self.emit_pair_measurement_gate(instruction);
+                self.compile_pair_measurement_gate(instruction);
             }
             InstructionKind::GeneralizedPauliProductGate => {
-                self.emit_generalized_pauli_product_gate(instruction);
+                self.compile_generalized_pauli_product_gate(instruction);
             }
             InstructionKind::ControlFlow => {
-                self.emit_control_flow(instruction);
+                self.compile_control_flow(instruction);
             }
             InstructionKind::Annotations => {
-                self.emit_annotations(instruction);
+                self.compile_annotations(instruction);
             }
             InstructionKind::CustomInstruction => {
-                self.emit_custom_instruction(instruction);
+                self.compile_custom_instruction(instruction);
             }
         }
     }
 
-    fn emit_pauli_gate(&mut self, instruction: &Instruction) {
+    fn compile_pauli_gate(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
         for target in &instruction.targets {
-            write!(self.qir_output, "__quantum__qis__{}__body", gate).unwrap();
-            self.emit_target(&target);
+            let TargetKind::Qubit { value, .. } = target.kind else {
+                continue;
+            };
+            self.writer.write_call(&gate, &[Operand::Qubit(value)]);
         }
     }
 
-    fn emit_single_qubit_clifford_gate(&mut self, instruction: &Instruction) {
+    fn compile_single_qubit_clifford_gate(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
         if gate == "h" || gate == "s" {
             for target in &instruction.targets {
-                write!(self.qir_output, "__quantum__qis__{}__body", gate).unwrap();
-                self.emit_target(&target);
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                self.writer.write_call(&gate, &[Operand::Qubit(value)]);
             }
         } else if gate == "sqrt_x" {
             // decomposed into H S H
             for target in &instruction.targets {
-                write!(self.qir_output, "__quantum__qis__h__body").unwrap();
-                self.emit_target(&target);
-                write!(self.qir_output, "__quantum__qis__s__body").unwrap();
-                self.emit_target(&target);
-                write!(self.qir_output, "__quantum__qis__h__body").unwrap();
-                self.emit_target(&target);
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                let q = Operand::Qubit(value);
+                self.writer.write_call("h", &[q]);
+                self.writer.write_call("s", &[q]);
+                self.writer.write_call("h", &[q]);
             }
         }
     }
 
-    fn emit_two_qubit_clifford_gate(&mut self, instruction: &Instruction) {
+    fn compile_two_qubit_clifford_gate(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
         if gate == "cz" {
             let targets = &instruction.targets;
             for pair in targets.chunks(2) {
-                let [control, target] = pair else {
-                    unreachable!()
+                let TargetKind::Qubit { value: v0, .. } = pair[0].kind else {
+                    continue;
                 };
-                write!(self.qir_output, "__quantum__qis__cz__body").unwrap();
-                self.emit_target(&control);
-                self.emit_target(&target);
+                let TargetKind::Qubit { value: v1, .. } = pair[1].kind else {
+                    continue;
+                };
+                self.writer
+                    .write_call(&gate, &[Operand::Qubit(v0), Operand::Qubit(v1)]);
             }
         }
     }
 
-    fn emit_noise_channel(&mut self, instruction: &Instruction) {}
+    fn compile_noise_channel(&mut self, instruction: &Instruction) {}
 
-    fn emit_collapsing_gate(&mut self, instruction: &Instruction) {
+    fn compile_collapsing_gate(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
         if gate == "r" {
             for target in &instruction.targets {
-                write!(self.qir_output, "__quantum__qis__reset__body").unwrap();
-                self.emit_target(&target);
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                self.writer.write_call("reset", &[Operand::Qubit(value)]);
             }
         } else if gate == "mr" {
             for target in &instruction.targets {
-                write!(self.qir_output, "__quantum__qis__mresetz__body").unwrap();
-                self.emit_target(&target);
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                self.writer
+                    .write_call("mresetz", &[Operand::Qubit(value), Operand::Result]);
             }
         } else if gate == "mrx" {
             // decomposed into H MRZ H
             for target in &instruction.targets {
-                write!(self.qir_output, "__quantum__qis__h__body").unwrap();
-                self.emit_target(&target);
-                write!(self.qir_output, "__quantum__qis__mresetz__body").unwrap();
-                self.emit_target(&target);
-                write!(self.qir_output, "__quantum__qis__h__body").unwrap();
-                self.emit_target(&target);
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                let q = Operand::Qubit(value);
+                self.writer.write_call("h", &[q]);
+                self.writer.write_call("mresetz", &[q, Operand::Result]);
+                self.writer.write_call("h", &[q]);
             }
         }
     }
 
-    fn emit_pair_measurement_gate(&mut self, instruction: &Instruction) {}
+    fn compile_pair_measurement_gate(&mut self, instruction: &Instruction) {}
 
-    fn emit_generalized_pauli_product_gate(&mut self, instruction: &Instruction) {}
+    fn compile_generalized_pauli_product_gate(&mut self, instruction: &Instruction) {}
 
-    fn emit_control_flow(&mut self, instruction: &Instruction) {}
+    fn compile_control_flow(&mut self, instruction: &Instruction) {}
 
-    fn emit_annotations(&mut self, instruction: &Instruction) {}
+    fn compile_annotations(&mut self, instruction: &Instruction) {}
 
-    fn emit_custom_instruction(&mut self, instruction: &Instruction) {
-        let instructionName = instruction.name.to_lowercase();
-        if instructionName == "#!preselect_begin" {
+    fn compile_custom_instruction(&mut self, instruction: &Instruction) {
+        let instruction_name = instruction.name.to_lowercase();
+        if instruction_name == "#!preselect_begin" {
             self.last_preselect_begin = match self.last_preselect_begin {
                 None => Some(0),
                 Some(n) => Some(n + 1),
             };
-            write!(
-                self.qir_output,
+            writeln!(
+                self.writer.output,
                 "preselect_begin_{}:",
-                self.last_preselect_begin.unwrap() // It shouldn't be none!
+                self.last_preselect_begin.unwrap()
             )
             .unwrap();
-        } else if instructionName == "#!preselect_expect" {
-            write!(self.qir_output, "preselect_r{}", self.num_preselect_expects).unwrap();
-            self.num_preselect_expects += 1;
-            write!(self.qir_output, " ").unwrap(); // whitespace
+        } else if instruction_name == "#!preselect_expect" {
             write!(
-                self.qir_output,
-                "= call i1 @__quantum__qis__read_result__body"
+                self.writer.output,
+                "preselect_r{}",
+                self.num_preselect_expects
             )
             .unwrap();
-            self.emit_target(&instruction.targets[0]);
+            self.num_preselect_expects += 1;
+            write!(
+                self.writer.output,
+                " = call i1 @__quantum__qis__read_result__body("
+            )
+            .unwrap();
+            let TargetKind::Qubit { value, .. } = instruction.targets[0].kind else {
+                return;
+            };
+            // read_result takes a result operand
+            let result_id = self.writer.map_qubit(value);
+            write!(self.writer.output, "ptr inttoptr (i64 {result_id} to ptr)").unwrap();
+            writeln!(self.writer.output, ")").unwrap();
             // EMIT BREAK, br i1 %preselect_r1, label %preselect_fail_1, label %continue_1
-            // HAVE IT THE OTHER WAY AROUDN IF TARGETS[1] IS 1
+            // HAVE IT THE OTHER WAY AROUND IF TARGETS[1] IS 1
         }
     }
-
-    fn emit_targets(&mut self, targets: &[Target]) {
-        write!(self.qir_output, "(").unwrap();
-        for target in targets {
-            self.emit_target(target);
-            write!(self.qir_output, ", ").unwrap();
-        }
-        self.qir_output.pop(); // remove trailing whitespace
-        self.qir_output.pop(); // remove trailing comma
-        write!(self.qir_output, ")\n").unwrap();
-    }
-
-    // fn emit_target(&mut self, target: &Target) {
-    //     match target.kind {
-    //         TargetKind::Qubit { negated, value } => {
-    //             if negated {
-    //                 write!(self.qir_output, "!q{}", value).unwrap();
-    //             } else {
-    //                 write!(self.qir_output, "q{}", value).unwrap();
-    //             }
-    //         }
-    //         TargetKind::MeasurementRecord { value } => {
-    //             write!(self.qir_output, "m{}", value).unwrap();
-    //         }
-    //         TargetKind::SweepBit { value } => {
-    //             write!(self.qir_output, "s{}", value).unwrap();
-    //         }
-    //         TargetKind::Pauli { negated, pauli, value } => {
-    //             if negated {
-    //                 write!(self.qir_output, "!").unwrap();
-    //             }
-    //             match pauli {
-    //                 Pauli::X => write!(self.qir_output, "X").unwrap(),
-    //                 Pauli::Y => write!(self.qir_output, "Y").unwrap(),
-    //                 Pauli::Z => write!(self.qir_output, "Z").unwrap(),
-    //             }
-    //             write!(self.qir_output, "{}", value).unwrap();
-    //         }
-    //         TargetKind::Combiner => {
-    //             write!(self.qir_output, "combiner").unwrap();
-    //         }
-    //     }
-    // }
 
     fn instruction_kind(name: &str) -> InstructionKind {
         match name {
@@ -316,18 +355,14 @@ impl Emitter {
         }
     }
 
-    fn append_header(&mut self) {}
-
-    fn append_footer(&mut self) {}
-
-    fn into_qir(&mut self, circuit: &Circuit) -> String {
-        self.emit_circuit(circuit);
-        self.append_header();
-        self.append_footer();
-        self.qir_output
+    fn into_qir(mut self, circuit: &Circuit) -> String {
+        self.compile_circuit(circuit);
+        self.writer.write_header();
+        self.writer.write_footer();
+        self.writer.output
     }
 }
 
-pub fn emit_qir(circuit: &Circuit) -> String {
-    Emitter::new().into_qir(circuit)
+pub fn compile_to_qir(circuit: &Circuit) -> String {
+    Compiler::new().into_qir(circuit)
 }
