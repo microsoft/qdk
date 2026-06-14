@@ -122,3 +122,47 @@ fn no_action_for_array_to_nested_array() {
     let actions = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
+
+#[test]
+fn no_action_for_arrow_to_arrow_array() {
+    // An operation value passed where ((Qubit) => Unit)[] expected - not a primitive type.
+    let source = "namespace A {
+    operation MyOp(q: Qubit) : Unit {}
+    operation Foo(ops: ((Qubit) => Unit)[]) : Unit {}
+    operation Bar() : Unit {
+        Foo(MyOp);
+    }
+}
+";
+    let actions = get_wrap_in_array_actions(source);
+    assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
+}
+
+#[test]
+fn no_action_for_param_to_param_array() {
+    // A generic type parameter passed where 'T[] expected - not a primitive type.
+    let source = "namespace A {
+    operation Foo<'T>(ts: 'T[]) : Unit {}
+    operation Bar<'T>(x: 'T) : Unit {
+        Foo(x);
+    }
+}
+";
+    let actions = get_wrap_in_array_actions(source);
+    assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
+}
+
+#[test]
+fn no_action_for_udt_to_udt_array() {
+    // A UDT value passed where MyType[] expected - not a primitive type.
+    let source = "namespace A {
+    newtype MyType = Int;
+    function Foo(xs: MyType[]) : Unit {}
+    function Bar(x: MyType) : Unit {
+        Foo(x);
+    }
+}
+";
+    let actions = get_wrap_in_array_actions(source);
+    assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
+}
