@@ -36,7 +36,7 @@
     "3dmol": "^2.5.4",
     "chai": "^6.2.2",
     "dompurify": "^3.3.3",
-    "esbuild": "0.26.0",
+    "esbuild": "0.28.1",
     "eslint": "^10.2.0",
     "events": "^3.3.0",
     "github-markdown-css": "^5.9.0",
