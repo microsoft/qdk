@@ -144,17 +144,25 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_item(&mut self) -> Option<Item> {
-        // TODO WHAT IF IT STARTS WITH A NEWLINE?
+        // Skip any leading newlines
+        while self
+            .tokens
+            .peek()
+            .is_some_and(|t| t.kind == TokenKind::Newline)
+        {
+            self.tokens.next();
+        }
 
         if let TokenKind::InstructionName = self.tokens.peek()?.kind {
             // Could be the start of a block or of a line
             let instruction = self.parse_instruction();
-            if let Some(token) = self.tokens.peek() {
-                if token.kind == TokenKind::Open(Brace) {
-                    return Some(Item::Block(self.parse_block(instruction)));
-                }
+            if let Some(token) = self.tokens.peek()
+                && token.kind == TokenKind::Open(Brace)
+            {
+                return Some(Item::Block(self.parse_block(instruction)));
             }
-            return Some(Item::Line(self.parse_line(instruction)));
+
+            Some(Item::Line(self.parse_line(instruction)))
         } else {
             // TODO error! The start of every item should be an instruction;
             None
@@ -203,21 +211,15 @@ impl<'a> Parser<'a> {
         let name = self.extract_string(name_token, None);
 
         let tag_token = self.tokens.next_if(|t| t.kind == TokenKind::Tag);
-        let tag: Option<String>;
-        match tag_token {
-            Some(tag_token) => {
-                tag = Some(self.extract_string(
-                    tag_token,
-                    Some(Span {
-                        lo: tag_token.span.lo + 1,
-                        hi: tag_token.span.hi - 1,
-                    }),
-                )); // Remove the surrounding brackets
-            }
-            None => {
-                tag = None;
-            }
-        }
+        let tag: Option<String> = tag_token.map(|tag_token| {
+            self.extract_string(
+                tag_token,
+                Some(Span {
+                    lo: tag_token.span.lo + 1,
+                    hi: tag_token.span.hi - 1,
+                }),
+            )
+        });
 
         let mut args = Vec::new();
         let mut targets = Vec::new();

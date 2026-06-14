@@ -9,7 +9,7 @@ fn main() {
     let mut out =
         fs::File::create("examples/lex_output.txt").expect("Failed to create output file");
 
-    writeln!(out, "{:<20} {:<10} {:}", "TOKEN KIND", "SPAN", "TEXT").unwrap();
+    writeln!(out, "{:<20} {:<10} TEXT", "TOKEN KIND", "SPAN").unwrap();
     writeln!(out, "{:-<50}", "").unwrap();
 
     let lexer = Lexer::new(&stim_code);

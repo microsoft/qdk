@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 use crate::parser::*;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::fmt::Write;
 
 #[derive(Clone, Copy)]
@@ -14,18 +14,18 @@ enum Operand {
 
 struct QirWriter {
     output: String,
-    qubit_map: HashMap<u32, u32>,
+    qubit_map: FxHashMap<u32, u32>,
     num_results: u32,
-    used_intrinsics: HashMap<String, usize>,
+    used_intrinsics: FxHashMap<String, usize>,
 }
 
 impl QirWriter {
     fn new() -> Self {
         Self {
             output: String::new(),
-            qubit_map: HashMap::new(),
+            qubit_map: FxHashMap::default(),
             num_results: 0,
-            used_intrinsics: HashMap::new(),
+            used_intrinsics: FxHashMap::default(),
         }
     }
 
@@ -85,8 +85,16 @@ impl QirWriter {
     fn write_declarations(&mut self) {
         writeln!(self.output).unwrap();
         writeln!(self.output, "declare void @__quantum__rt__initialize(ptr)").unwrap();
-        writeln!(self.output, "declare void @__quantum__rt__array_record_output(i64, ptr)").unwrap();
-        writeln!(self.output, "declare void @__quantum__rt__result_record_output(ptr, ptr)").unwrap();
+        writeln!(
+            self.output,
+            "declare void @__quantum__rt__array_record_output(i64, ptr)"
+        )
+        .unwrap();
+        writeln!(
+            self.output,
+            "declare void @__quantum__rt__result_record_output(ptr, ptr)"
+        )
+        .unwrap();
         for (intrinsic, arity) in &self.used_intrinsics {
             let params = (0..*arity).map(|_| "ptr").collect::<Vec<_>>().join(", ");
             writeln!(
@@ -316,7 +324,7 @@ impl Compiler {
         }
     }
 
-    fn compile_noise_channel(&mut self, instruction: &Instruction) {}
+    fn compile_noise_channel(&mut self, _instruction: &Instruction) {}
 
     fn compile_collapsing_gate(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
@@ -349,13 +357,13 @@ impl Compiler {
         }
     }
 
-    fn compile_pair_measurement_gate(&mut self, instruction: &Instruction) {}
+    fn compile_pair_measurement_gate(&mut self, _instruction: &Instruction) {}
 
-    fn compile_generalized_pauli_product_gate(&mut self, instruction: &Instruction) {}
+    fn compile_generalized_pauli_product_gate(&mut self, _instruction: &Instruction) {}
 
-    fn compile_control_flow(&mut self, instruction: &Instruction) {}
+    fn compile_control_flow(&mut self, _instruction: &Instruction) {}
 
-    fn compile_annotations(&mut self, instruction: &Instruction) {}
+    fn compile_annotations(&mut self, _instruction: &Instruction) {}
 
     fn compile_custom_instruction(&mut self, instruction: &Instruction) {
         let instruction_name = instruction.name.to_lowercase();

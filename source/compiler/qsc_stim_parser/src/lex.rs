@@ -82,7 +82,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn eat_while(&mut self, mut f: impl Fn(char) -> bool) {
+    fn eat_while(&mut self, f: impl Fn(char) -> bool) {
         while self.chars.next_if(|i| f(i.1)).is_some() {}
     }
 
