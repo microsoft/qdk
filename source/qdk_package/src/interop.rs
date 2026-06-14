@@ -11,6 +11,13 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::fs::file_system;
+use crate::interpreter::data_interop::value_to_pyobj;
+use crate::interpreter::{
+    CircuitConfig, OptionalCallbackReceiver, OutputSemantics, ProgramType, QSharpError, QasmError,
+    TargetProfile, format_error, format_errors,
+};
+use crate::qir_simulation::{NoiseConfig, unbind_noise_config};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -28,14 +35,8 @@ use qsc::{Backend, CliffordSim, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
-
-use crate::fs::file_system;
-use crate::interpreter::data_interop::value_to_pyobj;
-use crate::interpreter::{
-    CircuitConfig, OptionalCallbackReceiver, OutputSemantics, ProgramType, QSharpError, QasmError,
-    TargetProfile, format_error, format_errors,
-};
-use crate::qir_simulation::{NoiseConfig, unbind_noise_config};
+use qsc_stim_parser::parser::parse;
+use qsc_stim_parser::qir::compile_to_qir;
 
 use resource_estimator as re;
 
@@ -461,6 +462,13 @@ pub(crate) fn compile_qasm_to_qsharp(
 
     let qsharp = qsc::codegen::qsharp::write_package_string(&package);
     Ok(qsharp)
+}
+
+#[pyfunction]
+#[pyo3(signature = (source))]
+pub(crate) fn compile_stim_to_qir(source: &str) -> PyResult<String> {
+    let circuit = parse(source);
+    Ok(compile_to_qir(&circuit))
 }
 
 /// Enriches the compilation errors to provide more helpful messages

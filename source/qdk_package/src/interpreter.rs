@@ -14,8 +14,8 @@ use crate::{
     generic_estimator::register_generic_estimator_submodule,
     interop::{
         circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
-        create_filesystem_from_py, get_operation_name, get_output_semantics, get_program_type,
-        get_search_path, resource_estimate_qasm_program, run_qasm_program,
+        compile_stim_to_qir, create_filesystem_from_py, get_operation_name, get_output_semantics,
+        get_program_type, get_search_path, resource_estimate_qasm_program, run_qasm_program,
     },
     interpreter::data_interop::{
         PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
@@ -152,6 +152,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_stim_to_qir, m)?)?;
     Ok(())
 }
 

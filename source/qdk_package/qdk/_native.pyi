@@ -629,6 +629,16 @@ def compile_qasm_to_qsharp(
     """
     ...
 
+def compile_stim_to_qir(source: str) -> str:
+    """
+    Converts a Stim program to QIR.
+
+    :param source: The Stim source code to convert.
+    :return: The converted QIR code as a string.
+    :rtype: str
+    """
+    ...
+
 def resource_estimate_qasm_program(
     source: str,
     job_params: str,

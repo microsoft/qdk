@@ -18,6 +18,7 @@ from .._native import (
     GpuContext,
     try_create_gpu_adapter,
     Result,
+    compile_stim_to_qir,
 )
 from pyqir import (
     Function,
@@ -743,3 +744,14 @@ def run_qir(
             return run_qir_gpu(input, shots, noise, seed)
         case _:
             raise ValueError(f"Invalid simulator type: {type}")
+
+
+def run_stim(
+    src: str,
+    shots: Optional[int] = 1,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+    type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+) -> List:
+    qir = compile_stim_to_qir(src)
+    return run_qir(qir, shots, noise, seed, type)
