@@ -204,6 +204,8 @@ impl Checker {
                 _ => self.errors.push(Error(ErrorKind::TyMismatch(
                     Ty::UNIT.display(),
                     output.display(),
+                    Ty::UNIT.into(),
+                    output.into(),
                     decl.output.span,
                 ))),
             }

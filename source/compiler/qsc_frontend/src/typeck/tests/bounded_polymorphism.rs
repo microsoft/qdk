@@ -70,7 +70,7 @@ fn exp_fail() {
             #25 101-106 "a ^ b" : Param<"'T": 0>
             #26 101-102 "a" : Param<"'T": 0>
             #29 105-106 "b" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 101, hi: 106 }))))
+            Error(Type(Error(TyMismatch("Int", "Bool", Prim(Int), Prim(Bool), Span { lo: 101, hi: 106 }))))
         "##]],
     );
 }
@@ -108,9 +108,9 @@ fn extra_arg_to_exp() {
             Error(Type(Error(IncorrectNumberOfConstraintParameters { expected: 1, found: 0, span: Span { lo: 162, hi: 165 } })))
             Error(Type(Error(IncorrectNumberOfConstraintParameters { expected: 1, found: 0, span: Span { lo: 162, hi: 165 } })))
             Error(Type(Error(MissingClassExp("'E", Span { lo: 108, hi: 113 }))))
-            Error(Type(Error(TyMismatch("'T", "'E", Span { lo: 108, hi: 113 }))))
+            Error(Type(Error(TyMismatch("'T", "'E", Param, Param, Span { lo: 108, hi: 113 }))))
             Error(Type(Error(MissingClassExp("'E", Span { lo: 205, hi: 210 }))))
-            Error(Type(Error(TyMismatch("'T", "'E", Span { lo: 205, hi: 210 }))))
+            Error(Type(Error(TyMismatch("'T", "'E", Param, Param, Span { lo: 205, hi: 210 }))))
         "##]],
     );
 }
@@ -135,7 +135,7 @@ fn example_should_fail() {
             #24 175-181 "a == b" : Bool
             #25 175-176 "a" : Param<"'T": 0>
             #28 180-181 "b" : Param<"'O": 1>
-            Error(Type(Error(TyMismatch("'T", "'O", Span { lo: 180, hi: 181 }))))
+            Error(Type(Error(TyMismatch("'T", "'O", Param, Param, Span { lo: 180, hi: 181 }))))
         "##]],
     );
 }
@@ -736,8 +736,8 @@ fn show_and_eq_should_fail() {
             #69 344-352 "(1, \"2\")" : (Int, String)
             #70 345-346 "1" : Int
             #71 348-351 "\"2\"" : String
-            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 310, hi: 314 }))))
-            Error(Type(Error(TyMismatch("Int", "String", Span { lo: 348, hi: 351 }))))
+            Error(Type(Error(TyMismatch("Int", "Bool", Prim(Int), Prim(Bool), Span { lo: 310, hi: 314 }))))
+            Error(Type(Error(TyMismatch("Int", "String", Prim(Int), Prim(String), Span { lo: 348, hi: 351 }))))
         "##]],
     );
 }

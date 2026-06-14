@@ -495,6 +495,12 @@ fn reexports_still_type_check() {
                             TyMismatch(
                                 "Bool",
                                 "Int",
+                                Prim(
+                                    Bool,
+                                ),
+                                Prim(
+                                    Int,
+                                ),
                                 Span {
                                     lo: 137,
                                     hi: 139,
