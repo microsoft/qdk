@@ -16,7 +16,7 @@ struct QirWriter {
     output: String,
     qubit_map: FxHashMap<u32, u32>,
     num_results: u32,
-    used_intrinsics: FxHashMap<String, usize>,
+    used_intrinsics: FxHashMap<String, String>,
 }
 
 impl QirWriter {
@@ -44,8 +44,14 @@ impl QirWriter {
             self.write_operand(operand);
         }
         writeln!(self.output, ")").unwrap();
+        let name = format!("__quantum__qis__{intrinsic}__body");
+        let params = (0..operands.len())
+            .map(|_| "ptr")
+            .collect::<Vec<_>>()
+            .join(", ");
         self.used_intrinsics
-            .insert(intrinsic.to_string(), operands.len());
+            .entry(name.clone())
+            .or_insert_with(|| format!("declare void @{name}({params})"));
     }
 
     // Resolves an Operand to its QIR ID and writes: `ptr inttoptr (i64 N to ptr)`
@@ -57,6 +63,39 @@ impl QirWriter {
         write!(self.output, "ptr inttoptr (i64 {id} to ptr)").unwrap();
     }
 
+    // Writes a label: `{name}:`
+    fn write_label(&mut self, name: &str) {
+        writeln!(self.output, "{name}:").unwrap();
+    }
+
+    // Writes: `  br i1 %{cond}, label %{true_label}, label %{false_label}`
+    fn write_branch(&mut self, cond: &str, true_label: &str, false_label: &str) {
+        writeln!(
+            self.output,
+            "  br i1 %{cond}, label %{true_label}, label %{false_label}"
+        )
+        .unwrap();
+    }
+
+    // Writes: `  br label %{label}`
+    fn write_jump(&mut self, label: &str) {
+        writeln!(self.output, "  br label %{label}").unwrap();
+    }
+
+    // Writes: `  %{dest} = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 N to ptr))`
+    fn write_read_result(&mut self, dest: &str, operand: Operand) {
+        write!(
+            self.output,
+            "  %{dest} = call i1 @__quantum__rt__read_result("
+        )
+        .unwrap();
+        self.write_operand(operand);
+        writeln!(self.output, ")").unwrap();
+        self.used_intrinsics
+            .entry("__quantum__rt__read_result".to_string())
+            .or_insert_with(|| "declare i1 @__quantum__rt__read_result(ptr)".to_string());
+    }
+
     fn write_header(&mut self) {
         writeln!(self.output, "define i64 @ENTRYPOINT__main() #0 {{").unwrap();
         writeln!(
@@ -64,6 +103,9 @@ impl QirWriter {
             "  call void @__quantum__rt__initialize(ptr null)"
         )
         .unwrap();
+        self.used_intrinsics
+            .entry("__quantum__rt__initialize".to_string())
+            .or_insert_with(|| "declare void @__quantum__rt__initialize(ptr)".to_string());
     }
 
     fn write_record_output(&mut self) {
@@ -73,6 +115,11 @@ impl QirWriter {
             "  call void @__quantum__rt__array_record_output(i64 {num_results}, ptr null)"
         )
         .unwrap();
+        self.used_intrinsics
+            .entry("__quantum__rt__array_record_output".to_string())
+            .or_insert_with(|| {
+                "declare void @__quantum__rt__array_record_output(i64, ptr)".to_string()
+            });
         for i in 0..num_results {
             writeln!(
                 self.output,
@@ -80,28 +127,17 @@ impl QirWriter {
             )
             .unwrap();
         }
+        self.used_intrinsics
+            .entry("__quantum__rt__result_record_output".to_string())
+            .or_insert_with(|| {
+                "declare void @__quantum__rt__result_record_output(ptr, ptr)".to_string()
+            });
     }
 
     fn write_declarations(&mut self) {
         writeln!(self.output).unwrap();
-        writeln!(self.output, "declare void @__quantum__rt__initialize(ptr)").unwrap();
-        writeln!(
-            self.output,
-            "declare void @__quantum__rt__array_record_output(i64, ptr)"
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "declare void @__quantum__rt__result_record_output(ptr, ptr)"
-        )
-        .unwrap();
-        for (intrinsic, arity) in &self.used_intrinsics {
-            let params = (0..*arity).map(|_| "ptr").collect::<Vec<_>>().join(", ");
-            writeln!(
-                self.output,
-                "declare void @__quantum__qis__{intrinsic}__body({params})"
-            )
-            .unwrap();
+        for decl in self.used_intrinsics.values() {
+            writeln!(self.output, "{decl}").unwrap();
         }
     }
 
@@ -166,7 +202,7 @@ impl QirWriter {
         writeln!(self.output, "!7 = !{{i32 1, !\"arrays\", i1 true}}").unwrap();
     }
 
-    // Maps a Stim qubit index to a dense 0-based QIR qubit ID.
+    // Maps a Stim qubit index to a 0-based QIR qubit ID.
     fn map_qubit(&mut self, stim_index: u32) -> u32 {
         let next_id = self.qubit_map.len() as u32;
         *self.qubit_map.entry(stim_index).or_insert(next_id)
@@ -372,34 +408,49 @@ impl Compiler {
                 None => Some(0),
                 Some(n) => Some(n + 1),
             };
-            writeln!(
-                self.writer.output,
-                "preselect_begin_{}:",
-                self.last_preselect_begin.unwrap()
-            )
-            .unwrap();
+            let id = self.last_preselect_begin.unwrap();
+            let label = format!("preselect_begin_{id}");
+            self.writer.write_jump(&label); // terminate the previous block
+            self.writer.write_label(&label); // start the new block
         } else if instruction_name == "#!preselect_expect" {
-            write!(
-                self.writer.output,
-                "preselect_r{}",
-                self.num_preselect_expects
-            )
-            .unwrap();
+            let id = self.last_preselect_begin.unwrap();
+            let reg = format!("preselect_r{}", self.num_preselect_expects);
             self.num_preselect_expects += 1;
-            write!(
-                self.writer.output,
-                " = call i1 @__quantum__qis__read_result__body("
-            )
-            .unwrap();
-            let TargetKind::Qubit { value, .. } = instruction.targets[0].kind else {
+
+            // First target: which result to read
+            let TargetKind::Qubit {
+                value: result_id, ..
+            } = instruction.targets[0].kind
+            else {
                 return;
             };
-            // read_result takes a result operand
-            let result_id = self.writer.map_qubit(value);
-            write!(self.writer.output, "ptr inttoptr (i64 {result_id} to ptr)").unwrap();
-            writeln!(self.writer.output, ")").unwrap();
-            // EMIT BREAK, br i1 %preselect_r1, label %preselect_fail_1, label %continue_1
-            // HAVE IT THE OTHER WAY AROUND IF TARGETS[1] IS 1
+            // Second target: expected value (0 or 1)
+            let TargetKind::Qubit {
+                value: expected, ..
+            } = instruction.targets[1].kind
+            else {
+                return;
+            };
+
+            // Read the result into %reg
+            self.writer
+                .write_read_result(&reg, Operand::Qubit(result_id));
+
+            let begin_label = format!("preselect_begin_{id}");
+            let continue_label = format!("preselect_continue_{id}");
+
+            // Branch: if result matches expected → continue, else → retry
+            if expected == 0 {
+                // expected 0: if read is true (1) → mismatch → retry
+                self.writer
+                    .write_branch(&reg, &begin_label, &continue_label);
+            } else {
+                // expected 1: if read is true (1) → match → continue
+                self.writer
+                    .write_branch(&reg, &continue_label, &begin_label);
+            }
+
+            self.writer.write_label(&continue_label);
         }
     }
 
