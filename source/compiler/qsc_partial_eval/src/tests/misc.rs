@@ -1017,7 +1017,7 @@ fn test_length_and_isempty_as_loop_conditions() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     // Expect to see the iteration variables from qubit allocation,
