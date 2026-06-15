@@ -133,6 +133,9 @@ pub fn measure_pauli_with_hint<HintBits: PauliBits, HintPhase: PhaseExponent>(
         pauli *= Phase::from_exponent(3u8.wrapping_sub(preimage.xz_phase_exponent().raw_value()));
         PauliExponent::new(pauli) * &mut simulation.clifford;
         if let Some(forced) = forced_bit {
+            // Since we have a forced bit, use that as ther result instead of a random one.
+            // To keep the internal state consistent, we also mark this as a random outcome,
+            // incrementing the count as well.
             simulation.outcome_vector.push(forced);
             simulation.random_outcome_indicator.push(true);
             simulation.num_random_bits += 1;
