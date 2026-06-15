@@ -35,7 +35,7 @@
     "@vscode/test-electron": "^2.5.2",
     "3dmol": "^2.5.4",
     "chai": "^6.2.2",
-    "dompurify": "^3.3.3",
+    "dompurify": "^3.4.9",
     "esbuild": "0.28.1",
     "eslint": "^10.2.0",
     "events": "^3.3.0",
