@@ -639,6 +639,19 @@ def compile_stim_to_qir(source: str) -> str:
     """
     ...
 
+def stim_noise_tables(source: str) -> list[tuple[str, int, list[tuple[str, float]]]]:
+    """
+    Extracts the correlated-noise tables from a Stim program.
+
+    Each CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain becomes one table, returned as
+    ``(name, num_qubits, [(pauli_string, probability), ...])``. The name matches the
+    ``correlated_noise_intrinsic_N`` insertion point emitted in the QIR.
+
+    :param source: The Stim source code to analyze.
+    :return: The correlated-noise tables.
+    """
+    ...
+
 def resource_estimate_qasm_program(
     source: str,
     job_params: str,

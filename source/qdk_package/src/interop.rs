@@ -467,8 +467,23 @@ pub(crate) fn compile_qasm_to_qsharp(
 #[pyfunction]
 #[pyo3(signature = (source))]
 pub(crate) fn compile_stim_to_qir(source: &str) -> PyResult<String> {
-    let circuit = parse(source);
-    Ok(compile_to_qir(&circuit))
+    Ok(compile_to_qir(&parse(source)).qir)
+}
+
+/// A correlated-noise table extracted from a Stim program:
+/// `(name, num_qubits, [(pauli_string, probability), ...])`.
+type StimNoiseTable = (String, u32, Vec<(String, f64)>);
+
+/// Extracts the correlated-noise tables from a Stim program, each returned as
+/// `(name, num_qubits, [(pauli_string, probability), ...])`.
+#[pyfunction]
+#[pyo3(signature = (source))]
+pub(crate) fn stim_noise_tables(source: &str) -> Vec<StimNoiseTable> {
+    compile_to_qir(&parse(source))
+        .noise_tables
+        .into_iter()
+        .map(|t| (t.name, t.qubits, t.entries))
+        .collect()
 }
 
 /// Enriches the compilation errors to provide more helpful messages

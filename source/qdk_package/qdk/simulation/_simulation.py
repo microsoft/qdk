@@ -19,6 +19,7 @@ from .._native import (
     try_create_gpu_adapter,
     Result,
     compile_stim_to_qir,
+    stim_noise_tables,
 )
 from pyqir import (
     Function,
@@ -754,4 +755,12 @@ def run_stim(
     type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
 ) -> List:
     qir = compile_stim_to_qir(src)
+    tables = stim_noise_tables(src)
+    if tables:
+        if noise is None:
+            noise = NoiseConfig()
+        for name, num_qubits, entries in tables:
+            table = noise.intrinsic(name, num_qubits)
+            for pauli, probability in entries:
+                table.set_pauli_noise(pauli, probability)
     return run_qir(qir, shots, noise, seed, type)

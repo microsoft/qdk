@@ -9,7 +9,7 @@ fn main() {
     let circuit = parse(&stim_code);
     let qir = compile_to_qir(&circuit);
 
-    fs::write("examples/example.qir", &qir).expect("Failed to write examples/example.qir");
+    fs::write("examples/example.qir", &qir.qir).expect("Failed to write examples/example.qir");
 
     println!("Wrote examples/example.qir");
 }

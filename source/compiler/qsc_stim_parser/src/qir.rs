@@ -4,6 +4,17 @@ use crate::parser::*;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
 
+pub struct NoiseTable {
+    pub name: String,
+    pub qubits: u32,
+    pub entries: Vec<(String, f64)>, // (pauli_string, probability)
+}
+
+pub struct StimCompilationResult {
+    pub qir: String,
+    pub noise_tables: Vec<NoiseTable>,
+}
+
 #[derive(Clone, Copy)]
 enum Operand {
     /// A qubit operand, carrying the raw Stim qubit index.
@@ -31,12 +42,19 @@ impl QirWriter {
 
     // Writes: `  call void @__quantum__qis__{intrinsic}__body(ptr inttoptr (i64 N to ptr), ...)`
     // Resolves qubit indices via the qubit map and allocates result IDs internally.
-    fn write_call(&mut self, intrinsic: &str, operands: &[Operand]) {
-        write!(
-            self.output,
-            "  call void @__quantum__qis__{intrinsic}__body("
-        )
-        .unwrap();
+    // If `attr_group` is provided, appends ` #N` to the declaration.
+    fn write_call(&mut self, intrinsic: &str, operands: &[Operand], attr_group: Option<u32>) {
+        self.write_named_call(
+            &format!("__quantum__qis__{intrinsic}__body"),
+            operands,
+            attr_group,
+        );
+    }
+
+    // Writes: `  call void @{name}(ptr inttoptr (i64 N to ptr), ...)` using the raw function name.
+    // If `attr_group` is provided, appends ` #N` to the declaration.
+    fn write_named_call(&mut self, name: &str, operands: &[Operand], attr_group: Option<u32>) {
+        write!(self.output, "  call void @{name}(").unwrap();
         for (i, &operand) in operands.iter().enumerate() {
             if i > 0 {
                 write!(self.output, ", ").unwrap();
@@ -44,14 +62,14 @@ impl QirWriter {
             self.write_operand(operand);
         }
         writeln!(self.output, ")").unwrap();
-        let name = format!("__quantum__qis__{intrinsic}__body");
         let params = (0..operands.len())
             .map(|_| "ptr")
             .collect::<Vec<_>>()
             .join(", ");
+        let attr_suffix = attr_group.map_or(String::new(), |n| format!(" #{n}"));
         self.used_intrinsics
-            .entry(name.clone())
-            .or_insert_with(|| format!("declare void @{name}({params})"));
+            .entry(name.to_string())
+            .or_insert_with(|| format!("declare void @{name}({params}){attr_suffix}"));
     }
 
     // Resolves an Operand to its QIR ID and writes: `ptr inttoptr (i64 N to ptr)`
@@ -155,6 +173,7 @@ impl QirWriter {
             "attributes #0 = {{ \"entry_point\" \"output_labeling_schema\" \"qir_profiles\"=\"adaptive_profile\" \"required_num_qubits\"=\"{num_qubits}\" \"required_num_results\"=\"{num_results}\" }}"
         ).unwrap();
         writeln!(self.output, "attributes #1 = {{ \"irreversible\" }}").unwrap();
+        writeln!(self.output, "attributes #2 = {{ \"qdk_noise\" }}").unwrap();
         writeln!(self.output).unwrap();
         writeln!(self.output, "; module flags").unwrap();
         writeln!(self.output).unwrap();
@@ -233,6 +252,9 @@ struct Compiler {
     writer: QirWriter,
     last_preselect_begin: Option<u32>,
     num_preselect_expects: u32,
+    noise_tables: Vec<NoiseTable>,
+    // Buffered CORRELATED_ERROR / ELSE_CORRELATED_ERROR chain: (probability, [(pauli, qubit)]).
+    pending_correlated: Vec<(f64, Vec<(char, u32)>)>,
 }
 
 impl Compiler {
@@ -241,6 +263,8 @@ impl Compiler {
             writer: QirWriter::new(),
             last_preselect_begin: None,
             num_preselect_expects: 0,
+            noise_tables: Vec::new(),
+            pending_correlated: Vec::new(),
         }
     }
 
@@ -276,6 +300,10 @@ impl Compiler {
     }
 
     fn compile_instruction(&mut self, instruction: &Instruction) {
+        // A pending CORRELATED_ERROR chain ends as soon as a non-chain instruction begins.
+        if !Self::is_correlated_error(&instruction.name) {
+            self.flush_correlated_error();
+        }
         match Self::instruction_kind(&instruction.name) {
             InstructionKind::PauliGate => {
                 self.compile_pauli_gate(instruction);
@@ -316,7 +344,8 @@ impl Compiler {
             let TargetKind::Qubit { value, .. } = target.kind else {
                 continue;
             };
-            self.writer.write_call(&gate, &[Operand::Qubit(value)]);
+            self.writer
+                .write_call(&gate, &[Operand::Qubit(value)], None);
         }
     }
 
@@ -327,7 +356,8 @@ impl Compiler {
                 let TargetKind::Qubit { value, .. } = target.kind else {
                     continue;
                 };
-                self.writer.write_call(&gate, &[Operand::Qubit(value)]);
+                self.writer
+                    .write_call(&gate, &[Operand::Qubit(value)], None);
             }
         } else if gate == "sqrt_x" {
             // decomposed into H S H
@@ -336,9 +366,9 @@ impl Compiler {
                     continue;
                 };
                 let q = Operand::Qubit(value);
-                self.writer.write_call("h", &[q]);
-                self.writer.write_call("s", &[q]);
-                self.writer.write_call("h", &[q]);
+                self.writer.write_call("h", &[q], None);
+                self.writer.write_call("s", &[q], None);
+                self.writer.write_call("h", &[q], None);
             }
         }
     }
@@ -355,12 +385,83 @@ impl Compiler {
                     continue;
                 };
                 self.writer
-                    .write_call(&gate, &[Operand::Qubit(v0), Operand::Qubit(v1)]);
+                    .write_call(&gate, &[Operand::Qubit(v0), Operand::Qubit(v1)], None);
             }
         }
     }
 
-    fn compile_noise_channel(&mut self, _instruction: &Instruction) {}
+    fn compile_noise_channel(&mut self, instruction: &Instruction) {
+        if !Self::is_correlated_error(&instruction.name) {
+            return;
+        }
+        // A new CORRELATED_ERROR (alias E) starts a fresh chain; flush the previous one.
+        if instruction.name != "ELSE_CORRELATED_ERROR" {
+            self.flush_correlated_error();
+        }
+        let probability = instruction.args.first().copied().unwrap_or(0.0);
+        let paulis = instruction
+            .targets
+            .iter()
+            .filter_map(|t| match &t.kind {
+                TargetKind::Pauli { pauli, value, .. } => {
+                    let c = match pauli {
+                        Pauli::X => 'X',
+                        Pauli::Y => 'Y',
+                        Pauli::Z => 'Z',
+                    };
+                    Some((c, *value))
+                }
+                _ => None,
+            })
+            .collect();
+        self.pending_correlated.push((probability, paulis));
+    }
+
+    fn is_correlated_error(name: &str) -> bool {
+        matches!(name, "CORRELATED_ERROR" | "E" | "ELSE_CORRELATED_ERROR")
+    }
+
+    // Emits the buffered CORRELATED_ERROR chain as a `correlated_noise_intrinsic_N` call
+    // (a `qdk_noise` insertion point) plus a noise table mapping Pauli strings to probabilities.
+    fn flush_correlated_error(&mut self) {
+        if self.pending_correlated.is_empty() {
+            return;
+        }
+        let chain = std::mem::take(&mut self.pending_correlated);
+
+        // The qubits touched by the chain, sorted and deduplicated, define the intrinsic's
+        // qubit arguments and the position of each qubit in the Pauli strings.
+        let mut qubits: Vec<u32> = chain
+            .iter()
+            .flat_map(|(_, paulis)| paulis.iter().map(|(_, q)| *q))
+            .collect();
+        qubits.sort_unstable();
+        qubits.dedup();
+
+        let entries = chain
+            .iter()
+            .map(|(probability, paulis)| {
+                let mut pauli_string = vec![b'I'; qubits.len()];
+                for (pauli, q) in paulis {
+                    let pos = qubits.iter().position(|x| x == q).expect("qubit in chain");
+                    pauli_string[pos] = *pauli as u8;
+                }
+                (
+                    String::from_utf8(pauli_string).expect("ascii pauli string"),
+                    *probability,
+                )
+            })
+            .collect();
+
+        let name = format!("correlated_noise_intrinsic_{}", self.noise_tables.len() + 1);
+        let operands: Vec<Operand> = qubits.iter().map(|&q| Operand::Qubit(q)).collect();
+        self.writer.write_named_call(&name, &operands, Some(2));
+        self.noise_tables.push(NoiseTable {
+            name,
+            qubits: qubits.len() as u32,
+            entries,
+        });
+    }
 
     fn compile_collapsing_gate(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
@@ -369,15 +470,19 @@ impl Compiler {
                 let TargetKind::Qubit { value, .. } = target.kind else {
                     continue;
                 };
-                self.writer.write_call("reset", &[Operand::Qubit(value)]);
+                self.writer
+                    .write_call("reset", &[Operand::Qubit(value)], Some(1));
             }
         } else if gate == "mr" {
             for target in &instruction.targets {
                 let TargetKind::Qubit { value, .. } = target.kind else {
                     continue;
                 };
-                self.writer
-                    .write_call("mresetz", &[Operand::Qubit(value), Operand::Result]);
+                self.writer.write_call(
+                    "mresetz",
+                    &[Operand::Qubit(value), Operand::Result],
+                    Some(1),
+                );
             }
         } else if gate == "mrx" {
             // decomposed into H MRZ H
@@ -386,9 +491,10 @@ impl Compiler {
                     continue;
                 };
                 let q = Operand::Qubit(value);
-                self.writer.write_call("h", &[q]);
-                self.writer.write_call("mresetz", &[q, Operand::Result]);
-                self.writer.write_call("h", &[q]);
+                self.writer.write_call("h", &[q], None);
+                self.writer
+                    .write_call("mresetz", &[q, Operand::Result], Some(1));
+                self.writer.write_call("h", &[q], None);
             }
         }
     }
@@ -511,14 +617,18 @@ impl Compiler {
         }
     }
 
-    fn into_qir(mut self, circuit: &Circuit) -> String {
+    fn into_qir(mut self, circuit: &Circuit) -> StimCompilationResult {
         self.writer.write_header();
         self.compile_circuit(circuit);
+        self.flush_correlated_error();
         self.writer.write_footer();
-        self.writer.output
+        StimCompilationResult {
+            qir: self.writer.output,
+            noise_tables: self.noise_tables,
+        }
     }
 }
 
-pub fn compile_to_qir(circuit: &Circuit) -> String {
+pub fn compile_to_qir(circuit: &Circuit) -> StimCompilationResult {
     Compiler::new().into_qir(circuit)
 }
