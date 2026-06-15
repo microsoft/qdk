@@ -108,7 +108,7 @@ export class Cplx {
   }
 
   isUnit(): boolean {
-    return Math.abs(this.mag() - 1.0) < epsilon;
+    return compare(this.mag(), 1.0);
   }
 
   norm(): Cplx {

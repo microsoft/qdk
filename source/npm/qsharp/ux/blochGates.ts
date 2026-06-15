@@ -42,10 +42,7 @@ export function sanitizeGateSequence(input: string | undefined | null): {
   for (const ch of input) {
     if (validGateSet.has(ch)) filtered += ch;
   }
-  const capped =
-    filtered.length > MAX_GATE_SEQUENCE_LENGTH
-      ? filtered.slice(0, MAX_GATE_SEQUENCE_LENGTH)
-      : filtered;
+  const capped = filtered.slice(0, MAX_GATE_SEQUENCE_LENGTH);
   return {
     gates: capped,
     modified: capped.length !== input.length,
