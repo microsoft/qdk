@@ -1,3 +1,4 @@
+use qdk_simulators::noise_config::NoiseConfig;
 use qsc_stim_parser::parser::parse;
 use qsc_stim_parser::qir::compile_to_qir;
 use std::fs;
@@ -7,7 +8,8 @@ fn main() {
         fs::read_to_string("examples/example.stim").expect("Failed to read examples/example.stim");
 
     let circuit = parse(&stim_code);
-    let qir = compile_to_qir(&circuit);
+    let mut noise = NoiseConfig::<f64, f64>::NOISELESS;
+    let qir = compile_to_qir(&circuit, &mut noise);
 
     fs::write("examples/example.qir", &qir).expect("Failed to write examples/example.qir");
 

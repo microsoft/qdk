@@ -71,6 +71,7 @@ fn write_target(out: &mut impl Write, target: &Target) {
             };
             write!(out, "{}{}", p, value).unwrap();
         }
+        TargetKind::Loss { value } => write!(out, "L{}", value).unwrap(),
         TargetKind::Combiner => write!(out, "*").unwrap(),
     }
 }

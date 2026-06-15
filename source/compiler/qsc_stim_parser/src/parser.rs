@@ -66,6 +66,9 @@ pub enum TargetKind {
         pauli: Pauli,
         value: u32,
     },
+    Loss {
+        value: u32,
+    },
     Combiner,
 }
 
@@ -282,7 +285,10 @@ impl<'a> Parser<'a> {
             | TokenKind::Star => true,
             TokenKind::InstructionName => {
                 let text = self.extract_string(*token, None);
-                text.starts_with('X') || text.starts_with('Y') || text.starts_with('Z') // STARTS WITH PAULI
+                text.starts_with('X')
+                    || text.starts_with('Y')
+                    || text.starts_with('Z') // STARTS WITH PAULI
+                    || text.starts_with('L') // OR LOSS
             }
             _ => false,
         }
@@ -306,29 +312,37 @@ impl<'a> Parser<'a> {
                     value: self.extract_uint(first_token, None),
                 },
             },
-            TokenKind::InstructionName => Target {
-                span,
-                kind: TargetKind::Pauli {
-                    negated,
-                    pauli: self
-                        .extract_string(
-                            first_token,
-                            Some(Span {
-                                lo: span.lo,
-                                hi: span.lo + 1,
-                            }),
-                        )
-                        .parse::<Pauli>()
-                        .unwrap(),
-                    value: self.extract_uint(
-                        first_token,
-                        Some(Span {
-                            lo: span.lo + 1,
-                            hi: span.hi,
-                        }),
-                    ),
-                },
-            }, // Already validated
+            TokenKind::InstructionName => {
+                let head = self.extract_string(
+                    first_token,
+                    Some(Span {
+                        lo: span.lo,
+                        hi: span.lo + 1,
+                    }),
+                );
+                let value = self.extract_uint(
+                    first_token,
+                    Some(Span {
+                        lo: span.lo + 1,
+                        hi: span.hi,
+                    }),
+                );
+                if head == "L" {
+                    Target {
+                        span,
+                        kind: TargetKind::Loss { value },
+                    }
+                } else {
+                    Target {
+                        span,
+                        kind: TargetKind::Pauli {
+                            negated,
+                            pauli: head.parse::<Pauli>().unwrap(),
+                            value,
+                        },
+                    }
+                }
+            } // Already validated
             TokenKind::Rec => Target {
                 span,
                 kind: TargetKind::MeasurementRecord {

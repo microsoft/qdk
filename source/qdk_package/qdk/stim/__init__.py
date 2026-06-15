@@ -1,10 +1,10 @@
 from ..simulation import run_qir
-from .._native import NoiseConfig, compile_stim
+from .._native import NoiseConfig, compile_stim_to_qir
 from typing import Literal, Optional, Tuple
 
 
 def compile(src: str, noise: Optional[NoiseConfig]) -> Tuple[str, NoiseConfig]:
-    return compile_stim(src, noise)
+    return compile_stim_to_qir(src, noise)
 
 
 def run(
