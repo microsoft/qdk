@@ -17,7 +17,7 @@ from utils import (
     SKIP_REASON,
 )
 
-TARGET_PROFILE = TargetProfile.Adaptive_RIFLA
+TARGET_PROFILE = TargetProfile.Adaptive
 
 
 # This function is used to generate the expected output files for the tests
@@ -30,7 +30,7 @@ def generate_test_outputs():
 
 @pytest.mark.parametrize("file_path", get_input_files(TARGET_PROFILE))
 @pytest.mark.skipif(not QIR_RUNNER_AVAILABLE, reason=SKIP_REASON)
-def test_adaptive_rifla_qir(file_path: str) -> None:
+def test_adaptive_qir(file_path: str) -> None:
     source = read_file(file_path, TARGET_PROFILE)
     ll_file_path = get_output_ll_file(file_path, TARGET_PROFILE)
     expected_qir = read_file(ll_file_path, TARGET_PROFILE)
@@ -40,7 +40,7 @@ def test_adaptive_rifla_qir(file_path: str) -> None:
 
 @pytest.mark.parametrize("file_path", get_input_files(TARGET_PROFILE))
 @pytest.mark.skipif(not QIR_RUNNER_AVAILABLE, reason=SKIP_REASON)
-def test_adaptive_rifla_output(file_path: str) -> None:
+def test_adaptive_output(file_path: str) -> None:
     source = read_file(file_path, TARGET_PROFILE)
     qir = compile_qsharp(source, TARGET_PROFILE)
     output_file_path = get_output_out_file(file_path, TARGET_PROFILE)
