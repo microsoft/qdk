@@ -106,6 +106,18 @@ pre:has(code) {
   margin-top: 32px;
 }
 
+/* The Bloch sphere view occupies the whole content area (both the editor
+   and results columns) rather than the single editor column it would
+   otherwise auto-place into, so the sphere can stretch horizontally and
+   the history pane can sit at the right edge of the viewport. */
+.bloch-view {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+}
+
 .file-name {
   border: 1px solid var(--border-color);
   border-bottom: 0px;

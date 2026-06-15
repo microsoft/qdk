@@ -1,16 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-/* Future enhancements (tracked in BLOCH_TODO.md alongside the
-   ship-readiness work): an undo/step-back button, a slider to scrub
-   through gate history, equator / Bloch-angle overlays, and synthesis
-   of arbitrary points from H/T gates. The math for converting basis
-   coefficients (a, b) to a Bloch-sphere point is:
+/* The math for converting basis coefficients (a, b) to a Bloch-sphere
+   point is:
      theta = 2 * acos(magnitude(a))
      phi   = arg(b) - arg(a), normalized to [0, 2 * PI)
 */
 
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { ComponentChildren } from "preact";
 
 import {
   BoxGeometry,
@@ -270,6 +268,12 @@ function createLabels(isDark: boolean): Sprite[] {
 // who want the original snappy 100ms-per-gate feel can dial it up to
 // ~3.3x.
 const DEFAULT_ROTATION_TIME_MS = 333;
+
+// Markdown for the initial |0> state shown as the first history row. Kept
+// as a module constant so the history list and the hidden width-probe
+// (see `widthProbe`) render exactly the same source.
+const INITIAL_KET_MARKDOWN =
+  "$$ | \\psi \\rangle_0 = \\begin{bmatrix} 1 \\\\ 0 \\end{bmatrix} $$";
 
 class BlochRenderer {
   scene: Scene;
@@ -708,6 +712,23 @@ class BlochRenderer {
     this.renderer.render(this.scene, this.camera);
   }
 
+  // Resize the WebGL drawing buffer to match the on-screen size of the
+  // canvas's container. Passing `false` as the third arg to `setSize`
+  // tells three.js to update the backing buffer only and leave the
+  // canvas's CSS size alone, so the element keeps stretching to fill its
+  // flex cell while the render resolution tracks the actual pixels. The
+  // perspective camera's aspect ratio is updated to match so the sphere
+  // stays round at any container shape.
+  resize(width: number, height: number) {
+    const w = Math.max(1, Math.floor(width));
+    const h = Math.max(1, Math.floor(height));
+    this.renderer.setPixelRatio(window.devicePixelRatio || 1);
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.render();
+  }
+
   setTheme(isDark: boolean) {
     if (this.isDark === isDark) return;
     this.isDark = isDark;
@@ -802,10 +823,20 @@ export interface BlochSphereProps {
    * of single-character gate codes applied so far. Parents can use this to
    * keep a URL or other external state in sync. */
   onGatesChanged?: (gates: string) => void;
+  /** Optional host-supplied control rendered just after the Run button in
+   * the gate-editor row. The playground uses this to place its
+   * "share link" button alongside Run rather than floating it over the
+   * widget. */
+  actionSlot?: ComponentChildren;
 }
 
 export function BlochSphere(props: BlochSphereProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Wrapper around the canvas whose size the WebGL buffer tracks. The
+  // canvas itself stretches to fill this element via CSS; we observe the
+  // wrapper (not the canvas) so the ResizeObserver reports the intended
+  // layout size rather than the size three.js just wrote to the canvas.
+  const stageRef = useRef<HTMLDivElement>(null);
   const renderer = useRef<BlochRenderer | null>(null);
   // Scrollable container holding the history rows. We keep a ref so we
   // can pull the currently-active row into view whenever the cursor
@@ -890,6 +921,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // the same way applying a new gate does.
   const [draft, setDraft] = useState<string | null>(null);
   const displayValue = draft ?? gates.join("");
+
+  // Measured natural width (px) of the widest piece of history content,
+  // used to size the history pane so it grows horizontally to fit the
+  // wide `gate . |psi> = result` equations instead of clipping them or
+  // showing a horizontal scrollbar. Null until first measurement.
+  const [historyContentWidth, setHistoryContentWidth] = useState<number | null>(
+    null,
+  );
   const hasUnsavedDraft = draft !== null && draft !== gates.join("");
   // Sanitized draft drives what commit() would actually apply, and also
   // what the char-count readout shows. Computed eagerly so the readout
@@ -959,7 +998,22 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const themeCleanup = detectThemeChange(document.body, (isDark) => {
       r.setTheme(isDark);
     });
+    // Keep the WebGL drawing buffer in sync with the on-screen size of the
+    // stage. Observing the wrapper element lets the widget fill whatever
+    // host it sits in (a full VS Code editor tab, a playground pane, or an
+    // inline Jupyter output) and stay sharp on high-DPI displays.
+    let resizeObserver: ResizeObserver | undefined;
+    const stage = stageRef.current;
+    if (stage) {
+      r.resize(stage.clientWidth, stage.clientHeight);
+      resizeObserver = new ResizeObserver((entries) => {
+        const rect = entries[0]?.contentRect;
+        if (rect) r.resize(rect.width, rect.height);
+      });
+      resizeObserver.observe(stage);
+    }
     return () => {
+      resizeObserver?.disconnect();
       themeCleanup();
       r.dispose();
       renderer.current = null;
@@ -984,6 +1038,55 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       return latex;
     });
   }, [gates]);
+
+  // Measure the natural width of the history content and drive the pane
+  // width from it. The visible content lives in an absolutely-positioned
+  // inner layer (so a long history can't grow the grid's rows -- see
+  // `.qs-bloch-history` in the CSS), which means it no longer contributes
+  // its width to the `auto` grid column either; the column would collapse
+  // to the pane's `min-width`. So we measure the widest rendered row here
+  // and feed it back as an explicit column width (via the
+  // `--qs-history-width` custom property), letting the pane grow
+  // horizontally in both hosts without a horizontal scrollbar.
+  //
+  // The equation rows live inside the scroll container, which clips its
+  // overflow -- so we can't read their width from the inner layer's
+  // `scrollWidth`. Instead we measure each row's own `scrollWidth` (the
+  // rows are typeset `white-space: nowrap`, so each one's width is its
+  // intrinsic content width, independent of the pane width) and add the
+  // actual rendered scrollbar gutter so the vertical scrollbar never eats
+  // into a row. Because row widths don't depend on the pane width, the
+  // result is a stable fixed point with no layout feedback loop. We round
+  // up and only update on a real change to avoid sub-pixel thrashing.
+  const PANE_MIN_WIDTH = 300;
+  useEffect(() => {
+    const list = historyScrollRef.current;
+    if (!list) return;
+    const measure = () => {
+      let widestRow = 0;
+      for (const row of Array.from(list.children)) {
+        widestRow = Math.max(widestRow, (row as HTMLElement).scrollWidth);
+      }
+      // Width consumed by the (possibly absent) vertical scrollbar, so a
+      // long history doesn't clip the right edge of the widest row.
+      const scrollbar = list.offsetWidth - list.clientWidth;
+      // +2 for the pane's 1px left/right border.
+      const next = Math.max(
+        PANE_MIN_WIDTH,
+        Math.ceil(widestRow + scrollbar + 2),
+      );
+      setHistoryContentWidth((prev) =>
+        prev !== null && Math.abs(prev - next) <= 1 ? prev : next,
+      );
+    };
+    measure();
+    // Re-measure when fonts finish loading or the host font size changes,
+    // since either can change the typeset width after first paint.
+    const ro = new ResizeObserver(measure);
+    ro.observe(list);
+    for (const row of Array.from(list.children)) ro.observe(row);
+    return () => ro.disconnect();
+  }, [historyEntries]);
 
   // Keep the currently-active history row in view as `cursor` advances
   // (most visibly during playback). We scroll the history container
@@ -1411,43 +1514,57 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   return (
-    <div class="qs-bloch" style="position: relative;">
-      <canvas ref={canvasRef} width="600" height="600"></canvas>
-      <div class="qs-bloch-coords" aria-hidden="true">
-        <span>
-          <span class="qs-bloch-coords-greek">θ</span>
-          {" = "}
-          {((blochAngles.theta * 180) / Math.PI).toFixed(1)}°
-        </span>
-        <span>
-          <span class="qs-bloch-coords-greek">φ</span>
-          {" = "}
-          {blochAngles.polar
-            ? "n/a"
-            : `${((blochAngles.phi * 180) / Math.PI).toFixed(1)}\u00b0`}
-        </span>
-      </div>
-      <div
-        class="qs-bloch-history"
-        style="font-size: 0.8em; position: absolute; left: 600px; top: 50px; height: 700px; min-width: 220px; display: flex; flex-direction: column;"
-      >
-        <div class="qs-bloch-history-title">
-          <span>History</span>
-          {gates.length > 0 && (
-            <span
-              class="qs-bloch-history-step-counter"
-              aria-live="polite"
-              title={
-                inInspectMode
-                  ? "Viewing an earlier step. Apply a gate to discard later steps."
-                  : "Current step / total steps"
-              }
-            >
-              Step {cursor} / {gates.length}
-            </span>
-          )}
+    <div
+      class="qs-bloch"
+      style={
+        // Drive the history column's width from the measured content
+        // width (see the `historyContentWidth` effect). Exposed as a CSS
+        // custom property the grid template consumes, so the single-column
+        // media query can simply ignore it. Unset until first measurement,
+        // when the column falls back to its default floor.
+        historyContentWidth !== null
+          ? ({
+              "--qs-history-width": `${historyContentWidth}px`,
+            } as Record<string, string>)
+          : undefined
+      }
+    >
+      <div class="qs-bloch-stage" ref={stageRef}>
+        <canvas ref={canvasRef}></canvas>
+        <div class="qs-bloch-coords" aria-hidden="true">
+          <span>
+            <span class="qs-bloch-coords-greek">θ</span>
+            {" = "}
+            {((blochAngles.theta * 180) / Math.PI).toFixed(1)}°
+          </span>
+          <span>
+            <span class="qs-bloch-coords-greek">φ</span>
+            {" = "}
+            {blochAngles.polar
+              ? "n/a"
+              : `${((blochAngles.phi * 180) / Math.PI).toFixed(1)}\u00b0`}
+          </span>
         </div>
-        {/*
+      </div>
+      <div class="qs-bloch-history" style="font-size: 0.9em;">
+        <div class="qs-bloch-history-inner">
+          <div class="qs-bloch-history-title">
+            <span>History</span>
+            {gates.length > 0 && (
+              <span
+                class="qs-bloch-history-step-counter"
+                aria-live="polite"
+                title={
+                  inInspectMode
+                    ? "Viewing an earlier step. Apply a gate to discard later steps."
+                    : "Current step / total steps"
+                }
+              >
+                Step {cursor} / {gates.length}
+              </span>
+            )}
+          </div>
+          {/*
           Media-player-style transport controls. Layout left-to-right:
           jump-to-start, step-back, play/pause/replay, step-forward,
           jump-to-end. Step/jump buttons are seek-only (no animation) so
@@ -1456,131 +1573,132 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           glyphs so the bar reads as the standard transport control even
           without color or icons.
         */}
-        <div class="qs-bloch-media-controls" role="group" aria-label="Playback">
-          <button
-            type="button"
-            onClick={jumpToStart}
-            disabled={!canStepBack}
-            title="Jump to start"
-            aria-label="Jump to start"
+          <div
+            class="qs-bloch-media-controls"
+            role="group"
+            aria-label="Playback"
           >
-            ⏮
-          </button>
-          <button
-            type="button"
-            onClick={stepBack}
-            disabled={!canStepBack}
-            title="Step back"
-            aria-label="Step back"
-          >
-            ⏪
-          </button>
-          {isPlaying ? (
             <button
               type="button"
-              onClick={pause}
-              title="Pause"
-              aria-label="Pause"
+              onClick={jumpToStart}
+              disabled={!canStepBack}
+              title="Jump to start"
+              aria-label="Jump to start"
             >
-              ⏸
+              ⏮
             </button>
-          ) : (
             <button
               type="button"
-              onClick={play}
-              disabled={!canPlay}
-              title={atEnd ? "Replay from start" : "Play from here"}
-              aria-label={atEnd ? "Replay from start" : "Play"}
+              onClick={stepBack}
+              disabled={!canStepBack}
+              title="Step back"
+              aria-label="Step back"
             >
-              {/* Show the circular-arrow "replay" glyph when the cursor
+              ⏪
+            </button>
+            {isPlaying ? (
+              <button
+                type="button"
+                onClick={pause}
+                title="Pause"
+                aria-label="Pause"
+              >
+                ⏸
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={play}
+                disabled={!canPlay}
+                title={atEnd ? "Replay from start" : "Play from here"}
+                aria-label={atEnd ? "Replay from start" : "Play"}
+              >
+                {/* Show the circular-arrow "replay" glyph when the cursor
                   is at the end of the sequence, so users see at a glance
                   that clicking will rewind first. Otherwise show the
                   standard play triangle. */}
-              {atEnd ? "\u21BB" : "\u23F5"}
+                {atEnd ? "\u21BB" : "\u23F5"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={stepForward}
+              disabled={!canStepForward}
+              title="Step forward"
+              aria-label="Step forward"
+            >
+              ⏩
             </button>
-          )}
-          <button
-            type="button"
-            onClick={stepForward}
-            disabled={!canStepForward}
-            title="Step forward"
-            aria-label="Step forward"
-          >
-            ⏩
-          </button>
-          <button
-            type="button"
-            onClick={jumpToEnd}
-            disabled={!canStepForward}
-            title="Jump to end"
-            aria-label="Jump to end"
-          >
-            ⏭
-          </button>
-        </div>
-        {/*
+            <button
+              type="button"
+              onClick={jumpToEnd}
+              disabled={!canStepForward}
+              title="Jump to end"
+              aria-label="Jump to end"
+            >
+              ⏭
+            </button>
+          </div>
+          {/*
           Speed slider. Lives directly below the transport bar so the two
           playback controls read as one cluster. Slider value IS the
           speed multiplier (higher = faster) which matches the natural
           mental model; the renderer translates it back to milliseconds.
         */}
-        <div class="qs-bloch-speed-control">
-          <label for="qs-bloch-speed-slider">Speed</label>
-          <input
-            id="qs-bloch-speed-slider"
-            type="range"
-            min="0.25"
-            max="4"
-            step="0.05"
-            value={speed}
-            onInput={speedChange}
-            aria-label="Animation speed"
-          />
-          <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
-        </div>
-        <div
-          ref={historyScrollRef}
-          style="overflow-y: auto; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;"
-        >
-          <div
-            class={
-              "qs-bloch-history-item" +
-              (cursor === 0 ? " qs-bloch-history-item-current" : "") +
-              (historyEntries.length === 0
-                ? " qs-bloch-history-item-latest"
-                : "")
-            }
-            title="Initial state |0⟩"
-            onClick={() => navigateTo(0)}
-          >
-            <Markdown
-              markdown={
-                "$$ | \\psi \\rangle_0 = \\begin{bmatrix} 1 \\\\ 0 \\end{bmatrix} $$"
-              }
-            ></Markdown>
+          <div class="qs-bloch-speed-control">
+            <label for="qs-bloch-speed-slider">Speed</label>
+            <input
+              id="qs-bloch-speed-slider"
+              type="range"
+              min="0.25"
+              max="4"
+              step="0.05"
+              value={speed}
+              onInput={speedChange}
+              aria-label="Animation speed"
+            />
+            <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
           </div>
-          {historyEntries.map((str, i) => {
-            const stepIndex = i + 1;
-            const classes = ["qs-bloch-history-item"];
-            if (stepIndex === cursor)
-              classes.push("qs-bloch-history-item-current");
-            if (stepIndex > cursor)
-              classes.push("qs-bloch-history-item-future");
-            // Pin the bottom-most row so the latest step stays visible
-            // when the rest of the history scrolls. See the CSS rule
-            // for `.qs-bloch-history-item-latest` for the mechanics.
-            if (i === historyEntries.length - 1)
-              classes.push("qs-bloch-history-item-latest");
-            return (
-              <div
-                class={classes.join(" ")}
-                title={`Go to step ${stepIndex}`}
-                onClick={() => navigateTo(stepIndex)}
-              >
-                <Markdown markdown={str}></Markdown>
-              </div>
-            );
-          })}
+          <div
+            ref={historyScrollRef}
+            style="overflow-y: auto; overflow-x: hidden; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;"
+          >
+            <div
+              class={
+                "qs-bloch-history-item" +
+                (cursor === 0 ? " qs-bloch-history-item-current" : "") +
+                (historyEntries.length === 0
+                  ? " qs-bloch-history-item-latest"
+                  : "")
+              }
+              title="Initial state |0⟩"
+              onClick={() => navigateTo(0)}
+            >
+              <Markdown markdown={INITIAL_KET_MARKDOWN}></Markdown>
+            </div>
+            {historyEntries.map((str, i) => {
+              const stepIndex = i + 1;
+              const classes = ["qs-bloch-history-item"];
+              if (stepIndex === cursor)
+                classes.push("qs-bloch-history-item-current");
+              if (stepIndex > cursor)
+                classes.push("qs-bloch-history-item-future");
+              // Pin the bottom-most row so the latest step stays visible
+              // when the rest of the history scrolls. See the CSS rule
+              // for `.qs-bloch-history-item-latest` for the mechanics.
+              if (i === historyEntries.length - 1)
+                classes.push("qs-bloch-history-item-latest");
+              return (
+                <div
+                  class={classes.join(" ")}
+                  title={`Go to step ${stepIndex}`}
+                  onClick={() => navigateTo(stepIndex)}
+                >
+                  <Markdown markdown={str}></Markdown>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
       <div class="qs-gate-buttons">
@@ -1712,6 +1830,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           >
             Run
           </button>
+          {props.actionSlot}
         </div>
         {/*
           Gate-count breakdown for the sanitized draft. Shows one
@@ -1801,7 +1920,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           </span>
         </div>
       </div>
-      <div style="margin-top: 8px">
+      <div class="qs-bloch-rz">
         <input
           aria-label="Rz"
           type="range"

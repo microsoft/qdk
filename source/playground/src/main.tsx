@@ -314,29 +314,31 @@ function App(props: {
           languageService={languageService}
         ></Katas>
       ) : currentNavItem === "bloch" ? (
-        <div style="position: relative;">
-          <svg
-            onClick={onShareBlochLink}
-            width="24px"
-            height="24px"
-            viewBox="0 0 24 24"
-            fill="none"
-            style="position: absolute; top: 8px; right: 8px; cursor: pointer; z-index: 1;"
-          >
-            <title>Get a link to the Bloch sphere view</title>
-            <path
-              d="M14 12C14 14.2091 12.2091 16 10 16H6C3.79086 16 2 14.2091 2 12C2 9.79086 3.79086 8 6 8H8M10 12C10 9.79086 11.7909 8 14 8H18C20.2091 8 22 9.79086 22 12C22 14.2091 20.2091 16 18 16H16"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+        <div class="bloch-view">
           <BlochSphere
             initialGates={initialBlochGates}
             onGatesChanged={(gates) => {
               blochGatesRef.current = gates;
             }}
+            actionSlot={
+              <svg
+                onClick={onShareBlochLink}
+                width="24px"
+                height="24px"
+                viewBox="0 0 24 24"
+                fill="none"
+                style="cursor: pointer; vertical-align: middle;"
+              >
+                <title>Get a link to the Bloch sphere view</title>
+                <path
+                  d="M14 12C14 14.2091 12.2091 16 10 16H6C3.79086 16 2 14.2091 2 12C2 9.79086 3.79086 8 6 8H8M10 12C10 9.79086 11.7909 8 14 8H18C20.2091 8 22 9.79086 22 12C22 14.2091 20.2091 16 18 16H16"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            }
           />
         </div>
       ) : (

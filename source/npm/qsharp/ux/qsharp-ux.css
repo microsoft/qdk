@@ -606,15 +606,118 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 }
 /* End Bloch themed form controls */
 
+/* Bloch sphere widget root. A two-column grid: the 3D stage and the
+   control rows (gate buttons, gate editor, Rz slider) stack in the
+   flexible left column, while the history pane spans the full height of
+   the fixed-width right column on the right edge of the host. The widget
+   takes the full width available but keeps a bounded height so the
+   sphere stays readable instead of stretching to fill tall hosts. */
+.qs-bloch {
+  display: grid;
+  /* The history column's width is driven by JS: bloch.tsx measures the
+     widest history row and publishes it as `--qs-history-width` so the
+     pane grows horizontally to fit the wide `gate . |psi> = result`
+     equations. It falls back to a sensible floor before the first
+     measurement. The sphere column keeps a 280px floor so a wide history
+     can't crush it. (The single-column media query below ignores the
+     custom property entirely.) */
+  grid-template-columns: minmax(280px, 1fr) var(--qs-history-width, 300px);
+  /* First row is pinned to the bounded sphere height. Pinning the TRACK
+     (not just the stage element) is what keeps the history pane from
+     growing: an `auto` track would stretch to fit the tallest item, so a
+     long gate list would drag the pane taller. With a fixed-height track,
+     both the stage and the history pane are clamped to it and the
+     history list scrolls internally instead. */
+  grid-template-rows: min(60vh, 600px) auto auto auto;
+  column-gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* The 3D canvas lives in the top-left cell and fills the pinned row.
+   `position: relative` anchors the theta/phi overlay; `min-width: 0`
+   lets the cell shrink within its grid track instead of being forced to
+   the canvas's intrinsic size. */
+.qs-bloch-stage {
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.qs-bloch-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.qs-gate-buttons,
+.qs-bloch-gate-editor,
+.qs-bloch-rz {
+  grid-column: 1;
+}
+.qs-bloch-rz {
+  margin-top: 8px;
+}
+
+/* On narrow hosts (split editor, small Jupyter outputs) the two-column
+   layout gets cramped, so collapse to a single column with the history
+   pane below the sphere. */
+@media (max-width: 720px) {
+  .qs-bloch {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto auto;
+  }
+  .qs-bloch-history {
+    grid-column: 1;
+    grid-row: auto;
+    /* The inner content is absolutely positioned, so the pane no longer
+       derives its height from the step list. Give it an explicit height
+       in the stacked layout so it has a box for the inner list to fill
+       and scroll within. */
+    height: 40vh;
+  }
+}
+
 /* Bloch sphere widget: the gate-history pane sitting to the right of the
    3D canvas. Uses the shared QDK theme tokens so the pane swaps colors
    along with VS Code / playground theme changes. The 3D canvas itself
    (sphere material, axis labels) is themed imperatively from bloch.tsx
    since it's drawn via WebGL. */
 .qs-bloch-history {
+  grid-column: 2;
+  /* Span every row so the pane is flush with the bottom of the widget,
+     level with the gate controls and Rz slider below the sphere. Row 1
+     is a fixed track and rows 2-4 are sized by the left-column controls.
+
+     Crucially, the pane's *content* must not feed back into the size of
+     the spanned auto rows. A grid item spanning auto tracks contributes
+     its intrinsic height to those tracks, so a long history list would
+     grow rows 2-4 -- and with no height cap on the host (VS Code mounts
+     the widget straight into `document.body`, unlike the playground's
+     bounded grid cell) it grows without bound. We break that feedback by
+     positioning the inner content absolutely (see `.qs-bloch-history-inner`):
+     the only in-flow child then contributes zero height, so the pane is
+     sized purely by the surrounding grid, and the inner list scrolls. */
+  position: relative;
+  grid-row: 1 / -1;
+  min-height: 0;
+  overflow: hidden;
   background: var(--qdk-background-accent);
   color: var(--qdk-host-foreground);
   border: 1px solid var(--qdk-widget-outline);
+}
+
+/* Absolutely-positioned content layer for the history pane. Filling the
+   pane via `inset: 0` makes it match the grid-resolved pane height while
+   contributing nothing to the grid's own track sizing (see the note on
+   `.qs-bloch-history`). The flex column lays out the title, transport
+   controls, speed slider, and the scrolling step list within it. */
+.qs-bloch-history-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Overlay in the top-left corner of the sphere canvas showing the
