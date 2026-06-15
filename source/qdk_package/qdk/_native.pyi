@@ -119,7 +119,7 @@ class TargetProfile(Enum):
 
     Adaptive: TargetProfile
     """
-    Target supports the Adaptive profile with with all extensions.
+    Target supports the Adaptive profile with all supported extensions.
 
     This profile includes all required Adaptive Profile features and
     all the optional extensions defined by the QIR specification.
