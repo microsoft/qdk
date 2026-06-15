@@ -891,6 +891,21 @@ class _ProvenanceGraph:
         """
         ...
 
+    def pareto_nodes(self, instruction_id: int) -> Optional[list[int]]:
+        """
+        Return the Pareto-optimal node indices for a given instruction ID.
+
+        Requires ``build_pareto_index`` to have been called.
+
+        Args:
+            instruction_id (int): The instruction ID to look up.
+
+        Returns:
+            Optional[list[int]]: The Pareto-optimal node indices, or
+                None if the instruction ID has no entries.
+        """
+        ...
+
     def total_isa_count(self) -> int:
         """
         Return the total number of ISAs that can be formed from Pareto-optimal
@@ -1382,6 +1397,16 @@ class Trace:
         """
         ...
 
+    @property
+    def gate_counts(self) -> dict[int, int]:
+        """
+        The counts of each gate ID in the trace.
+
+        Returns:
+            dict[int, int]: A dictionary mapping gate IDs to their counts.
+        """
+        ...
+
     def estimate(
         self, isa: ISA, max_error: Optional[float] = None
     ) -> Optional[EstimationResult]:
@@ -1511,6 +1536,16 @@ class PSSPC:
 
 class LatticeSurgery:
     def __new__(cls, slow_down_factor: float) -> LatticeSurgery: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class DynamicMemoryCompute:
+    def __new__(
+        cls, compute_capacity_percentage: float, eviction_strategy: int
+    ) -> DynamicMemoryCompute: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class Unmemory:
+    def __new__(cls) -> Unmemory: ...
     def transform(self, trace: Trace) -> Optional[Trace]: ...
 
 class InstructionFrontier:

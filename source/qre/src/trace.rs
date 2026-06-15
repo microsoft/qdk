@@ -27,7 +27,10 @@ use instruction_ids::instruction_name;
 mod tests;
 
 mod transforms;
-pub use transforms::{LatticeSurgery, PSSPC, TraceTransform};
+pub use transforms::{
+    ComputeCapacity, DynamicMemoryCompute, EvictionStrategy, LatticeSurgery, PSSPC, TraceTransform,
+    Unmemory,
+};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Trace {
@@ -225,6 +228,15 @@ impl Trace {
     #[must_use]
     pub fn num_gates(&self) -> u64 {
         self.deep_iter().map(|(_, m)| m).sum()
+    }
+
+    #[must_use]
+    pub fn gate_counts(&self) -> FxHashMap<u64, u64> {
+        let mut counts = FxHashMap::default();
+        for (gate, mult) in self.deep_iter() {
+            *counts.entry(gate.id).or_default() += mult;
+        }
+        counts
     }
 
     pub fn runtime(&self, locked: &LockedISA) -> Result<u64, Error> {
