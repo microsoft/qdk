@@ -629,13 +629,16 @@ def compile_qasm_to_qsharp(
     """
     ...
 
-def compile_stim_to_qir(source: str) -> str:
+def compile_stim_to_qir(
+    source: str, noise: Optional[NoiseConfig]
+) -> Tuple[str, NoiseConfig]:
     """
     Converts a Stim program to QIR.
 
     :param source: The Stim source code to convert.
-    :return: The converted QIR code as a string.
-    :rtype: str
+    :param noise: The noise configuration to use.
+    :return: The converted QIR code as a string and the noise configuration.
+    :rtype: Tuple[str, NoiseConfig]
     """
     ...
 

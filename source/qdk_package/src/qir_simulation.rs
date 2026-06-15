@@ -240,7 +240,7 @@ fn generic_float_cast<T: Float, Q: Float>(value: T) -> Q {
     num_traits::NumCast::from(value).expect("casting f64 to f32 should succeed")
 }
 
-fn bind_noise_config<T: Float, Q: Float>(
+pub(crate) fn bind_noise_config<T: Float, Q: Float>(
     py: Python,
     value: &qdk_simulators::noise_config::NoiseConfig<T, Q>,
 ) -> PyResult<NoiseConfig> {
