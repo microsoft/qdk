@@ -320,7 +320,7 @@ function LessonExample({
       {content.contentBefore && <Markdown markdown={content.contentBefore} />}
       {content.filePath && (
         <FilePathNote
-          message="This example should be open in the editor to the right. If it’s not visible,"
+          message="This example should be open in the editor. If it’s not visible,"
           linkText="open it here"
           filePath={content.filePath}
         />
@@ -341,7 +341,7 @@ function Exercise({
       {content.description && <Markdown markdown={content.description} />}
       {content.filePath && (
         <FilePathNote
-          message="Your code file should be open in the editor to the right. If it’s not visible,"
+          message="Your code file should be open in the editor. If it’s not visible,"
           linkText="open it here"
           filePath={content.filePath}
         />

@@ -41,6 +41,10 @@ export class LessonPanelManager {
   private ready = false;
   private queuedMessages: unknown[] = [];
   private disposables: vscode.Disposable[] = [];
+  /** Remembered editor column + layout from the last time a managed tab was open. */
+  private savedEditorState:
+    | { viewColumn: vscode.ViewColumn; layout: unknown }
+    | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -207,20 +211,22 @@ export class LessonPanelManager {
     }
     const fileUri = this.service.getCurrentCodeFileUri();
 
+    // Before closing stale tabs, snapshot the current layout and the view
+    // column of any managed editor so we can restore it later — even if
+    // intermediate lessons have no code file.
+    const column = this.findManagedEditorColumn();
+    if (column) {
+      const layout = await vscode.commands.executeCommand(
+        "vscode.getEditorLayout",
+      );
+      this.savedEditorState = { viewColumn: column, layout };
+    }
+
     // Close stale editor tabs that don't match the current file.
     await this.closeStaleEditorTabs(fileUri);
 
     if (fileUri) {
-      // Set a left/right two-column layout so the lesson panel stays in the
-      // first editor group and the code file opens beside it in the second.
-      await vscode.commands.executeCommand("vscode.setEditorLayout", {
-        orientation: 0,
-        groups: [{ size: 0.4 }, { size: 0.6 }],
-      });
-      await vscode.commands.executeCommand("vscode.open", fileUri, {
-        viewColumn: vscode.ViewColumn.Two,
-        preview: false,
-      } satisfies vscode.TextDocumentShowOptions);
+      await this.showFileInEditor(fileUri);
     }
   }
 
@@ -249,6 +255,51 @@ export class LessonPanelManager {
     if (staleTabs.length > 0) {
       await vscode.window.tabGroups.close(staleTabs);
     }
+  }
+
+  /**
+   * Find the view column of any open editor tab whose URI falls under
+   * the learning content root, or `undefined` if none is open.
+   */
+  private findManagedEditorColumn(): vscode.ViewColumn | undefined {
+    const rootStr = this.service.learningContentRoot.toString();
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (
+          tab.input instanceof vscode.TabInputText &&
+          tab.input.uri.toString().startsWith(rootStr)
+        ) {
+          return group.viewColumn;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  private async showFileInEditor(fileUri: vscode.Uri): Promise<void> {
+    let viewColumn = this.findManagedEditorColumn();
+    if (!viewColumn) {
+      if (this.savedEditorState) {
+        // Restore the layout the user had when a managed editor was last open.
+        await vscode.commands.executeCommand(
+          "vscode.setEditorLayout",
+          this.savedEditorState.layout,
+        );
+        viewColumn = this.savedEditorState.viewColumn;
+      } else {
+        // First time — set a default two-column layout.
+        await vscode.commands.executeCommand("vscode.setEditorLayout", {
+          orientation: 0,
+          groups: [{ size: 0.4 }, { size: 0.6 }],
+        });
+        viewColumn = vscode.ViewColumn.Two;
+      }
+    }
+
+    await vscode.commands.executeCommand("vscode.open", fileUri, {
+      viewColumn,
+      preview: false,
+    } satisfies vscode.TextDocumentShowOptions);
   }
 
   private sendResult<Action extends ResultAction>(
@@ -284,10 +335,7 @@ export class LessonPanelManager {
 
     if (msg.command === "openFile") {
       const uri = vscode.Uri.parse(msg.uri);
-      await vscode.commands.executeCommand("vscode.open", uri, {
-        viewColumn: vscode.ViewColumn.Two,
-        preview: false,
-      } satisfies vscode.TextDocumentShowOptions);
+      await this.showFileInEditor(uri);
       return;
     }
 
@@ -424,4 +472,23 @@ export class LessonPanelManager {
     });
     return result.passed;
   }
+}
+
+/**
+ * Find the tab whose document matches {@link uri} and return its view column,
+ * or `undefined` if the file is not open in any tab.
+ */
+function findViewColumnForUri(uri: vscode.Uri): vscode.ViewColumn | undefined {
+  const uriStr = uri.toString();
+  for (const group of vscode.window.tabGroups.all) {
+    for (const tab of group.tabs) {
+      if (
+        tab.input instanceof vscode.TabInputText &&
+        tab.input.uri.toString() === uriStr
+      ) {
+        return group.viewColumn;
+      }
+    }
+  }
+  return undefined;
 }
