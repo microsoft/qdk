@@ -49,7 +49,7 @@ pub(super) struct Error(ErrorKind);
 
 /// Simplified type info for error reporting. Same shape as `Ty`, but without `Rc`
 /// so it can be included in `ErrorKind` (which must be `Send + Sync`).
-#[derive(Clone, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum TyInfo {
     Array(Box<TyInfo>),
     Arrow,
