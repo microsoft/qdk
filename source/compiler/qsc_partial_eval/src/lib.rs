@@ -2419,7 +2419,7 @@ impl<'a> PartialEvaluator<'a> {
             .contains(TargetCapabilityFlags::BackwardsBranching)
             && self.is_variable_expr(condition_expr_id)
         {
-            // If backwards branching is supported and the loop condition is not static,
+            // If backwards branching is supported and the loop condition is a variable,
             // we can generate a while loop structure in RIR without unrolling the loop.
             return self.eval_expr_emit_while(loop_expr_id, condition_expr_id, body_block_id);
         }
