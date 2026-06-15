@@ -1457,7 +1457,7 @@
         ],
         "toolReferenceName": "qdkLearningSolution",
         "displayName": "QDK Learning: Solution",
-        "modelDescription": "Return the full reference solution code for the current exercise. Only valid on exercises.",
+        "modelDescription": "Return all reference solutions for the current exercise as an array. Only valid on exercises.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {

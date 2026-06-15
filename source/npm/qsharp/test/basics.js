@@ -480,9 +480,11 @@ test("cancel worker", () => {
       .catch((err) => {
         cancelledArray.push(err);
       });
-    compiler.getHir(code, []).catch((err) => {
-      cancelledArray.push(err);
-    });
+    compiler
+      .getHir({ sources: [["test.qs", code]], languageFeatures: [] })
+      .catch((err) => {
+        cancelledArray.push(err);
+      });
 
     // Ensure those tasks are running/queued before terminating.
     setTimeout(async () => {
@@ -491,7 +493,10 @@ test("cancel worker", () => {
 
       // Start a new compiler and ensure that works fine
       const compiler2 = getCompilerWorker(compilerWorkerPath);
-      const result = await compiler2.getHir(code, []);
+      const result = await compiler2.getHir({
+        sources: [["test.qs", code]],
+        languageFeatures: [],
+      });
       compiler2.terminate();
 
       // getHir should have worked

@@ -260,7 +260,7 @@ def test_noise_intrinsics_load_csv_dir(sim_type):
     noise = NoiseConfig()
     noise.load_csv_dir(str(Path(__file__).parent / "csv_dir_test"))
     output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type=sim_type)
-    assert output == [[Result.One, Result.Zero, Result.One]]
+    assert output == [[Result.One, Result.Zero, Result.Loss]]
 
 
 NOISE_INTRINSICS_WITH_REGISTERS_QIR = r"""

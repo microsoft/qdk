@@ -60,6 +60,8 @@ export interface ExerciseContent {
   /** URI string for the user's .qs solution file */
   filePath: string;
   isComplete: boolean;
+  /** True when multiple reference solutions exist for this exercise. */
+  hasMultipleSolutions: boolean;
 }
 
 // ─── Actions ───
@@ -232,8 +234,8 @@ export interface CatalogExercise {
   sourceIds: string[];
   /** Author-written pedagogical hints. */
   hints: string[];
-  /** Reference solution code. */
-  solutionCode: string;
+  /** Reference solution code (one per @[solution] block in the content). */
+  solutionCodes: string[];
   /** Prose explanation of the solution (markdown). */
   solutionExplanation: string;
 }
