@@ -750,6 +750,24 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-family: var(--vscode-font-family, serif);
 }
 
+/* Overlay in the top-right corner of the sphere canvas showing the
+   current state-vector amplitudes (the |psi> ket). Mirrors
+   `.qs-bloch-coords` on the opposite corner: it floats above the WebGL
+   canvas, is non-interactive so OrbitControls still receives drags, and
+   right-aligns so the ket stays pinned to the corner as its width
+   changes between steps. */
+.qs-bloch-state {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  pointer-events: none;
+  color: var(--qdk-host-foreground);
+  font-size: 1.05em;
+  opacity: 0.9;
+  text-align: right;
+  user-select: none;
+}
+
 /* Sticky title bar at the top of the history pane. Stays visible while
    the user scrolls through a long sequence so they always know which
    pane they're in. The step counter sits on the right and only renders

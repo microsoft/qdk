@@ -1175,6 +1175,18 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     return { theta, phi, polar };
   }, [gates, cursor]);
 
+  // Current state-vector amplitudes at the cursor, as a column-vector
+  // ket. Walks the same matrix product as the history list but stops at
+  // the cursor, so the overlay always shows the state the sphere is
+  // currently displaying. Rendered in the top-right corner of the stage.
+  const currentStateLatex = useMemo(() => {
+    let state: Vec2 = Ket0;
+    for (let i = 0; i < cursor; i++) {
+      state = gateInfo[gates[i]].matrix.mulVec2(state);
+    }
+    return `$$ | \\psi \\rangle = ${state.toLaTeX()} $$`;
+  }, [gates, cursor]);
+
   const inInspectMode = cursor < gates.length;
   const canUndo = !inInspectMode && cursor > 0 && !isPlaying;
   const canRedo = !inInspectMode && redoStack.length > 0 && !isPlaying;
@@ -1429,6 +1441,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setRedoStack([]);
     // Reset means "go back to a blank program"; the draft should match.
     setDraft(null);
+    // Also return the Rz slider to its zero position so the control
+    // reflects the cleared state rather than a stale angle.
+    setRzAngle(0);
     renderer.current?.reset();
     props.onGatesChanged?.("");
   }
@@ -1504,12 +1519,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function sliderChange(e: Event) {
     const slider = e.target as HTMLInputElement;
     const angleIdx = Math.round(parseFloat(slider.value) * 200) % 1256;
-    // Push the Rz decomposition into the live gate-string textbox as
-    // a draft. The user can review it, edit it, and press Run/Enter to
-    // replace gates and replay. We don't apply it directly because the
-    // textbox is now the authoritative "program" input -- having the
-    // slider rewrite `gates` silently would be confusing.
-    setDraft(rzOps[angleIdx]);
+    // The slider performs an Rz *from the current state*: it appends the
+    // Rz decomposition to the committed gate sequence rather than
+    // replacing it. We rebuild the draft as `committed gates + Rz` from
+    // the committed `gates` on every change, so dragging the slider keeps
+    // swapping its own contribution in place instead of accumulating
+    // multiple Rz blocks. The user can still review/edit the result and
+    // press Run/Enter to commit and replay.
+    setDraft(gates.join("") + rzOps[angleIdx]);
     setRzAngle(parseFloat(slider.value));
   }
 
@@ -1535,15 +1552,16 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           <span>
             <span class="qs-bloch-coords-greek">θ</span>
             {" = "}
-            {((blochAngles.theta * 180) / Math.PI).toFixed(1)}°
+            {blochAngles.theta.toFixed(2)} rad
           </span>
           <span>
             <span class="qs-bloch-coords-greek">φ</span>
             {" = "}
-            {blochAngles.polar
-              ? "n/a"
-              : `${((blochAngles.phi * 180) / Math.PI).toFixed(1)}\u00b0`}
+            {blochAngles.polar ? "n/a" : `${blochAngles.phi.toFixed(2)} rad`}
           </span>
+        </div>
+        <div class="qs-bloch-state" aria-hidden="true">
+          <Markdown markdown={currentStateLatex}></Markdown>
         </div>
       </div>
       <div class="qs-bloch-history" style="font-size: 0.9em;">
@@ -1931,7 +1949,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           onInput={sliderChange}
         />
         <span style="margin: 0 12px; font-style: italic; font-size: 1.2em;">
-          Rz({rzAngle})
+          Rz({rzAngle.toFixed(2)} rad)
         </span>
       </div>
     </div>
