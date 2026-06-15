@@ -1004,3 +1004,35 @@ fn test_length_with_embedded_qubit_operations() {
             Return"#]],
     );
 }
+
+#[test]
+fn test_length_and_isempty_as_loop_conditions() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+        r#"
+        operation Main() : Unit {
+            use qs = Qubit[3];
+            while Length(qs) == 0 { X(qs[0]); }
+            while Std.Arrays.IsEmpty(qs) { X(qs[0]); }
+        }
+        "#,
+        },
+        Profile::AdaptiveRIFLA.into(),
+    );
+
+    // Expect to see the iteration variables from qubit allocation,
+    // but no calls to X because the loops are never entered.
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Variable(0, Integer) = Store Integer(1)
+                Variable(0, Integer) = Store Integer(2)
+                Variable(0, Integer) = Store Integer(3)
+                Call id(2), args( Integer(0), Tag(0, 3), )
+                Return"#]],
+    );
+}
