@@ -69,7 +69,10 @@ fn assert_ratio(results: &[Vec<u32>], expected: &[u32], expected_ratio: f64, tol
 fn two_measurements() {
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),
-        Op::new_loss_noise(0, 0.333),
+        // 33% chance the qubit is lost after the X gate, sampled by the noise op
+        // and committed by the following loss-commit op.
+        Op::new_pauli_noise_1q_with_loss(0, 0.0, 0.0, 0.0, 0.333),
+        Op::new_loss_commit(0),
         // Should be 33% chance of lost, 66% chance of 1
 
         // If not using the noise model processing, need to turn pauli on measurement into Id with noise then mesurement
@@ -178,9 +181,11 @@ fn gates_on_lost_qubits() {
 
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),
-        Op::new_loss_noise(0, 0.1),
+        Op::new_pauli_noise_1q_with_loss(0, 0.0, 0.0, 0.0, 0.1),
+        Op::new_loss_commit(0),
         Op::new_x_gate(1),
-        Op::new_loss_noise(1, 0.1),
+        Op::new_pauli_noise_1q_with_loss(1, 0.0, 0.0, 0.0, 0.1),
+        Op::new_loss_commit(1),
         Op::new_cx_gate(0, 1),
         Op::new_rx_gate(angle, 2),
         Op::new_rx_gate(angle, 2),
@@ -732,7 +737,9 @@ fn repeated_noise() {
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
     noise.x.pauli_strings.push(encode_pauli("X"));
     noise.x.probabilities.push(0.001);
-    noise.x.loss = 0.001;
+
+    noise.x.pauli_strings.push(encode_pauli("L"));
+    noise.x.probabilities.push(0.001);
 
     let start = Instant::now();
     // Run for 20,000 shots
@@ -827,7 +834,9 @@ fn noise_config() {
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
     noise.x.pauli_strings.push(encode_pauli("X"));
     noise.x.probabilities.push(0.5);
-    noise.x.loss = 0.333_333;
+
+    noise.x.pauli_strings.push(encode_pauli("L"));
+    noise.x.probabilities.push(0.333_333);
 
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),

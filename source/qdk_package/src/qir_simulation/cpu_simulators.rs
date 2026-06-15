@@ -53,7 +53,6 @@ pub fn run_cpu_full_state<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
-    use qdk_simulators::cpu_full_state_simulator::noise::Fault;
     if noise_config.is_some() {
         let make_simulator = |num_qubits, num_results, seed, noise| {
             NoisySimulator::new(num_qubits as usize, num_results as usize, seed, noise)
@@ -69,10 +68,9 @@ pub fn run_cpu_full_state<'py>(
             make_simulator,
         )
     } else {
-        let make_simulator =
-            |num_qubits, num_results, seed, _noise: Arc<CumulativeNoiseConfig<Fault>>| {
-                NoiselessSimulator::new(num_qubits as usize, num_results as usize, seed, ())
-            };
+        let make_simulator = |num_qubits, num_results, seed, _noise: Arc<CumulativeNoiseConfig>| {
+            NoiselessSimulator::new(num_qubits as usize, num_results as usize, seed, ())
+        };
         py_run(
             py,
             input,
@@ -270,8 +268,6 @@ pub fn run_cpu_adaptive<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
-    use qdk_simulators::cpu_full_state_simulator::noise::Fault;
-
     let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
 
     let noise: noise_config::NoiseConfig<f64, f64> = if let Some(nc) = noise_config {
@@ -281,16 +277,14 @@ pub fn run_cpu_adaptive<'py>(
     };
 
     let output = if noise_config.is_some() {
-        let make_simulator =
-            |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig<Fault>>| {
-                NoisySimulator::new(num_qubits, num_results, seed, noise)
-            };
+        let make_simulator = |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig>| {
+            NoisySimulator::new(num_qubits, num_results, seed, noise)
+        };
         run_adaptive(&program, shots, seed, noise, make_simulator)
     } else {
-        let make_simulator =
-            |num_qubits, num_results, seed, _noise: Arc<CumulativeNoiseConfig<Fault>>| {
-                NoiselessSimulator::new(num_qubits, num_results, seed, ())
-            };
+        let make_simulator = |num_qubits, num_results, seed, _noise: Arc<CumulativeNoiseConfig>| {
+            NoiselessSimulator::new(num_qubits, num_results, seed, ())
+        };
         run_adaptive(&program, shots, seed, noise, make_simulator)
     };
 
@@ -317,8 +311,6 @@ pub fn run_clifford_adaptive<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
-    use qdk_simulators::stabilizer_simulator::noise::Fault;
-
     let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
 
     let noise: noise_config::NoiseConfig<f64, f64> = if let Some(nc) = noise_config {
@@ -327,10 +319,9 @@ pub fn run_clifford_adaptive<'py>(
         noise_config::NoiseConfig::NOISELESS
     };
 
-    let make_simulator =
-        |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig<Fault>>| {
-            StabilizerSimulator::new(num_qubits, num_results, seed, noise)
-        };
+    let make_simulator = |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig>| {
+        StabilizerSimulator::new(num_qubits, num_results, seed, noise)
+    };
     let output = run_adaptive(&program, shots, seed, noise, make_simulator);
 
     let mut array = Vec::with_capacity(shots as usize);

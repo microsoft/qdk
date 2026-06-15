@@ -997,6 +997,61 @@ impl Interpreter {
         })
     }
 
+    /// Performs RIR codegen using the given entry expression on a new instance of the environment
+    /// and simulator but using the current compilation. Returns the raw and SSA forms of the RIR
+    /// as strings.
+    pub fn get_rir(&mut self, expr: &str) -> std::result::Result<Vec<String>, Vec<Error>> {
+        if self.capabilities == TargetCapabilityFlags::all() {
+            return Err(vec![Error::UnsupportedRuntimeCapabilities]);
+        }
+
+        // Compile the expression. This operation will set the expression as
+        // the entry-point in the FIR store.
+        let (graph, compute_properties) = self.compile_entry_expr(expr)?;
+
+        let Some(compute_properties) = compute_properties else {
+            // This can only happen if capability analysis was not run. This would be a bug
+            // and we are in a bad state and can't proceed.
+            panic!("internal error: compute properties not set after lowering entry expression");
+        };
+        let package = self.fir_store.get(self.package);
+        let entry = ProgramEntry {
+            exec_graph: graph,
+            expr: (
+                self.package,
+                package
+                    .entry
+                    .expect("package must have an entry expression"),
+            )
+                .into(),
+        };
+        let (raw, ssa) = fir_to_rir(
+            &self.fir_store,
+            self.capabilities,
+            Some(compute_properties),
+            &entry,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+            },
+        )
+        .map_err(|e| {
+            let hir_package_id = match e.span() {
+                Some(span) => span.package,
+                None => map_fir_package_to_hir(self.package),
+            };
+            let source_package = self
+                .compiler
+                .package_store()
+                .get(hir_package_id)
+                .expect("package should exist in the package store");
+            vec![Error::PartialEvaluation(WithSource::from_map(
+                &source_package.sources,
+                e,
+            ))]
+        })?;
+        Ok(vec![raw.to_string(), ssa.to_string()])
+    }
+
     /// Performs QIR codegen using the given callable with the given arguments on a new instance of the environment
     /// and simulator but using the current compilation.
     pub fn qirgen_from_callable(

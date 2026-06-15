@@ -70,7 +70,7 @@ def trace_from_cirq(
     circuit: cirq.CIRCUIT_LIKE,
     *,
     classical_control_probability: float = 0.5,
-    rotation_threshold: float = 1e-6,
+    rotation_threshold: float = 1e-12,
     track_memory_qubits: bool = True,
 ) -> Trace:
     """Convert a Cirq circuit into a resource estimation Trace.
@@ -88,7 +88,7 @@ def trace_from_cirq(
             this threshold are treated as identity and omitted from the
             trace. This applies to single-qubit rotations (RX, RY, RZ) as
             well as to the rotation components of controlled-Z
-            decompositions. Defaults to 1e-6.
+            decompositions. Defaults to 1e-12.
         track_memory_qubits (bool): When True, memory qubits are tracked
             separately from compute qubits. When False, all qubits are treated
             as compute qubits. Also, if True, read-from-memory and
@@ -621,7 +621,7 @@ class _TypedQubitManager(cirq.GreedyQubitManager):
         """Allocates single qubit."""
         return TypedQubit(super()._allocate_qid(name, dim), self.qubit_type)
 
-    def qalloc(self, n: int, dim: int) -> list[cirq.Qid]:
+    def qalloc(self, n: int, dim: int = 2) -> list[cirq.Qid]:
         """Allocate ``n`` qubits and update the usage counters."""
         qs = super().qalloc(n, dim)
         self.current_in_use += len(qs)
@@ -666,7 +666,7 @@ class PeakUsageGreedyQubitManager(cirq.QubitManager):
         }
 
     def qalloc(
-        self, n: int, dim: int, qubit_type: QubitType = QubitType.COMPUTE
+        self, n: int, dim: int = 2, qubit_type: QubitType = QubitType.COMPUTE
     ) -> list[cirq.Qid]:
         """Allocate ``n`` qubits and update the usage counters.
 

@@ -252,14 +252,14 @@ export class LearningTools {
   }
 
   /**
-   * Show the full reference solution code.
+   * Show the reference solution code(s).
    */
-  async solution(): Promise<{ result: string } & StateSnapshot> {
+  async solution(): Promise<{ solutions: string[] } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
-      const result = this.service.getFullSolution("chat");
+      const solutions = this.service.getAllSolutions("chat");
       await this.showActivity();
-      return { result, state: this.serializeState() };
+      return { solutions, state: this.serializeState() };
     });
   }
 

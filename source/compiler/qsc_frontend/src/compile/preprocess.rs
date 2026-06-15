@@ -56,6 +56,7 @@ pub(crate) struct Conditional {
     capabilities: TargetCapabilityFlags,
     dropped_names: Vec<TrackedName>,
     included_names: Vec<TrackedName>,
+    dropped_spans: Vec<Span>,
 }
 
 impl Conditional {
@@ -64,7 +65,15 @@ impl Conditional {
             capabilities,
             dropped_names: Vec::new(),
             included_names: Vec::new(),
+            dropped_spans: Vec::new(),
         }
+    }
+
+    /// Takes the spans of any items that were dropped from the compilation
+    /// because they did not match the current target capabilities. These are
+    /// reported to the editor so that the excluded code can be greyed out.
+    pub(crate) fn take_dropped_spans(&mut self) -> Vec<Span> {
+        std::mem::take(&mut self.dropped_spans)
     }
 
     pub(crate) fn into_names(self) -> Vec<TrackedName> {
@@ -97,6 +106,7 @@ impl MutVisitor for Conditional {
                     }
                     Some(item.clone())
                 } else {
+                    self.dropped_spans.push(item.span);
                     match item.kind.as_ref() {
                         ItemKind::Callable(callable) => {
                             self.dropped_names.push(TrackedName {
@@ -134,6 +144,7 @@ impl MutVisitor for Conditional {
                     _ => {}
                 }
             } else {
+                self.dropped_spans.push(item.span);
                 match item.kind.as_ref() {
                     ItemKind::Callable(callable) => {
                         self.dropped_names.push(TrackedName {

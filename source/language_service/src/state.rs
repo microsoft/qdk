@@ -4,7 +4,8 @@
 #[cfg(test)]
 mod tests;
 
-use crate::protocol::{DocumentStatusDiagnostic, TestCallable};
+use crate::protocol::{DocumentStatusDiagnostic, TestCallable, UnnecessaryCodeDiagnostic};
+use crate::qsc_utils::into_range;
 
 use super::compilation::Compilation;
 use super::protocol::{
@@ -492,6 +493,14 @@ impl<'a> CompilationStateUpdater<'a> {
                     &compilation.0.project_errors,
                 );
 
+                // Report any code that was excluded from the compilation (e.g. via
+                // `@Config` attributes) so the editor can grey it out.
+                add_unnecessary_code_diagnostics(
+                    &compilation.0,
+                    self.position_encoding,
+                    &mut compilation_diags_by_doc,
+                );
+
                 if self.configuration.dev_diagnostics {
                     // Add the document status diagnostic for all open documents too
                     for (uri, open_document) in &state.open_documents {
@@ -718,6 +727,28 @@ fn map_errors_to_docs(
     }
 
     map
+}
+
+/// Adds hint-level diagnostics for any items that were excluded from the
+/// compilation because their `@Config` attributes did not match the current
+/// target profile. These carry the `Unnecessary` diagnostic tag so editors
+/// can display the excluded code as greyed out.
+fn add_unnecessary_code_diagnostics(
+    compilation: &Compilation,
+    encoding: Encoding,
+    map: &mut FxHashMap<Arc<str>, Vec<ErrorKind>>,
+) {
+    let unit = compilation.user_unit();
+    let source_map = &unit.sources;
+    for &span in &unit.dropped_spans {
+        let source = source_map
+            .find_by_offset(span.lo)
+            .expect("dropped span should resolve to a source");
+        let range = into_range(encoding, span, source_map);
+        map.entry(source.name.clone())
+            .or_default()
+            .push(ErrorKind::Unnecessary(UnnecessaryCodeDiagnostic { range }));
+    }
 }
 
 /// Merges workspace configuration with any compilation-specific overrides.
