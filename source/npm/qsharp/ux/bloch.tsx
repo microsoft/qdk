@@ -366,6 +366,13 @@ class BlochRenderer {
     // Create a group to hold the qubit
     const qubit = new Group();
 
+    // The sphere itself (and its wireframe) stay fixed in the scene: a
+    // gate rotates only the qubit's *state*, not the reference frame, so
+    // the Bloch axes and sphere surface must not spin. Only the position
+    // marker below lives in the rotating `qubit` group; the sphere and
+    // wireframe are parented to a separate, non-rotating group instead.
+    const sphereFrame = new Group();
+
     // Add the main sphere
     const sphereGeometry = new SphereGeometry(5, 32, 16);
     const material = new MeshLambertMaterial({
@@ -376,9 +383,11 @@ class BlochRenderer {
     });
     this.sphereMaterial = material;
     const sphere = new Mesh(sphereGeometry, material);
-    qubit.add(sphere);
+    sphereFrame.add(sphere);
 
-    // Add the 'spin' direction marker
+    // Add the 'spin' direction marker. This is the only part of the qubit
+    // group that should move when a gate is applied -- it tracks the
+    // current state vector across the (fixed) sphere surface.
     const coneGeometry = new ConeGeometry(0.2, 0.75, 32);
     const coneMat = new MeshBasicMaterial({ color: palette.markerColor });
     this.markerMaterial = coneMat;
@@ -396,7 +405,8 @@ class BlochRenderer {
     materialProps.opacity = palette.sphereLinesOpacity;
     materialProps.transparent = true;
     this.sphereLineMaterial = materialProps;
-    qubit.add(sphereLines);
+    sphereFrame.add(sphereLines);
+    scene.add(sphereFrame);
     scene.add(qubit);
 
     // Create a group to hold the trailing points
