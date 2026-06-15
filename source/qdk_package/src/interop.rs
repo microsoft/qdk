@@ -17,7 +17,7 @@ use crate::interpreter::{
     CircuitConfig, OptionalCallbackReceiver, OutputSemantics, ProgramType, QSharpError, QasmError,
     TargetProfile, format_error, format_errors,
 };
-use crate::qir_simulation::{NoiseConfig, unbind_noise_config};
+use crate::qir_simulation::{NoiseConfig, bind_noise_config, unbind_noise_config};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -35,7 +35,7 @@ use qsc::{Backend, CliffordSim, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
-use qsc_stim_parser::parser::parse;
+use qsc_stim_parser;
 use qsc_stim_parser::qir::compile_to_qir;
 
 use resource_estimator as re;
@@ -465,10 +465,19 @@ pub(crate) fn compile_qasm_to_qsharp(
 }
 
 #[pyfunction]
-#[pyo3(signature = (source))]
-pub(crate) fn compile_stim_to_qir(source: &str) -> PyResult<String> {
-    let circuit = parse(source);
-    Ok(compile_to_qir(&circuit))
+#[pyo3(signature = (source, noise))]
+pub(crate) fn compile_stim_to_qir(
+    py: Python,
+    source: &str,
+    noise: Option<&Bound<NoiseConfig>>,
+) -> PyResult<(String, NoiseConfig)> {
+    let mut noise_config: qdk_simulators::noise_config::NoiseConfig<f64, f64> = noise.map_or(
+        qdk_simulators::noise_config::NoiseConfig::NOISELESS,
+        |noise_config| unbind_noise_config(py, noise_config),
+    );
+
+    let qir = qsc_stim_parser::compile(source, &mut noise_config);
+    Ok((qir, bind_noise_config(py, &noise_config)?))
 }
 
 /// Enriches the compilation errors to provide more helpful messages

@@ -629,7 +629,9 @@ def compile_qasm_to_qsharp(
     """
     ...
 
-def compile_stim_to_qir(source: str) -> str:
+def compile_stim_to_qir(
+    source: str, noise: Optional[NoiseConfig]
+) -> Tuple[str, NoiseConfig]:
     """
     Converts a Stim program to QIR.
 

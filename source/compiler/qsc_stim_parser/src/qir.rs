@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 use crate::parser::*;
+use qdk_simulators::noise_config::NoiseConfig;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
 
@@ -229,18 +230,20 @@ enum InstructionKind {
     CustomInstruction,
 }
 
-struct Compiler {
+struct Compiler<'noise> {
     writer: QirWriter,
     last_preselect_begin: Option<u32>,
     num_preselect_expects: u32,
+    noise: &'noise mut NoiseConfig<f64, f64>,
 }
 
-impl Compiler {
-    fn new() -> Self {
+impl<'noise> Compiler<'noise> {
+    fn new(noise: &'noise mut NoiseConfig<f64, f64>) -> Self {
         Self {
             writer: QirWriter::new(),
             last_preselect_begin: None,
             num_preselect_expects: 0,
+            noise,
         }
     }
 
@@ -519,6 +522,6 @@ impl Compiler {
     }
 }
 
-pub fn compile_to_qir(circuit: &Circuit) -> String {
-    Compiler::new().into_qir(circuit)
+pub fn compile_to_qir(circuit: &Circuit, noise: &mut NoiseConfig<f64, f64>) -> String {
+    Compiler::new(noise).into_qir(circuit)
 }
