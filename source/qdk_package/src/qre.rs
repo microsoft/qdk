@@ -1282,8 +1282,7 @@ impl Trace {
         // `Trace` (and its blocks/operations) will not be dropped while this
         // `TraceWalkIterator` exists.  The struct is marked `unsendable` so it
         // stays on the thread that created it.
-        let walk_iter: qre::WalkIterator<'static> =
-            unsafe { std::mem::transmute(walk_iter) };
+        let walk_iter: qre::WalkIterator<'static> = unsafe { std::mem::transmute(walk_iter) };
         Py::new(
             slf.py(),
             TraceWalkIterator {
