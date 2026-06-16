@@ -34,7 +34,17 @@ impl QirWriter {
         }
     }
 
-    // Writes: `  call void @__quantum__qis__{intrinsic}__body(ptr inttoptr (i64 N to ptr), ...)`
+    /// `__quantum__qis__{intrinsic}__body`
+    fn write_qis_call(&mut self, intrinsic: &str, operands: &[Operand]) {
+        self.write_raw_call(&format!("__quantum__qis__{intrinsic}__body"), operands);
+    }
+
+    /// `__quantum__qis__{intrinsic}__adj`
+    fn write_qis_adj_call(&mut self, intrinsic: &str, operands: &[Operand]) {
+        self.write_raw_call(&format!("__quantum__qis__{intrinsic}__adj"), operands);
+    }
+
+    // Writes: `  call void @{intrinsic}(ptr inttoptr (i64 N to ptr), ...)`
     // Resolves qubit indices via the qubit map and allocates result IDs internally.
     fn write_call(&mut self, intrinsic: &str, operands: &[Operand]) {
         write!(
@@ -55,8 +65,8 @@ impl QirWriter {
             .collect::<Vec<_>>()
             .join(", ");
         self.used_intrinsics
-            .entry(name.clone())
-            .or_insert_with(|| format!("declare void @{name}({params})"));
+            .entry(intrinsic.to_string())
+            .or_insert_with(|| format!("declare void @{intrinsic}({params})"));
     }
 
     fn write_noise_intrinsic(&mut self, name: &str, qubits: &[u32]) {
@@ -388,7 +398,7 @@ impl<'noise> Compiler<'noise> {
             let TargetKind::Qubit { value, .. } = target.kind else {
                 continue;
             };
-            self.writer.write_call(&gate, &[Operand::Qubit(value)]);
+            self.writer.write_qis_call(&gate, &[Operand::Qubit(value)]);
         }
     }
 
@@ -399,7 +409,7 @@ impl<'noise> Compiler<'noise> {
                 let TargetKind::Qubit { value, .. } = target.kind else {
                     continue;
                 };
-                self.writer.write_call(&gate, &[Operand::Qubit(value)]);
+                self.writer.write_qis_call(&gate, &[Operand::Qubit(value)]);
             }
         } else if gate == "sqrt_x" {
             // decomposed into H S H
@@ -606,7 +616,8 @@ impl<'noise> Compiler<'noise> {
                 let TargetKind::Qubit { value, .. } = target.kind else {
                     continue;
                 };
-                self.writer.write_call("reset", &[Operand::Qubit(value)]);
+                self.writer
+                    .write_qis_call("reset", &[Operand::Qubit(value)]);
             }
         } else if gate == "mr" {
             for target in &instruction.targets {
@@ -614,7 +625,7 @@ impl<'noise> Compiler<'noise> {
                     continue;
                 };
                 self.writer
-                    .write_call("mresetz", &[Operand::Qubit(value), Operand::Result]);
+                    .write_qis_call("mresetz", &[Operand::Qubit(value), Operand::Result]);
             }
         } else if gate == "mrx" {
             // decomposed into H MRZ H
@@ -623,9 +634,9 @@ impl<'noise> Compiler<'noise> {
                     continue;
                 };
                 let q = Operand::Qubit(value);
-                self.writer.write_call("h", &[q]);
-                self.writer.write_call("mresetz", &[q, Operand::Result]);
-                self.writer.write_call("h", &[q]);
+                self.writer.write_qis_call("h", &[q]);
+                self.writer.write_qis_call("mresetz", &[q, Operand::Result]);
+                self.writer.write_qis_call("h", &[q]);
             }
         }
     }
