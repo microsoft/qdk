@@ -33,8 +33,9 @@ fn single_arg_qubit_to_qubit_array() {
     let action = &actions[0];
     let edit = action.edit.as_ref().expect("expected edit");
     let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), 1);
-    assert_eq!(text_edits[0].new_text, "[q]");
+    assert_eq!(text_edits.len(), 2);
+    assert_eq!(text_edits[0].new_text, "[");
+    assert_eq!(text_edits[1].new_text, "]");
 }
 
 #[test]
@@ -51,8 +52,9 @@ fn multi_arg_second_param_is_array() {
     let action = &actions[0];
     let edit = action.edit.as_ref().expect("expected edit");
     let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), 1);
-    assert_eq!(text_edits[0].new_text, "[q]");
+    assert_eq!(text_edits.len(), 2);
+    assert_eq!(text_edits[0].new_text, "[");
+    assert_eq!(text_edits[1].new_text, "]");
 }
 
 #[test]

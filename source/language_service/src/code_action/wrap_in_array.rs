@@ -14,13 +14,14 @@ use qsc::{
     compile::{ErrorKind, TyInfo},
     display::Lookup,
     hir::ty::Ty,
-    line_column::{Encoding, Range},
+    line_column::Encoding,
 };
 
 use super::is_error_relevant;
 use crate::{
     compilation::Compilation,
     protocol::{CodeAction, CodeActionKind, TextEdit, WorkspaceEdit},
+    qsc_utils::into_range,
 };
 
 pub(crate) fn wrap_in_array_fixes(
@@ -33,11 +34,7 @@ pub(crate) fn wrap_in_array_fixes(
 
     let unit = compilation.user_unit();
     let package = &unit.ast.package;
-
-    let source = unit
-        .sources
-        .find_by_name(source_name)
-        .expect("source should exist");
+    let source_map = &unit.sources;
 
     let ty_mismatches = compilation
         .compile_errors
@@ -71,17 +68,13 @@ pub(crate) fn wrap_in_array_fixes(
             // Generate the fix: wrap the expression in [...]
             // Note that this depends on the error span excluding surrounding parens
             // so we don't end up with something like `F[(q)]`.
-            let lo = (error_span.lo - source.offset) as usize;
-            let hi = (error_span.hi - source.offset) as usize;
-            let arg_text = &source.contents[lo..hi];
-            let new_text = format!("[{arg_text}]");
             let open_range = into_range(
                 encoding,
                 Span {
                     lo: error_span.lo,
                     hi: error_span.lo,
                 },
-                &unit.sources,
+                source_map,
             );
 
             let close_range = into_range(
@@ -90,7 +83,7 @@ pub(crate) fn wrap_in_array_fixes(
                     lo: error_span.hi,
                     hi: error_span.hi,
                 },
-                &unit.sources,
+                source_map,
             );
 
             code_actions.push(CodeAction {
