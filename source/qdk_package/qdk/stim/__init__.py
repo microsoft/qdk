@@ -3,7 +3,7 @@ from .._native import NoiseConfig, compile_stim_to_qir
 from typing import List, Literal, Optional, Tuple
 
 
-def compile(src: str, noise: Optional[NoiseConfig]) -> Tuple[str, NoiseConfig]:
+def compile(src: str, noise: Optional[NoiseConfig] = None) -> Tuple[str, NoiseConfig]:
     return compile_stim_to_qir(src, noise)
 
 
