@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qdk_simulators::noise_config::NoiseConfig
+use qdk_simulators::noise_config::{NoiseConfig, NoiseTable, encode_pauli};
 
 use crate::parser::*;
 use rustc_hash::FxHashMap;
@@ -20,6 +20,7 @@ struct QirWriter {
     qubit_map: FxHashMap<u32, u32>,
     num_results: u32,
     used_intrinsics: FxHashMap<String, String>,
+    has_noise_intrinsic: bool,
 }
 
 impl QirWriter {
@@ -29,6 +30,7 @@ impl QirWriter {
             qubit_map: FxHashMap::default(),
             num_results: 0,
             used_intrinsics: FxHashMap::default(),
+            has_noise_intrinsic: false,
         }
     }
 
@@ -55,6 +57,28 @@ impl QirWriter {
         self.used_intrinsics
             .entry(name.clone())
             .or_insert_with(|| format!("declare void @{name}({params})"));
+    }
+
+    fn write_noise_intrinsic(&mut self, name: &str, qubits: &[u32]) {
+        write!(self.output, "  call void @{name}(").unwrap();
+        for (i, &qubit) in qubits.iter().enumerate() {
+            if i > 0 {
+                write!(self.output, ", ").unwrap();
+            }
+            // Register the qubit so it is reflected in `required_num_qubits`, but emit
+            // the raw Stim index as the operand.
+            let id = self.map_qubit(qubit);
+            write!(self.output, "ptr inttoptr (i64 {id} to ptr)").unwrap();
+        }
+        writeln!(self.output, ")").unwrap();
+        let params = (0..qubits.len())
+            .map(|_| "ptr")
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.used_intrinsics
+            .entry(name.to_string())
+            .or_insert_with(|| format!("declare void @{name}({params}) #2"));
+        self.has_noise_intrinsic = true;
     }
 
     // Resolves an Operand to its QIR ID and writes: `ptr inttoptr (i64 N to ptr)`
@@ -161,6 +185,10 @@ impl QirWriter {
         writeln!(self.output).unwrap();
         writeln!(self.output, "; module flags").unwrap();
         writeln!(self.output).unwrap();
+        if self.has_noise_intrinsic {
+            writeln!(self.output, "attributes #2 = {{ \"qdk_noise\" }}").unwrap();
+            writeln!(self.output).unwrap();
+        }
         writeln!(
             self.output,
             "!llvm.module.flags = !{{!0, !1, !2, !3, !4, !5, !6, !7}}"
@@ -232,20 +260,55 @@ enum InstructionKind {
     CustomInstruction,
 }
 
+/// A single fault term (`X`, `Y`, `Z`, or `L`) applied to a qubit.
+#[derive(Clone, Copy)]
+enum FaultChar {
+    X,
+    Y,
+    Z,
+    Loss,
+}
+
+impl FaultChar {
+    fn as_char(self) -> char {
+        match self {
+            FaultChar::X => 'X',
+            FaultChar::Y => 'Y',
+            FaultChar::Z => 'Z',
+            FaultChar::Loss => 'L',
+        }
+    }
+}
+
+struct CorrelatedRow {
+    terms: Vec<(u32, FaultChar)>,
+    probability: f64,
+}
+
+/// An accumulating `CORRELATED_ERROR` / `ELSE_CORRELATED_ERROR` group.
+#[derive(Default)]
+struct CorrelatedGroup {
+    rows: Vec<CorrelatedRow>,
+}
+
 struct Compiler<'noise> {
     writer: QirWriter,
     last_preselect_begin: Option<u32>,
     num_preselect_expects: u32,
     noise: &'noise mut NoiseConfig<f64, f64>,
+    current_correlated_group: Option<CorrelatedGroup>,
+    num_noise_intrinsics: u32,
 }
 
-impl Compiler {
-    fn new() -> Self {
+impl<'noise> Compiler<'noise> {
+    fn new(noise: &'noise mut NoiseConfig<f64, f64>) -> Self {
         Self {
             writer: QirWriter::new(),
             last_preselect_begin: None,
             num_preselect_expects: 0,
             noise,
+            current_correlated_group: None,
+            num_noise_intrinsics: 0,
         }
     }
 
@@ -281,6 +344,10 @@ impl Compiler {
     }
 
     fn compile_instruction(&mut self, instruction: &Instruction) {
+        if self.current_correlated_group.is_some() && instruction.name != "ELSE_CORRELATED_ERROR" {
+            self.finish_correlated_group();
+        }
+
         match Self::instruction_kind(&instruction.name) {
             InstructionKind::PauliGate => {
                 self.compile_pauli_gate(instruction);
@@ -365,7 +432,174 @@ impl Compiler {
         }
     }
 
-    fn compile_noise_channel(&mut self, _instruction: &Instruction) {}
+    fn compile_noise_channel(&mut self, instruction: &Instruction) {
+        let gate = instruction.name.to_lowercase();
+        if gate == "correlated_error" || gate == "else_correlated_error" {
+            self.accumulate_correlated_error(instruction);
+        } else if gate == "x_error"
+            || gate == "y_error"
+            || gate == "z_error"
+            || gate == "loss_error"
+        {
+            let fault = match gate.as_str() {
+                "x_error" => FaultChar::X,
+                "y_error" => FaultChar::Y,
+                "z_error" => FaultChar::Z,
+                _ => FaultChar::Loss,
+            };
+            let probability = instruction.args[0];
+            for target in &instruction.targets {
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                self.current_correlated_group
+                    .get_or_insert_with(CorrelatedGroup::default)
+                    .rows
+                    .push(CorrelatedRow {
+                        terms: vec![(value, fault)],
+                        probability,
+                    });
+                self.finish_correlated_group(); // one independent table per qubit
+            }
+        } else if gate == "depolarize1" {
+            let each = instruction.args[0] / 3.0;
+            for target in &instruction.targets {
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                {
+                    let group = self
+                        .current_correlated_group
+                        .get_or_insert_with(CorrelatedGroup::default);
+                    for fault in [FaultChar::X, FaultChar::Y, FaultChar::Z] {
+                        group.rows.push(CorrelatedRow {
+                            terms: vec![(value, fault)],
+                            probability: each,
+                        });
+                    }
+                }
+                self.finish_correlated_group(); // one independent 1-qubit table per target
+            }
+        } else if gate == "depolarize2" {
+            let each = instruction.args[0] / 15.0;
+            for pair in instruction.targets.chunks(2) {
+                let TargetKind::Qubit { value: q0, .. } = pair[0].kind else {
+                    continue;
+                };
+                let TargetKind::Qubit { value: q1, .. } = pair[1].kind else {
+                    continue;
+                };
+                {
+                    let group = self
+                        .current_correlated_group
+                        .get_or_insert_with(CorrelatedGroup::default);
+                    // All 16 (p0, p1) combos except (I, I); None means identity on that qubit.
+                    let options = [
+                        None,
+                        Some(FaultChar::X),
+                        Some(FaultChar::Y),
+                        Some(FaultChar::Z),
+                    ];
+                    for p0 in options {
+                        for p1 in options {
+                            if p0.is_none() && p1.is_none() {
+                                continue; // skip identity
+                            }
+                            let mut terms = Vec::new();
+                            if let Some(f) = p0 {
+                                terms.push((q0, f));
+                            }
+                            if let Some(f) = p1 {
+                                terms.push((q1, f));
+                            }
+                            group.rows.push(CorrelatedRow {
+                                terms,
+                                probability: each,
+                            });
+                        }
+                    }
+                }
+                self.finish_correlated_group(); // one independent 2-qubit table per pair
+            }
+        }
+    }
+
+    fn accumulate_correlated_error(&mut self, instruction: &Instruction) {
+        let probability = instruction.args[0];
+        let mut terms = Vec::new();
+        for target in &instruction.targets {
+            match &target.kind {
+                TargetKind::Pauli { pauli, value, .. } => {
+                    let fault = match pauli {
+                        Pauli::X => FaultChar::X,
+                        Pauli::Y => FaultChar::Y,
+                        Pauli::Z => FaultChar::Z,
+                    };
+                    terms.push((*value, fault));
+                }
+                TargetKind::Loss { value } => {
+                    terms.push((*value, FaultChar::Loss));
+                }
+                _ => {}
+            }
+        }
+
+        self.current_correlated_group
+            .get_or_insert_with(CorrelatedGroup::default)
+            .rows
+            .push(CorrelatedRow { terms, probability })
+    }
+
+    fn finish_correlated_group(&mut self) {
+        let Some(group) = self.current_correlated_group.take() else {
+            return;
+        };
+        if group.rows.is_empty() {
+            return;
+        }
+
+        let id = self.num_noise_intrinsics;
+        self.num_noise_intrinsics += 1;
+        let name = format!("noise_intrinsic_{id}");
+
+        // Columns are the sorted union of every qubit touched by the group.
+        let mut columns: Vec<u32> = group
+            .rows
+            .iter()
+            .flat_map(|row| row.terms.iter().map(|(qubit, _)| *qubit))
+            .collect();
+        columns.sort_unstable();
+        columns.dedup();
+
+        let column_index: FxHashMap<u32, usize> = columns
+            .iter()
+            .enumerate()
+            .map(|(i, &qubit)| (qubit, i))
+            .collect();
+
+        let mut pauli_strings = Vec::with_capacity(group.rows.len());
+        let mut probabilities = Vec::with_capacity(group.rows.len());
+        for row in &group.rows {
+            // Build the fault string over the group columns; untouched qubits are `I`.
+            let mut chars = vec!['I'; columns.len()];
+            for &(qubit, fault) in &row.terms {
+                let idx = column_index[&qubit];
+                chars[idx] = fault.as_char();
+            }
+            let pauli: String = chars.into_iter().collect();
+            pauli_strings.push(encode_pauli(&pauli));
+            probabilities.push(row.probability);
+        }
+
+        let table = NoiseTable {
+            qubits: columns.len() as u32,
+            pauli_strings,
+            probabilities,
+        };
+        self.noise.intrinsics.insert(id, table);
+
+        self.writer.write_noise_intrinsic(&name, &columns);
+    }
 
     fn compile_collapsing_gate(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
@@ -491,7 +725,8 @@ impl Compiler {
             | "PAULI_CHANNEL_2"
             | "X_ERROR"
             | "Y_ERROR"
-            | "Z_ERROR" => InstructionKind::NoiseChannel,
+            | "Z_ERROR"
+            | "LOSS_ERROR" => InstructionKind::NoiseChannel,
 
             // Collapsing Gates
             "M" | "MR" | "MRX" | "MRY" | "MRZ" | "MX" | "MY" | "MZ" | "R" | "RX" | "RY" | "RZ" => {
@@ -519,6 +754,7 @@ impl Compiler {
     fn into_qir(mut self, circuit: &Circuit) -> String {
         self.writer.write_header();
         self.compile_circuit(circuit);
+        self.finish_correlated_group();
         self.writer.write_footer();
         self.writer.output
     }
