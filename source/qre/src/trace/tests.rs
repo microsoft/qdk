@@ -17,15 +17,15 @@ fn test_trace_iteration() {
 fn test_nested_blocks() {
     let mut trace = Trace::new(3);
     trace.add_operation(1, vec![0], vec![]);
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(2, vec![1], vec![]);
-    let block = block.add_block(3);
+    let block = block.add_block(3.0);
     block.add_operation(3, vec![2], vec![]);
     trace.add_operation(1, vec![0], vec![]);
 
     let repetitions = trace.deep_iter().map(|(_, rep)| rep).collect::<Vec<_>>();
     assert_eq!(repetitions.len(), 4);
-    assert_eq!(repetitions, vec![1, 2, 6, 1]);
+    assert_eq!(repetitions, vec![1.0, 2.0, 6.0, 1.0]);
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn test_depth_with_blocks() {
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]); // Depth 1 on q0
 
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(2, vec![1], vec![]); // Depth 1 on q1 * 2 reps = 2
 
     // Block acts as barrier *only on qubits it touches*.
@@ -65,10 +65,10 @@ fn test_depth_with_blocks() {
 fn test_depth_parallel_blocks() {
     let mut trace = Trace::new(4);
 
-    let block1 = trace.add_block(1);
+    let block1 = trace.add_block(1.0);
     block1.add_operation(1, vec![0], vec![]); // q0: 1
 
-    let block2 = trace.add_block(1);
+    let block2 = trace.add_block(1.0);
     block2.add_operation(2, vec![1], vec![]); // q1: 1
 
     // Blocks are parallel
@@ -152,7 +152,7 @@ fn test_lattice_surgery_transform() {
 
     let (gate, mult) = ls_ops[0];
     assert_eq!(gate.id, LATTICE_SURGERY);
-    assert_eq!(mult, 2); // Multiplier should carry the repetition count (depth)
+    assert_eq!(mult, 2.0); // Multiplier should carry the repetition count (depth)
 }
 
 #[test]
@@ -263,7 +263,7 @@ fn test_trace_display_unknown_instruction() {
 #[test]
 fn test_block_display_with_repetitions() {
     let mut trace = Trace::new(1);
-    let block = trace.add_block(10);
+    let block = trace.add_block(10.0);
     block.add_operation(H, vec![0], vec![]);
 
     let display = format!("{trace}");
@@ -273,6 +273,25 @@ fn test_block_display_with_repetitions() {
         "Expected 'repeat 10' in: {display}"
     );
     assert!(display.contains('H'), "Expected 'H' in block: {display}");
+}
+
+#[test]
+fn test_fractional_block_repetitions_compose_before_rounding() {
+    let mut trace = Trace::new(1);
+    let outer = trace.add_block(0.5);
+    let inner = outer.add_block(0.5);
+    inner.add_operation(T, vec![0], vec![]);
+
+    let repetitions = trace.deep_iter().map(|(_, rep)| rep).collect::<Vec<_>>();
+    assert_eq!(repetitions, vec![0.25]);
+    assert_eq!(trace.depth(), 1);
+    assert_eq!(trace.num_gates(), 1);
+
+    let display = format!("{trace}");
+    assert!(
+        display.contains("repeat 0.5"),
+        "Expected 'repeat 0.5' in: {display}"
+    );
 }
 
 /// Helper to create an ISA with instructions that have known time values.
@@ -342,7 +361,7 @@ fn test_runtime_sequential_operations() {
 #[test]
 fn test_runtime_with_repeated_block() {
     let mut trace = Trace::new(1);
-    let block = trace.add_block(5);
+    let block = trace.add_block(5.0);
     block.add_operation(T, vec![0], vec![]);
 
     let isa = isa_with_times(&[(T, 1, 100)]);
@@ -358,8 +377,8 @@ fn test_runtime_with_repeated_block() {
 #[test]
 fn test_runtime_nested_blocks() {
     let mut trace = Trace::new(1);
-    let outer = trace.add_block(3);
-    let inner = outer.add_block(2);
+    let outer = trace.add_block(3.0);
+    let inner = outer.add_block(2.0);
     inner.add_operation(H, vec![0], vec![]);
 
     let isa = isa_with_times(&[(H, 1, 10)]);
@@ -423,7 +442,7 @@ fn test_runtime_empty_trace() {
 fn test_runtime_block_parallel_to_operation() {
     let mut trace = Trace::new(2);
     // Block on q0
-    let block = trace.add_block(4);
+    let block = trace.add_block(4.0);
     block.add_operation(T, vec![0], vec![]);
     // Operation on q1 (parallel to block)
     trace.add_operation(H, vec![1], vec![]);

@@ -32,8 +32,7 @@ impl TraceTransform for LatticeSurgery {
     fn transform(&self, trace: &Trace) -> Result<Trace, Error> {
         let mut transformed = trace.clone_empty(None);
 
-        let block =
-            transformed.add_block((trace.depth() as f64 * self.slow_down_factor).ceil() as u64);
+        let block = transformed.add_block((trace.depth() as f64 * self.slow_down_factor).ceil());
         block.add_operation(
             instruction_ids::LATTICE_SURGERY,
             (0..trace.compute_qubits()).collect(),

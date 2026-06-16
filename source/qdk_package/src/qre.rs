@@ -1203,8 +1203,8 @@ impl Trace {
         }
     }
 
-    #[pyo3(signature = (repetitions = 1))]
-    pub fn add_block(mut slf: PyRefMut<'_, Self>, repetitions: u64) -> Block {
+    #[pyo3(signature = (repetitions = 1.0))]
+    pub fn add_block(mut slf: PyRefMut<'_, Self>, repetitions: f64) -> Block {
         let block = slf.0.add_block(repetitions);
         let ptr = NonNull::from(block);
         Block {
@@ -1259,8 +1259,8 @@ impl Block {
         unsafe { self.ptr.as_mut() }.add_operation(id, qubits, params);
     }
 
-    #[pyo3(signature = (repetitions = 1))]
-    pub fn add_block(&mut self, py: Python<'_>, repetitions: u64) -> PyResult<Block> {
+    #[pyo3(signature = (repetitions = 1.0))]
+    pub fn add_block(&mut self, py: Python<'_>, repetitions: f64) -> PyResult<Block> {
         let block = unsafe { self.ptr.as_mut() }.add_block(repetitions);
         let ptr = NonNull::from(block);
         Ok(Block {

@@ -5,6 +5,8 @@ use crate::property_keys::NUM_TS_PER_ROTATION;
 use crate::trace::{Gate, TraceTransform};
 use crate::{Error, Property, Trace, instruction_ids};
 
+use super::super::round_up_to_u64;
+
 /// Implements the Parellel Synthesis Sequential Pauli Computation (PSSPC)
 /// layout algorithm described in Appendix D in
 /// [arXiv:2211.07629](https://arxiv.org/pdf/2211.07629).  This scheme combines
@@ -64,11 +66,10 @@ impl PSSPC {
 }
 
 impl PSSPC {
-    #[allow(clippy::cast_possible_truncation)]
     fn psspc_counts(trace: &Trace) -> Result<PSSPCCounts, Error> {
         let mut counter = PSSPCCounts::default();
 
-        let mut max_rotation_depth = vec![0; trace.total_qubits() as usize];
+        let mut max_rotation_depth = vec![0.0; trace.total_qubits() as usize];
 
         for (Gate { id, qubits, .. }, mult) in trace.deep_iter() {
             if instruction_ids::is_pauli_measurement(*id) {
@@ -81,7 +82,7 @@ impl PSSPC {
                 counter.rotation_like += mult;
 
                 // Track rotation depth
-                let mut current_depth = 0;
+                let mut current_depth = 0.0;
                 for q in qubits {
                     if max_rotation_depth[*q as usize] > current_depth {
                         current_depth = max_rotation_depth[*q as usize];
@@ -107,7 +108,7 @@ impl PSSPC {
             } else {
                 // For Clifford gates, synchronize depths across qubits
                 if !qubits.is_empty() {
-                    let mut max_depth = 0;
+                    let mut max_depth = 0.0;
                     for q in qubits {
                         if max_rotation_depth[*q as usize] > max_depth {
                             max_depth = max_rotation_depth[*q as usize];
@@ -136,7 +137,7 @@ impl PSSPC {
         transformed.increment_resource_state(instruction_ids::T, t_states);
         transformed.increment_resource_state(instruction_ids::CCX, ccx_states);
 
-        let block = transformed.add_block(logical_depth);
+        let block = transformed.add_block(logical_depth as f64);
         block.add_operation(
             instruction_ids::MULTI_PAULI_MEAS,
             (0..logical_qubits).collect(),
@@ -144,7 +145,7 @@ impl PSSPC {
         );
 
         // Add error due to rotation synthesis
-        transformed.increment_base_error(counts.rotation_like as f64 * self.synthesis_error());
+        transformed.increment_base_error(counts.rotation_like * self.synthesis_error());
 
         // Track some properties
         transformed.set_property(
@@ -172,12 +173,15 @@ impl PSSPC {
     /// sequence according to Eq. (D3) in
     /// [arXiv:2211.07629](https://arxiv.org/pdf/2211.07629)
     fn logical_depth_overhead(&self, counter: &PSSPCCounts) -> u64 {
-        (counter.measurements + counter.t_like + counter.rotation_like)
-            * self.num_measurements_per_r
-            + counter.ccx_like * self.num_measurements_per_ccx
-            + counter.read_from_memory * self.num_measurements_per_rfm
-            + counter.write_to_memory * self.num_measurements_per_wtm
-            + (self.num_ts_per_rotation * counter.rotation_depth) * self.num_measurements_per_r
+        round_up_to_u64(
+            (counter.measurements + counter.t_like + counter.rotation_like)
+                * self.num_measurements_per_r as f64
+                + counter.ccx_like * self.num_measurements_per_ccx as f64
+                + counter.read_from_memory * self.num_measurements_per_rfm as f64
+                + counter.write_to_memory * self.num_measurements_per_wtm as f64
+                + (self.num_ts_per_rotation as f64 * counter.rotation_depth)
+                    * self.num_measurements_per_r as f64,
+        )
     }
 
     /// Calculates the number of T and CCX magic states that are consumed by
@@ -187,12 +191,14 @@ impl PSSPC {
     /// CCX magic states are only counted if the hyper parameter
     /// `ccx_magic_states` is set to true.
     fn num_magic_states(&self, counter: &PSSPCCounts) -> (u64, u64) {
-        let t_states = counter.t_like + self.num_ts_per_rotation * counter.rotation_like;
+        let t_states = round_up_to_u64(
+            counter.t_like + self.num_ts_per_rotation as f64 * counter.rotation_like,
+        );
 
         if self.ccx_magic_states {
-            (t_states, counter.ccx_like)
+            (t_states, round_up_to_u64(counter.ccx_like))
         } else {
-            (t_states + 4 * counter.ccx_like, 0)
+            (t_states + round_up_to_u64(4.0 * counter.ccx_like), 0)
         }
     }
 
@@ -215,11 +221,11 @@ impl TraceTransform for PSSPC {
 
 #[derive(Default)]
 struct PSSPCCounts {
-    measurements: u64,
-    t_like: u64,
-    ccx_like: u64,
-    rotation_like: u64,
-    write_to_memory: u64,
-    read_from_memory: u64,
-    rotation_depth: u64,
+    measurements: f64,
+    t_like: f64,
+    ccx_like: f64,
+    rotation_like: f64,
+    write_to_memory: f64,
+    read_from_memory: f64,
+    rotation_depth: f64,
 }

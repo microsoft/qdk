@@ -1431,12 +1431,12 @@ class Trace:
         """
         ...
 
-    def add_block(self, repetitions: int = 1) -> Block:
+    def add_block(self, repetitions: float = 1) -> Block:
         """
         Add a block to the trace.
 
         Args:
-            repetitions (int): The number of times the block is repeated.
+            repetitions (float): The number of times the block is repeated.
 
         Returns:
             Block: The block.
@@ -1484,12 +1484,12 @@ class Block:
         """
         ...
 
-    def add_block(self, repetitions: int = 1) -> Block:
+    def add_block(self, repetitions: float = 1) -> Block:
         """
         Add a nested block to the block.
 
         Args:
-            repetitions (int): The number of times the block is repeated.
+            repetitions (float): The number of times the block is repeated.
 
         Returns:
             Block: The block.

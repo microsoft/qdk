@@ -73,7 +73,7 @@ impl Trace {
         self.block.add_operation(id, qubits, params);
     }
 
-    pub fn add_block(&mut self, repetitions: u64) -> &mut Block {
+    pub fn add_block(&mut self, repetitions: f64) -> &mut Block {
         self.block.add_block(repetitions)
     }
 
@@ -169,9 +169,9 @@ impl Trace {
     #[allow(clippy::cast_precision_loss)]
     #[must_use]
     pub fn required_instruction_ids(&self, max_error: Option<f64>) -> ISARequirements {
-        let mut constraints = FxHashMap::<u64, (InstructionConstraint, u64)>::default();
+        let mut constraints = FxHashMap::<u64, (InstructionConstraint, f64)>::default();
 
-        let mut update_constraints = |id: u64, arity: u64, added_volume: u64| {
+        let mut update_constraints = |id: u64, arity: u64, added_volume: f64| {
             constraints
                 .entry(id)
                 .and_modify(|(constraint, volume)| {
@@ -191,24 +191,22 @@ impl Trace {
 
         for (gate, mult) in self.deep_iter() {
             let arity = gate.qubits.len() as u64;
-            update_constraints(gate.id, arity, mult * arity);
+            update_constraints(gate.id, arity, mult * arity as f64);
         }
         if let Some(ref rs) = self.resource_states {
             for (res_id, count) in rs {
-                update_constraints(*res_id, 1, *count);
+                update_constraints(*res_id, 1, *count as f64);
             }
         }
         if let Some(memory_qubits) = self.memory_qubits {
-            update_constraints(instruction_ids::MEMORY, memory_qubits, memory_qubits);
+            update_constraints(instruction_ids::MEMORY, memory_qubits, memory_qubits as f64);
         }
 
         if let Some(max_error) = max_error {
             constraints
                 .into_values()
                 .map(|(mut c, volume)| {
-                    c.set_error_rate(Some(ConstraintBound::less_equal(
-                        max_error / (volume as f64),
-                    )));
+                    c.set_error_rate(Some(ConstraintBound::less_equal(max_error / volume)));
                     c
                 })
                 .collect()
@@ -224,17 +222,22 @@ impl Trace {
 
     #[must_use]
     pub fn num_gates(&self) -> u64 {
-        self.deep_iter().map(|(_, m)| m).sum()
+        round_up_to_u64(
+            self.deep_iter()
+                .map(|(_, multiplier)| multiplier)
+                .sum::<f64>(),
+        )
     }
 
     pub fn runtime(&self, locked: &LockedISA) -> Result<u64, Error> {
-        Ok(self
-            .block
-            .depth_and_used(Some(&|op: &Gate| {
-                let instr = get_instruction(locked, op.id)?;
-                Ok(instr.expect_time(Some(op.qubits.len() as u64)))
-            }))?
-            .0)
+        Ok(round_up_to_u64(
+            self.block
+                .depth_and_used(Some(&|op: &Gate| {
+                    let instr = get_instruction(locked, op.id)?;
+                    Ok(instr.expect_time(Some(op.qubits.len() as u64)))
+                }))?
+                .0,
+        ))
     }
 
     #[allow(
@@ -302,7 +305,7 @@ impl Trace {
                 qubit_counts.insert(i, qubit_count);
             }
 
-            let actual_error = result.add_error(rate * (mult as f64));
+            let actual_error = result.add_error(rate * mult);
             if actual_error > max_error {
                 return Err(Error::MaximumErrorExceeded {
                     actual_error,
@@ -428,6 +431,11 @@ impl Display for Trace {
     }
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub(crate) fn round_up_to_u64(value: f64) -> u64 {
+    if value <= 0.0 { 0 } else { value.ceil() as u64 }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Operation {
     GateOperation(Gate),
@@ -444,14 +452,14 @@ pub struct Gate {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block {
     operations: Vec<Operation>,
-    repetitions: u64,
+    repetitions: f64,
 }
 
 impl Default for Block {
     fn default() -> Self {
         Self {
             operations: Vec::new(),
-            repetitions: 1,
+            repetitions: 1.0,
         }
     }
 }
@@ -462,7 +470,7 @@ impl Block {
             .push(Operation::gate_operation(id, qubits, params));
     }
 
-    pub fn add_block(&mut self, repetitions: u64) -> &mut Block {
+    pub fn add_block(&mut self, repetitions: f64) -> &mut Block {
         self.operations
             .push(Operation::block_operation(repetitions));
 
@@ -474,7 +482,7 @@ impl Block {
 
     pub fn write(&self, f: &mut Formatter<'_>, indent: usize) -> std::fmt::Result {
         let indent_str = " ".repeat(indent);
-        if self.repetitions == 1 {
+        if self.repetitions == 1.0 {
             writeln!(f, "{indent_str}{{")?;
         } else {
             writeln!(f, "{indent_str}repeat {} {{", self.repetitions)?;
@@ -517,8 +525,8 @@ impl Block {
     fn depth_and_used<FnDuration: Fn(&Gate) -> Result<u64, Error>>(
         &self,
         duration_fn: Option<&FnDuration>,
-    ) -> Result<(u64, FxHashSet<u64>), Error> {
-        let mut qubit_depths: FxHashMap<u64, u64> = FxHashMap::default();
+    ) -> Result<(f64, FxHashSet<u64>), Error> {
+        let mut qubit_depths: FxHashMap<u64, f64> = FxHashMap::default();
         let mut all_used = FxHashSet::default();
 
         for op in &self.operations {
@@ -528,13 +536,13 @@ impl Block {
                         .qubits
                         .iter()
                         .filter_map(|q| qubit_depths.get(q))
-                        .max()
+                        .max_by(|left, right| left.total_cmp(right))
                         .copied()
-                        .unwrap_or(0);
+                        .unwrap_or(0.0);
 
                     let duration = match duration_fn {
-                        Some(f) => f(gate)?,
-                        _ => 1,
+                        Some(f) => f(gate)? as f64,
+                        _ => 1.0,
                     };
 
                     let end_time = start_time + duration;
@@ -552,9 +560,9 @@ impl Block {
                     let start_time = used
                         .iter()
                         .filter_map(|q| qubit_depths.get(q))
-                        .max()
+                        .max_by(|left, right| left.total_cmp(right))
                         .copied()
-                        .unwrap_or(0);
+                        .unwrap_or(0.0);
 
                     let end_time = start_time + duration;
                     for q in &used {
@@ -565,15 +573,22 @@ impl Block {
             }
         }
 
-        let max_depth = qubit_depths.values().max().copied().unwrap_or(0);
-        Ok((max_depth * self.repetitions, all_used))
+        let max_depth = qubit_depths
+            .values()
+            .max_by(|left, right| left.total_cmp(right));
+        Ok((
+            max_depth.copied().unwrap_or(0.0) * self.repetitions,
+            all_used,
+        ))
     }
 
     #[must_use]
     pub fn depth(&self) -> u64 {
-        self.depth_and_used::<fn(&Gate) -> Result<u64, Error>>(None)
-            .expect("Duration function is None")
-            .0
+        round_up_to_u64(
+            self.depth_and_used::<fn(&Gate) -> Result<u64, Error>>(None)
+                .expect("Duration function is None")
+                .0,
+        )
     }
 }
 
@@ -588,7 +603,7 @@ impl Operation {
         Operation::GateOperation(Gate { id, qubits, params })
     }
 
-    fn block_operation(repetitions: u64) -> Self {
+    fn block_operation(repetitions: f64) -> Self {
         Operation::BlockOperation(Block {
             operations: Vec::new(),
             repetitions,
@@ -597,19 +612,19 @@ impl Operation {
 }
 
 pub struct TraceIterator<'a> {
-    stack: Vec<(std::slice::Iter<'a, Operation>, u64)>,
+    stack: Vec<(std::slice::Iter<'a, Operation>, f64)>,
 }
 
 impl<'a> TraceIterator<'a> {
     fn new(block: &'a Block) -> Self {
         Self {
-            stack: vec![(block.operations.iter(), 1)],
+            stack: vec![(block.operations.iter(), 1.0)],
         }
     }
 }
 
 impl<'a> Iterator for TraceIterator<'a> {
-    type Item = (&'a Gate, u64);
+    type Item = (&'a Gate, f64);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
