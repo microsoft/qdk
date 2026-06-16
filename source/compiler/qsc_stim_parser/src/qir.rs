@@ -417,7 +417,7 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_two_qubit_clifford_gate(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
-        if gate == "cz" {
+        if gate == "cz" || gate == "cx" || gate == "cy" {
             let targets = &instruction.targets;
             for pair in targets.chunks(2) {
                 let TargetKind::Qubit { value: v0, .. } = pair[0].kind else {
