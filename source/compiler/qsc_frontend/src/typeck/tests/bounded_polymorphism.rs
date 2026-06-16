@@ -380,8 +380,8 @@ fn transitive_class_check_fail() {
             #80 516-519 "Foo" : (BigInt -> BigInt)
             #83 519-524 "(10L)" : BigInt
             #84 520-523 "10L" : BigInt
-            Error(Type(Error(MissingClassInteger("'F", Span { lo: 259, hi: 265 }))))
-            Error(Type(Error(MissingClassInteger("Double", Span { lo: 474, hi: 482 }))))
+            Error(Type(Error(MissingClassInteger("'F", Span { lo: 263, hi: 264 }))))
+            Error(Type(Error(MissingClassInteger("Double", Span { lo: 478, hi: 481 }))))
         "##]],
     );
 }
@@ -606,8 +606,8 @@ fn integral_fail() {
             #45 210-213 "Foo" : (Bool -> Bool)
             #48 213-219 "(true)" : Bool
             #49 214-218 "true" : Bool
-            Error(Type(Error(MissingClassInteger("Double", Span { lo: 176, hi: 184 }))))
-            Error(Type(Error(MissingClassInteger("Bool", Span { lo: 210, hi: 219 }))))
+            Error(Type(Error(MissingClassInteger("Double", Span { lo: 180, hi: 183 }))))
+            Error(Type(Error(MissingClassInteger("Bool", Span { lo: 214, hi: 218 }))))
         "##]],
     );
 }
@@ -736,8 +736,8 @@ fn show_and_eq_should_fail() {
             #69 344-352 "(1, \"2\")" : (Int, String)
             #70 345-346 "1" : Int
             #71 348-351 "\"2\"" : String
-            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 303, hi: 315 }))))
-            Error(Type(Error(TyMismatch("Int", "String", Span { lo: 341, hi: 352 }))))
+            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 310, hi: 314 }))))
+            Error(Type(Error(TyMismatch("Int", "String", Span { lo: 348, hi: 351 }))))
         "##]],
     );
 }

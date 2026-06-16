@@ -15,6 +15,7 @@ use qsc_data_structures::{
     functors::FunctorApp,
     index_map::IndexMap,
     line_column::{Encoding, Position},
+    span::Span,
 };
 use qsc_eval::{
     backend::Tracer,
@@ -497,9 +498,12 @@ impl CircuitTracer {
     }
 }
 
-/// Take a sequence of operations and build the final `Circuit`.
-/// Operations are laid out into columns. Unnecessary groups are removed.
-/// Source location metadata is resolved into displayable file/line/column information.
+/// Constructs the final circuit representation from operations and qubits.
+///
+/// This function:
+/// - Optionally collapses unnecessary scope groups based on user/library package origin
+/// - Lays out operations into columns for circuit visualization
+/// - Resolves source location metadata into displayable file/line/column information
 pub(crate) fn finish_circuit(
     source_lookup: &impl SourceLookup,
     mut operations: Vec<OperationOrGroup>,
@@ -616,6 +620,12 @@ pub trait SourceLookup {
         location: LogicalStackEntryLocation,
         loop_id_cache: &mut LoopIdCache,
     ) -> Option<PackageOffset>;
+    /// Returns whether a callable scope was synthesized during lowering rather
+    /// than originating from a user-declared HIR item.
+    ///
+    /// Circuit rendering uses this to collapse bookkeeping-only callable
+    /// scopes so they do not appear as separate groups in the final diagram.
+    fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool;
 }
 
 impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
@@ -659,7 +669,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                         package_id: store_item_id.package,
                         offset: scope_offset,
                     }),
-                    name: callable_decl.name.name.clone(),
+                    name: displayable_callable_scope_name(&callable_decl.name.name),
                     is_adjoint: functor_app.adjoint,
                     is_classically_controlled: false,
                 }
@@ -668,12 +678,12 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 // trim the trailing dagger symbol and set `is_adjoint` accordingly
                 let (name, is_adjoint) = if let Some(pos) = name.rfind('\'') {
                     if pos == name.len() - 1 {
-                        (name[..pos].to_string().into(), true)
+                        (displayable_callable_scope_name(&name[..pos]), true)
                     } else {
-                        (name.clone(), false)
+                        (displayable_callable_scope_name(name), false)
                     }
                 } else {
-                    (name.clone(), false)
+                    (displayable_callable_scope_name(name), false)
                 };
                 LexicalScope {
                     location: Some(*package_offset),
@@ -692,11 +702,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                         .0
                         .get(map_fir_package_to_hir(package_id))
                         .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
-                        .map(|s| {
-                            s.contents[(cond_expr.span.lo - s.offset) as usize
-                                ..(cond_expr.span.hi - s.offset) as usize]
-                                .to_string()
-                        });
+                        .and_then(|s| source_span_contents(&s.contents, s.offset, cond_expr.span));
 
                     LexicalScope {
                         name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
@@ -810,6 +816,110 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
             }
         }
     }
+
+    /// Treat FIR callables with no corresponding HIR item as synthesized
+    /// lowering artifacts, such as specialized helper scopes.
+    fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool {
+        let Some((current_package, offset, name)) = callable_scope_origin_key(self.1, scope) else {
+            return false;
+        };
+
+        let Some(unit) = self.0.get(map_fir_package_to_hir(current_package)) else {
+            return false;
+        };
+
+        match scope {
+            Scope::Callable(CallableId::Id(store_item_id, _)) => {
+                if !unit
+                    .package
+                    .items
+                    .contains_key(qsc_hir::hir::LocalItemId::from(usize::from(
+                        store_item_id.item,
+                    )))
+                {
+                    return true;
+                }
+            }
+            Scope::Callable(CallableId::Source(..)) => {}
+            Scope::Top
+            | Scope::Loop(..)
+            | Scope::LoopIteration(..)
+            | Scope::ClassicallyControlled { .. } => return false,
+        }
+
+        !hir_package_contains_callable_origin(unit, offset, name.as_ref())
+    }
+}
+
+fn callable_scope_origin_key(
+    fir_store: &fir::PackageStore,
+    scope: &Scope,
+) -> Option<(PackageId, u32, Rc<str>)> {
+    match scope {
+        Scope::Callable(CallableId::Id(store_item_id, _)) => {
+            let item = fir_store.get_item(*store_item_id);
+            let fir::ItemKind::Callable(callable_decl) = &item.kind else {
+                return None;
+            };
+
+            Some((
+                store_item_id.package,
+                callable_decl.span.lo,
+                displayable_callable_scope_name(&callable_decl.name.name),
+            ))
+        }
+        Scope::Callable(CallableId::Source(package_offset, name)) => Some((
+            package_offset.package_id,
+            package_offset.offset,
+            source_callable_origin_name(name),
+        )),
+        Scope::Top
+        | Scope::Loop(..)
+        | Scope::LoopIteration(..)
+        | Scope::ClassicallyControlled { .. } => None,
+    }
+}
+
+fn source_callable_origin_name(name: &str) -> Rc<str> {
+    if let Some(stripped) = name.strip_suffix('\'') {
+        displayable_callable_scope_name(stripped)
+    } else {
+        displayable_callable_scope_name(name)
+    }
+}
+
+fn hir_package_contains_callable_origin(
+    unit: &compile::CompileUnit,
+    offset: u32,
+    name: &str,
+) -> bool {
+    unit.package.items.values().any(|item| {
+        let qsc_hir::hir::ItemKind::Callable(decl) = &item.kind else {
+            return false;
+        };
+
+        decl.span.lo == offset && displayable_callable_scope_name(&decl.name.name).as_ref() == name
+    })
+}
+
+fn source_span_contents(contents: &str, source_offset: u32, span: Span) -> Option<String> {
+    let start = usize::try_from(span.lo.checked_sub(source_offset)?).ok()?;
+    let end = usize::try_from(span.hi.checked_sub(source_offset)?).ok()?;
+    contents.get(start..end).map(ToString::to_string)
+}
+
+fn displayable_callable_scope_name(name: &str) -> Rc<str> {
+    if name.starts_with("<lambda>") {
+        return name.into();
+    }
+
+    let suffix_start = match (name.find('<'), name.find('{')) {
+        (Some(functor_suffix), Some(callable_suffix)) => functor_suffix.min(callable_suffix),
+        (Some(functor_suffix), None) => functor_suffix,
+        (None, Some(callable_suffix)) => callable_suffix,
+        (None, None) => name.len(),
+    };
+    name[..suffix_start].into()
 }
 
 fn callable_scope_offset(callable_decl: &fir::CallableDecl, functor_app: FunctorApp) -> u32 {

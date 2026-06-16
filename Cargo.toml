@@ -12,6 +12,7 @@ members = [
     "source/compiler/qsc_doc_gen",
     "source/compiler/qsc_eval",
     "source/compiler/qsc_fir",
+    "source/compiler/qsc_fir_transforms",
     "source/compiler/qsc_frontend",
     "source/compiler/qsc_hir",
     "source/compiler/qsc_openqasm_compiler",
@@ -84,7 +85,7 @@ wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4"
 rand = "0.10.1"
 serde_json = "1.0"
-pyo3 = "0.28"
+pyo3 = "0.29"
 async-trait = "0.1"
 tokio = { version = "1.50", features = ["macros", "rt"] }
 rayon = "1.11.0"

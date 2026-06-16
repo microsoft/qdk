@@ -872,7 +872,7 @@ fn measurement_in_loop_of_variable_qubit_supported() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     assert_blocks(
@@ -932,7 +932,7 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     assert_blocks(

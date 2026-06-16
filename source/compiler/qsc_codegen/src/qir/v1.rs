@@ -178,6 +178,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Fdiv(lhs, rhs, variable) => {
                 fbinop_to_qir("fdiv", lhs, rhs, *variable, program)
             }
+            rir::Instruction::Frem(lhs, rhs, variable) => {
+                fbinop_to_qir("frem", lhs, rhs, *variable, program)
+            }
             rir::Instruction::Fmul(lhs, rhs, variable) => {
                 fbinop_to_qir("fmul", lhs, rhs, *variable, program)
             }

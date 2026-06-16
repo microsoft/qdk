@@ -476,15 +476,140 @@ fn int_as_double_error() {
             }
         "},
         "Microsoft.Quantum.Convert.IntAsDouble(false)",
-        &expect![[r#"
+        &expect![[r##"
             #8 62-71 "(a : Int)" : ?
             #9 63-70 "a : Int" : ?
             #18 103-147 "Microsoft.Quantum.Convert.IntAsDouble(false)" : Double
             #19 103-140 "Microsoft.Quantum.Convert.IntAsDouble" : (Int -> Double)
             #25 140-147 "(false)" : Bool
             #26 141-146 "false" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 103, hi: 147 }))))
-        "#]],
+            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 141, hi: 146 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn ty_mismatch_span_tuple1_to_given() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F(a : Int) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F((1,))",
+        &expect![[r##"
+            #6 36-45 "(a : Int)" : Int
+            #7 37-44 "a : Int" : Int
+            #15 55-62 "{ 1.0 }" : Double
+            #17 57-60 "1.0" : Double
+            #18 65-82 "Namespace.F((1,))" : Double
+            #19 65-76 "Namespace.F" : (Int -> Double)
+            #23 76-82 "((1,))" : (Int,)
+            #24 77-81 "(1,)" : (Int,)
+            #25 78-79 "1" : Int
+            Error(Type(Error(TyMismatch("Int", "(Int,)", Span { lo: 77, hi: 81 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn ty_mismatch_span_tuple1_to_given_extra_parens() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F(a : Int) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F(((1,)))",
+        &expect![[r##"
+            #6 36-45 "(a : Int)" : Int
+            #7 37-44 "a : Int" : Int
+            #15 55-62 "{ 1.0 }" : Double
+            #17 57-60 "1.0" : Double
+            #18 65-84 "Namespace.F(((1,)))" : Double
+            #19 65-76 "Namespace.F" : (Int -> Double)
+            #23 76-84 "(((1,)))" : (Int,)
+            #24 77-83 "((1,))" : (Int,)
+            #25 78-82 "(1,)" : (Int,)
+            #26 79-80 "1" : Int
+            Error(Type(Error(TyMismatch("Int", "(Int,)", Span { lo: 78, hi: 82 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn ty_mismatch_span_given_to_tuple1() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F((a : Int,)) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F(1)",
+        &expect![[r##"
+            #6 36-48 "((a : Int,))" : (Int,)
+            #7 37-47 "(a : Int,)" : (Int,)
+            #8 38-45 "a : Int" : Int
+            #16 58-65 "{ 1.0 }" : Double
+            #18 60-63 "1.0" : Double
+            #19 68-82 "Namespace.F(1)" : Double
+            #20 68-79 "Namespace.F" : ((Int,) -> Double)
+            #24 79-82 "(1)" : Int
+            #25 80-81 "1" : Int
+            Error(Type(Error(TyMismatch("(Int,)", "Int", Span { lo: 80, hi: 81 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn ty_mismatch_span_tuple1_to_tuple1() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F((a : Int,)) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F((1.,))",
+        &expect![[r##"
+            #6 36-48 "((a : Int,))" : (Int,)
+            #7 37-47 "(a : Int,)" : (Int,)
+            #8 38-45 "a : Int" : Int
+            #16 58-65 "{ 1.0 }" : Double
+            #18 60-63 "1.0" : Double
+            #19 68-86 "Namespace.F((1.,))" : Double
+            #20 68-79 "Namespace.F" : ((Int,) -> Double)
+            #24 79-86 "((1.,))" : (Double,)
+            #25 80-85 "(1.,)" : (Double,)
+            #26 81-83 "1." : Double
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 81, hi: 83 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn ty_mismatch_span_tuple2_to_tuple2() {
+    check(
+        indoc! {"
+            namespace Namespace {
+                function F((a : Int, b: Int)) : Double { 1.0 }
+            }
+        "},
+        "Namespace.F((1.,2))",
+        &expect![[r##"
+            #6 36-55 "((a : Int, b: Int))" : (Int, Int)
+            #7 37-54 "(a : Int, b: Int)" : (Int, Int)
+            #8 38-45 "a : Int" : Int
+            #13 47-53 "b: Int" : Int
+            #21 65-72 "{ 1.0 }" : Double
+            #23 67-70 "1.0" : Double
+            #24 75-94 "Namespace.F((1.,2))" : Double
+            #25 75-86 "Namespace.F" : ((Int, Int) -> Double)
+            #29 86-94 "((1.,2))" : (Double, Int)
+            #30 87-93 "(1.,2)" : (Double, Int)
+            #31 88-90 "1." : Double
+            #32 91-92 "2" : Int
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 88, hi: 90 }))))
+        "##]],
     );
 }
 
@@ -507,7 +632,7 @@ fn length_type_error() {
             #24 92-93 "1" : Int
             #25 95-96 "2" : Int
             #26 98-99 "3" : Int
-            Error(Type(Error(TyMismatch("?[]", "(Int, Int, Int)", Span { lo: 84, hi: 101 }))))
+            Error(Type(Error(TyMismatch("?[]", "(Int, Int, Int)", Span { lo: 91, hi: 100 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 84, hi: 90 }))))
         "##]],
     );
@@ -538,7 +663,7 @@ fn single_arg_for_tuple() {
             #31 124-126 "Ry" : ((Double, Qubit) => Unit is Adj + Ctl)
             #34 126-129 "(q)" : Qubit
             #35 127-128 "q" : Qubit
-            Error(Type(Error(TyMismatch("(Double, Qubit)", "Qubit", Span { lo: 124, hi: 129 }))))
+            Error(Type(Error(TyMismatch("(Double, Qubit)", "Qubit", Span { lo: 127, hi: 128 }))))
         "##]],
     );
 }
@@ -1732,7 +1857,7 @@ fn call_controlled_error() {
                 Controlled A.Foo([1], q);
             }
         "},
-        &expect![[r#"
+        &expect![[r##"
             #6 31-42 "(q : Qubit)" : Qubit
             #7 32-41 "q : Qubit" : Qubit
             #17 72-75 "..." : Qubit
@@ -1752,8 +1877,8 @@ fn call_controlled_error() {
             #39 163-166 "[1]" : Int[]
             #40 164-165 "1" : Int
             #41 168-169 "q" : Qubit
-            Error(Type(Error(TyMismatch("Qubit", "Int", Span { lo: 146, hi: 170 }))))
-        "#]],
+            Error(Type(Error(TyMismatch("Qubit", "Int", Span { lo: 163, hi: 166 }))))
+        "##]],
     );
 }
 
@@ -1949,7 +2074,7 @@ fn fail_in_call_args_checks_arity() {
             #33 64-65 "1" : Int
             #34 67-78 "fail \"true\"" : Int
             #35 72-78 "\"true\"" : String
-            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 60, hi: 79 }))))
+            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 63, hi: 79 }))))
         "##]],
     );
 }
@@ -1979,7 +2104,38 @@ fn fail_in_call_args_checks_non_divergent_types() {
             #34 67-78 "fail \"true\"" : Int
             #35 72-78 "\"true\"" : String
             #36 80-83 "3.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 60, hi: 84 }))))
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 80, hi: 83 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn fail_in_single_call_arg_diverges() {
+    check(
+        "namespace Test { function Foo(a : Int) : Double { 0.0 } }",
+        indoc! {r#"
+            if true {
+                Test.Foo(fail "oops")
+            } else {
+                0
+            }
+        "#},
+        &expect![[r##"
+            #6 29-38 "(a : Int)" : Int
+            #7 30-37 "a : Int" : Int
+            #15 48-55 "{ 0.0 }" : Double
+            #17 50-53 "0.0" : Double
+            #18 57-109 "if true {\n    Test.Foo(fail \"oops\")\n} else {\n    0\n}" : Int
+            #19 60-64 "true" : Bool
+            #20 65-94 "{\n    Test.Foo(fail \"oops\")\n}" : Int
+            #22 71-92 "Test.Foo(fail \"oops\")" : Double
+            #23 71-79 "Test.Foo" : (Int -> Double)
+            #27 79-92 "(fail \"oops\")" : Int
+            #28 80-91 "fail \"oops\"" : Int
+            #29 85-91 "\"oops\"" : String
+            #30 95-109 "else {\n    0\n}" : Int
+            #31 100-109 "{\n    0\n}" : Int
+            #33 106-107 "0" : Int
         "##]],
     );
 }
@@ -2145,7 +2301,7 @@ fn return_in_call_args_checks_arity() {
             #33 64-65 "1" : Int
             #34 67-80 "return \"true\"" : Int
             #35 74-80 "\"true\"" : String
-            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 60, hi: 81 }))))
+            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Span { lo: 63, hi: 81 }))))
         "##]],
     );
 }
@@ -2175,7 +2331,7 @@ fn return_in_call_args_checks_non_divergent_types() {
             #34 67-80 "return \"true\"" : Int
             #35 74-80 "\"true\"" : String
             #36 82-85 "3.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 60, hi: 86 }))))
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 82, hi: 85 }))))
         "##]],
     );
 }
@@ -2767,7 +2923,7 @@ fn newtype_cons_wrong_input() {
             #19 70-76 "NewInt" : (Int -> UDT<"NewInt": Item 1 (Package 2)>)
             #22 76-81 "(5.0)" : Double
             #23 77-80 "5.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 70, hi: 81 }))))
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 77, hi: 80 }))))
         "##]],
     );
 }
@@ -4021,7 +4177,7 @@ fn partial_app_too_many_args() {
             function Foo(x : Int) : Int { x }
             let f = Foo(1, _, _);
         }"},
-        &expect![[r#"
+        &expect![[r##"
             #1 0-67 "{\n    function Foo(x : Int) : Int { x }\n    let f = Foo(1, _, _);\n}" : Unit
             #2 0-67 "{\n    function Foo(x : Int) : Int { x }\n    let f = Foo(1, _, _);\n}" : Unit
             #7 18-27 "(x : Int)" : Int
@@ -4035,10 +4191,10 @@ fn partial_app_too_many_args() {
             #29 56-57 "1" : Int
             #30 59-60 "_" : ?1
             #31 62-63 "_" : ?2
-            Error(Type(Error(TyMismatch("Int", "(Int, ?, ?)", Span { lo: 52, hi: 64 }))))
+            Error(Type(Error(TyMismatch("Int", "(Int, ?, ?)", Span { lo: 55, hi: 64 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 59, hi: 60 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 62, hi: 63 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -4134,7 +4290,7 @@ fn functors_in_arg_subset_of_ctl_adj() {
             operation Bar(q : Qubit) : () is Adj {}
             Foo(Bar);
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-150 "{\n            operation Foo(op : Qubit => () is Adj + Ctl) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            Foo(Bar);\n        }" : Unit
             #2 0-150 "{\n            operation Foo(op : Qubit => () is Adj + Ctl) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            Foo(Bar);\n        }" : Unit
             #7 27-58 "(op : Qubit => () is Adj + Ctl)" : (Qubit => Unit is Adj + Ctl)
@@ -4147,8 +4303,8 @@ fn functors_in_arg_subset_of_ctl_adj() {
             #35 131-134 "Foo" : ((Qubit => Unit is Adj) => Unit)
             #38 134-139 "(Bar)" : (Qubit => Unit is Adj)
             #39 135-138 "Bar" : (Qubit => Unit is Adj)
-            Error(Type(Error(MissingFunctor(Value(CtlAdj), Value(Adj), Span { lo: 131, hi: 139 }))))
-        "#]],
+            Error(Type(Error(MissingFunctor(Value(CtlAdj), Value(Adj), Span { lo: 135, hi: 138 }))))
+        "##]],
     );
 }
 
@@ -4187,7 +4343,7 @@ fn functors_in_arg_nested_arrow_superset_of_adj() {
             operation Bar(op : Qubit => () is Adj + Ctl) : () {}
             Foo(Bar);
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-165 "{\n            operation Foo(op : (Qubit => () is Adj) => ()) : () {}\n            operation Bar(op : Qubit => () is Adj + Ctl) : () {}\n            Foo(Bar);\n        }" : Unit
             #2 0-165 "{\n            operation Foo(op : (Qubit => () is Adj) => ()) : () {}\n            operation Bar(op : Qubit => () is Adj + Ctl) : () {}\n            Foo(Bar);\n        }" : Unit
             #7 27-60 "(op : (Qubit => () is Adj) => ())" : ((Qubit => Unit is Adj) => Unit)
@@ -4200,8 +4356,8 @@ fn functors_in_arg_nested_arrow_superset_of_adj() {
             #40 146-149 "Foo" : (((Qubit => Unit is Adj) => Unit) => Unit)
             #43 149-154 "(Bar)" : ((Qubit => Unit is Adj) => Unit)
             #44 150-153 "Bar" : ((Qubit => Unit is Adj) => Unit)
-            Error(Type(Error(MissingFunctor(Value(CtlAdj), Value(Adj), Span { lo: 146, hi: 154 }))))
-        "#]],
+            Error(Type(Error(MissingFunctor(Value(CtlAdj), Value(Adj), Span { lo: 150, hi: 153 }))))
+        "##]],
     );
 }
 
@@ -4293,7 +4449,7 @@ fn functors_in_arg_array_subset_of_adj() {
             operation Bar(q : Qubit) : () {}
             Foo([Bar]);
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-144 "{\n            operation Foo(ops : (Qubit => () is Adj)[]) : () {}\n            operation Bar(q : Qubit) : () {}\n            Foo([Bar]);\n        }" : Unit
             #2 0-144 "{\n            operation Foo(ops : (Qubit => () is Adj)[]) : () {}\n            operation Bar(q : Qubit) : () {}\n            Foo([Bar]);\n        }" : Unit
             #7 27-57 "(ops : (Qubit => () is Adj)[])" : (Qubit => Unit is Adj)[]
@@ -4307,8 +4463,8 @@ fn functors_in_arg_array_subset_of_adj() {
             #37 126-133 "([Bar])" : (Qubit => Unit)[]
             #38 127-132 "[Bar]" : (Qubit => Unit)[]
             #39 128-131 "Bar" : (Qubit => Unit)
-            Error(Type(Error(MissingFunctor(Value(Adj), Value(Empty), Span { lo: 123, hi: 133 }))))
-        "#]],
+            Error(Type(Error(MissingFunctor(Value(Adj), Value(Empty), Span { lo: 127, hi: 132 }))))
+        "##]],
     );
 }
 
@@ -5405,6 +5561,150 @@ fn complex_literal_does_not_support_mod() {
             #8 16-19 "4.0" : Double
             #9 22-26 "5.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
             Error(Type(Error(MissingClassMod("Complex(Test)", Span { lo: 0, hi: 12 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_assign() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "{ let q = 2; A.Foo(q = 1) }",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-84 "{ let q = 2; A.Foo(q = 1) }" : Unit
+            #17 57-84 "{ let q = 2; A.Foo(q = 1) }" : Unit
+            #19 63-64 "q" : Int
+            #21 67-68 "2" : Int
+            #23 70-82 "A.Foo(q = 1)" : Unit
+            #24 70-75 "A.Foo" : (Unit -> Unit)
+            #28 75-82 "(q = 1)" : Unit
+            #29 76-81 "q = 1" : Unit
+            #30 76-77 "q" : Int
+            #33 80-81 "1" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_assignop() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "{ let i = 1; A.Foo(i += 1) }",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-85 "{ let i = 1; A.Foo(i += 1) }" : Unit
+            #17 57-85 "{ let i = 1; A.Foo(i += 1) }" : Unit
+            #19 63-64 "i" : Int
+            #21 67-68 "1" : Int
+            #23 70-83 "A.Foo(i += 1)" : Unit
+            #24 70-75 "A.Foo" : (Unit -> Unit)
+            #28 75-83 "(i += 1)" : Unit
+            #29 76-82 "i += 1" : Unit
+            #30 76-77 "i" : Int
+            #33 81-82 "1" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_assignupdate() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-102 "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }" : Unit
+            #17 57-102 "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }" : Unit
+            #19 63-66 "arr" : Int[]
+            #21 69-72 "[1]" : Int[]
+            #22 70-71 "1" : Int
+            #24 74-100 "A.Foo(set arr w/= 0 <- 10)" : Unit
+            #25 74-79 "A.Foo" : (Unit -> Unit)
+            #29 79-100 "(set arr w/= 0 <- 10)" : Unit
+            #30 80-99 "set arr w/= 0 <- 10" : Unit
+            #31 84-87 "arr" : Int[]
+            #34 92-93 "0" : Int
+            #35 97-99 "10" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_unit_arg_block() {
+    check_allow_parse_errors(
+        indoc! {"
+            namespace A {
+                function Foo(u: Unit) : Unit {
+                }
+            }
+        "},
+        "A.Foo({})",
+        &expect![[r##"
+            #6 30-39 "(u: Unit)" : Unit
+            #7 31-38 "u: Unit" : Unit
+            #15 47-54 "{\n    }" : Unit
+            #16 57-66 "A.Foo({})" : Unit
+            #17 57-62 "A.Foo" : (Unit -> Unit)
+            #21 62-66 "({})" : Unit
+            #22 63-65 "{}" : Unit
+            #23 63-65 "{}" : Unit
+        "##]],
+    );
+}
+
+#[test]
+fn call_expr_non_tuple_expr() {
+    check_allow_parse_errors(
+        "",
+        indoc! {"
+            {
+                let f = (a, b) -> a + b;
+                let x = (1, 2.);
+                f(x)
+            }
+        "},
+        &expect![[r##"
+            #1 0-62 "{\n    let f = (a, b) -> a + b;\n    let x = (1, 2.);\n    f(x)\n}" : Double
+            #2 0-62 "{\n    let f = (a, b) -> a + b;\n    let x = (1, 2.);\n    f(x)\n}" : Double
+            #4 10-11 "f" : ((Double, Double) -> Double)
+            #6 14-29 "(a, b) -> a + b" : ((Double, Double) -> Double)
+            #7 14-20 "(a, b)" : (Double, Double)
+            #8 15-16 "a" : Double
+            #10 18-19 "b" : Double
+            #12 24-29 "a + b" : Double
+            #13 24-25 "a" : Double
+            #16 28-29 "b" : Double
+            #20 39-40 "x" : (Int, Double)
+            #22 43-50 "(1, 2.)" : (Int, Double)
+            #23 44-45 "1" : Int
+            #24 47-49 "2." : Double
+            #26 56-60 "f(x)" : Double
+            #27 56-57 "f" : ((Double, Double) -> Double)
+            #30 57-60 "(x)" : (Int, Double)
+            #31 58-59 "x" : (Int, Double)
+            Error(Type(Error(TyMismatch("Int", "Double", Span { lo: 58, hi: 59 }))))
         "##]],
     );
 }

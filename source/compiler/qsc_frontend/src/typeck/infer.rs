@@ -308,69 +308,67 @@ impl TySource {
 #[derive(Clone, Debug)]
 pub(super) enum ArgTy {
     /// A missing argument, indicating partial application.
-    Hole(Ty),
+    Hole(Ty, Span),
     /// A given argument.
-    Given(Ty),
+    Given(Ty, Span),
     /// A list of arguments. This corresponds literally to tuple syntax, not to any expression of a tuple type.
-    Tuple(Vec<ArgTy>),
+    Tuple(Vec<ArgTy>, Span),
 }
 
 impl ArgTy {
     /// Applies a function `f` to each type in the argument type.
     fn map(self, f: &mut impl FnMut(Ty) -> Ty) -> Self {
         match self {
-            Self::Hole(ty) => Self::Hole(f(ty)),
-            Self::Given(ty) => Self::Given(f(ty)),
-            Self::Tuple(items) => Self::Tuple(items.into_iter().map(|i| i.map(f)).collect()),
+            Self::Hole(ty, span) => Self::Hole(f(ty), span),
+            Self::Given(ty, span) => Self::Given(f(ty), span),
+            Self::Tuple(items, span) => {
+                Self::Tuple(items.into_iter().map(|i| i.map(f)).collect(), span)
+            }
         }
     }
 
     /// Applies the argument type to a parameter type, generating constraints and errors.
-    fn apply(&self, param: &Ty, span: Span) -> App {
+    fn apply(&self, param: &Ty) -> App {
         match (self, param) {
             // If `arg` is a hole, then it doesn't matter what the param is,
             // because the hole can be anything.
             // However, we do know that the type of Arg must be Eq to the type of Param, so we
             // add that to the constraints.
             // Preserve the hole.
-            (Self::Hole(arg), _) => App {
+            (Self::Hole(arg, arg_span), _) => App {
                 holes: vec![param.clone()],
                 constraints: vec![Constraint::Eq {
                     expected: param.clone(),
                     actual: arg.clone(),
-                    span,
+                    span: *arg_span,
                 }],
                 errors: Vec::new(),
             },
-            // If `arg` is a hole, then it doesn't matter what the param is,
-            // because the hole can be anything.
-            // However, we do know that the type of Arg must be Eq to the type of Param, so we
-            // add that to the constraints.
-            (Self::Given(arg), _) => App {
+            (Self::Given(arg, arg_span), _) => App {
                 holes: Vec::new(),
                 constraints: vec![Constraint::Eq {
                     expected: param.clone(),
                     actual: arg.clone(),
-                    span,
+                    span: *arg_span,
                 }],
                 errors: Vec::new(),
             },
             // if both the arg and the param are tuples, then we must check
             // the types of each element in the tuple and generate iterative applications.
-            (Self::Tuple(args), Ty::Tuple(params)) => {
+            (Self::Tuple(args, tuple_span), Ty::Tuple(params)) => {
                 let mut errors = Vec::new();
                 if args.len() != params.len() {
                     errors.push(Error(ErrorKind::TyMismatch(
                         Ty::Tuple(params.clone()).display(),
                         self.to_ty().display(),
-                        span,
+                        *tuple_span,
                     )));
                 }
 
                 let mut holes = Vec::new();
                 let mut constraints = Vec::new();
                 for (arg, param) in args.iter().zip(params) {
-                    let mut app = arg.apply(param, span);
+                    let mut app = arg.apply(param);
                     constraints.append(&mut app.constraints);
                     errors.append(&mut app.errors);
                     if app.holes.len() > 1 {
@@ -387,22 +385,22 @@ impl ArgTy {
                 }
             }
 
-            (Self::Tuple(_), Ty::Infer(_)) => App {
+            (Self::Tuple(_, tuple_span), Ty::Infer(_)) => App {
                 holes: Vec::new(),
                 constraints: vec![Constraint::Eq {
                     expected: param.clone(),
                     actual: self.to_ty(),
-                    span,
+                    span: *tuple_span,
                 }],
                 errors: Vec::new(),
             },
-            (Self::Tuple(_), _) => App {
+            (Self::Tuple(_, tuple_span), _) => App {
                 holes: Vec::new(),
                 constraints: Vec::new(),
                 errors: vec![Error(ErrorKind::TyMismatch(
                     param.display(),
                     self.to_ty().display(),
-                    span,
+                    *tuple_span,
                 ))],
             },
         }
@@ -410,8 +408,8 @@ impl ArgTy {
 
     pub(super) fn to_ty(&self) -> Ty {
         match self {
-            ArgTy::Hole(ty) | ArgTy::Given(ty) => ty.clone(),
-            ArgTy::Tuple(items) => Ty::Tuple(items.iter().map(Self::to_ty).collect()),
+            ArgTy::Hole(ty, _) | ArgTy::Given(ty, _) => ty.clone(),
+            ArgTy::Tuple(items, _) => Ty::Tuple(items.iter().map(Self::to_ty).collect()),
         }
     }
 }
@@ -1039,7 +1037,7 @@ fn check_call(callee: Ty, input: &ArgTy, output: Ty, span: Span) -> (Vec<Constra
     // generate constraints for the arg ty that correspond to any class constraints specified in
     // the parameters
 
-    let mut app = input.apply(&arrow.input.borrow(), span);
+    let mut app = input.apply(&arrow.input.borrow());
     let expected = if app.holes.len() > 1 {
         Ty::Arrow(Rc::new(Arrow {
             kind: arrow.kind,
