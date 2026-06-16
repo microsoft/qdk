@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Code action: "Convert to single-element array"
-// Detects when a value is passed where an array of that type is expected,
-// and offers to wrap it in `[...]`.
+//! Code action: "Convert to single-element array"
+//! Detects when a value is passed where an array of that type is expected,
+//! and offers to wrap it in `[...]`.
 
 #[cfg(test)]
 mod tests;
@@ -75,11 +75,40 @@ pub(crate) fn wrap_in_array_fixes(
             let hi = (error_span.hi - source.offset) as usize;
             let arg_text = &source.contents[lo..hi];
             let new_text = format!("[{arg_text}]");
-            let range = Range::from_span(encoding, &source.contents, &(error_span - source.offset));
+            let open_range = into_range(
+                encoding,
+                Span {
+                    lo: error_span.lo,
+                    hi: error_span.lo,
+                },
+                &unit.sources,
+            );
+
+            let close_range = into_range(
+                encoding,
+                Span {
+                    lo: error_span.hi,
+                    hi: error_span.hi,
+                },
+                &unit.sources,
+            );
+
             code_actions.push(CodeAction {
                 title: "Convert to single-element array".to_string(),
                 edit: Some(WorkspaceEdit {
-                    changes: vec![(source_name.to_string(), vec![TextEdit { new_text, range }])],
+                    changes: vec![(
+                        source_name.to_string(),
+                        vec![
+                            TextEdit {
+                                new_text: "[".to_string(),
+                                range: open_range,
+                            },
+                            TextEdit {
+                                new_text: "]".to_string(),
+                                range: close_range,
+                            },
+                        ],
+                    )],
                 }),
                 kind: Some(CodeActionKind::QuickFix),
                 is_preferred: None,
