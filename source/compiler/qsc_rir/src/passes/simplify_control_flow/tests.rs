@@ -7,7 +7,10 @@ use expect_test::expect;
 
 use crate::{
     builder::{bell_program, teleport_program},
-    rir::{Block, BlockId, Instruction, Literal, Operand, Prim, Program, Ty, Variable, VariableId},
+    rir::{
+        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Prim,
+        Program, Ty, Variable, VariableId,
+    },
 };
 
 use super::simplify_control_flow;
@@ -54,7 +57,7 @@ fn simplify_control_flow_removes_single_redundant_block() {
                     ty: Ty::Prim(Prim::Boolean),
                 },
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -137,7 +140,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
                     ty: Ty::Prim(Prim::Boolean),
                 },
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -271,7 +274,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                     ty: Ty::Prim(Prim::Boolean),
                 },
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -427,7 +430,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                     ty: Ty::Prim(Prim::Boolean),
                 },
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -482,6 +485,117 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 Block 3: Block:
                     Variable(0, Boolean) = Store Bool(true)
                     Branch Variable(0, Boolean), 0, 2
+            config: Config:
+                capabilities: Base
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]]
+    .assert_eq(&program.to_string());
+}
+
+#[test]
+fn simplify_control_flow_multi_body_smoke() {
+    // A multi-body program whose secondary (non-entry) body contains a redundant block: the helper
+    // header jumps unconditionally into a follow-on block that is its sole successor, so that
+    // follow-on block is only reachable via the jump and gets merged into the header. `simplify_control_flow`
+    // iterates per block, so it must collapse the redundant block regardless of which callable's body
+    // it belongs to, and the entry body must be left intact. Multi-body programs like this are
+    // hand-built for testing and do not arise from Q# source on the SSA path today.
+    let mut program = Program::new();
+
+    program.callables.insert(
+        CallableId(0),
+        Callable {
+            name: "main".to_string(),
+            input_type: Vec::new(),
+            input_vars: Vec::new(),
+            output_type: Some(Ty::Prim(Prim::Integer)),
+            body: Some(BlockId(2)),
+            call_type: CallableType::Regular,
+        },
+    );
+    program.callables.insert(
+        CallableId(1),
+        Callable {
+            name: "helper".to_string(),
+            input_type: Vec::new(),
+            input_vars: Vec::new(),
+            output_type: Some(Ty::Prim(Prim::Integer)),
+            body: Some(BlockId(0)),
+            call_type: CallableType::Regular,
+        },
+    );
+
+    // Helper body header jumps into a redundant follow-on block.
+    program.blocks.insert(
+        BlockId(0),
+        Block(vec![
+            Instruction::Store(
+                Operand::Literal(Literal::Integer(1)),
+                Variable {
+                    variable_id: VariableId(0),
+                    ty: Ty::Prim(Prim::Integer),
+                },
+            ),
+            Instruction::Jump(BlockId(1)),
+        ]),
+    );
+    program.blocks.insert(
+        BlockId(1),
+        Block(vec![Instruction::Return(Some(Operand::Variable(
+            Variable {
+                variable_id: VariableId(0),
+                ty: Ty::Prim(Prim::Integer),
+            },
+        )))]),
+    );
+    // Entry body: calls the helper and returns its result. It has no redundant blocks of its own.
+    program.blocks.insert(
+        BlockId(2),
+        Block(vec![
+            Instruction::Call(
+                CallableId(1),
+                Vec::new(),
+                Some(Variable {
+                    variable_id: VariableId(1),
+                    ty: Ty::Prim(Prim::Integer),
+                }),
+                None,
+            ),
+            Instruction::Return(Some(Operand::Variable(Variable {
+                variable_id: VariableId(1),
+                ty: Ty::Prim(Prim::Integer),
+            }))),
+        ]),
+    );
+    program.entry = CallableId(0);
+
+    simplify_control_flow(&mut program);
+
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 2
+                Callable 1: Callable:
+                    name: helper
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+            blocks:
+                Block 0: Block:
+                    Variable(0, Integer) = Store Integer(1)
+                    Return Variable(0, Integer)
+                Block 2: Block:
+                    Variable(1, Integer) = Call id(1), args( )
+                    Return Variable(1, Integer)
             config: Config:
                 capabilities: Base
             num_qubits: 0

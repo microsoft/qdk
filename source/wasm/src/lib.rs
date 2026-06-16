@@ -816,7 +816,7 @@ fn get_configured_interpreter_from_openqasm(
 
 #[wasm_bindgen(typescript_custom_section)]
 const TARGET_PROFILE: &'static str = r#"
-export type TargetProfile = "base" | "adaptive_ri" | "adaptive_rif" | "unrestricted";
+export type TargetProfile = "base" | "adaptive_ri" | "adaptive_rif" | "adaptive" | "unrestricted";
 "#;
 
 #[wasm_bindgen(typescript_custom_section)]

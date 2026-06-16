@@ -3,7 +3,10 @@
 
 use qsc_data_structures::index_map::IndexMap;
 
-use crate::rir::{BlockId, Program};
+use crate::{
+    rir::{BlockId, Program},
+    utils::get_all_block_successors,
+};
 
 #[cfg(test)]
 mod tests;
@@ -21,44 +24,55 @@ pub fn build_dominator_graph(
     preds: &IndexMap<BlockId, Vec<BlockId>>,
 ) -> IndexMap<BlockId, BlockId> {
     let mut doms = IndexMap::default();
-    let entry_block_id = program
-        .get_callable(program.entry)
-        .body
-        .expect("entry point should have a body");
 
-    // The entry block dominates itself.
-    doms.insert(entry_block_id, entry_block_id);
+    // Program.blocks is a single flat arena holding the blocks of every callable. Calls are not CFG
+    // edges, so the arena decomposes into disjoint per-callable subgraphs, one root per bodied callable.
+    // Process each bodied callable independently and merge the results; block ids are globally unique,
+    // so the merged map has no collisions.
+    for callable_id in program.all_callable_ids() {
+        // Intrinsics (and any other bodyless callables) have no blocks and contribute no dominators.
+        let Some(entry_block_id) = program.get_callable(callable_id).body else {
+            continue;
+        };
 
-    // The algorithm needs to run until the dominance map stabilizes, ie: no block's immediate dominator changes.
-    let mut changed = true;
-    while changed {
-        changed = false;
-        // Always skip the entry block, as it is the only block that by definition dominates itself.
-        for (block_id, _) in program.blocks.iter().skip(1) {
-            // The immediate dominator of a block is the intersection of the dominators of its predecessors.
-            // Start from an assumption that the first predecessor is the dominator, and intersect with the rest.
-            let (first_pred, rest_preds) = preds
-                .get(block_id)
-                .expect("block should be present")
-                .split_first()
-                .expect("every block should have at least one predecessor");
-            let mut new_dom = *first_pred;
+        // The entry block of a body dominates itself.
+        doms.insert(entry_block_id, entry_block_id);
 
-            // If there are no other predecessors, the immediate dominator is the first predecessor.
-            for pred in rest_preds {
-                // For each predecessor whose dominator is known, intersect with the current best guess.
-                // Note that the dominator of the predecessor may be a best guess that gets updated in
-                // a later iteration.
-                if doms.contains_key(*pred) {
-                    new_dom = intersect(&doms, new_dom, *pred);
+        // The reachable blocks of this body, in ascending id order. The entry block is excluded here
+        // because it is the only block that by definition dominates itself, so it never needs updating.
+        let body_blocks = get_all_block_successors(entry_block_id, program);
+
+        // The algorithm needs to run until the dominance map stabilizes, ie: no block's immediate
+        // dominator changes.
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for &block_id in &body_blocks {
+                // The immediate dominator of a block is the intersection of the dominators of its predecessors.
+                // Start from an assumption that the first predecessor is the dominator, and intersect with the rest.
+                let (first_pred, rest_preds) = preds
+                    .get(block_id)
+                    .expect("block should be present")
+                    .split_first()
+                    .expect("every block should have at least one predecessor");
+                let mut new_dom = *first_pred;
+
+                // If there are no other predecessors, the immediate dominator is the first predecessor.
+                for pred in rest_preds {
+                    // For each predecessor whose dominator is known, intersect with the current best guess.
+                    // Note that the dominator of the predecessor may be a best guess that gets updated in
+                    // a later iteration.
+                    if doms.contains_key(*pred) {
+                        new_dom = intersect(&doms, new_dom, *pred);
+                    }
                 }
-            }
 
-            // If the immediate dominator has changed, update the map and mark that the map has changed
-            // so that the algorithm will run again.
-            if doms.get(block_id) != Some(&new_dom) {
-                doms.insert(block_id, new_dom);
-                changed = true;
+                // If the immediate dominator has changed, update the map and mark that the map has changed
+                // so that the algorithm will run again.
+                if doms.get(block_id) != Some(&new_dom) {
+                    doms.insert(block_id, new_dom);
+                    changed = true;
+                }
             }
         }
     }

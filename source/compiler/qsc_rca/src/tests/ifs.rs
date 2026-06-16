@@ -54,7 +54,7 @@ fn check_rca_for_if_stmt_with_dynamic_condition_and_classic_if_true_block() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -104,7 +104,7 @@ fn check_rca_for_if_else_expr_with_dynamic_condition_and_classic_branch_blocks()
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

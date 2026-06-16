@@ -10,12 +10,14 @@ mod remap_block_ids;
 mod simplify_control_flow;
 mod ssa_check;
 mod ssa_transform;
+#[cfg(test)]
+mod test_utils;
 mod type_check;
 mod unreachable_code_check;
 
 use build_dominator_graph::build_dominator_graph;
 use defer_meas::defer_measurements;
-use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
+use qsc_data_structures::target::TargetCapabilityFlags;
 use reindex_qubits::reindex_qubits;
 use remap_block_ids::remap_block_ids;
 use simplify_control_flow::simplify_control_flow;
@@ -48,7 +50,12 @@ pub fn check_and_transform(program: &mut Program) {
     check_types(program);
     remap_block_ids(program);
 
-    if program.config.capabilities >= Profile::Adaptive.into() {
+    let uses_non_ssa_pipeline = program.config.capabilities.intersects(
+        TargetCapabilityFlags::BackwardsBranching
+            | TargetCapabilityFlags::StaticSizedArrays
+            | TargetCapabilityFlags::CallSupport,
+    );
+    if uses_non_ssa_pipeline {
         prune_unneeded_stores(program);
         insert_alloca_load_instrs(program);
     } else {

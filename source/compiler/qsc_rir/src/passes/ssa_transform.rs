@@ -5,8 +5,8 @@
 mod tests;
 
 use crate::{
-    rir::{BlockId, Instruction, Operand, Program, Variable, VariableId},
-    utils::{get_variable_assignments, map_variable_use_in_block},
+    rir::{BlockId, Instruction, Operand, Program, Ty, Variable, VariableId},
+    utils::{get_all_block_successors, get_variable_assignments, map_variable_use_in_block},
 };
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -17,25 +17,66 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
     // Ensure that the graph is acyclic before proceeding. Current approach does not support cycles.
     ensure_acyclic(preds);
 
-    // Get the next available variable ID for use in newly generated phi nodes.
+    // Get the next available variable ID for use in newly generated phi nodes. This is computed once
+    // across the whole program so that freshly minted SSA versions stay unique across every body.
     let mut next_var_id = get_variable_assignments(program)
         .iter()
         .next_back()
         .map(|(var_id, _)| var_id.successor())
         .unwrap_or_default();
 
+    // The program's blocks form disjoint per-callable subgraphs, since a `Call` is not a control-flow
+    // edge. Transform each bodied callable independently, using its declared entry block as the root
+    // rather than inferring the entry from blocks that happen to have no predecessors.
+    for callable_id in program.all_callable_ids() {
+        let callable = program.get_callable(callable_id);
+        let Some(entry) = callable.body else {
+            continue;
+        };
+
+        // Live-in parameters have no defining instruction, so pair each one with its declared type so
+        // it can be seeded as a definition at the body entry.
+        let input_vars: Vec<(VariableId, Ty)> = callable
+            .input_vars
+            .iter()
+            .copied()
+            .zip(callable.input_type.iter().copied())
+            .collect();
+
+        transform_body_to_ssa(program, entry, &input_vars, preds, &mut next_var_id);
+    }
+}
+
+// Transform a single bodied callable into SSA form. Only the blocks reachable from the body's entry
+// are processed, and the body's live-in parameters are seeded as definitions at the entry.
+fn transform_body_to_ssa(
+    program: &mut Program,
+    entry: BlockId,
+    input_vars: &[(VariableId, Ty)],
+    preds: &IndexMap<BlockId, Vec<BlockId>>,
+    next_var_id: &mut VariableId,
+) {
+    // Process the entry block together with every block reachable from it, in ascending block-id
+    // order so that each block is handled after its predecessors.
+    let mut body_blocks = get_all_block_successors(entry, program);
+    body_blocks.push(entry);
+    body_blocks.sort_unstable();
+    body_blocks.dedup();
+
     // First, remove store instructions and propagate variables through individual blocks.
     // This produces a per-block map of dynamic variables to their values.
     // Orphan variables may be left behind where a variable is defined in one block and used in another, which
     // will be resolved by inserting phi nodes.
-    let mut block_var_map = map_store_to_dominated_ssa(program, preds);
+    let mut block_var_map =
+        map_store_to_dominated_ssa(program, &body_blocks, entry, input_vars, preds);
 
     // Insert phi nodes where necessary, mapping any remaining orphaned uses to the new variable
     // created by the phi node.
     // This can be done in one pass because the graph is assumed to be acyclic.
-    for (block_id, block) in program.blocks.iter_mut() {
+    for &block_id in &body_blocks {
+        let block = program.get_block_mut(block_id);
         let Some(block_preds) = preds.get(block_id) else {
-            // The block with no predecessors is the entry block and has no phi nodes.
+            // The body entry has no predecessors and therefore has no phi nodes.
             continue;
         };
 
@@ -103,13 +144,13 @@ pub fn transform_to_ssa(program: &mut Program, preds: &IndexMap<BlockId, Vec<Blo
                 // the original variable in the block's variable map, which will take care of any orphaned uses.
                 for (variable_id, args) in phi_nodes {
                     let new_var = Variable {
-                        variable_id: next_var_id,
+                        variable_id: *next_var_id,
                         ty: operand.get_type(),
                     };
                     let phi_node = Instruction::Phi(args, new_var);
                     block.0.insert(0, phi_node);
                     var_map_updates.insert(variable_id, Operand::Variable(new_var));
-                    next_var_id = next_var_id.successor();
+                    *next_var_id = next_var_id.successor();
                 }
             }
         }
@@ -140,13 +181,17 @@ fn ensure_acyclic(preds: &IndexMap<BlockId, Vec<BlockId>>) {
 // Remove store instructions and propagate variables through individual blocks.
 // This produces a per-block map of dynamic variables to their values.
 // Any block with a single predecessor inherits that predecessor's mapped variables, since those
-// are live across the block.
+// are live across the block. The body's live-in parameters are seeded as definitions at the entry
+// block so that uses of a parameter resolve and later merges can build phi nodes for it.
 fn map_store_to_dominated_ssa(
     program: &mut Program,
+    body_blocks: &[BlockId],
+    entry: BlockId,
+    input_vars: &[(VariableId, Ty)],
     preds: &IndexMap<BlockId, Vec<BlockId>>,
 ) -> IndexMap<BlockId, FxHashMap<VariableId, Operand>> {
     let mut block_var_map = IndexMap::default();
-    for (block_id, block) in program.blocks.iter_mut() {
+    for &block_id in body_blocks {
         let mut var_map: FxHashMap<VariableId, Operand> = match preds.get(block_id) {
             Some(block_preds) if block_preds.len() == 1 => {
                 // Any block with a single predecessor inherits those mapped variables.
@@ -157,7 +202,20 @@ fn map_store_to_dominated_ssa(
             }
             _ => FxHashMap::default(),
         };
-        map_variable_use_in_block(block, &mut var_map, &FxHashSet::default());
+        if block_id == entry {
+            // Each parameter is its own initial SSA version, defined at the body entry.
+            for &(var_id, ty) in input_vars {
+                var_map.entry(var_id).or_insert(Operand::Variable(Variable {
+                    variable_id: var_id,
+                    ty,
+                }));
+            }
+        }
+        map_variable_use_in_block(
+            program.get_block_mut(block_id),
+            &mut var_map,
+            &FxHashSet::default(),
+        );
         block_var_map.insert(block_id, var_map);
     }
     block_var_map

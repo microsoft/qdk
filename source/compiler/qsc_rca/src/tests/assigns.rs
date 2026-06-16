@@ -41,7 +41,7 @@ fn check_rca_for_dynamic_result_assign_to_local() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -64,7 +64,7 @@ fn check_rca_for_dynamic_bool_assign_to_local() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -89,7 +89,7 @@ fn check_rca_for_dynamic_int_assign_to_local() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -115,7 +115,7 @@ fn check_rca_for_dynamic_double_assign_to_local() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -245,7 +245,7 @@ fn check_rca_for_assign_dynamic_call_result_to_tuple_of_vars() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -259,7 +259,7 @@ fn check_rca_for_assign_dynamic_call_result_to_tuple_of_vars() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -284,7 +284,7 @@ fn check_rca_for_assign_dynamic_static_mix_call_result_to_tuple_of_vars() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -298,7 +298,7 @@ fn check_rca_for_assign_dynamic_static_mix_call_result_to_tuple_of_vars() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -346,7 +346,7 @@ fn check_rca_for_mutable_classical_integer_assigned_updated_with_dynamic_integer
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -371,7 +371,7 @@ fn check_rca_for_mutable_dynamic_integer_assigned_updated_with_classical_integer
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -396,7 +396,7 @@ fn check_rca_for_mutable_dynamic_integer_assigned_updated_with_dynamic_integer()
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -422,7 +422,7 @@ fn check_rca_for_mutable_dynamic_result_assigned_updated_in_dynamic_context() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicResult | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -444,7 +444,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_dynamic_result() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicResult | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -471,7 +471,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_result_from_classical_conditi
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -500,7 +500,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_call_with_dynamic_args() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicResult | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -527,7 +527,7 @@ fn check_rca_for_mutable_int_defined_and_updated_in_dynamic_scope() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -559,7 +559,7 @@ fn check_rca_for_mutable_int_defined_outer_scope_and_updated_in_inner_dynamic_sc
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | MeasurementWithinDynamicScope)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | MeasurementWithinDynamicScope | QubitAllocation)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -632,7 +632,7 @@ fn check_rca_for_immutable_tuple_bound_to_dynamic_tuple() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicTuple)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicTuple | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

@@ -30,7 +30,7 @@ fn no_gates() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -54,7 +54,7 @@ fn one_gate() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -89,7 +89,7 @@ fn one_measurement() {
                 Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=6
                 Call id(4), args( Integer(1), Tag(0, 3), )
                 Call id(5), args( Result(0), Tag(1, 5), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -131,7 +131,7 @@ fn calls_to_other_callables() {
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
                 Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=5
                 Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -183,7 +183,7 @@ fn classical_for_loop() {
                 Call id(3), args( Qubit(0), ) !dbg dbg_location=16
                 Variable(0, Integer) = Store Integer(3)
                 Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -269,7 +269,7 @@ fn nested_classical_for_loop() {
                 Variable(4, Integer) = Store Integer(3)
                 Variable(1, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -336,7 +336,7 @@ fn lambda() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-1)
@@ -381,7 +381,7 @@ fn result_comparison_to_literal() {
                 Call id(6), args( Qubit(0), ) !dbg dbg_location=12
                 Call id(7), args( Integer(1), Tag(0, 3), )
                 Call id(8), args( Result(0), Tag(1, 5), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Call id(5), args( Qubit(0), ) !dbg dbg_location=9
                 Jump(1)
@@ -443,7 +443,7 @@ fn if_else() {
                 Call id(7), args( Integer(2), Tag(0, 3), )
                 Call id(8), args( Result(0), Tag(1, 5), )
                 Call id(8), args( Result(1), Tag(2, 5), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Call id(5), args( Qubit(1), ) !dbg dbg_location=10
                 Jump(1)
@@ -503,7 +503,7 @@ fn branch_due_to_binop_short_circuit() {
             Block 1:Block:
                 Variable(5, Boolean) = Store Variable(2, Boolean)
                 Call id(5), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=14
                 Variable(3, Boolean) = Call id(4), args( Result(1), ) !dbg dbg_location=11
