@@ -111,6 +111,11 @@ extends:
                   toolchainFeed: $(toolchainFeed)
                 displayName: Install Rust toolchain
 
+              - task: PipAuthenticate@1
+                displayName: Pip Authenticate
+                inputs:
+                  artifactFeeds: "AzureQuantum/azure-quantum"
+
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
@@ -158,6 +163,11 @@ extends:
                   cratesIoFeedOverride: $(cratesIoFeedOverride)
                   toolchainFeed: $(toolchainFeed)
                 displayName: Install Rust toolchain
+
+              - task: PipAuthenticate@1
+                displayName: Pip Authenticate
+                inputs:
+                  artifactFeeds: "AzureQuantum/azure-quantum"
 
               - task: UsePythonVersion@0
                 inputs:
@@ -275,6 +285,11 @@ extends:
                   toolchainFeed: $(toolchainFeed)
                 displayName: Install Rust toolchain
 
+              - task: PipAuthenticate@1
+                displayName: Pip Authenticate
+                inputs:
+                  artifactFeeds: "AzureQuantum/azure-quantum"
+
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
@@ -347,6 +362,11 @@ extends:
                       rustc --version
                       rustc --print target-list
                     displayName: View rust target info
+
+                  - task: PipAuthenticate@1
+                    displayName: Pip Authenticate
+                    inputs:
+                      artifactFeeds: "AzureQuantum/azure-quantum"
 
                   - task: UsePythonVersion@0
                     inputs:
