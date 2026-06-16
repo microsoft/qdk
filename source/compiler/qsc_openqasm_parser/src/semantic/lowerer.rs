@@ -252,6 +252,7 @@ impl Lowerer {
                         continue;
                     } else if include.filename.to_lowercase() == "qdk.inc" {
                         self.define_mresetzchecked();
+                        self.define_postselectz();
                         continue;
                     }
 
@@ -431,6 +432,23 @@ impl Lowerer {
             name,
             Span::default(),
             Type::Function(vec![Type::Qubit].into(), Type::Int(None, false).into()),
+            Span::default(),
+            Default::default(),
+        );
+        if self.symbols.insert_symbol(symbol).is_err() {
+            self.push_redefined_symbol_error(name, Span::default());
+        }
+    }
+
+    fn define_postselectz(&mut self) {
+        let name = "postselectz";
+        let symbol = Symbol::new(
+            name,
+            Span::default(),
+            Type::Function(
+                vec![Type::Bit(false), Type::Qubit].into(),
+                Type::Void.into(),
+            ),
             Span::default(),
             Default::default(),
         );
