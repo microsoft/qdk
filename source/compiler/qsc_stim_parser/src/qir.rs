@@ -46,12 +46,8 @@ impl QirWriter {
 
     // Writes: `  call void @{intrinsic}(ptr inttoptr (i64 N to ptr), ...)`
     // Resolves qubit indices via the qubit map and allocates result IDs internally.
-    fn write_call(&mut self, intrinsic: &str, operands: &[Operand]) {
-        write!(
-            self.output,
-            "  call void @__quantum__qis__{intrinsic}__body("
-        )
-        .unwrap();
+    fn write_raw_call(&mut self, intrinsic: &str, operands: &[Operand]) {
+        write!(self.output, "  call void @{intrinsic}(").unwrap();
         for (i, &operand) in operands.iter().enumerate() {
             if i > 0 {
                 write!(self.output, ", ").unwrap();
@@ -59,7 +55,6 @@ impl QirWriter {
             self.write_operand(operand);
         }
         writeln!(self.output, ")").unwrap();
-        let name = format!("__quantum__qis__{intrinsic}__body");
         let params = (0..operands.len())
             .map(|_| "ptr")
             .collect::<Vec<_>>()
@@ -418,7 +413,15 @@ impl<'noise> Compiler<'noise> {
                     continue;
                 };
                 let q = Operand::Qubit(value);
-                self.writer.write_call("sx", &[q]);
+                self.writer.write_qis_call("sx", &[q]);
+            }
+        } else if gate == "s_dag" {
+            for target in &instruction.targets {
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                self.writer
+                    .write_qis_adj_call("s", &[Operand::Qubit(value)]);
             }
         }
     }
@@ -435,7 +438,19 @@ impl<'noise> Compiler<'noise> {
                     continue;
                 };
                 self.writer
-                    .write_call(&gate, &[Operand::Qubit(v0), Operand::Qubit(v1)]);
+                    .write_qis_call(&gate, &[Operand::Qubit(v0), Operand::Qubit(v1)]);
+            }
+        } else if gate == "swap" {
+            let targets = &instruction.targets;
+            for pair in targets.chunks(2) {
+                let TargetKind::Qubit { value: v0, .. } = pair[0].kind else {
+                    continue;
+                };
+                let TargetKind::Qubit { value: v1, .. } = pair[1].kind else {
+                    continue;
+                };
+                self.writer
+                    .write_qis_call("swap", &[Operand::Qubit(v0), Operand::Qubit(v1)]);
             }
         }
     }
@@ -618,6 +633,14 @@ impl<'noise> Compiler<'noise> {
                 };
                 self.writer
                     .write_qis_call("reset", &[Operand::Qubit(value)]);
+            }
+        } else if gate == "m" {
+            for target in &instruction.targets {
+                let TargetKind::Qubit { value, .. } = target.kind else {
+                    continue;
+                };
+                self.writer
+                    .write_qis_call("m", &[Operand::Qubit(value), Operand::Result]);
             }
         } else if gate == "mr" {
             for target in &instruction.targets {
