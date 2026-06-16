@@ -48,7 +48,6 @@
       "cargo build": true,
       "cargo check": true,
       "cargo clippy": true,
-      "cargo fmt": true,
-      "cargo test": true
+      "cargo fmt": true
     }
   }
