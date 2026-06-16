@@ -1,17 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{code_action, test_utils::compile_project_with_markers_no_cursor};
-use qsc::{
-    Span,
-    line_column::{Encoding, Range},
+use crate::{
+    code_action,
+    test_utils::{compile_project_with_markers_no_cursor, whole_document_range},
 };
+use qsc::line_column::Encoding;
 
 fn get_wrap_in_array_actions(source: &str) -> Vec<crate::protocol::CodeAction> {
     let (compilation, _targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], false);
-    let len = u32::try_from(source.len()).expect("source length fits in u32");
-    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
+    let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     actions
         .into_iter()

@@ -3,20 +3,16 @@
 
 use crate::code_action;
 use crate::test_utils::{
-    compile_notebook_with_fake_stdlib, compile_project_with_markers_no_cursor,
+    compile_notebook_with_fake_stdlib, compile_project_with_markers_no_cursor, whole_document_range,
 };
 use expect_test::{Expect, expect};
-use qsc::{
-    Span,
-    line_column::{Encoding, Range},
-};
+use qsc::line_column::Encoding;
 
 /// Collects the titles of the auto-import code actions offered for `source`.
 fn import_action_titles(source: &str) -> Vec<String> {
     let (compilation, _targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], true);
-    let len = u32::try_from(source.len()).expect("source length fits in u32");
-    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
+    let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     actions
         .into_iter()
@@ -121,8 +117,7 @@ fn import_edit_inserts_at_namespace_start() {
         }";
     let (compilation, _targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], true);
-    let len = u32::try_from(source.len()).expect("source length fits in u32");
-    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
+    let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     let action = actions
         .iter()
@@ -148,8 +143,7 @@ fn import_edit_inserts_at_namespace_start() {
 fn notebook_unresolved_term_offers_import() {
     let compilation = compile_notebook_with_fake_stdlib([("cell1", "Fake();")].into_iter());
     let source = "Fake();";
-    let len = u32::try_from(source.len()).expect("source length fits in u32");
-    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
+    let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, "cell1", range, Encoding::Utf8);
     let titles: Vec<String> = actions
         .into_iter()

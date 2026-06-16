@@ -2,18 +2,14 @@
 // Licensed under the MIT License.
 
 use crate::test_utils::compile_notebook_with_markers;
-use crate::{code_action, test_utils::compile_project_with_markers_no_cursor};
+use crate::{code_action, test_utils::{compile_project_with_markers_no_cursor, whole_document_range}};
 use expect_test::expect;
-use qsc::{
-    Span,
-    line_column::{Encoding, Range},
-};
+use qsc::line_column::Encoding;
 
 fn get_wrapper_text(source: &str, op_name: &str) -> String {
     let (compilation, _targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], false);
-    let len = u32::try_from(source.len()).expect("source length fits in u32");
-    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
+    let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     let action = actions
         .iter()
@@ -365,8 +361,7 @@ fn no_code_action_for_lambdas_() {
     let source = "namespace Test { operation Named(x : Int) : Unit { let l = (y) => { x + y }; let e = (y) => { x + y }; l(2); } }";
     let (compilation, _targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], false);
-    let len = u32::try_from(source.len()).expect("source length fits in u32");
-    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
+    let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     let titles = actions
         .iter()
@@ -403,8 +398,7 @@ fn notebook_cell_wrapper_action() {
     let source = "operation Op(a : Int, b : Bool) : Unit {↘ }";
     let cells = [("cell1", source)];
     let (compilation, cell_uri, _, _) = compile_notebook_with_markers(&cells);
-    let len = u32::try_from(source.len()).expect("source length fits in u32");
-    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
+    let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, &cell_uri, range, Encoding::Utf8);
     let wrapper = actions
         .iter()
