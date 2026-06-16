@@ -2401,8 +2401,10 @@ impl<'a> PartialEvaluator<'a> {
         // Evaluate the body expression.
         // First, we cache the current static variable mappings so that we can restore them later.
         let cached_mappings = self.clone_current_static_var_map();
+        let cached_qubit_lifetimes = self.resource_manager.snapshot_qubit_lifetimes();
         let if_true_block_id =
             self.eval_expr_if_branch(body_expr_id, continuation_block_node_id, maybe_if_expr_var)?;
+        let post_if_true_qubit_lifetimes = self.resource_manager.snapshot_qubit_lifetimes();
 
         // Evaluate the otherwise expression (if any), and determine the block to branch to if the condition is false.
         let if_false_block_id = if let Some(otherwise_expr_id) = otherwise_expr_id {
@@ -2410,6 +2412,8 @@ impl<'a> PartialEvaluator<'a> {
             let post_if_true_mappings = self.clone_current_static_var_map();
             // Restore the cached mappings from before evaluating the true block.
             self.overwrite_current_static_var_map(cached_mappings);
+            self.resource_manager
+                .restore_qubit_lifetimes(cached_qubit_lifetimes.clone());
             let if_false_block_id = self.eval_expr_if_branch(
                 otherwise_expr_id,
                 continuation_block_node_id,
@@ -2418,11 +2422,13 @@ impl<'a> PartialEvaluator<'a> {
             // Only keep the static mappings that are the same in both blocks; when they are different,
             // the variable is no longer static across the if expression.
             self.keep_matching_static_var_mappings(&post_if_true_mappings);
+            self.merge_qubit_lifetimes(post_if_true_qubit_lifetimes);
             if_false_block_id
         } else {
             // Only keep the static mappings that are the same after the true block as before; when they are different,
             // the variable is no longer static across the if expression.
             self.keep_matching_static_var_mappings(&cached_mappings);
+            self.merge_qubit_lifetimes(post_if_true_qubit_lifetimes);
 
             // Since there is no otherwise block, we branch to the continuation block.
             continuation_block_node_id
@@ -4275,6 +4281,24 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_context
             .get_current_scope_mut()
             .set_static_var_mappings(static_vars);
+    }
+
+    fn merge_qubit_lifetimes(&mut self, other: management::QubitLifetimeState) {
+        let mut current = self.resource_manager.snapshot_qubit_lifetimes();
+        current.qubits_in_use.resize(
+            current.qubits_in_use.len().max(other.qubits_in_use.len()),
+            false,
+        );
+        for (index, in_use) in other.qubits_in_use.iter().enumerate() {
+            current.qubits_in_use[index] |= *in_use;
+        }
+
+        for (qubit_id, mapped_qubit) in other.qubit_id_map {
+            current.qubit_id_map.insert(qubit_id, mapped_qubit);
+        }
+
+        current.qubit_tracker.extend(other.qubit_tracker);
+        self.resource_manager.restore_qubit_lifetimes(current);
     }
 
     fn keep_matching_static_var_mappings(

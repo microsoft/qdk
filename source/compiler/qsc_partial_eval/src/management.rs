@@ -13,19 +13,14 @@ use qsc_eval::{
 use qsc_rir::rir::{BlockId, CallableId, VariableId};
 use rustc_hash::FxHashSet;
 
-/// Manages IDs for resources needed while performing partial evaluation.
-#[derive(Default)]
-pub struct ResourceManager {
-    qubits_in_use: Vec<bool>,
-    qubit_id_map: IndexMap<usize, usize>,
-    qubit_tracker: FxHashSet<Rc<Qubit>>,
-    next_callable: CallableId,
-    next_block: BlockId,
-    next_result_register: usize,
-    next_var: usize,
+#[derive(Clone, Default)]
+pub struct QubitLifetimeState {
+    pub(crate) qubits_in_use: Vec<bool>,
+    pub(crate) qubit_id_map: IndexMap<usize, usize>,
+    pub(crate) qubit_tracker: FxHashSet<Rc<Qubit>>,
 }
 
-impl ResourceManager {
+impl QubitLifetimeState {
     pub fn map_qubit(&self, q: &QubitRef) -> usize {
         let q = q.deref();
         *self
@@ -37,11 +32,6 @@ impl ResourceManager {
     /// Count of qubits used.
     pub fn qubit_count(&self) -> usize {
         self.qubits_in_use.len()
-    }
-
-    /// Count of results registers used.
-    pub fn result_register_count(&self) -> usize {
-        self.next_result_register
     }
 
     /// Allocates a qubit by favoring available qubit IDs before using new ones.
@@ -78,6 +68,63 @@ impl ResourceManager {
         self.qubit_tracker.remove(&q);
     }
 
+    pub fn swap_qubit_ids(&mut self, q0: usize, q1: usize) {
+        let id0 = *self
+            .qubit_id_map
+            .get(q0)
+            .expect("qubit id should be in map");
+        let id1 = *self
+            .qubit_id_map
+            .get(q1)
+            .expect("qubit id should be in map");
+        self.qubit_id_map.insert(q0, id1);
+        self.qubit_id_map.insert(q1, id0);
+    }
+}
+
+/// Manages IDs for resources needed while performing partial evaluation.
+#[derive(Default)]
+pub struct ResourceManager {
+    qubit_lifetimes: QubitLifetimeState,
+    next_callable: CallableId,
+    next_block: BlockId,
+    next_result_register: usize,
+    next_var: usize,
+}
+
+impl ResourceManager {
+    pub fn map_qubit(&self, q: &QubitRef) -> usize {
+        self.qubit_lifetimes.map_qubit(q)
+    }
+
+    /// Count of qubits used.
+    pub fn qubit_count(&self) -> usize {
+        self.qubit_lifetimes.qubit_count()
+    }
+
+    pub fn snapshot_qubit_lifetimes(&self) -> QubitLifetimeState {
+        self.qubit_lifetimes.clone()
+    }
+
+    pub fn restore_qubit_lifetimes(&mut self, qubit_lifetimes: QubitLifetimeState) {
+        self.qubit_lifetimes = qubit_lifetimes;
+    }
+
+    /// Count of results registers used.
+    pub fn result_register_count(&self) -> usize {
+        self.next_result_register
+    }
+
+    /// Allocates a qubit by favoring available qubit IDs before using new ones.
+    pub fn allocate_qubit(&mut self) -> QubitRef {
+        self.qubit_lifetimes.allocate_qubit()
+    }
+
+    /// Releases a qubit ID for future use.
+    pub fn release_qubit(&mut self, q: &QubitRef) {
+        self.qubit_lifetimes.release_qubit(q);
+    }
+
     /// Gets the next block ID.
     pub fn next_block(&mut self) -> BlockId {
         let id = self.next_block;
@@ -107,16 +154,7 @@ impl ResourceManager {
     }
 
     pub fn swap_qubit_ids(&mut self, q0: usize, q1: usize) {
-        let id0 = *self
-            .qubit_id_map
-            .get(q0)
-            .expect("qubit id should be in map");
-        let id1 = *self
-            .qubit_id_map
-            .get(q1)
-            .expect("qubit id should be in map");
-        self.qubit_id_map.insert(q0, id1);
-        self.qubit_id_map.insert(q1, id0);
+        self.qubit_lifetimes.swap_qubit_ids(q0, q1);
     }
 }
 

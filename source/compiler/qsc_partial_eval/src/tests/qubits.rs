@@ -488,6 +488,27 @@ fn qubit_double_release_triggers_runtime_error() {
 }
 
 #[test]
+fn qubit_mutually_exclusive_release_branches_do_not_false_double_release() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+                if M(q) == One {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                } else {
+                    QIR.Runtime.__quantum__rt__qubit_release(q);
+                }
+            }
+        }
+        "#,
+    });
+
+    assert!(program.num_qubits >= 1);
+}
+
+#[test]
 fn qubit_relabel_in_dynamic_block_triggers_capability_error() {
     let error = get_partial_evaluation_error(indoc! {
         r#"
