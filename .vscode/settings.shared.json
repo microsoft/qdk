@@ -43,5 +43,12 @@
     "[yaml]": {
       "editor.defaultFormatter": "esbenp.prettier-vscode",
       "editor.formatOnSave": true
+    },
+    "chat.tools.terminal.autoApprove": {
+      "cargo build": true,
+      "cargo check": true,
+      "cargo clippy": true,
+      "cargo fmt": true,
+      "cargo test": true
     }
   }
