@@ -25,6 +25,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConstraintBound>()?;
     m.add_class::<ProvenanceGraph>()?;
     m.add_class::<Trace>()?;
+    m.add_class::<Gate>()?;
     m.add_class::<Block>()?;
     m.add_class::<PSSPC>()?;
     m.add_class::<LatticeSurgery>()?;
@@ -1272,9 +1273,75 @@ impl Trace {
         format!("{}", self.0)
     }
 
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn flatten(slf: PyRef<'_, Self>) -> PyResult<Py<TraceWalkIterator>> {
+        let walk_iter = slf.0.walk_iter();
+        // SAFETY: The `WalkIterator` borrows from the `Trace` stored inside
+        // the `Py<Trace>` we keep alive in `parent`.  Because `Py<Trace>` is
+        // reference-counted and stored alongside the iterator, the underlying
+        // `Trace` (and its blocks/operations) will not be dropped while this
+        // `TraceWalkIterator` exists.  The struct is marked `unsendable` so it
+        // stays on the thread that created it.
+        let walk_iter: qre::WalkIterator<'static> =
+            unsafe { std::mem::transmute(walk_iter) };
+        Py::new(
+            slf.py(),
+            TraceWalkIterator {
+                iter: walk_iter,
+                parent: slf.into(),
+            },
+        )
+    }
+
     #[getter]
     pub fn required_isa(&self) -> ISARequirements {
         ISARequirements(self.0.required_instruction_ids(None))
+    }
+}
+
+#[pyclass]
+pub struct Gate {
+    #[pyo3(get)]
+    id: u64,
+    #[pyo3(get)]
+    qubits: Vec<u64>,
+    #[pyo3(get)]
+    params: Vec<f64>,
+}
+
+#[pymethods]
+impl Gate {
+    fn __str__(&self) -> String {
+        format!(
+            "Gate(id={}, qubits={:?}, params={:?})",
+            self.id, self.qubits, self.params
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(unsendable)]
+pub struct TraceWalkIterator {
+    iter: qre::WalkIterator<'static>,
+    #[allow(dead_code)]
+    parent: Py<Trace>,
+}
+
+#[pymethods]
+impl TraceWalkIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Gate> {
+        slf.iter.next().map(|g| Gate {
+            id: g.id(),
+            qubits: g.qubits().to_vec(),
+            params: g.params().to_vec(),
+        })
     }
 }
 
