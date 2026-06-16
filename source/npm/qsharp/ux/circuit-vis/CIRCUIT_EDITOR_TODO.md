@@ -3257,6 +3257,29 @@ Larger follow-ups (deferred — not blocking PR):
   single-target unitary call site is covered by
   `gateFormatter.test.mjs`'s `_getQuantumControlYs` mixed-controls
   tests plus the snapshot suite.
+- **Circuit-test fixture DSL.** Nice-to-have, not blocking. The
+  action-layer test files build their input circuits as nested
+  `componentGrid` object literals — explicit and self-contained,
+  but verbose enough that the layout under test isn't always
+  obvious at a glance (a two-op, two-column group can take 30+
+  lines). Two shapes worth considering if maintenance burden
+  grows:
+  1. **Small file-local builder helpers** — a handful of pure
+     functions like `group(name, targets, cols)`, `gate(name, q, ctrls?)`,
+     `M(q)`, and `circuit(nQubits, cols)` that compose into a
+     one-liner per test. Lowest investment; no parsing, no
+     fixture files. The structure still mirrors the data.
+  2. **ASCII-diagram parser** — a test-only helper that
+     accepts a textual layout (`col 0: M q2 → c2`,
+     `col 1: if(c2) H q0`, etc.) and emits the
+     `componentGrid` shape. Highest readability, highest
+     upfront cost; only worth it if many more test files like
+     `groupCollisionSplit.test.mjs` get added.
+
+  Either form is purely additive — existing tests can keep using
+  literals indefinitely. Not worth doing speculatively; revisit
+  if the next round of test additions in this area starts to
+  drown the assertions in setup boilerplate.
 
 ### Working principles
 

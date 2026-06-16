@@ -270,10 +270,19 @@ const getGateLocationString = (operation: Operation): string | null => {
 };
 
 /**
- * Get the minimum and maximum register indices for a given operation.
+ * Get the minimum and maximum drawn-row indices for a given
+ * operation. Bare qubit row `q` is index `q`; classical-result
+ * rows (registers with `.result !== undefined`) sit BELOW their
+ * owning qubit row and are encoded as `q + 0.5` so the inclusive
+ * range correctly distinguishes them from a quantum entry at
+ * `q + 1` and from a quantum entry at `q` itself.
  *
- * @param operation The operation for which to get the register indices.
- * @returns A tuple containing the minimum and maximum register indices.
+ * Used exclusively for sibling-overlap checks (`_doesOverlap`)
+ * in the action layer. Callers that need integer wire indices
+ * should use `getQuantumWireRange` instead.
+ *
+ * @param operation The operation for which to get the row indices.
+ * @returns A tuple containing the minimum and maximum row indices.
  */
 function getMinMaxRegIdx(operation: Operation): [number, number] {
   let targets: Register[];
@@ -293,9 +302,15 @@ function getMinMaxRegIdx(operation: Operation): [number, number] {
       break;
   }
 
-  const qRegs = [...controls, ...targets].map(({ qubit }) => qubit);
-  const minRegIdx: number = Math.min(...qRegs);
-  const maxRegIdx: number = Math.max(...qRegs);
+  // Classical-register rows sit immediately below their owning
+  // qubit row (between qubit `q` and qubit `q+1`). Encode them as
+  // `q + 0.5` so the inclusive-range overlap check correctly
+  // distinguishes a quantum row at `q` from a classical row of `q`.
+  const rows = [...controls, ...targets].map((r) =>
+    r.result !== undefined ? r.qubit + 0.5 : r.qubit,
+  );
+  const minRegIdx: number = Math.min(...rows);
+  const maxRegIdx: number = Math.max(...rows);
 
   return [minRegIdx, maxRegIdx];
 }

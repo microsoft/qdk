@@ -198,6 +198,16 @@ Deferred follow-ups (not blocking PR):
 - **Renderer geometry tests** for
   `_renderQuantumGroupControls` — bundled with the deferred M6
   work, since the rendering rule is expected to change there.
+- **Circuit-test fixture DSL** — nice-to-have, not required.
+  Action-layer tests in [test/circuit-editor/](../../test/circuit-editor/)
+  build their input circuits as nested `componentGrid` literals,
+  which are explicit but verbose enough that the layout under
+  test isn't always obvious at a glance. A small set of
+  file-local builder helpers (`group`, `gate`, `M`, `circuit`,
+  etc.) or an ASCII-diagram parser would let a reader see
+  "two ops in two columns inside a group" without decoding
+  three levels of JSON. Worth doing if test-file maintenance
+  burden grows; not worth doing speculatively.
 
 See [the full audit in the TODO](CIRCUIT_EDITOR_TODO.md#test-coverage-audit--pr-readiness)
 for the per-module table, milestone-grouped gap list, and
