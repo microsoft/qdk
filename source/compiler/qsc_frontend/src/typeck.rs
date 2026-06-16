@@ -50,29 +50,57 @@ pub(super) struct Error(ErrorKind);
 /// Simplified type info for error reporting. Same shape as `Ty`, but without `Rc`
 /// so it can be included in `ErrorKind` (which must be `Send + Sync`).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub enum TyInfo {
-    Array(Box<TyInfo>),
+pub enum TyInfoKind {
+    Array(Box<TyInfoKind>),
     Arrow,
     Infer(InferTyId),
     Param,
     Prim(Prim),
-    Tuple(Vec<TyInfo>),
+    Tuple(Vec<TyInfoKind>),
     Udt,
     #[default]
     Err,
 }
 
-impl From<&Ty> for TyInfo {
+/// Type info paired with a display string for error reporting.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TyInfo {
+    pub kind: TyInfoKind,
+    pub display: String,
+}
+
+impl std::fmt::Display for TyInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.display)
+    }
+}
+
+impl From<&Ty> for TyInfoKind {
     fn from(ty: &Ty) -> Self {
         match ty {
-            Ty::Array(item) => TyInfo::Array(Box::new(TyInfo::from(item.as_ref()))),
-            Ty::Arrow(_) => TyInfo::Arrow,
-            Ty::Infer(id) => TyInfo::Infer(*id),
-            Ty::Param { .. } => TyInfo::Param,
-            Ty::Prim(prim) => TyInfo::Prim(*prim),
-            Ty::Tuple(items) => TyInfo::Tuple(items.iter().map(TyInfo::from).collect()),
-            Ty::Udt(_, _) => TyInfo::Udt,
-            Ty::Err => TyInfo::Err,
+            Ty::Array(item) => TyInfoKind::Array(Box::new(TyInfoKind::from(item.as_ref()))),
+            Ty::Arrow(_) => TyInfoKind::Arrow,
+            Ty::Infer(id) => TyInfoKind::Infer(*id),
+            Ty::Param { .. } => TyInfoKind::Param,
+            Ty::Prim(prim) => TyInfoKind::Prim(*prim),
+            Ty::Tuple(items) => TyInfoKind::Tuple(items.iter().map(TyInfoKind::from).collect()),
+            Ty::Udt(_, _) => TyInfoKind::Udt,
+            Ty::Err => TyInfoKind::Err,
+        }
+    }
+}
+
+impl From<Ty> for TyInfoKind {
+    fn from(ty: Ty) -> Self {
+        TyInfoKind::from(&ty)
+    }
+}
+
+impl From<&Ty> for TyInfo {
+    fn from(ty: &Ty) -> Self {
+        TyInfo {
+            kind: TyInfoKind::from(ty),
+            display: ty.display(),
         }
     }
 }
@@ -88,8 +116,6 @@ enum ErrorKind {
     #[error("expected {0}, found {1}")]
     #[diagnostic(code("Qsc.TypeCk.TyMismatch"))]
     TyMismatch(
-        /*expected*/ String,
-        /*actual*/ String,
         /*expected*/ TyInfo,
         /*actual*/ TyInfo,
         #[label] Span,
@@ -241,7 +267,7 @@ impl Error {
     #[must_use]
     pub fn ty_mismatch(&self) -> Option<(&TyInfo, &TyInfo, Span)> {
         match &self.0 {
-            ErrorKind::TyMismatch(_, _, expected, actual, span) => Some((expected, actual, *span)),
+            ErrorKind::TyMismatch(expected, actual, span) => Some((expected, actual, *span)),
             _ => None,
         }
     }

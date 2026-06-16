@@ -202,8 +202,6 @@ impl Checker {
             match &output {
                 Ty::Tuple(items) if items.is_empty() => {}
                 _ => self.errors.push(Error(ErrorKind::TyMismatch(
-                    Ty::UNIT.display(),
-                    output.display(),
                     Ty::UNIT.into(),
                     output.into(),
                     decl.output.span,

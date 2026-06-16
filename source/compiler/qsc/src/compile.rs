@@ -8,7 +8,7 @@ use qsc_data_structures::{
 };
 pub use qsc_frontend::compile::Dependencies;
 use qsc_frontend::compile::{CompileUnit, PackageStore};
-pub use qsc_frontend::typeck::TyInfo;
+pub use qsc_frontend::typeck::{TyInfo, TyInfoKind};
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 use thiserror::Error;
 

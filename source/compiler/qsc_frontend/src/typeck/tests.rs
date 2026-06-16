@@ -222,7 +222,7 @@ fn return_wrong_type() {
             #6 30-32 "()" : Unit
             #10 39-47 "{ true }" : Bool
             #12 41-45 "true" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Prim(Int), Prim(Bool), Span { lo: 41, hi: 45 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 41, hi: 45 }))))
         "##]],
     );
 }
@@ -240,7 +240,7 @@ fn return_semi() {
             #6 30-32 "()" : Unit
             #10 39-45 "{ 4; }" : Unit
             #12 41-42 "4" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 35, hi: 38 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 35, hi: 38 }))))
         "##]],
     );
 }
@@ -269,7 +269,7 @@ fn incorrect_explicit_type_in_let_binding_error() {
             #2 0-22 "{ let x : Int = 4.0; }" : Unit
             #4 6-13 "x : Int" : Int
             #9 16-19 "4.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 16, hi: 19 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 16, hi: 19 }))))
         "##]],
     );
 }
@@ -287,7 +287,7 @@ fn incorrect_explicit_type_in_let_binding_used_later_correctly() {
             #11 21-26 "x + 1" : Int
             #12 21-22 "x" : Int
             #15 25-26 "1" : Int
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 16, hi: 19 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 16, hi: 19 }))))
         "##]],
     );
 }
@@ -462,7 +462,7 @@ fn add_wrong_types() {
             #13 42-43 "1" : Int
             #14 46-49 "[2]" : Int[]
             #15 47-48 "2" : Int
-            Error(Type(Error(TyMismatch("Int", "Int[]", Prim(Int), Array(Prim(Int)), Span { lo: 46, hi: 49 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Array(Prim(Int)), display: "Int[]" }, Span { lo: 46, hi: 49 }))))
         "##]],
     );
 }
@@ -483,7 +483,7 @@ fn int_as_double_error() {
             #19 103-140 "Microsoft.Quantum.Convert.IntAsDouble" : (Int -> Double)
             #25 140-147 "(false)" : Bool
             #26 141-146 "false" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Prim(Int), Prim(Bool), Span { lo: 141, hi: 146 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 141, hi: 146 }))))
         "##]],
     );
 }
@@ -507,7 +507,7 @@ fn ty_mismatch_span_tuple1_to_given() {
             #23 76-82 "((1,))" : (Int,)
             #24 77-81 "(1,)" : (Int,)
             #25 78-79 "1" : Int
-            Error(Type(Error(TyMismatch("Int", "(Int,)", Prim(Int), Tuple([Prim(Int)]), Span { lo: 77, hi: 81 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Tuple([Prim(Int)]), display: "(Int,)" }, Span { lo: 77, hi: 81 }))))
         "##]],
     );
 }
@@ -532,7 +532,7 @@ fn ty_mismatch_span_tuple1_to_given_extra_parens() {
             #24 77-83 "((1,))" : (Int,)
             #25 78-82 "(1,)" : (Int,)
             #26 79-80 "1" : Int
-            Error(Type(Error(TyMismatch("Int", "(Int,)", Prim(Int), Tuple([Prim(Int)]), Span { lo: 78, hi: 82 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Tuple([Prim(Int)]), display: "(Int,)" }, Span { lo: 78, hi: 82 }))))
         "##]],
     );
 }
@@ -556,7 +556,7 @@ fn ty_mismatch_span_given_to_tuple1() {
             #20 68-79 "Namespace.F" : ((Int,) -> Double)
             #24 79-82 "(1)" : Int
             #25 80-81 "1" : Int
-            Error(Type(Error(TyMismatch("(Int,)", "Int", Tuple([Prim(Int)]), Prim(Int), Span { lo: 80, hi: 81 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Prim(Int)]), display: "(Int,)" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 80, hi: 81 }))))
         "##]],
     );
 }
@@ -581,7 +581,7 @@ fn ty_mismatch_span_tuple1_to_tuple1() {
             #24 79-86 "((1.,))" : (Double,)
             #25 80-85 "(1.,)" : (Double,)
             #26 81-83 "1." : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 81, hi: 83 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 81, hi: 83 }))))
         "##]],
     );
 }
@@ -608,7 +608,7 @@ fn ty_mismatch_span_tuple2_to_tuple2() {
             #30 87-93 "(1.,2)" : (Double, Int)
             #31 88-90 "1." : Double
             #32 91-92 "2" : Int
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 88, hi: 90 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 88, hi: 90 }))))
         "##]],
     );
 }
@@ -632,7 +632,7 @@ fn length_type_error() {
             #24 92-93 "1" : Int
             #25 95-96 "2" : Int
             #26 98-99 "3" : Int
-            Error(Type(Error(TyMismatch("?[]", "(Int, Int, Int)", Array(Infer(InferTyId(0))), Tuple([Prim(Int), Prim(Int), Prim(Int)]), Span { lo: 91, hi: 100 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Array(Infer(InferTyId(0))), display: "?[]" }, TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int)" }, Span { lo: 91, hi: 100 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 84, hi: 90 }))))
         "##]],
     );
@@ -663,7 +663,7 @@ fn single_arg_for_tuple() {
             #31 124-126 "Ry" : ((Double, Qubit) => Unit is Adj + Ctl)
             #34 126-129 "(q)" : Qubit
             #35 127-128 "q" : Qubit
-            Error(Type(Error(TyMismatch("(Double, Qubit)", "Qubit", Tuple([Prim(Double), Prim(Qubit)]), Prim(Qubit), Span { lo: 127, hi: 128 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Prim(Double), Prim(Qubit)]), display: "(Double, Qubit)" }, TyInfo { kind: Prim(Qubit), display: "Qubit" }, Span { lo: 127, hi: 128 }))))
         "##]],
     );
 }
@@ -695,7 +695,7 @@ fn array_repeat_error() {
             #1 0-16 "[4, size = true]" : Int[]
             #2 1-2 "4" : Int
             #3 11-15 "true" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Prim(Int), Prim(Bool), Span { lo: 11, hi: 15 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 11, hi: 15 }))))
         "##]],
     );
 }
@@ -720,7 +720,7 @@ fn assignop_error() {
             #9 33-34 "x" : Bool
             #12 38-39 "1" : Int
             #14 45-46 "x" : Bool
-            Error(Type(Error(TyMismatch("Bool", "Int", Prim(Bool), Prim(Int), Span { lo: 38, hi: 39 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 38, hi: 39 }))))
             Error(Type(Error(MissingClassAdd("Bool", Span { lo: 33, hi: 34 }))))
         "##]],
     );
@@ -737,7 +737,7 @@ fn binop_add_invalid() {
             #3 1-2 "1" : Int
             #4 4-5 "3" : Int
             #5 9-12 "5.4" : Double
-            Error(Type(Error(TyMismatch("(Int, Int)", "Double", Tuple([Prim(Int), Prim(Int)]), Prim(Double), Span { lo: 9, hi: 12 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Prim(Int), Prim(Int)]), display: "(Int, Int)" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 9, hi: 12 }))))
             Error(Type(Error(MissingClassAdd("(Int, Int)", Span { lo: 0, hi: 6 }))))
         "##]],
     );
@@ -752,7 +752,7 @@ fn binop_add_mismatch() {
             #1 0-7 "1 + 5.4" : Int
             #2 0-1 "1" : Int
             #3 4-7 "5.4" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 4, hi: 7 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 4, hi: 7 }))))
         "##]],
     );
 }
@@ -780,7 +780,7 @@ fn binop_andb_mismatch() {
             #1 0-10 "28 &&& 54L" : Int
             #2 0-2 "28" : Int
             #3 7-10 "54L" : BigInt
-            Error(Type(Error(TyMismatch("Int", "BigInt", Prim(Int), Prim(BigInt), Span { lo: 7, hi: 10 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(BigInt), display: "BigInt" }, Span { lo: 7, hi: 10 }))))
         "##]],
     );
 }
@@ -824,7 +824,7 @@ fn binop_equal_tuple_arity_mismatch() {
             #8 17-18 "2" : Int
             #9 20-21 "3" : Int
             #10 23-24 "4" : Int
-            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, Int, Int, Int)", Tuple([Prim(Int), Prim(Int), Prim(Int)]), Tuple([Prim(Int), Prim(Int), Prim(Int), Prim(Int)]), Span { lo: 13, hi: 25 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int)" }, TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int, Int)" }, Span { lo: 13, hi: 25 }))))
         "##]],
     );
 }
@@ -844,7 +844,7 @@ fn binop_equal_tuple_type_mismatch() {
             #7 14-15 "1" : Int
             #8 17-21 "Zero" : Result
             #9 23-24 "3" : Int
-            Error(Type(Error(TyMismatch("Int", "Result", Prim(Int), Prim(Result), Span { lo: 13, hi: 25 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Result), display: "Result" }, Span { lo: 13, hi: 25 }))))
         "##]],
     );
 }
@@ -858,7 +858,7 @@ fn binop_eq_mismatch() {
             #1 0-9 "18L == 18" : Bool
             #2 0-3 "18L" : BigInt
             #3 7-9 "18" : Int
-            Error(Type(Error(TyMismatch("BigInt", "Int", Prim(BigInt), Prim(Int), Span { lo: 7, hi: 9 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(BigInt), display: "BigInt" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 7, hi: 9 }))))
         "##]],
     );
 }
@@ -872,7 +872,7 @@ fn binop_neq_mismatch() {
             #1 0-9 "18L != 18" : Bool
             #2 0-3 "18L" : BigInt
             #3 7-9 "18" : Int
-            Error(Type(Error(TyMismatch("BigInt", "Int", Prim(BigInt), Prim(Int), Span { lo: 7, hi: 9 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(BigInt), display: "BigInt" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 7, hi: 9 }))))
         "##]],
     );
 }
@@ -892,7 +892,7 @@ fn binop_neq_tuple_type_mismatch() {
             #7 14-15 "1" : Int
             #8 17-21 "Zero" : Result
             #9 23-24 "3" : Int
-            Error(Type(Error(TyMismatch("Int", "Result", Prim(Int), Prim(Result), Span { lo: 13, hi: 25 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Result), display: "Result" }, Span { lo: 13, hi: 25 }))))
         "##]],
     );
 }
@@ -913,7 +913,7 @@ fn binop_neq_tuple_arity_mismatch() {
             #8 17-18 "2" : Int
             #9 20-21 "3" : Int
             #10 23-24 "4" : Int
-            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, Int, Int, Int)", Tuple([Prim(Int), Prim(Int), Prim(Int)]), Tuple([Prim(Int), Prim(Int), Prim(Int), Prim(Int)]), Span { lo: 13, hi: 25 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int)" }, TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int, Int)" }, Span { lo: 13, hi: 25 }))))
         "##]],
     );
 }
@@ -941,7 +941,7 @@ fn binop_orb_mismatch() {
             #1 0-10 "28 ||| 54L" : Int
             #2 0-2 "28" : Int
             #3 7-10 "54L" : BigInt
-            Error(Type(Error(TyMismatch("Int", "BigInt", Prim(Int), Prim(BigInt), Span { lo: 7, hi: 10 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(BigInt), display: "BigInt" }, Span { lo: 7, hi: 10 }))))
         "##]],
     );
 }
@@ -969,7 +969,7 @@ fn binop_xorb_mismatch() {
             #1 0-10 "28 ^^^ 54L" : Int
             #2 0-2 "28" : Int
             #3 7-10 "54L" : BigInt
-            Error(Type(Error(TyMismatch("Int", "BigInt", Prim(Int), Prim(BigInt), Span { lo: 7, hi: 10 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(BigInt), display: "BigInt" }, Span { lo: 7, hi: 10 }))))
         "##]],
     );
 }
@@ -989,7 +989,7 @@ fn let_tuple_arity_error() {
             #11 18-24 "(0, 1)" : (Int, Int)
             #12 19-20 "0" : Int
             #13 22-23 "1" : Int
-            Error(Type(Error(TyMismatch("(?, ?, ?)", "(Int, Int)", Tuple([Infer(InferTyId(0)), Infer(InferTyId(1)), Infer(InferTyId(2))]), Tuple([Prim(Int), Prim(Int)]), Span { lo: 18, hi: 24 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Infer(InferTyId(0)), Infer(InferTyId(1)), Infer(InferTyId(2))]), display: "(?, ?, ?)" }, TyInfo { kind: Tuple([Prim(Int), Prim(Int)]), display: "(Int, Int)" }, Span { lo: 18, hi: 24 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 13, hi: 14 }))))
         "##]],
     );
@@ -1024,7 +1024,7 @@ fn set_tuple_arity_error() {
             #23 52-53 "2" : Int
             #24 55-56 "3" : Int
             #26 63-64 "x" : Int
-            Error(Type(Error(TyMismatch("(Int, Int)", "(Int, Int, Int)", Tuple([Prim(Int), Prim(Int)]), Tuple([Prim(Int), Prim(Int), Prim(Int)]), Span { lo: 39, hi: 45 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Prim(Int), Prim(Int)]), display: "(Int, Int)" }, TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int)" }, Span { lo: 39, hi: 45 }))))
         "##]],
     );
 }
@@ -1040,7 +1040,7 @@ fn qubit_array_length_error() {
             #4 6-7 "q" : Qubit[]
             #6 10-22 "Qubit[false]" : Qubit[]
             #7 16-21 "false" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Prim(Int), Prim(Bool), Span { lo: 16, hi: 21 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 16, hi: 21 }))))
         "##]],
     );
 }
@@ -1061,7 +1061,7 @@ fn qubit_tuple_arity_error() {
             #11 23-24 "3" : Int
             #12 27-34 "Qubit()" : Qubit
             #13 36-43 "Qubit()" : Qubit
-            Error(Type(Error(TyMismatch("(Qubit[], Qubit, Qubit)", "(?, ?)", Tuple([Array(Prim(Qubit)), Prim(Qubit), Prim(Qubit)]), Tuple([Infer(InferTyId(0)), Infer(InferTyId(1))]), Span { lo: 6, hi: 13 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Array(Prim(Qubit)), Prim(Qubit), Prim(Qubit)]), display: "(Qubit[], Qubit, Qubit)" }, TyInfo { kind: Tuple([Infer(InferTyId(0)), Infer(InferTyId(1))]), display: "(?, ?)" }, Span { lo: 6, hi: 13 }))))
         "##]],
     );
 }
@@ -1099,7 +1099,7 @@ fn for_loop_body_should_be_unit_error() {
             #7 16-17 "3" : Int
             #8 19-24 "{ 4 }" : Int
             #10 21-22 "4" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 19, hi: 24 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 19, hi: 24 }))))
         "##]],
     );
 }
@@ -1134,7 +1134,7 @@ fn for_loop_incorrect_explicit_type_error() {
             #9 21-22 "1" : Int
             #10 23-29 "{ i; }" : Unit
             #12 25-26 "i" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 18, hi: 22 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 18, hi: 22 }))))
         "##]],
     );
 }
@@ -1148,7 +1148,7 @@ fn repeat_loop_non_bool_condition_error() {
             #1 0-18 "repeat { } until 1" : Unit
             #2 7-10 "{ }" : Unit
             #3 17-18 "1" : Int
-            Error(Type(Error(TyMismatch("Bool", "Int", Prim(Bool), Prim(Int), Span { lo: 17, hi: 18 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 17, hi: 18 }))))
         "##]],
     );
 }
@@ -1163,7 +1163,7 @@ fn repeat_loop_body_should_be_unit_error() {
             #2 7-12 "{ 1 }" : Int
             #4 9-10 "1" : Int
             #5 19-24 "false" : Bool
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 7, hi: 12 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 7, hi: 12 }))))
         "##]],
     );
 }
@@ -1179,7 +1179,7 @@ fn repeat_loop_fixup_should_be_unit_error() {
             #3 17-22 "false" : Bool
             #4 29-34 "{ 1 }" : Int
             #6 31-32 "1" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 29, hi: 34 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 29, hi: 34 }))))
         "##]],
     );
 }
@@ -1193,7 +1193,7 @@ fn if_cond_error() {
             #1 0-7 "if 4 {}" : Unit
             #2 3-4 "4" : Int
             #3 5-7 "{}" : Unit
-            Error(Type(Error(TyMismatch("Bool", "Int", Prim(Bool), Prim(Int), Span { lo: 3, hi: 4 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 3, hi: 4 }))))
         "##]],
     );
 }
@@ -1208,7 +1208,7 @@ fn if_no_else_must_be_unit() {
             #2 3-7 "true" : Bool
             #3 8-13 "{ 4 }" : Int
             #5 10-11 "4" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 8, hi: 13 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 8, hi: 13 }))))
         "##]],
     );
 }
@@ -1321,7 +1321,7 @@ fn ternop_cond_error() {
             #2 0-1 "7" : Int
             #3 4-5 "1" : Int
             #4 8-9 "0" : Int
-            Error(Type(Error(TyMismatch("Bool", "Int", Prim(Bool), Prim(Int), Span { lo: 0, hi: 1 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 0, hi: 1 }))))
         "##]],
     );
 }
@@ -1621,7 +1621,7 @@ fn ternop_update_array_range_with_non_array_error() {
             #24 91-92 "0" : Int
             #25 94-95 "1" : Int
             #26 99-100 "3" : Int
-            Error(Type(Error(TyMismatch("Int[]", "Int", Array(Prim(Int)), Prim(Int), Span { lo: 85, hi: 100 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Array(Prim(Int)), display: "Int[]" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 85, hi: 100 }))))
         "##]],
     );
 }
@@ -1660,7 +1660,7 @@ fn unop_not_int() {
         &expect![[r##"
             #1 0-5 "not 0" : Int
             #2 4-5 "0" : Int
-            Error(Type(Error(TyMismatch("Bool", "Int", Prim(Bool), Prim(Int), Span { lo: 4, hi: 5 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 4, hi: 5 }))))
         "##]],
     );
 }
@@ -1700,7 +1700,7 @@ fn while_cond_error() {
             #1 0-13 "while Zero {}" : Unit
             #2 6-10 "Zero" : Result
             #3 11-13 "{}" : Unit
-            Error(Type(Error(TyMismatch("Bool", "Result", Prim(Bool), Prim(Result), Span { lo: 6, hi: 10 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Prim(Result), display: "Result" }, Span { lo: 6, hi: 10 }))))
         "##]],
     );
 }
@@ -1715,7 +1715,7 @@ fn while_body_should_be_unit_error() {
             #2 6-10 "true" : Bool
             #3 11-16 "{ 1 }" : Int
             #5 13-14 "1" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 11, hi: 16 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 11, hi: 16 }))))
         "##]],
     );
 }
@@ -1877,7 +1877,7 @@ fn call_controlled_error() {
             #39 163-166 "[1]" : Int[]
             #40 164-165 "1" : Int
             #41 168-169 "q" : Qubit
-            Error(Type(Error(TyMismatch("Qubit", "Int", Prim(Qubit), Prim(Int), Span { lo: 163, hi: 166 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Qubit), display: "Qubit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 163, hi: 166 }))))
         "##]],
     );
 }
@@ -1895,7 +1895,7 @@ fn adj_requires_unit_return() {
             #6 31-33 "()" : Unit
             #11 47-52 "{ 1 }" : Int
             #13 49-50 "1" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 36, hi: 39 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 36, hi: 39 }))))
         "##]],
     );
 }
@@ -1913,7 +1913,7 @@ fn ctl_requires_unit_return() {
             #6 31-33 "()" : Unit
             #11 47-52 "{ 1 }" : Int
             #13 49-50 "1" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 36, hi: 39 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 36, hi: 39 }))))
         "##]],
     );
 }
@@ -1931,7 +1931,7 @@ fn adj_ctl_requires_unit_return() {
             #6 31-33 "()" : Unit
             #13 53-58 "{ 1 }" : Int
             #15 55-56 "1" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 36, hi: 39 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 36, hi: 39 }))))
         "##]],
     );
 }
@@ -2045,7 +2045,7 @@ fn fail_in_array_still_checks_other_array_elements() {
             #3 4-15 "fail \"true\"" : Int
             #4 9-15 "\"true\"" : String
             #5 17-20 "3.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 17, hi: 20 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 17, hi: 20 }))))
         "##]],
     );
 }
@@ -2074,7 +2074,7 @@ fn fail_in_call_args_checks_arity() {
             #33 64-65 "1" : Int
             #34 67-78 "fail \"true\"" : Int
             #35 72-78 "\"true\"" : String
-            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Tuple([Prim(Int), Prim(Int), Prim(Int)]), Tuple([Prim(Int), Infer(InferTyId(0))]), Span { lo: 63, hi: 79 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int)" }, TyInfo { kind: Tuple([Prim(Int), Infer(InferTyId(0))]), display: "(Int, ?)" }, Span { lo: 63, hi: 79 }))))
         "##]],
     );
 }
@@ -2104,7 +2104,7 @@ fn fail_in_call_args_checks_non_divergent_types() {
             #34 67-78 "fail \"true\"" : Int
             #35 72-78 "\"true\"" : String
             #36 80-83 "3.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 80, hi: 83 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 80, hi: 83 }))))
         "##]],
     );
 }
@@ -2301,7 +2301,7 @@ fn return_in_call_args_checks_arity() {
             #33 64-65 "1" : Int
             #34 67-80 "return \"true\"" : Int
             #35 74-80 "\"true\"" : String
-            Error(Type(Error(TyMismatch("(Int, Int, Int)", "(Int, ?)", Tuple([Prim(Int), Prim(Int), Prim(Int)]), Tuple([Prim(Int), Infer(InferTyId(0))]), Span { lo: 63, hi: 81 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int)" }, TyInfo { kind: Tuple([Prim(Int), Infer(InferTyId(0))]), display: "(Int, ?)" }, Span { lo: 63, hi: 81 }))))
         "##]],
     );
 }
@@ -2331,7 +2331,7 @@ fn return_in_call_args_checks_non_divergent_types() {
             #34 67-80 "return \"true\"" : Int
             #35 74-80 "\"true\"" : String
             #36 82-85 "3.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 82, hi: 85 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 82, hi: 85 }))))
         "##]],
     );
 }
@@ -2409,7 +2409,7 @@ fn return_mismatch() {
             #15 47-75 "{\n        return true;\n    }" : Int
             #17 57-68 "return true" : Unit
             #18 64-68 "true" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Prim(Int), Prim(Bool), Span { lo: 64, hi: 68 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 64, hi: 68 }))))
         "##]],
     );
 }
@@ -2923,7 +2923,7 @@ fn newtype_cons_wrong_input() {
             #19 70-76 "NewInt" : (Int -> UDT<"NewInt": Item 1 (Package 2)>)
             #22 76-81 "(5.0)" : Double
             #23 77-80 "5.0" : Double
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 77, hi: 80 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 77, hi: 80 }))))
         "##]],
     );
 }
@@ -2964,7 +2964,7 @@ fn struct_cons_wrong_input() {
             #25 88-124 "new Pair { First = 5.0, Second = 6 }" : UDT<"Pair": Item 1 (Package 2)>
             #30 107-110 "5.0" : Double
             #33 121-122 "6" : Int
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 99, hi: 110 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 99, hi: 110 }))))
         "##]],
     );
 }
@@ -3268,7 +3268,7 @@ fn newtype_does_not_match_base_ty() {
             #19 67-73 "NewInt" : (Int -> UDT<"NewInt": Item 1 (Package 2)>)
             #22 73-76 "(5)" : Int
             #23 74-75 "5" : Int
-            Error(Type(Error(TyMismatch("Int", "NewInt", Prim(Int), Udt, Span { lo: 67, hi: 76 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Udt, display: "NewInt" }, Span { lo: 67, hi: 76 }))))
         "##]],
     );
 }
@@ -3291,7 +3291,7 @@ fn newtype_does_not_match_other_newtype() {
             #25 99-106 "NewInt1" : (Int -> UDT<"NewInt1": Item 1 (Package 2)>)
             #28 106-109 "(5)" : Int
             #29 107-108 "5" : Int
-            Error(Type(Error(TyMismatch("NewInt2", "NewInt1", Udt, Udt, Span { lo: 99, hi: 109 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Udt, display: "NewInt2" }, TyInfo { kind: Udt, display: "NewInt1" }, Span { lo: 99, hi: 109 }))))
         "##]],
     );
 }
@@ -3574,7 +3574,7 @@ fn local_function_error() {
             #23 86-91 "Bar()" : Int
             #24 86-89 "Bar" : (Unit -> Int)
             #27 89-91 "()" : Unit
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 72, hi: 75 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 72, hi: 75 }))))
         "##]],
     );
 }
@@ -3624,7 +3624,7 @@ fn local_function_last_stmt_is_unit_block() {
             #21 76-78 "()" : Unit
             #25 85-90 "{ 4 }" : Int
             #27 87-88 "4" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 35, hi: 38 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 35, hi: 38 }))))
         "##]],
     );
 }
@@ -4191,7 +4191,7 @@ fn partial_app_too_many_args() {
             #29 56-57 "1" : Int
             #30 59-60 "_" : ?1
             #31 62-63 "_" : ?2
-            Error(Type(Error(TyMismatch("Int", "(Int, ?, ?)", Prim(Int), Tuple([Prim(Int), Infer(InferTyId(1)), Infer(InferTyId(2))]), Span { lo: 55, hi: 64 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Tuple([Prim(Int), Infer(InferTyId(1)), Infer(InferTyId(2))]), display: "(Int, ?, ?)" }, Span { lo: 55, hi: 64 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 59, hi: 60 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 62, hi: 63 }))))
         "##]],
@@ -4881,11 +4881,11 @@ fn inference_infinite_recursion_should_fail() {
             #50 180-187 "A and B" : (((?2, ?3) -> ?2) -> ?2[])
             #51 180-181 "A" : (((?2, ?3) -> ?2) -> ?2[])
             #54 186-187 "B" : (((?2, ?3) -> ?2) -> ?2)
-            Error(Type(Error(TyMismatch("Unit", "'U1[]", Tuple([]), Array(Param), Span { lo: 62, hi: 67 }))))
-            Error(Type(Error(TyMismatch("Unit", "'T2", Tuple([]), Param, Span { lo: 129, hi: 132 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Array(Param), display: "'U1[]" }, Span { lo: 62, hi: 67 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T2" }, Span { lo: 129, hi: 132 }))))
             Error(Type(Error(RecursiveTypeConstraint(Span { lo: 186, hi: 187 }))))
-            Error(Type(Error(TyMismatch("Bool", "(((?, ?) -> ?) -> ?[])", Prim(Bool), Arrow, Span { lo: 180, hi: 181 }))))
-            Error(Type(Error(TyMismatch("Unit", "(((?, ?) -> ?) -> ?[])", Tuple([]), Arrow, Span { lo: 180, hi: 187 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?[])" }, Span { lo: 180, hi: 181 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?[])" }, Span { lo: 180, hi: 187 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 186, hi: 187 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 186, hi: 187 }))))
         "##]],
@@ -4997,7 +4997,7 @@ fn within_block_should_be_unit_error() {
             #4 9-10 "4" : Int
             #5 19-24 "{ 0 }" : Int
             #7 21-22 "0" : Int
-            Error(Type(Error(TyMismatch("Unit", "Int", Tuple([]), Prim(Int), Span { lo: 7, hi: 12 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 7, hi: 12 }))))
         "##]],
     );
 }
@@ -5389,7 +5389,7 @@ fn complex_literal_with_two_real_parts_error() {
             #3 0-3 "2.0" : Double
             #4 6-9 "3.0" : Double
             #5 12-16 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
-            Error(Type(Error(TyMismatch("Double", "Complex(Test)", Prim(Double), Udt, Span { lo: 12, hi: 16 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Double), display: "Double" }, TyInfo { kind: Udt, display: "Complex(Test)" }, Span { lo: 12, hi: 16 }))))
         "##]],
     );
 }
@@ -5406,7 +5406,7 @@ fn add_double_and_complex_literal_with_parens_error() {
             #4 7-17 "3.0 + 4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
             #5 7-10 "3.0" : Double
             #6 13-17 "4.0i" : UDT<"Complex(Test)": Item 3 (Package 0)>
-            Error(Type(Error(TyMismatch("Double", "Complex(Test)", Prim(Double), Udt, Span { lo: 6, hi: 18 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Double), display: "Double" }, TyInfo { kind: Udt, display: "Complex(Test)" }, Span { lo: 6, hi: 18 }))))
         "##]],
     );
 }
@@ -5704,7 +5704,7 @@ fn call_expr_non_tuple_expr() {
             #27 56-57 "f" : ((Double, Double) -> Double)
             #30 57-60 "(x)" : (Int, Double)
             #31 58-59 "x" : (Int, Double)
-            Error(Type(Error(TyMismatch("Int", "Double", Prim(Int), Prim(Double), Span { lo: 58, hi: 59 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 58, hi: 59 }))))
         "##]],
     );
 }

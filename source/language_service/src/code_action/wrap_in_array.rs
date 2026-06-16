@@ -11,7 +11,7 @@ mod tests;
 use qsc::{
     Span,
     ast::{self, Expr},
-    compile::{ErrorKind, TyInfo},
+    compile::{ErrorKind, TyInfoKind},
     display::Lookup,
     hir::ty::Ty,
     line_column::Encoding,
@@ -48,9 +48,9 @@ pub(crate) fn wrap_in_array_fixes(
     for (expected, actual, error_span) in ty_mismatches {
         // Check if expected is Array(T) and actual is a matching primitive T.
         // Scoped to primitives to include Qubit, exclude tuples, and provide an intelligible stopping point.
-        if let TyInfo::Array(item_ty) = expected
-            && item_ty.as_ref() == actual
-            && matches!(actual, TyInfo::Prim(_))
+        if let TyInfoKind::Array(item_ty) = &expected.kind
+            && item_ty.as_ref() == &actual.kind
+            && matches!(actual.kind, TyInfoKind::Prim(_))
         {
             // Verify via the type table that the expression is truly a primitive type.
             // The error's `actual` field can be simplified (e.g. an array mismatch

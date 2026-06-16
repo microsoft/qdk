@@ -1477,13 +1477,7 @@ fn check_unwrap(
 
 /// Creates a `TyMismatch` error from expected and actual types at the given span.
 fn ty_mismatch(expected: &Ty, actual: &Ty, span: Span) -> Error {
-    Error(ErrorKind::TyMismatch(
-        expected.display(),
-        actual.display(),
-        expected.into(),
-        actual.into(),
-        span,
-    ))
+    Error(ErrorKind::TyMismatch(expected.into(), actual.into(), span))
 }
 
 /// Given an HIR class constraint, produce an actual type system constraint.
