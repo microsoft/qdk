@@ -32,7 +32,7 @@ fn check_rca_for_length_of_statically_sized_array_with_dynamic_content() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
