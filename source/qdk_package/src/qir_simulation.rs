@@ -581,8 +581,14 @@ impl NoiseTable {
     fn __setattr__(&mut self, name: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
         match name {
             "on_loss" => {
-                self.on_loss = value.extract::<LossPolicy>()?;
-                Ok(())
+                if self.qubits < 2 {
+                    Err(PyAttributeError::new_err(
+                        "Loss policies only apply to multi-qubit gates.".to_string(),
+                    ))
+                } else {
+                    self.on_loss = value.extract::<LossPolicy>()?;
+                    Ok(())
+                }
             }
             "loss" => {
                 self.loss = value.extract::<Probability>()?;
