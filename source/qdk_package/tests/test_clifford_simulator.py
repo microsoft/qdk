@@ -319,7 +319,7 @@ def test_clifford_run_mixed_noise():
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["00000-0000000001"]
+    assert result == ["00000-0000000000"]
 
 
 def test_clifford_run_isolated_loss():

@@ -846,7 +846,8 @@ class IdleNoiseParams:
 
 class LossPolicy(Enum):
     """
-    Specifies the behavior of a gate when at least one of its qubit operands is lost.
+    Specifies the behavior of a multi-qubit gate when at least one of its
+    qubit operands is lost.
     """
 
     # If any operand of a gate is lost, skip the gate entirely.

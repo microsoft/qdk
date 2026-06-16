@@ -88,8 +88,8 @@ pub enum QirInstruction {
     ),
 }
 
-/// Specifies the behavior of a gate when at least one of its qubit operands
-/// is lost. Mirrors [`qdk_simulators::noise_config::LossPolicy`].
+/// Specifies the behavior of a multi-qubit gate when at least one of its
+/// qubit operands is lost. Mirrors [`qdk_simulators::noise_config::LossPolicy`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
 pub enum LossPolicy {

@@ -430,7 +430,16 @@ fn propagate_loss_to_qubit(shot_idx: u32, op_idx: u32, q1: u32, q2: u32, qubit: 
 fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> bool {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
+    let is_1q = is_1q_op(op.id);
     let policy = op.q3;
+
+    // Loss policies only make sense for multi-qubit gates.
+    // If this is a single-qubit gate, skip it entirely.
+    if (is_1q) {
+        shot.op_type = OPID_ID;
+        shot.op_idx = op_idx;
+        return true;
+    }
 
     // SWAP is special: it physically relocates the two qubits, so their loss
     // state is always exchanged regardless of the policy (the policy only
@@ -470,7 +479,7 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
     // operand of a two-qubit gate (if any). For single-qubit gates the only
     // operand is lost, so there is no survivor and these collapse to SKIP.
     let q1_lost = shot.qubit_state[q1].heat == -1.0;
-    let is_2q = !is_1q_op(op.id);
+    let is_2q = !is_1q;
     let q2_lost = is_2q && (shot.qubit_state[q2].heat == -1.0);
     let has_survivor = is_2q && !(q1_lost && q2_lost);
     // The surviving operand (only meaningful when has_survivor is true).

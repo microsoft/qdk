@@ -17,7 +17,7 @@ pub trait Fault {
     fn loss() -> Self;
 }
 
-/// Specifies the behavior of a gate when at least one of its qubit
+/// Specifies the behavior of a multi-qubit gate when at least one of its qubit
 /// operands is lost.
 ///
 /// This lets users experiment with different lost-qubit gate behaviors

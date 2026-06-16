@@ -512,28 +512,13 @@ impl NoisySimulator {
         }
     }
 
-    /// Marks each non-lost `target` as lost by measuring it, resetting it, and
-    /// flagging it. Used by the [`LossPolicy::Propagate`] behavior.
-    fn propagate_loss(&mut self, targets: &[QubitID]) {
-        for &target in targets {
-            if !self.loss[target] {
-                self.mresetz_impl(target);
-                self.loss[target] = true;
-            }
-        }
-    }
-
-    /// Applies an `S` adjoint to each non-lost `target`. Used by the
-    /// [`LossPolicy::ResidualSDagger`] behavior.
-    fn residual_s_dagger(&mut self, targets: &[QubitID]) {
-        for &target in targets {
-            if !self.loss[target] {
-                self.apply_idle_noise(target);
-                self.state
-                    .apply_operation(&S_ADJ, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        }
+    /// Applies an `S` adjoint to the given target
+    /// Used by the [`LossPolicy::ResidualSDagger`] behavior.
+    fn residual_s_dagger(&mut self, target: QubitID) {
+        self.apply_idle_noise(target);
+        self.state
+            .apply_operation(&S_ADJ, &[target])
+            .expect("apply_operation should succeed");
     }
 
     /// Records a z-measurement on the given `target`.
@@ -589,6 +574,13 @@ impl NoisySimulator {
             MeasurementResult::One
         } else {
             MeasurementResult::Zero
+        }
+    }
+
+    fn loss_impl(&mut self, target: QubitID) {
+        if !self.loss[target] {
+            self.mresetz_impl(target);
+            self.loss[target] = true;
         }
     }
 }
@@ -706,15 +698,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn x(&mut self, target: QubitID) {
-        if self.loss[target] {
-            // The only operand is lost. Only `ApplyAnyway` still applies a
-            // single-qubit gate; every other policy is equivalent to `Skip`.
-            if matches!(self.noise_config.x.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&X, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&X, &[target])
@@ -725,13 +709,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn y(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.y.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&Y, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&Y, &[target])
@@ -742,13 +720,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn z(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.z.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&Z, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&Z, &[target])
@@ -759,13 +731,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn h(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.h.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&H, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&H, &[target])
@@ -776,13 +742,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn s(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.s.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&S, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&S, &[target])
@@ -793,13 +753,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn s_adj(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.s_adj.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&S_ADJ, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&S_ADJ, &[target])
@@ -810,13 +764,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn sx(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.sx.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&SX, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&SX, &[target])
@@ -827,13 +775,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn sx_adj(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.sx_adj.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&SX_ADJ, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&SX_ADJ, &[target])
@@ -844,13 +786,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn t(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.t.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&T, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&T, &[target])
@@ -861,13 +797,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn t_adj(&mut self, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.t_adj.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&T_ADJ, &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&T_ADJ, &[target])
@@ -878,13 +808,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn rx(&mut self, angle: f64, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.rx.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&rx(angle), &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&rx(angle), &[target])
@@ -895,13 +819,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn ry(&mut self, angle: f64, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.ry.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&ry(angle), &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&ry(angle), &[target])
@@ -912,13 +830,7 @@ impl Simulator for NoisySimulator {
     }
 
     fn rz(&mut self, angle: f64, target: QubitID) {
-        if self.loss[target] {
-            if matches!(self.noise_config.rz.on_loss, LossPolicy::ApplyAnyway) {
-                self.state
-                    .apply_operation(&rz(angle), &[target])
-                    .expect("apply_operation should succeed");
-            }
-        } else {
+        if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state
                 .apply_operation(&rz(angle), &[target])
@@ -929,22 +841,28 @@ impl Simulator for NoisySimulator {
     }
 
     fn cx(&mut self, control: QubitID, target: QubitID) {
-        if self.loss[control] || self.loss[target] {
-            match self.noise_config.cx.on_loss {
-                LossPolicy::Skip | LossPolicy::Degrade => {}
-                LossPolicy::Propagate => self.propagate_loss(&[control, target]),
-                LossPolicy::ResidualSDagger => self.residual_s_dagger(&[control, target]),
-                LossPolicy::ApplyAnyway => self
-                    .state
-                    .apply_operation(&CX, &[control, target])
-                    .expect("apply_operation should succeed"),
+        match (self.loss[control], self.loss[target]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[control] { target } else { control };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.cx.on_loss {
+                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => self
+                        .state
+                        .apply_operation(&CX, &[control, target])
+                        .expect("apply_operation should succeed"),
+                }
             }
-        } else {
-            self.apply_idle_noise(control);
-            self.apply_idle_noise(target);
-            self.state
-                .apply_operation(&CX, &[control, target])
-                .expect("apply_operation should succeed");
+            (false, false) => {
+                self.apply_idle_noise(control);
+                self.apply_idle_noise(target);
+                self.state
+                    .apply_operation(&CX, &[control, target])
+                    .expect("apply_operation should succeed");
+            }
         }
         // We still apply operation faults to non-lost qubits.
         apply_loss!(self, cx, &[control, target]);
@@ -952,22 +870,28 @@ impl Simulator for NoisySimulator {
     }
 
     fn cy(&mut self, control: QubitID, target: QubitID) {
-        if self.loss[control] || self.loss[target] {
-            match self.noise_config.cy.on_loss {
-                LossPolicy::Skip | LossPolicy::Degrade => {}
-                LossPolicy::Propagate => self.propagate_loss(&[control, target]),
-                LossPolicy::ResidualSDagger => self.residual_s_dagger(&[control, target]),
-                LossPolicy::ApplyAnyway => self
-                    .state
-                    .apply_operation(&CY, &[control, target])
-                    .expect("apply_operation should succeed"),
+        match (self.loss[control], self.loss[target]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[control] { target } else { control };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.cy.on_loss {
+                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => self
+                        .state
+                        .apply_operation(&CY, &[control, target])
+                        .expect("apply_operation should succeed"),
+                }
             }
-        } else {
-            self.apply_idle_noise(control);
-            self.apply_idle_noise(target);
-            self.state
-                .apply_operation(&CY, &[control, target])
-                .expect("apply_operation should succeed");
+            (false, false) => {
+                self.apply_idle_noise(control);
+                self.apply_idle_noise(target);
+                self.state
+                    .apply_operation(&CY, &[control, target])
+                    .expect("apply_operation should succeed");
+            }
         }
         // We still apply operation faults to non-lost qubits.
         apply_loss!(self, cy, &[control, target]);
@@ -975,22 +899,28 @@ impl Simulator for NoisySimulator {
     }
 
     fn cz(&mut self, control: QubitID, target: QubitID) {
-        if self.loss[control] || self.loss[target] {
-            match self.noise_config.cz.on_loss {
-                LossPolicy::Skip | LossPolicy::Degrade => {}
-                LossPolicy::Propagate => self.propagate_loss(&[control, target]),
-                LossPolicy::ResidualSDagger => self.residual_s_dagger(&[control, target]),
-                LossPolicy::ApplyAnyway => self
-                    .state
-                    .apply_operation(&CZ, &[control, target])
-                    .expect("apply_operation should succeed"),
+        match (self.loss[control], self.loss[target]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[control] { target } else { control };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.cz.on_loss {
+                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => self
+                        .state
+                        .apply_operation(&CZ, &[control, target])
+                        .expect("apply_operation should succeed"),
+                }
             }
-        } else {
-            self.apply_idle_noise(control);
-            self.apply_idle_noise(target);
-            self.state
-                .apply_operation(&CZ, &[control, target])
-                .expect("apply_operation should succeed");
+            (false, false) => {
+                self.apply_idle_noise(control);
+                self.apply_idle_noise(target);
+                self.state
+                    .apply_operation(&CZ, &[control, target])
+                    .expect("apply_operation should succeed");
+            }
         }
         // We still apply operation faults to non-lost qubits.
         apply_loss!(self, cz, &[control, target]);
@@ -998,125 +928,115 @@ impl Simulator for NoisySimulator {
     }
 
     fn rxx(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        if self.loss[q1] || self.loss[q2] {
-            match self.noise_config.rxx.on_loss {
-                LossPolicy::Skip => {}
-                // Degrade the two-qubit rotation to its single-qubit version on
-                // the surviving operand.
-                LossPolicy::Degrade => {
-                    if !self.loss[q1] {
-                        self.rx(angle, q1);
-                    } else if !self.loss[q2] {
-                        self.rx(angle, q2);
-                    }
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.rxx.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => return self.rx(angle, remaining_qubit),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => self
+                        .state
+                        .apply_operation(&rxx(angle), &[q1, q2])
+                        .expect("apply_operation should succeed"),
                 }
-                LossPolicy::Propagate => self.propagate_loss(&[q1, q2]),
-                LossPolicy::ResidualSDagger => self.residual_s_dagger(&[q1, q2]),
-                LossPolicy::ApplyAnyway => self
-                    .state
-                    .apply_operation(&rxx(angle), &[q1, q2])
-                    .expect("apply_operation should succeed"),
             }
-        } else {
-            self.apply_idle_noise(q1);
-            self.apply_idle_noise(q2);
-            self.state
-                .apply_operation(&rxx(angle), &[q1, q2])
-                .expect("apply_operation should succeed");
-            apply_loss!(self, rxx, &[q1, q2]);
-            apply_noise!(self, rxx, &[q1, q2]);
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
+                self.state
+                    .apply_operation(&rxx(angle), &[q1, q2])
+                    .expect("apply_operation should succeed");
+            }
         }
+        apply_loss!(self, rxx, &[q1, q2]);
+        apply_noise!(self, rxx, &[q1, q2]);
     }
 
     fn ryy(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        if self.loss[q1] || self.loss[q2] {
-            match self.noise_config.ryy.on_loss {
-                LossPolicy::Skip => {}
-                LossPolicy::Degrade => {
-                    if !self.loss[q1] {
-                        self.ry(angle, q1);
-                    } else if !self.loss[q2] {
-                        self.ry(angle, q2);
-                    }
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.ryy.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => return self.ry(angle, remaining_qubit),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => self
+                        .state
+                        .apply_operation(&ryy(angle), &[q1, q2])
+                        .expect("apply_operation should succeed"),
                 }
-                LossPolicy::Propagate => self.propagate_loss(&[q1, q2]),
-                LossPolicy::ResidualSDagger => self.residual_s_dagger(&[q1, q2]),
-                LossPolicy::ApplyAnyway => self
-                    .state
-                    .apply_operation(&ryy(angle), &[q1, q2])
-                    .expect("apply_operation should succeed"),
             }
-        } else {
-            self.apply_idle_noise(q1);
-            self.apply_idle_noise(q2);
-            self.state
-                .apply_operation(&ryy(angle), &[q1, q2])
-                .expect("apply_operation should succeed");
-            apply_loss!(self, ryy, &[q1, q2]);
-            apply_noise!(self, ryy, &[q1, q2]);
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
+                self.state
+                    .apply_operation(&ryy(angle), &[q1, q2])
+                    .expect("apply_operation should succeed");
+            }
         }
+        apply_loss!(self, ryy, &[q1, q2]);
+        apply_noise!(self, ryy, &[q1, q2]);
     }
 
     fn rzz(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        if self.loss[q1] || self.loss[q2] {
-            match self.noise_config.rzz.on_loss {
-                LossPolicy::Skip => {}
-                LossPolicy::Degrade => {
-                    if !self.loss[q1] {
-                        self.rz(angle, q1);
-                    } else if !self.loss[q2] {
-                        self.rz(angle, q2);
-                    }
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.rzz.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => return self.rz(angle, remaining_qubit),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => self
+                        .state
+                        .apply_operation(&rzz(angle), &[q1, q2])
+                        .expect("apply_operation should succeed"),
                 }
-                LossPolicy::Propagate => self.propagate_loss(&[q1, q2]),
-                LossPolicy::ResidualSDagger => self.residual_s_dagger(&[q1, q2]),
-                LossPolicy::ApplyAnyway => self
-                    .state
-                    .apply_operation(&rzz(angle), &[q1, q2])
-                    .expect("apply_operation should succeed"),
             }
-        } else {
-            self.apply_idle_noise(q1);
-            self.apply_idle_noise(q2);
-            self.state
-                .apply_operation(&rzz(angle), &[q1, q2])
-                .expect("apply_operation should succeed");
-            apply_loss!(self, rzz, &[q1, q2]);
-            apply_noise!(self, rzz, &[q1, q2]);
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
+                self.state
+                    .apply_operation(&rzz(angle), &[q1, q2])
+                    .expect("apply_operation should succeed");
+            }
         }
+        apply_loss!(self, rzz, &[q1, q2]);
+        apply_noise!(self, rzz, &[q1, q2]);
     }
 
     fn swap(&mut self, q1: QubitID, q2: QubitID) {
-        if self.loss[q1] || self.loss[q2] {
-            // At least one operand is lost. The loss-flag swap below always
-            // happens; `on_loss` only governs the unitary and residual noise.
-            match self.noise_config.swap.on_loss {
-                LossPolicy::ApplyAnyway => {
-                    let (l1, l2) = (self.loss[q1], self.loss[q2]);
-                    if !l1 {
-                        self.apply_idle_noise(q1);
-                    }
-                    if !l2 {
-                        self.apply_idle_noise(q2);
-                    }
-                    // Both operands lost is a pure relabel, so only apply the
-                    // unitary when at least one operand survives.
-                    if !l1 || !l2 {
-                        self.state
-                            .apply_operation(&SWAP, &[q1, q2])
-                            .expect("apply_operation should succeed");
-                    }
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.swap.on_loss {
+                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => self
+                        .state
+                        .apply_operation(&SWAP, &[q1, q2])
+                        .expect("apply_operation should succeed"),
                 }
-                LossPolicy::Propagate => self.propagate_loss(&[q1, q2]),
-                LossPolicy::ResidualSDagger => self.residual_s_dagger(&[q1, q2]),
-                LossPolicy::Skip | LossPolicy::Degrade => {}
             }
-        } else {
-            self.apply_idle_noise(q1);
-            self.apply_idle_noise(q2);
-            self.state
-                .apply_operation(&SWAP, &[q1, q2])
-                .expect("apply_operation should succeed");
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
+                self.state
+                    .apply_operation(&SWAP, &[q1, q2])
+                    .expect("apply_operation should succeed");
+            }
         }
         // There are three kinds of swaps:
         //   1. A logical swap, also called a relabel.
