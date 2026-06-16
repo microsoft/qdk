@@ -6,9 +6,10 @@ use crate::test_utils::{
     compile_notebook_with_fake_stdlib, compile_project_with_markers_no_cursor,
 };
 use expect_test::{Expect, expect};
-use qsc::{Span, line_column::{Encoding, Range}};
-
-
+use qsc::{
+    Span,
+    line_column::{Encoding, Range},
+};
 
 /// Collects the titles of the auto-import code actions offered for `source`.
 fn import_action_titles(source: &str) -> Vec<String> {
