@@ -54,11 +54,11 @@ class Litinski19Factory(ISATransform):
         """Yield ISAs with T and CCZ factory instructions.
 
         Args:
-            impl_isa (ISA): The implementation ISA providing physical gates.
-            ctx (ISAContext): The enumeration context.
+            impl_isa (:class:`~qdk.qre.ISA`): The implementation ISA providing physical gates.
+            ctx (:class:`~qdk.qre.ISAContext`): The enumeration context.
 
         Yields:
-            ISA: An ISA containing distilled T and/or CCZ instructions.
+            :class:`~qdk.qre.ISA`: An ISA containing distilled T and/or CCZ instructions.
         """
         h = impl_isa[H]
         cnot = impl_isa[CNOT]

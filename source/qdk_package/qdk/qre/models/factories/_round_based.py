@@ -31,7 +31,6 @@ from ..._architecture import ISAContext
 from ...instruction_ids import CNOT, LATTICE_SURGERY, T, MEAS_ZZ
 from ..qec import SurfaceCode
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +59,7 @@ class RoundBasedFactory(ISATransform):
     function models the case in which qubits are reused across rounds.
 
     For the enumeration of logical-level distillation units, the factory relies
-    on a user-provided ``ISAQuery`` (defaulting to ``SurfaceCode.q()``) to explore
+    on a user-provided :class:`~qdk.qre.ISAQuery` (defaulting to ``SurfaceCode.q()``) to explore
     different surface code configurations and their corresponding lattice
     surgery instructions.  These need to be provided by the user and cannot
     automatically be derived from the provided implementation ISA, as they can

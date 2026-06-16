@@ -340,7 +340,7 @@ fn check_rca_for_static_for_loop() {
 
 #[test]
 fn check_rca_for_static_for_loop_with_loop_and_array_support() {
-    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIFLA.into());
+    let mut compilation_context = CompilationContext::new(Profile::Adaptive.into());
     compilation_context.update(
         r#"
         use q = Qubit();
@@ -384,7 +384,7 @@ fn check_rca_for_static_for_loop_over_array() {
 
 #[test]
 fn check_rca_for_static_for_loop_over_array_with_loop_and_array_support() {
-    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIFLA.into());
+    let mut compilation_context = CompilationContext::new(Profile::Adaptive.into());
     compilation_context.update(
         r#"
         use q = Qubit();
