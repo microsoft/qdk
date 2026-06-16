@@ -408,9 +408,7 @@ impl<'noise> Compiler<'noise> {
                     continue;
                 };
                 let q = Operand::Qubit(value);
-                self.writer.write_call("h", &[q]);
-                self.writer.write_call("s", &[q]);
-                self.writer.write_call("h", &[q]);
+                self.writer.write_call("sx", &[q]);
             }
         }
     }
