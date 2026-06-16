@@ -58,11 +58,13 @@ pub(crate) fn wrap_in_array_fixes(
             // Verify via the type table that the expression is truly a primitive type.
             // The error's `actual` field can be simplified (e.g. an array mismatch
             // decomposes to element-level), so we check the real expression type.
-            let expr_id = find_expr_at(package, error_span);
-            if let Some(id) = expr_id
-                && let Some(ty) = compilation.get_ty(id)
-                && !matches!(ty, Ty::Prim(_))
-            {
+            let Some(expr_id) = find_expr_at(package, error_span) else {
+                continue;
+            };
+            let Some(ty) = compilation.get_ty(expr_id) else {
+                continue;
+            };
+            if !matches!(ty, Ty::Prim(_)) {
                 continue;
             }
 
