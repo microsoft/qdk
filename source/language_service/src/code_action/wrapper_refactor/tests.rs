@@ -2,7 +2,10 @@
 // Licensed under the MIT License.
 
 use crate::test_utils::compile_notebook_with_markers;
-use crate::{code_action, test_utils::{compile_project_with_markers_no_cursor, whole_document_range}};
+use crate::{
+    code_action,
+    test_utils::{compile_project_with_markers_no_cursor, whole_document_range},
+};
 use expect_test::expect;
 use qsc::line_column::Encoding;
 
