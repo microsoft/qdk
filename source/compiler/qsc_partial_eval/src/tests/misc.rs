@@ -996,12 +996,12 @@ fn test_length_with_embedded_qubit_operations() {
     assert_blocks(
         &program,
         &expect![[r#"
-        Blocks:
-        Block 0:Block:
-            Call id(1), args( Pointer, )
-            Call id(2), args( Qubit(0), Result(0), )
-            Call id(3), args( Integer(1), Tag(0, 3), )
-            Return"#]],
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Integer(1), Tag(0, 3), )
+                Return Integer(0)"#]],
     );
 }
 
@@ -1033,6 +1033,6 @@ fn test_length_and_isempty_as_loop_conditions() {
                 Variable(0, Integer) = Store Integer(2)
                 Variable(0, Integer) = Store Integer(3)
                 Call id(2), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
