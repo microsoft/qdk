@@ -2524,6 +2524,7 @@ name = "qsc_stim_parser"
 version = "0.0.0"
 dependencies = [
  "enum-iterator",
+ "qdk_simulators",
  "qsc_data_structures",
  "rustc-hash",
 ]
