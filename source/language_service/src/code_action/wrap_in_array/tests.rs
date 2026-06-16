@@ -2,27 +2,16 @@
 // Licensed under the MIT License.
 
 use crate::{code_action, test_utils::compile_project_with_markers_no_cursor};
-use qsc::line_column::{Encoding, Position, Range};
+use qsc::{
+    Span,
+    line_column::{Encoding, Range},
+};
 
 fn get_wrap_in_array_actions(source: &str) -> Vec<crate::protocol::CodeAction> {
     let (compilation, _targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], false);
-    let newline_count = u32::try_from(source.matches('\n').count()).expect("count fits");
-    let end = if newline_count == 0 {
-        Position {
-            line: 0,
-            column: u32::try_from(source.len()).expect("len fits"),
-        }
-    } else {
-        Position {
-            line: newline_count,
-            column: 0,
-        }
-    };
-    let range = Range {
-        start: Position { line: 0, column: 0 },
-        end,
-    };
+    let len = u32::try_from(source.len()).expect("source length fits in u32");
+    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     actions
         .into_iter()

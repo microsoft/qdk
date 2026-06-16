@@ -6,33 +6,16 @@ use crate::test_utils::{
     compile_notebook_with_fake_stdlib, compile_project_with_markers_no_cursor,
 };
 use expect_test::{Expect, expect};
-use qsc::line_column::{Encoding, Position, Range};
+use qsc::{Span, line_column::{Encoding, Range}};
 
-/// Returns a range that spans the entire source, so all diagnostics are considered relevant.
-fn whole_document_range(source: &str) -> Range {
-    let newline_count = u32::try_from(source.matches('\n').count()).expect("count fits");
-    let end = if newline_count == 0 {
-        Position {
-            line: 0,
-            column: u32::try_from(source.len()).expect("len fits"),
-        }
-    } else {
-        Position {
-            line: newline_count + 1,
-            column: 0,
-        }
-    };
-    Range {
-        start: Position { line: 0, column: 0 },
-        end,
-    }
-}
+
 
 /// Collects the titles of the auto-import code actions offered for `source`.
 fn import_action_titles(source: &str) -> Vec<String> {
     let (compilation, _targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], true);
-    let range = whole_document_range(source);
+    let len = u32::try_from(source.len()).expect("source length fits in u32");
+    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     actions
         .into_iter()
@@ -137,7 +120,8 @@ fn import_edit_inserts_at_namespace_start() {
         }";
     let (compilation, _targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], true);
-    let range = whole_document_range(source);
+    let len = u32::try_from(source.len()).expect("source length fits in u32");
+    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
     let action = actions
         .iter()
@@ -162,7 +146,9 @@ fn import_edit_inserts_at_namespace_start() {
 #[test]
 fn notebook_unresolved_term_offers_import() {
     let compilation = compile_notebook_with_fake_stdlib([("cell1", "Fake();")].into_iter());
-    let range = whole_document_range("Fake();");
+    let source = "Fake();";
+    let len = u32::try_from(source.len()).expect("source length fits in u32");
+    let range = Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len });
     let actions = code_action::get_code_actions(&compilation, "cell1", range, Encoding::Utf8);
     let titles: Vec<String> = actions
         .into_iter()
