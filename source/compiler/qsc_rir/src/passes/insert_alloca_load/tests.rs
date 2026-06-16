@@ -26,8 +26,8 @@ fn inserts_alloca_and_load_for_branch_and_call() {
                 Instruction::Branch(stored_var, BlockId(1), BlockId(2), None),
             ]),
         ),
-        (BlockId(1), Block(vec![Instruction::Return])),
-        (BlockId(2), Block(vec![Instruction::Return])),
+        (BlockId(1), Block(vec![Instruction::Return(None)])),
+        (BlockId(2), Block(vec![Instruction::Return(None)])),
     ]);
 
     // Before
@@ -70,7 +70,7 @@ fn reuses_single_load_within_block() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     )]);
 
@@ -124,7 +124,7 @@ fn inserts_load_in_successor_block() {
             BlockId(1),
             Block(vec![
                 Instruction::LogicalNot(Operand::Variable(stored_var), result_var),
-                Instruction::Return,
+                Instruction::Return(None),
             ]),
         ),
     ]);
@@ -174,7 +174,7 @@ fn leaves_unrelated_operands_unloaded() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     )]);
 
@@ -205,4 +205,53 @@ fn leaves_unrelated_operands_unloaded() {
             Call id(1), args( Variable(1, Boolean), )
             Return"#]]
     .assert_eq(&block.to_string());
+}
+
+#[test]
+fn inserts_load_before_value_return_in_successor_block() {
+    let stored_var = Variable::new_integer(VariableId(0));
+    let mut program = Program::with_blocks(vec![
+        (
+            BlockId(0),
+            Block(vec![
+                Instruction::Store(Operand::Literal(Literal::Integer(5)), stored_var),
+                Instruction::Jump(BlockId(1)),
+            ]),
+        ),
+        (
+            BlockId(1),
+            Block(vec![Instruction::Return(Some(Operand::Variable(
+                stored_var,
+            )))]),
+        ),
+    ]);
+
+    // Before
+    expect![[r#"
+        Block:
+            Variable(0, Integer) = Store Integer(5)
+            Jump(1)"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+    expect![[r#"
+        Block:
+            Return Variable(0, Integer)"#]]
+    .assert_eq(&program.get_block(BlockId(1)).to_string());
+
+    insert_alloca_load_instrs(&mut program);
+
+    // After block 0
+    expect![[r#"
+        Block:
+            Variable(0, Integer) = Alloca
+            Variable(0, Integer) = Store Integer(5)
+            Jump(1)"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+
+    // After block 1: a load is inserted before the return and the return
+    // operand is rewritten to the loaded variable.
+    expect![[r#"
+        Block:
+            Variable(2, Integer) = Load Variable(0, Integer)
+            Return Variable(2, Integer)"#]]
+    .assert_eq(&program.get_block(BlockId(1)).to_string());
 }

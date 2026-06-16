@@ -85,7 +85,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
         | Instruction::Jump(_)
         | Instruction::Alloca(..)
         | Instruction::Load(..)
-        | Instruction::Return => {}
+        | Instruction::Return(..) => {}
     }
 }
 

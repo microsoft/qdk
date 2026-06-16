@@ -20,7 +20,7 @@ fn check_rca_for_static_single_qubit_allcation() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -50,7 +50,7 @@ fn check_rca_for_dynamic_single_qubit_allcation() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | QubitAllocation)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -73,7 +73,7 @@ fn check_rca_for_static_multi_qubit_allcation() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -95,8 +95,144 @@ fn check_rca_for_dynamic_multi_qubit_allcation() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicallySizedArray | LoopWithDynamicCondition | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_leaf_operation_allocating_qubit_shows_qubit_allocation() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation AllocatesQubit() : Unit {
+            use q = Qubit();
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "AllocatesQubit",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_caller_of_allocating_operation_shows_qubit_allocation() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation AllocatesQubit() : Unit {
+            use q = Qubit();
+        }
+        operation CallsAllocator() : Unit {
+            AllocatesQubit();
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "CallsAllocator",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_leaf_operation_borrowing_qubit_shows_qubit_allocation() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation BorrowsQubit() : Unit {
+            borrow q = Qubit();
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "BorrowsQubit",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_operation_without_allocation_omits_qubit_allocation() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation NoAllocation(q : Qubit) : Unit {
+            X(q);
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "NoAllocation",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(0x0)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Element] Dynamic:
+                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                            value_kind: Constant
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_leaf_operation_allocating_qubit_array_shows_qubit_allocation() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation AllocatesQubitArray() : Unit {
+            use qs = Qubit[2];
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "AllocatesQubitArray",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
     );
 }

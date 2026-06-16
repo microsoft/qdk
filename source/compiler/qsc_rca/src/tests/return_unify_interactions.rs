@@ -56,7 +56,7 @@ fn flag_fallback_value_kind_after_dynamic_scope_return() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                         value_kind: Variable
                     dynamic_param_applications:
                         [0]: [Parameter Type Array] ArrayParamApplication:
@@ -64,10 +64,10 @@ fn flag_fallback_value_kind_after_dynamic_scope_return() {
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult)
                                 value_kind: Variable
                             static_size: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                                 value_kind: Variable
                             dynamic_size: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                                 value_kind: Variable
                 adj: <none>
                 ctl: <none>

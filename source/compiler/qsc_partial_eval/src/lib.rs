@@ -31,12 +31,12 @@ use qsc_eval::{
 use qsc_fir::{
     fir::{
         self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, ExecGraphConfig, Expr,
-        ExprId, ExprKind, Field, Global, Ident, LocalVarId, Mutability, PackageId, PackageStore,
-        PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl, Stmt, StmtId,
-        StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, StringComponent,
-        UnOp,
+        ExprId, ExprKind, Field, Functor, Global, Ident, LocalVarId, Mutability, PackageId,
+        PackageStore, PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl,
+        Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId,
+        StringComponent, UnOp,
     },
-    ty::{Prim, Ty},
+    ty::{FunctorSetValue, Prim, Ty},
 };
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
@@ -188,6 +188,23 @@ struct PartialEvaluator<'a> {
     resource_manager: ResourceManager,
     backend: QuantumIntrinsicsChecker,
     callables_map: FxHashMap<Rc<str>, CallableId>,
+    /// Cache of callables emitted as QIR "IR functions", keyed by the specialization they were
+    /// generated from. Distinct control counts (e.g. `Controlled` with 1 vs 3 controls) collapse to
+    /// the same `FunctorSetValue` and therefore share a single emitted callable.
+    ir_function_callables: FxHashMap<(StoreItemId, FunctorSetValue), CallableId>,
+    /// The package id of the program being partially evaluated (the "user"/target package). Used to
+    /// distinguish user-package callables (IR-function candidates) from cross-package callees.
+    target_package_id: PackageId,
+    /// The entry-point callable resolved from the program entry expression, when the entry is a
+    /// direct `Call` to a global item. The entry callable is the body of the entry function itself
+    /// and must never be emitted as a separate IR function, so it is excluded from IR-function
+    /// eligibility. `None` for non-`Call` entry shapes (e.g. `qirgen(expr)`, programmatic seeds),
+    /// in which case no exclusion applies.
+    entry_callable_item: Option<StoreItemId>,
+    /// Tracks the nesting depth of IR-function body emission. Used to assert that static qubit
+    /// allocation never occurs inside an emitted IR-function body while dynamic qubit allocation is
+    /// disabled.
+    ir_function_emission_depth: usize,
     eval_context: EvaluationContext,
     program: Program,
     entry: Option<&'a ProgramEntry>,
@@ -253,6 +270,7 @@ impl<'a> PartialEvaluator<'a> {
         let entry_point = rir::Callable {
             name: "main".into(),
             input_type: Vec::new(),
+            input_vars: Vec::new(),
             output_type: Some(rir::Ty::Prim(rir::Prim::Integer)),
             body: Some(entry_block_id),
             call_type: CallableType::Regular,
@@ -275,15 +293,13 @@ impl<'a> PartialEvaluator<'a> {
             ));
 
         // Initialize the evaluation context and create a new partial evaluator.
-        let context = EvaluationContext::new(
-            package_id.unwrap_or_else(|| {
-                entry
-                    .expect("program entry should be provided when package id is None")
-                    .expr
-                    .package
-            }),
-            entry_block_id,
-        );
+        let target_package_id = package_id.unwrap_or_else(|| {
+            entry
+                .expect("program entry should be provided when package id is None")
+                .expr
+                .package
+        });
+        let context = EvaluationContext::new(target_package_id, entry_block_id);
         Self {
             package_store,
             compute_properties,
@@ -291,6 +307,10 @@ impl<'a> PartialEvaluator<'a> {
             resource_manager,
             backend: QuantumIntrinsicsChecker::default(),
             callables_map: FxHashMap::default(),
+            ir_function_callables: FxHashMap::default(),
+            target_package_id,
+            entry_callable_item: resolve_entry_callable_item(package_store, entry),
+            ir_function_emission_depth: 0,
             program,
             entry,
             config,
@@ -430,6 +450,7 @@ impl<'a> PartialEvaluator<'a> {
         Ok(Callable {
             name,
             input_type,
+            input_vars: Vec::new(),
             output_type,
             body,
             call_type,
@@ -479,10 +500,16 @@ impl<'a> PartialEvaluator<'a> {
             .generate_output_recording_instructions(ret_val, output_ty, "")
             .map_err(|()| Error::OutputResultLiteral(output_span))?;
 
-        // Insert the return expression and return the generated program.
+        // Insert the return expression and return the generated program. Encode finalize as
+        // `Return(Some(Integer(0)))` so the QIR v2 renderer emits the entry-point convention
+        // as `ret i64 0` through the value-return path.
         let current_block = self.get_current_rir_block_mut();
         current_block.0.extend(output_recording);
-        current_block.0.push(Instruction::Return);
+        current_block
+            .0
+            .push(Instruction::Return(Some(Operand::Literal(
+                Literal::Integer(0),
+            ))));
 
         // Set the number of qubits and results used by the program.
         self.program.num_qubits = self
@@ -1503,6 +1530,7 @@ impl<'a> PartialEvaluator<'a> {
         self.eval_bin_op(bin_op, lhs_value, rhs_expr_id, lhs_span, bin_op_expr_span)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn eval_expr_call(
         &mut self,
         call_expr_id: ExprId,
@@ -1562,6 +1590,26 @@ impl<'a> PartialEvaluator<'a> {
             ctls,
             fixed_args,
         )?;
+        // Determine whether the callee is eligible to be emitted as an IR function. When it is,
+        // capture the call-site argument operands (in input-parameter order) before the args are
+        // moved into the call scope; these are used to generate the `Instruction::Call` at the call
+        // site instead of inlining the body. Eligible callees only have scalar/qubit leaf
+        // parameters, so the operand mapping below cannot encounter composite values.
+        let ir_function_arg_operands = spec_decl
+            .filter(|spec_decl| {
+                self.is_ir_function_eligible(store_item_id, functor_app, spec_decl, callable_decl)
+            })
+            .map(|_| {
+                args.iter()
+                    .map(|arg| {
+                        let value = match arg {
+                            Arg::Discard(value) => value,
+                            Arg::Var(_, var) => &var.value,
+                        };
+                        self.map_eval_value_to_rir_operand(value)
+                    })
+                    .collect::<Vec<Operand>>()
+            });
         let call_scope = Scope::new(
             store_item_id.package,
             Some((store_item_id.item, functor_app)),
@@ -1603,7 +1651,17 @@ impl<'a> PartialEvaluator<'a> {
                 )?
             }
             Some(spec_decl) => {
-                self.eval_expr_call_to_spec(call_scope, store_item_id, functor_app, spec_decl)?
+                if let Some(arg_operands) = ir_function_arg_operands {
+                    self.eval_expr_call_to_ir_function(
+                        store_item_id,
+                        functor_app,
+                        spec_decl,
+                        callable_decl,
+                        &arg_operands,
+                    )?
+                } else {
+                    self.eval_expr_call_to_spec(call_scope, store_item_id, functor_app, spec_decl)?
+                }
             }
         };
         Ok(EvalControlFlow::Continue(value))
@@ -1957,6 +2015,332 @@ impl<'a> PartialEvaluator<'a> {
         );
         assert!(popped_functor_app == functor_app, "scope functor mismatch");
         Ok(block_value)
+    }
+
+    /// Determines whether a resolved callable specialization is eligible to be emitted as a QIR
+    /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
+    /// of being inlined. The base phase emits VOID (Unit-returning) and scalar-returning
+    /// (Int/Double/Bool) user-package specializations with non-composite scalar/qubit signatures.
+    /// Every callable that does not satisfy ALL of the criteria below continues to inline exactly as
+    /// before, preserving behavior.
+    fn is_ir_function_eligible(
+        &self,
+        store_item_id: StoreItemId,
+        functor_app: FunctorApp,
+        spec_decl: &SpecDecl,
+        callable_decl: &CallableDecl,
+    ) -> bool {
+        if !self
+            .program
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::CallSupport)
+        {
+            return false;
+        }
+
+        // Only reachable, non-entry callables in the user (target) package are candidates.
+        // Cross-package (e.g. standard library) callees retain residual FIR `Return`s after the
+        // `return_unify` FIR transform (which only processes the target package) and must be inlined.
+        if store_item_id.package != self.target_package_id {
+            return false;
+        }
+
+        // The entry-point callable is the body of the entry function itself; emitting it as a
+        // separate IR function would wrongly duplicate it. Exclude it so its body inlines into
+        // `@ENTRYPOINT__main()` exactly as in non-IR programs.
+        if Some(store_item_id) == self.entry_callable_item {
+            return false;
+        }
+
+        // Controlled specializations (`ctl`/`ctl_adj`) are not supported for IR-function emission
+        // yet. They carry a synthesized dynamic-length `Qubit[]` control register (signalled by
+        // `spec_decl.input`), and that dynamic array parameter has no base-phase RIR representation,
+        // so they are always inlined.
+        if spec_decl.input.is_some() {
+            return false;
+        }
+
+        // The base phase emits VOID (Unit-returning) IR functions and scalar-returning IR
+        // functions for the non-composite value types Int/Double/Bool. `Result` and `Qubit` returns
+        // have no by-value single-exit representation in the base-phase RIR and must continue to
+        // inline.
+        if callable_decl.output != Ty::UNIT
+            && !matches!(
+                callable_decl.output,
+                Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
+            )
+        {
+            return false;
+        }
+
+        // Every flattened input-parameter leaf must be a non-composite scalar/qubit type that can
+        // be threaded as an RIR variable operand. Composite (tuple/array/arrow) leaves, as well as
+        // `Result` leaves (which have no evaluator-variable representation), force the whole callable
+        // to inline.
+        let callable_package = self.package_store.get(store_item_id.package);
+        for param in callable_package.derive_callable_input_params(callable_decl) {
+            let Ok(rir_ty) = map_fir_type_to_rir_type(&param.ty) else {
+                return false;
+            };
+            if map_rir_type_to_eval_var_type(rir_ty).is_err() {
+                return false;
+            }
+        }
+
+        // Callable contains a residual FIR `Return` and cannot be lowered to a
+        // single-exit IR-function body, so it is inlined.
+        if self.spec_block_has_return(store_item_id.package, spec_decl.block) {
+            return false;
+        }
+
+        // Recursive callables, callables whose bodies contain calls that RCA could not
+        // statically resolve, and callables that transitively allocate qubits (unless dynamic qubit
+        // allocation is enabled) must be inlined. These are surfaced as inherent runtime features of
+        // the specialization by RCA. Recursion appears as `CyclicOperationSpec`/
+        // `CallToCyclicOperation`, while unresolved-callee paths surface as
+        // `CallToUnresolvedCallee`; in all such cases the specialization is inlined.
+        let inherent_features = self.spec_inherent_runtime_features(store_item_id, functor_app);
+        if inherent_features.intersects(
+            RuntimeFeatureFlags::CyclicOperationSpec
+                | RuntimeFeatureFlags::CallToCyclicOperation
+                | RuntimeFeatureFlags::CallToUnresolvedCallee,
+        ) {
+            return false;
+        }
+        if inherent_features.contains(RuntimeFeatureFlags::QubitAllocation)
+            && !self
+                .program
+                .config
+                .capabilities
+                .contains(TargetCapabilityFlags::DynamicQubitAllocation)
+        {
+            return false;
+        }
+
+        true
+    }
+
+    /// Reads the inherent runtime features of a resolved callable specialization from RCA. This
+    /// mirrors the specialization selection in `get_call_compute_kind` and is used by the
+    /// IR-function eligibility predicate to detect recursion and transitive qubit allocation.
+    fn spec_inherent_runtime_features(
+        &self,
+        store_item_id: StoreItemId,
+        functor_app: FunctorApp,
+    ) -> RuntimeFeatureFlags {
+        let ItemComputeProperties::Callable(callable_compute_properties) =
+            self.compute_properties.get_item(store_item_id)
+        else {
+            return RuntimeFeatureFlags::empty();
+        };
+        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
+            (false, 0) => Some(&callable_compute_properties.body),
+            (false, _) => callable_compute_properties.ctl.as_ref(),
+            (true, 0) => callable_compute_properties.adj.as_ref(),
+            (true, _) => callable_compute_properties.ctl_adj.as_ref(),
+        };
+        match generator_set.map(|gen_set| gen_set.inherent) {
+            Some(ComputeKind::Dynamic {
+                runtime_features, ..
+            }) => runtime_features,
+            _ => RuntimeFeatureFlags::empty(),
+        }
+    }
+
+    /// Scans a specialization block for any residual FIR `Return` expression. After the
+    /// `return_unify` FIR transform, only `return_unify` skip-set callables (and cross-package
+    /// callables) retain a `Return`; such callables cannot be emitted as single-exit IR functions.
+    fn spec_block_has_return(&self, package_id: PackageId, block_id: BlockId) -> bool {
+        use qsc_fir::visit::Visitor;
+        let package = self.package_store.get(package_id);
+        let mut scanner = ReturnScanner {
+            package,
+            found: false,
+        };
+        scanner.visit_block(block_id);
+        scanner.found
+    }
+
+    /// Emits an eligible user-package specialization as a QIR "IR function": a `Regular` RIR callable
+    /// with a body, evaluated once with its parameters threaded as RIR variable operands, and
+    /// deduplicated per `(StoreItemId, FunctorSetValue)`. At the call site an `Instruction::Call` to
+    /// the emitted callable is generated instead of inlining the body.
+    fn eval_expr_call_to_ir_function(
+        &mut self,
+        store_item_id: StoreItemId,
+        functor_app: FunctorApp,
+        spec_decl: &SpecDecl,
+        callable_decl: &CallableDecl,
+        arg_operands: &[Operand],
+    ) -> Result<Value, Error> {
+        let functor_set_value = functor_app_to_functor_set_value(functor_app);
+        let cache_key = (store_item_id, functor_set_value);
+
+        let callable_id = if let Some(callable_id) = self.ir_function_callables.get(&cache_key) {
+            *callable_id
+        } else {
+            self.emit_ir_function(store_item_id, functor_app, spec_decl, callable_decl)?
+        };
+
+        // Bind a fresh call-site output variable when the emitted IR function returns a scalar value
+        // so the returned value is threaded back into the caller rather than silently dropped. Void
+        // (Unit-returning) IR functions have no output type and bind no output variable.
+        let output_var = self
+            .program
+            .get_callable(callable_id)
+            .output_type
+            .map(|output_ty| {
+                let variable_id = self.resource_manager.next_var();
+                rir::Variable {
+                    variable_id,
+                    ty: output_ty,
+                }
+            });
+
+        // Generate the call to the emitted IR function at the current call site.
+        let metadata = self.metadata_from_current_dbg_location();
+        let instruction =
+            Instruction::Call(callable_id, arg_operands.to_vec(), output_var, metadata);
+        self.get_current_rir_block_mut().0.push(instruction);
+
+        let ret_val = match output_var {
+            None => Value::unit(),
+            Some(output_var) => Value::Var(
+                map_rir_var_to_eval_var(output_var)
+                    .expect("IR-function scalar output type should map to an evaluator variable"),
+            ),
+        };
+        Ok(ret_val)
+    }
+
+    /// Builds and registers the `Regular` callable for an IR function and evaluates its
+    /// specialization body into a fresh body block. Returns the id of the emitted callable.
+    fn emit_ir_function(
+        &mut self,
+        store_item_id: StoreItemId,
+        functor_app: FunctorApp,
+        spec_decl: &SpecDecl,
+        callable_decl: &CallableDecl,
+    ) -> Result<CallableId, Error> {
+        let functor_set_value = functor_app_to_functor_set_value(functor_app);
+
+        // Map the specialization signature to the RIR input type and create fresh RIR variables for
+        // each parameter. The parameter variables are threaded into the body as RIR operands so the
+        // body references its inputs rather than concrete call-site values.
+        let callable_package = self.package_store.get(store_item_id.package);
+        let input_params = callable_package.derive_callable_input_params(callable_decl);
+        let mut input_type: Vec<rir::Ty> = Vec::with_capacity(input_params.len());
+        let mut input_vars: Vec<rir::VariableId> = Vec::with_capacity(input_params.len());
+        let mut body_args: Vec<Arg> = Vec::new();
+        for param in &input_params {
+            let rir_ty = map_fir_type_to_rir_type(&param.ty)
+                .expect("IR-function parameter type should be representable in RIR");
+            input_type.push(rir_ty);
+            let var_ty = map_rir_type_to_eval_var_type(rir_ty)
+                .expect("IR-function parameter type should map to an evaluator variable type");
+            let variable_id = self.resource_manager.next_var();
+            input_vars.push(variable_id);
+            let eval_var = Var {
+                id: variable_id.into(),
+                ty: var_ty,
+            };
+            if let Some(local_var_id) = param.var {
+                let pat = self
+                    .package_store
+                    .get_pat((store_item_id.package, param.pat).into());
+                let (name, span) = match &pat.kind {
+                    PatKind::Bind(ident) => (ident.name.clone(), ident.span),
+                    _ => (Rc::from("arg"), pat.span),
+                };
+                let variable = Variable {
+                    name,
+                    value: Value::Var(eval_var),
+                    span,
+                };
+                body_args.push(Arg::Var(local_var_id, variable));
+            }
+        }
+
+        // Map the callable's return type to the RIR output type. VOID (Unit-returning) IR functions
+        // have no output type; scalar (Int/Double/Bool) returns carry a typed output that is bound to
+        // a call-site output variable. Eligibility (criterion 5) guarantees the return type is Unit
+        // or one of these scalars, so the mapping below cannot fail for an eligible callable.
+        let output_type = if callable_decl.output == Ty::UNIT {
+            None
+        } else {
+            Some(
+                map_fir_type_to_rir_type(&callable_decl.output)
+                    .expect("IR-function scalar return type should be representable in RIR"),
+            )
+        };
+        let returns_value = output_type.is_some();
+
+        // Build the emitted callable name following the `<callable>__<FunctorSetValue>` convention
+        // (the body specialization keeps the bare callable name).
+        let base_name = callable_decl.name.name.to_string();
+        let name = if functor_set_value == FunctorSetValue::Empty {
+            base_name
+        } else {
+            format!("{base_name}__{}", functor_set_value.mangle_name())
+        };
+
+        // Create the body block and reserve the callable id up front so that recursive structural
+        // references (e.g. nested IR-function emission) observe a consistent program state.
+        let body_block_id = self.create_program_block();
+        let callable = Callable {
+            name,
+            input_type,
+            input_vars,
+            output_type,
+            body: Some(body_block_id),
+            call_type: CallableType::Regular,
+        };
+        let callable_id = self.resource_manager.next_callable();
+        self.program.callables.insert(callable_id, callable);
+        // Cache the emitted callable before evaluating its body so that any structural self-reference
+        // observes the reserved id rather than re-entering emission. The IR-function eligibility
+        // predicate already excludes recursive specializations, so this is defense-in-depth.
+        self.ir_function_callables
+            .insert((store_item_id, functor_set_value), callable_id);
+
+        // Evaluate the specialization body into the fresh body block with the parameters bound to
+        // their RIR variables. The body block is made the active block while a dedicated call scope
+        // is pushed so that body expressions referring to parameters resolve to the parameter
+        // variables and emit instructions into the body.
+        let body_scope = Scope::new(
+            store_item_id.package,
+            Some((store_item_id.item, functor_app)),
+            body_args,
+            None,
+        );
+        self.eval_context.push_block_node(BlockNode {
+            id: body_block_id,
+            successor: None,
+        });
+        self.eval_context.push_scope(body_scope);
+        self.ir_function_emission_depth += 1;
+        let eval_result = self.try_eval_block(spec_decl.block);
+        self.ir_function_emission_depth -= 1;
+        let body_value = eval_result?.into_value();
+
+        // Terminate the function's final block. VOID (Unit-returning) IR functions emit a value-less
+        // `Return`; scalar-returning IR functions materialize the trailing body value as the return
+        // operand so the value is threaded back to the caller through the call-site output variable.
+        let return_operand = returns_value.then(|| self.map_eval_value_to_rir_operand(&body_value));
+        let final_block_id = self.eval_context.get_current_block_id();
+        self.get_program_block_mut(final_block_id)
+            .0
+            .push(Instruction::Return(return_operand));
+
+        let popped_scope = self.eval_context.pop_scope();
+        assert!(
+            popped_scope.package_id == store_item_id.package,
+            "IR-function scope package ID mismatch"
+        );
+        self.eval_context.pop_block_node();
+
+        Ok(callable_id)
     }
 
     fn eval_expr_if(
@@ -3074,6 +3458,51 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn allocate_qubit(&mut self) -> Value {
+        // Under the `DynamicQubitAllocation` capability, qubit allocation lowers to a runtime
+        // `__quantum__rt__qubit_allocate` call that yields a runtime `ptr` variable rather than a
+        // statically-modeled qubit id. These dynamic qubits are intentionally NOT registered with
+        // the resource manager, so they are excluded from `required_num_qubits`.
+        if self
+            .program
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::DynamicQubitAllocation)
+        {
+            let allocate_callable = Callable {
+                name: "__quantum__rt__qubit_allocate".to_string(),
+                input_type: Vec::new(),
+                input_vars: Vec::new(),
+                output_type: Some(rir::Ty::Prim(rir::Prim::Qubit)),
+                body: None,
+                call_type: CallableType::Regular,
+            };
+            let allocate_callable_id = self.get_or_insert_callable(allocate_callable);
+            let rir_variable = rir::Variable {
+                variable_id: self.resource_manager.next_var(),
+                ty: rir::Ty::Prim(rir::Prim::Qubit),
+            };
+            let metadata = self.metadata_from_current_dbg_location();
+            let instruction = Instruction::Call(
+                allocate_callable_id,
+                Vec::new(),
+                Some(rir_variable),
+                metadata,
+            );
+            self.get_current_rir_block_mut().0.push(instruction);
+
+            // Signal that the program actually uses dynamic qubit management so codegen emits the
+            // `dynamic_qubit_management` module flag as `i1 true`.
+            self.program.use_dynamic_qubit_management = true;
+
+            let var = map_rir_var_to_eval_var(rir_variable)
+                .expect("runtime qubit variable should map to an eval variable");
+            return Value::Var(var);
+        }
+
+        debug_assert!(
+            self.ir_function_emission_depth == 0,
+            "static qubit allocation should not occur inside an IR-function body when dynamic qubit allocation is disabled"
+        );
         let qubit = self.resource_manager.allocate_qubit();
         Value::Qubit(qubit)
     }
@@ -3135,6 +3564,7 @@ impl<'a> PartialEvaluator<'a> {
         let measurement_callable = Callable {
             name: callable_decl.name.name.to_string(),
             input_type,
+            input_vars: Vec::new(),
             output_type: None,
             body: None,
             call_type: CallableType::Measurement,
@@ -3175,13 +3605,35 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn release_qubit(&mut self, args_value: Value, arg_span: PackageSpan) -> Result<Value, Error> {
-        let Value::Qubit(qubit) = args_value else {
-            return Err(Error::Unimplemented(
-                "release release of dynamic qubit variable".to_string(),
-                arg_span,
-            ));
-        };
-        self.resource_manager.release_qubit(&qubit);
+        match args_value {
+            Value::Qubit(qubit) => {
+                self.resource_manager.release_qubit(&qubit);
+            }
+            // A runtime qubit allocated via the dynamic-allocation path is released with a runtime
+            // `__quantum__rt__qubit_release` call on its `ptr` variable.
+            Value::Var(var) if var.ty == VarTy::Qubit => {
+                let release_callable = Callable {
+                    name: "__quantum__rt__qubit_release".to_string(),
+                    input_type: vec![rir::Ty::Prim(rir::Prim::Qubit)],
+                    input_vars: Vec::new(),
+                    output_type: None,
+                    body: None,
+                    call_type: CallableType::Regular,
+                };
+                let release_callable_id = self.get_or_insert_callable(release_callable);
+                let operand = Operand::Variable(map_eval_var_to_rir_var(var));
+                let metadata = self.metadata_from_current_dbg_location();
+                let instruction =
+                    Instruction::Call(release_callable_id, vec![operand], None, metadata);
+                self.get_current_rir_block_mut().0.push(instruction);
+            }
+            _ => {
+                return Err(Error::Unimplemented(
+                    "release release of dynamic qubit variable".to_string(),
+                    arg_span,
+                ));
+            }
+        }
 
         // The value of a qubit release is unit.
         Ok(Value::unit())
@@ -4182,6 +4634,41 @@ struct LoopScope {
     location_id: DbgLocationId,
 }
 
+/// Resolves the entry-point callable's [`StoreItemId`] from the program entry expression.
+///
+/// The entry expression callable is a direct `Call(callee, _)` whose callee resolves
+/// to a global item, possibly wrapped in `Adj`/`Ctl` functor applications. The entry
+/// callable is the body of the entry function itself and must never be emitted as
+/// a separate IR function. Returns `None` when there is no entry, the entry is not a
+/// direct call (e.g. `qirgen(expr)` or a programmatic seed), or the callee does not resolve
+/// to a global item; in those cases there is no entry callable to exclude.
+fn resolve_entry_callable_item(
+    package_store: &PackageStore,
+    entry: Option<&ProgramEntry>,
+) -> Option<StoreItemId> {
+    let entry = entry?;
+    let package_id = entry.expr.package;
+    let ExprKind::Call(callee_id, _) = &package_store.get_expr(entry.expr).kind else {
+        return None;
+    };
+    let mut current = *callee_id;
+    loop {
+        let expr = package_store.get_expr(StoreExprId::from((package_id, current)));
+        match &expr.kind {
+            ExprKind::Var(Res::Item(item), _) => {
+                return Some(StoreItemId {
+                    package: item.package,
+                    item: item.item,
+                });
+            }
+            ExprKind::UnOp(UnOp::Functor(Functor::Adj | Functor::Ctl), inner_id) => {
+                current = *inner_id;
+            }
+            _ => return None,
+        }
+    }
+}
+
 fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {
     match un_op {
         UnOp::Neg => match value {
@@ -4333,6 +4820,49 @@ fn eval_bin_op_with_integer_literals(
         BinOp::Shl => Ok(Value::Int(lhs_int << rhs_int)),
         BinOp::Shr => Ok(Value::Int(lhs_int >> rhs_int)),
         _ => panic!("invalid integer operator: {bin_op:?}"),
+    }
+}
+
+/// Maps a runtime `FunctorApp` to the `FunctorSetValue` that identifies a specialization. This is the
+/// granularity at which IR functions are deduplicated: distinct control counts collapse to the same
+/// controlled specialization.
+fn functor_app_to_functor_set_value(functor_app: FunctorApp) -> FunctorSetValue {
+    match (functor_app.adjoint, functor_app.controlled > 0) {
+        (false, false) => FunctorSetValue::Empty,
+        (true, false) => FunctorSetValue::Adj,
+        (false, true) => FunctorSetValue::Ctl,
+        (true, true) => FunctorSetValue::CtlAdj,
+    }
+}
+
+/// A FIR visitor that detects whether a block contains any residual `Return` expression.
+struct ReturnScanner<'a> {
+    package: &'a fir::Package,
+    found: bool,
+}
+
+impl<'a> qsc_fir::visit::Visitor<'a> for ReturnScanner<'a> {
+    fn visit_expr(&mut self, expr: ExprId) {
+        if matches!(self.get_expr(expr).kind, ExprKind::Return(_)) {
+            self.found = true;
+        }
+        qsc_fir::visit::walk_expr(self, expr);
+    }
+
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.package.blocks.get(id).expect("block should exist")
+    }
+
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.package.exprs.get(id).expect("expression should exist")
+    }
+
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.package.pats.get(id).expect("pattern should exist")
+    }
+
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.package.stmts.get(id).expect("statement should exist")
     }
 }
 

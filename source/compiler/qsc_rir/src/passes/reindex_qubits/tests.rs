@@ -30,7 +30,7 @@ fn qubit_reindexed_after_reset_removes_reset() {
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -73,7 +73,7 @@ fn qubit_reindex_removes_initial_reset_without_reindexing() {
         Block(vec![
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -131,7 +131,7 @@ fn qubit_reindexed_after_mz() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -190,7 +190,7 @@ fn qubit_reindexed_after_mresetz_and_changed_to_mz() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -249,7 +249,7 @@ fn multiple_qubit_reindex() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -325,7 +325,7 @@ fn qubit_reindexed_multiple_times_with_mz_inserts_multiple_cx() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -444,7 +444,7 @@ fn qubit_reindexed_across_branches() {
         BlockId(3),
         Block(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 

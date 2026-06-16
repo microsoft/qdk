@@ -86,7 +86,7 @@ fn assigning_result_register_updates_value() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(3), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -125,7 +125,7 @@ fn assigning_classical_bool_updates_value_and_adds_store_instructions() {
                 Variable(0, Boolean) = Store Bool(true)
                 Variable(0, Boolean) = Store Bool(false)
                 Call id(2), args( Bool(false), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -195,7 +195,7 @@ fn assigning_dynamic_bool_updates_value_and_adds_store_instructions() {
                 Variable(0, Boolean) = Store Variable(2, Boolean)
                 Variable(3, Boolean) = Store Variable(0, Boolean)
                 Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -234,7 +234,7 @@ fn assigning_classical_int_updates_value_and_adds_store_instructions() {
                 Variable(0, Integer) = Store Integer(0)
                 Variable(0, Integer) = Store Integer(1)
                 Call id(2), args( Integer(1), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -306,7 +306,7 @@ fn assigning_dynamic_int_updates_value_and_adds_store_instructions() {
                 Variable(0, Integer) = Store Variable(3, Integer)
                 Variable(4, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(1)
                 Jump(1)
@@ -385,7 +385,7 @@ fn assigning_classical_bool_within_dynamic_if_expression_adds_store_instruction(
             Block 1:Block:
                 Variable(3, Boolean) = Store Variable(0, Boolean)
                 Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(0, Boolean) = Store Bool(true)
                 Jump(1)"#]],
@@ -463,7 +463,7 @@ fn assigning_classical_int_within_dynamic_if_else_expression_adds_store_instruct
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Variable(3, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(0, Integer) = Store Integer(1)
                 Jump(1)
@@ -561,7 +561,7 @@ fn array_of_results_update_element_at_index_with_dynamic_content() {
                 Call id(3), args( Integer(2), Tag(0, 3), )
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(1), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -647,7 +647,7 @@ fn array_of_bools_update_element_at_index_with_dynamic_content() {
                 Call id(4), args( Integer(2), Tag(0, 3), )
                 Call id(5), args( Variable(1, Boolean), Tag(1, 5), )
                 Call id(5), args( Variable(3, Boolean), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -768,7 +768,7 @@ fn array_of_results_update_slice_with_explicit_range() {
                 Call id(4), args( Result(6), Tag(3, 5), )
                 Call id(4), args( Result(3), Tag(4, 5), )
                 Call id(4), args( Result(7), Tag(5, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -841,7 +841,7 @@ fn array_of_results_update_slice_with_open_start_range() {
                 Call id(4), args( Result(3), Tag(1, 5), )
                 Call id(4), args( Result(4), Tag(2, 5), )
                 Call id(4), args( Result(2), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -914,7 +914,7 @@ fn array_of_results_update_slice_with_open_ended_range() {
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(3), Tag(2, 5), )
                 Call id(4), args( Result(4), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -987,7 +987,7 @@ fn array_of_results_update_slice_with_open_two_step_range() {
                 Call id(4), args( Result(3), Tag(1, 5), )
                 Call id(4), args( Result(1), Tag(2, 5), )
                 Call id(4), args( Result(4), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1078,7 +1078,7 @@ fn empty_array_of_results_in_place_concatenation() {
                 Call id(3), args( Integer(2), Tag(0, 3), )
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(1), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1147,7 +1147,7 @@ fn non_empty_array_of_results_in_place_concatenation() {
                 Call id(3), args( Integer(2), Tag(0, 3), )
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(1), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1221,7 +1221,7 @@ fn logical_and_assign_with_lhs_classical_true_is_optimized_as_store() {
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Variable(4, Boolean) = Store Variable(3, Boolean)
                 Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1294,7 +1294,7 @@ fn logical_and_assign_with_lhs_classical_false_short_circuits_evaluation() {
                 Variable(3, Boolean) = Store Bool(false)
                 Variable(3, Boolean) = Store Bool(false)
                 Call id(4), args( Bool(false), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1369,7 +1369,7 @@ fn logical_and_assign_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_i
                 Variable(2, Boolean) = Store Variable(3, Boolean)
                 Variable(6, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(0), Result(1), )
                 Variable(4, Boolean) = Call id(3), args( Result(1), )
@@ -1448,7 +1448,7 @@ fn logical_or_assign_with_lhs_classical_true_short_circuits_evaluation() {
                 Variable(3, Boolean) = Store Bool(true)
                 Variable(3, Boolean) = Store Bool(true)
                 Call id(4), args( Bool(true), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1522,7 +1522,7 @@ fn logical_or_assign_with_lhs_classical_false_is_optimized_as_store() {
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Variable(4, Boolean) = Store Variable(3, Boolean)
                 Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1597,7 +1597,7 @@ fn logical_or_assign_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is
                 Variable(2, Boolean) = Store Variable(3, Boolean)
                 Variable(6, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(6, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(0), Result(1), )
                 Variable(4, Boolean) = Call id(3), args( Result(1), )
@@ -1678,7 +1678,7 @@ fn integer_assign_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
                 Variable(0, Integer) = Store Variable(4, Integer)
                 Variable(5, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(0)
                 Jump(1)
@@ -1759,7 +1759,7 @@ fn integer_assign_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Variable(3, Integer) = Store Variable(4, Integer)
                 Variable(5, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -1851,7 +1851,7 @@ fn integer_assign_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
                 Variable(3, Integer) = Store Variable(7, Integer)
                 Variable(8, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
                 Jump(4)
@@ -1932,7 +1932,7 @@ fn integer_assign_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
                 Variable(0, Integer) = Store Variable(4, Integer)
                 Variable(5, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(0)
                 Jump(1)
@@ -2013,7 +2013,7 @@ fn integer_assign_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Variable(3, Integer) = Store Variable(4, Integer)
                 Variable(5, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2140,7 +2140,7 @@ fn integer_assign_exp_with_lhs_dynamic_integer_and_rhs_classical_zero_integer() 
                 Variable(3, Integer) = Store Variable(4, Integer)
                 Variable(5, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2224,7 +2224,7 @@ fn integer_assign_exp_with_lhs_dynamic_integer_and_rhs_classical_positive_intege
                 Variable(3, Integer) = Store Variable(7, Integer)
                 Variable(8, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2339,7 +2339,7 @@ fn integer_assign_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer()
                 Variable(3, Integer) = Store Variable(7, Integer)
                 Variable(8, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
                 Jump(4)
@@ -2420,7 +2420,7 @@ fn integer_assign_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer(
                 Variable(0, Integer) = Store Variable(4, Integer)
                 Variable(5, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(0)
                 Jump(1)
@@ -2501,7 +2501,7 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Variable(3, Integer) = Store Variable(4, Integer)
                 Variable(5, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2593,7 +2593,7 @@ fn integer_assign_bitwise_left_shift_with_lhs_dynamic_integer_and_rhs_dynamic_in
                 Variable(3, Integer) = Store Variable(7, Integer)
                 Variable(8, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
                 Jump(4)
@@ -2674,7 +2674,7 @@ fn integer_assign_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic
                 Variable(0, Integer) = Store Variable(4, Integer)
                 Variable(5, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(0)
                 Jump(1)
@@ -2755,7 +2755,7 @@ fn double_assign_add_with_lhs_classical_double_and_rhs_dynamic_double() {
                 Variable(0, Double) = Store Variable(4, Double)
                 Variable(5, Double) = Store Variable(0, Double)
                 Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(3, Double) = Store Double(0)
                 Jump(1)
@@ -2836,7 +2836,7 @@ fn double_assign_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
                 Variable(3, Double) = Store Variable(4, Double)
                 Variable(5, Double) = Store Variable(3, Double)
                 Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -2928,7 +2928,7 @@ fn double_assign_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
                 Variable(3, Double) = Store Variable(7, Double)
                 Variable(8, Double) = Store Variable(3, Double)
                 Call id(4), args( Variable(8, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Double) = Store Double(1.1)
                 Jump(4)
@@ -3009,7 +3009,7 @@ fn double_assign_div_with_lhs_classical_double_and_rhs_dynamic_double() {
                 Variable(0, Double) = Store Variable(4, Double)
                 Variable(5, Double) = Store Variable(0, Double)
                 Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(3, Double) = Store Double(0)
                 Jump(1)
