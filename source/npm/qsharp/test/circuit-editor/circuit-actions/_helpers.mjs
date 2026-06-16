@@ -102,7 +102,8 @@ export const meas = (qubit, opts) => ({
  * @param {string} name
  * @param {any[][]} innerGrid  array of inner columns, each column an
  *   array of ops (built with `gate` / `meas` / nested `group`)
- * @param {{ ctrls?: (number | { q: number, r?: number })[] }} [opts]
+ * @param {{ ctrls?: (number | { q: number, r?: number })[],
+ *           conditional?: boolean }} [opts]
  * @returns {any}
  */
 export const group = (name, innerGrid, opts) => {
@@ -140,6 +141,7 @@ export const group = (name, innerGrid, opts) => {
       typeof c === "number" ? { qubit: c } : { qubit: c.q, result: c.r ?? 0 },
     );
   }
+  if (opts?.conditional) out.isConditional = true;
   return out;
 };
 

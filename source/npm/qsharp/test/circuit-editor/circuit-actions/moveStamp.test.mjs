@@ -21,99 +21,46 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CircuitModel } from "../../../dist/ux/circuit-vis/data/circuitModel.js";
 import { moveOperation } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
+import { at, build, circuit, gate, group } from "./_helpers.mjs";
 
 test("moveOperation: returned op carries sqore-prev-location stamp with the source location", () => {
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
-      },
-      {
-        components: [{ kind: "unitary", gate: "X", targets: [{ qubit: 1 }] }],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
+  const model = build(circuit(2, [[gate("H", 0)], [gate("X", 1)]]));
 
   const moved = moveOperation(model, "0,0", "1,0", 0, 1, false, false);
   assert.ok(moved);
-  const movedAny = /** @type {any} */ (moved);
   assert.equal(
-    movedAny.dataAttributes?.["sqore-prev-location"],
+    /** @type {any} */ (moved).dataAttributes?.["sqore-prev-location"],
     "0,0",
     "stamp must hold the PRE-move source location so Sqore can recover the ViewState entry",
   );
 });
 
 test("moveOperation: stamp survives the deep-clone roundtrip even when source had no prior dataAttributes", () => {
-  // The source op has NO dataAttributes object before the move
-  // (common for freshly-edited ops between renders). The stamp
-  // contract has to lazily create the object — it can't depend on
-  // a pre-existing dataAttributes.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
-      },
-      {
-        components: [{ kind: "unitary", gate: "X", targets: [{ qubit: 1 }] }],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  // Verify the precondition the test is built around: no dataAttributes
-  // on the source op going in.
-  assert.equal(
-    /** @type {any} */ (model.componentGrid[0].components[0]).dataAttributes,
-    undefined,
-  );
+  const model = build(circuit(2, [[gate("H", 0)], [gate("X", 1)]]));
+  // Precondition: no dataAttributes on the source op going in.
+  assert.equal(/** @type {any} */ (at(model, "0,0")).dataAttributes, undefined);
 
   const moved = moveOperation(model, "0,0", "1,0", 0, 1, false, false);
   assert.ok(moved);
-  const movedAny = /** @type {any} */ (moved);
-  assert.equal(movedAny.dataAttributes?.["sqore-prev-location"], "0,0");
+  assert.equal(
+    /** @type {any} */ (moved).dataAttributes?.["sqore-prev-location"],
+    "0,0",
+  );
 });
 
 test("moveOperation: stamp persists for a control-leg move on a group", () => {
-  // Verifies the stamp is set regardless of which branch of `_moveY`
-  // ran. The control-on-group leg-move path creates a new op
-  // identity too, so the ViewState transfer must still work.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 1 }, { qubit: 2 }],
-            controls: [{ qubit: 0 }],
-            children: [
-              {
-                components: [
-                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
-                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
+  // Control-leg move on a group takes a distinct `_moveY` branch but
+  // must still stamp prev-location for the ViewState transfer.
+  const model = build(
+    circuit(4, [
+      [group("Foo", [[gate("H", 1), gate("X", 2)]], { ctrls: [0] })],
+    ]),
+  );
   const moved = moveOperation(model, "0,0", "0,0", 0, 3, true, false);
   assert.ok(moved);
-  const movedAny = /** @type {any} */ (moved);
   assert.equal(
-    movedAny.dataAttributes?.["sqore-prev-location"],
+    /** @type {any} */ (moved).dataAttributes?.["sqore-prev-location"],
     "0,0",
     "control-leg move on a group must still stamp the prev-location for ViewState transfer",
   );
