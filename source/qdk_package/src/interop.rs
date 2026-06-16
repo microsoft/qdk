@@ -35,8 +35,6 @@ use qsc::{Backend, CliffordSim, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
-use qsc_stim_parser::parser::parse;
-use qsc_stim_parser::qir::compile_to_qir;
 
 use resource_estimator as re;
 
@@ -477,7 +475,7 @@ pub(crate) fn compile_stim_to_qir(
     );
 
     let qir = qsc_stim_parser::compile(source, &mut noise_config);
-    Ok((qir, bind_noise_config(py, noise_config)?))
+    Ok((qir, bind_noise_config(py, &noise_config)?))
 }
 
 /// Enriches the compilation errors to provide more helpful messages
