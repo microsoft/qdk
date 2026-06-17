@@ -26,7 +26,7 @@ Example return values:
 </tr>
 <tr>
 <td>$Y$ error on qubit $4$</td>
-<td>(4, PauliY)</td>
+<td>(1, PauliY)</td>
 </tr>
 <tr>
 <td>$Z$ error on qubit $8$ (last triplet)</td>
