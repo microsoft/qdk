@@ -252,19 +252,6 @@ impl QirWriter {
     }
 }
 
-enum InstructionKind {
-    PauliGate,
-    SingleQubitCliffordGate,
-    TwoQubitCliffordGate,
-    NoiseChannel,
-    CollapsingGate,
-    PairMeasurementGate,
-    GeneralizedPauliProductGate,
-    ControlFlow,
-    Annotations,
-    CustomInstruction,
-}
-
 /// A single fault term (`X`, `Y`, `Z`, or `L`) applied to a qubit.
 #[derive(Clone, Copy)]
 enum FaultChar {
@@ -353,37 +340,64 @@ impl<'noise> Compiler<'noise> {
             self.finish_correlated_group();
         }
 
-        match Self::instruction_kind(&instruction.name) {
-            InstructionKind::PauliGate => {
-                self.compile_pauli_gate(instruction);
+        match instruction.name.as_str() {
+            // Pauli Gates
+            "I" | "X" | "Y" | "Z" => self.compile_pauli_gate(instruction),
+
+            // Single Qubit Clifford Gates
+            "C_NXYZ" | "C_NZYX" | "C_XNYZ" | "C_XYNZ" | "C_XYZ" | "C_ZNYX" | "C_ZYNX" | "C_ZYX"
+            | "H" | "H_NXY" | "H_NXZ" | "H_NYZ" | "H_XY" | "H_XZ" | "H_YZ" | "S" | "SQRT_X"
+            | "SQRT_X_DAG" | "SQRT_Y" | "SQRT_Y_DAG" | "SQRT_Z" | "SQRT_Z_DAG" | "S_DAG" => {
+                self.compile_single_qubit_clifford_gate(instruction)
             }
-            InstructionKind::SingleQubitCliffordGate => {
-                self.compile_single_qubit_clifford_gate(instruction);
+
+            // Two Qubit Clifford Gates
+            "CNOT" | "CX" | "CXSWAP" | "CY" | "CZ" | "CZSWAP" | "II" | "ISWAP" | "ISWAP_DAG"
+            | "SQRT_XX" | "SQRT_XX_DAG" | "SQRT_YY" | "SQRT_YY_DAG" | "SQRT_ZZ" | "SQRT_ZZ_DAG"
+            | "SWAP" | "SWAPCX" | "SWAPCZ" | "XCX" | "XCY" | "XCZ" | "YCX" | "YCY" | "YCZ"
+            | "ZCX" | "ZCY" | "ZCZ" => self.compile_two_qubit_clifford_gate(instruction),
+
+            // Noise Channels
+            "CORRELATED_ERROR"
+            | "DEPOLARIZE1"
+            | "DEPOLARIZE2"
+            | "E"
+            | "ELSE_CORRELATED_ERROR"
+            | "HERALDED_ERASE"
+            | "HERALDED_PAULI_CHANNEL_1"
+            | "II_ERROR"
+            | "I_ERROR"
+            | "PAULI_CHANNEL_1"
+            | "PAULI_CHANNEL_2"
+            | "X_ERROR"
+            | "Y_ERROR"
+            | "Z_ERROR"
+            | "LOSS_ERROR" => self.compile_noise_channel(instruction),
+
+            // Collapsing Gates
+            "M" | "MR" | "MRX" | "MRY" | "MRZ" | "MX" | "MY" | "MZ" | "R" | "RX" | "RY" | "RZ" => {
+                self.compile_collapsing_gate(instruction)
             }
-            InstructionKind::TwoQubitCliffordGate => {
-                self.compile_two_qubit_clifford_gate(instruction);
+
+            // Pair Measurement Gates
+            "MXX" | "MYY" | "MZZ" => self.compile_pair_measurement_gate(instruction),
+
+            // Generalized Pauli Product Gates
+            "MPP" | "SPP" | "SPP_DAG" => self.compile_generalized_pauli_product_gate(instruction),
+
+            // Control Flow
+            "REPEAT" => self.compile_control_flow(instruction),
+
+            // Annotations
+            "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
+            | "TICK" => self.compile_annotations(instruction),
+
+            // Custom Instructions
+            "#!preselect_begin" | "#!preselect_expect" | "#!rhai" => {
+                self.compile_custom_instruction(instruction)
             }
-            InstructionKind::NoiseChannel => {
-                self.compile_noise_channel(instruction);
-            }
-            InstructionKind::CollapsingGate => {
-                self.compile_collapsing_gate(instruction);
-            }
-            InstructionKind::PairMeasurementGate => {
-                self.compile_pair_measurement_gate(instruction);
-            }
-            InstructionKind::GeneralizedPauliProductGate => {
-                self.compile_generalized_pauli_product_gate(instruction);
-            }
-            InstructionKind::ControlFlow => {
-                self.compile_control_flow(instruction);
-            }
-            InstructionKind::Annotations => {
-                self.compile_annotations(instruction);
-            }
-            InstructionKind::CustomInstruction => {
-                self.compile_custom_instruction(instruction);
-            }
+
+            _ => self.unsupported(instruction),
         }
     }
 
@@ -725,62 +739,9 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn instruction_kind(name: &str) -> InstructionKind {
-        match name {
-            // Pauli Gates
-            "I" | "X" | "Y" | "Z" => InstructionKind::PauliGate,
-
-            // Single Qubit Clifford Gates
-            "C_NXYZ" | "C_NZYX" | "C_XNYZ" | "C_XYNZ" | "C_XYZ" | "C_ZNYX" | "C_ZYNX" | "C_ZYX"
-            | "H" | "H_NXY" | "H_NXZ" | "H_NYZ" | "H_XY" | "H_XZ" | "H_YZ" | "S" | "SQRT_X"
-            | "SQRT_X_DAG" | "SQRT_Y" | "SQRT_Y_DAG" | "SQRT_Z" | "SQRT_Z_DAG" | "S_DAG" => {
-                InstructionKind::SingleQubitCliffordGate
-            }
-
-            // Two Qubit Clifford Gates
-            "CNOT" | "CX" | "CXSWAP" | "CY" | "CZ" | "CZSWAP" | "II" | "ISWAP" | "ISWAP_DAG"
-            | "SQRT_XX" | "SQRT_XX_DAG" | "SQRT_YY" | "SQRT_YY_DAG" | "SQRT_ZZ" | "SQRT_ZZ_DAG"
-            | "SWAP" | "SWAPCX" | "SWAPCZ" | "XCX" | "XCY" | "XCZ" | "YCX" | "YCY" | "YCZ"
-            | "ZCX" | "ZCY" | "ZCZ" => InstructionKind::TwoQubitCliffordGate,
-
-            // Noise Channels
-            "CORRELATED_ERROR"
-            | "DEPOLARIZE1"
-            | "DEPOLARIZE2"
-            | "E"
-            | "ELSE_CORRELATED_ERROR"
-            | "HERALDED_ERASE"
-            | "HERALDED_PAULI_CHANNEL_1"
-            | "II_ERROR"
-            | "I_ERROR"
-            | "PAULI_CHANNEL_1"
-            | "PAULI_CHANNEL_2"
-            | "X_ERROR"
-            | "Y_ERROR"
-            | "Z_ERROR"
-            | "LOSS_ERROR" => InstructionKind::NoiseChannel,
-
-            // Collapsing Gates
-            "M" | "MR" | "MRX" | "MRY" | "MRZ" | "MX" | "MY" | "MZ" | "R" | "RX" | "RY" | "RZ" => {
-                InstructionKind::CollapsingGate
-            }
-
-            // Pair Measurement Gates
-            "MXX" | "MYY" | "MZZ" => InstructionKind::PairMeasurementGate,
-
-            // Generalized Pauli Product Gates
-            "MPP" | "SPP" | "SPP_DAG" => InstructionKind::GeneralizedPauliProductGate,
-
-            // Control Flow
-            "REPEAT" => InstructionKind::ControlFlow,
-
-            // Annotations
-            "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
-            | "TICK" => InstructionKind::Annotations,
-
-            "#!preselect_begin" | "#!preselect_expect" => InstructionKind::CustomInstruction,
-            _ => InstructionKind::CustomInstruction,
-        }
+    fn unsupported(&mut self, instruction: &Instruction) {
+        // TODO: IMPROVE ERROR HANDLING
+        panic!("Unsupported instruction: {}", instruction.name);
     }
 
     fn into_qir(mut self, circuit: &Circuit) -> String {
