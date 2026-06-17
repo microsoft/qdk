@@ -1267,7 +1267,7 @@ fn resolve_same_package_callable_return(
     // Snapshot the parameter -> caller-argument expression map immediately
     // after seeding and before the body is analyzed. The body's own local
     // bindings can collide with caller-scope `LocalVarId`s, which would make
-    // a transitive walk over the merged `state.exprs` ambiguous. This clean 
+    // a transitive walk over the merged `state.exprs` ambiguous. This clean
     // snapshot lets capture resolution stop at a producing-function parameter
     // and substitute the caller-scope argument bound to it.
     let param_substitutions: FxHashMap<LocalVarId, ExprId> = state.exprs.clone();
@@ -1441,7 +1441,7 @@ fn materialize_capture_exprs_in_callable(
 /// Walks `Var(Local)` indirection through the callee's analyzed `state`
 /// starting from `var`. When the walk reaches a producing-function parameter
 /// it returns the caller-scope argument expression bound to that parameter at
-/// the call site. Checking `param_substitutions` first is essential: the 
+/// the call site. Checking `param_substitutions` first is essential: the
 /// callee body's local bindings can collide with caller-scope `LocalVarId`s,
 /// so following the merged `state.exprs` past a parameter would misinterpret
 /// a caller-scope id as a callee-scope one. Returns the terminal expression
