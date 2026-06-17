@@ -6137,4 +6137,66 @@ mod adaptive_profile {
         "#]]
             .assert_eq(&qir);
     }
+
+    /// Regression test for a defunctionalization capture-resolution bug where a
+    /// partial-application closure returned across a function boundary threaded
+    /// the wrong captured value into the specialized callable. This mirrors the
+    /// Bernstein-Vazirani sample shape: `MakeParity` returns
+    /// `ApplyParity(secret, _, _)` (capturing `secret`), which is then invoked
+    /// through the `Apply` higher-order operation. The captured `secret` (5 =
+    /// 0b101) must drive which `CNOT`s fire — controls on query qubits 0 and 2,
+    /// each targeting the shared ancilla. Before the fix, the capture was
+    /// resolved to a caller-scope qubit, corrupting the CNOT operands.
+    #[test]
+    fn cross_function_partial_application_capture_threads_correct_value() {
+        let source = "namespace Test {
+            import Std.Intrinsic.*;
+            operation ApplyParity(secret : Int, query : Qubit[], target : Qubit) : Unit {
+                if (secret &&& 1) != 0 {
+                    CNOT(query[0], target);
+                }
+                if (secret &&& 2) != 0 {
+                    CNOT(query[1], target);
+                }
+                if (secret &&& 4) != 0 {
+                    CNOT(query[2], target);
+                }
+            }
+            function MakeParity(secret : Int) : ((Qubit[], Qubit) => Unit) {
+                return ApplyParity(secret, _, _);
+            }
+            operation Apply(f : ((Qubit[], Qubit) => Unit), query : Qubit[], target : Qubit) : Unit {
+                f(query, target);
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use query = Qubit[3];
+                use target = Qubit();
+                let parity = MakeParity(5);
+                Apply(parity, query, target);
+            }
+        }";
+        let qir = compile_source_to_qir(source, *CAPABILITIES);
+        // secret = 5 (0b101) folds at compile time -> CNOT(query[0], target) and
+        // CNOT(query[2], target). query qubits are 0,1,2 and target is qubit 3, so
+        // both CNOTs use constant operands and share target qubit 3. Before the fix
+        // the captured `secret` resolved to a caller-scope qubit, corrupting the
+        // operands (and the bit selection).
+        assert!(
+            qir.contains(
+                "call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 3 to ptr))"
+            ),
+            "expected CNOT(query[0]=0, target=3), got:\n{qir}"
+        );
+        assert!(
+            qir.contains(
+                "call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))"
+            ),
+            "expected CNOT(query[2]=2, target=3), got:\n{qir}"
+        );
+        assert!(
+            !qir.contains("call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr),"),
+            "secret 0b101 must not fire CNOT on query[1], got:\n{qir}"
+        );
+    }
 }

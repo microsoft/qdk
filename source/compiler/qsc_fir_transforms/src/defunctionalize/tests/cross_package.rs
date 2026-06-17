@@ -671,7 +671,7 @@ fn analysis_bernstein_vazirani_sample_shape() {
                     mutable _index_id_216 : Int = 0;
                     while _index_id_216 < _len_id_211 {
                         let integer : Int = _array_id_207[_index_id_216];
-                        let _ : Result[] = BernsteinVazirani_Empty__closure_(nQubits, nQubits);
+                        let _ : Result[] = BernsteinVazirani_Empty__closure_(nQubits, integer);
                         _index_id_216 += 1;
                     }
 
