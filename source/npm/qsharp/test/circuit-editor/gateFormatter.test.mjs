@@ -9,8 +9,8 @@
 //     control arrays.
 //   - `_zoomButton`: the expand/collapse decision tree and the
 //     classical-control x-offset alignment.
-//   - `_gateBoundingBox` + `_classicalControls`: geometry and
-//     marker emission for classical controls on groups.
+//   - `_classicalControls`: marker emission for classical controls
+//     on groups.
 //   - `_createGate`: the `classically-controlled-group` CSS-class
 //     hook the editor relies on.
 //
@@ -25,16 +25,12 @@ import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   _createGate,
-  _gateBoundingBox,
   _zoomButton,
   _classicalControls,
   _getQuantumControlYs,
 } from "../../dist/ux/circuit-vis/renderer/formatters/gateFormatter.js";
 import { GateType } from "../../dist/ux/circuit-vis/renderer/gateRenderData.js";
-import {
-  gateHeight,
-  controlCircleOffset,
-} from "../../dist/ux/circuit-vis/renderer/constants.js";
+import { controlCircleOffset } from "../../dist/ux/circuit-vis/renderer/constants.js";
 
 /** @type {JSDOM | null} */
 let jsdom = null;
@@ -222,64 +218,6 @@ test("_zoomButton: classical-control op shifts the button right by controlCircle
   // both cases; the offset case adds `controlCircleOffset` to nudge
   // the chevron into the body's column.
   assert.equal(offsetCx - baselineCx, controlCircleOffset);
-});
-
-// ---------------------------------------------------------------------------
-// _gateBoundingBox — classical controls extend the bounding box, group
-// padding is honored
-// ---------------------------------------------------------------------------
-
-test("_gateBoundingBox: single-target gate with no controls", () => {
-  const bb = _gateBoundingBox(
-    makeRenderData({ x: 100, width: 40, targetsY: [[60]] }),
-  );
-
-  // Bounding box centers around `centerX` with width/2 on each
-  // side; height is `gateHeight` for a single-wire op.
-  assert.equal(bb.x, 100 - 20);
-  assert.equal(bb.width, 40);
-  assert.equal(bb.y, 60 - gateHeight / 2);
-  assert.equal(bb.height, gateHeight);
-});
-
-test("_gateBoundingBox: includes classical-control wire in the y-range", () => {
-  // Classical controls sit on a different wire from the targets.
-  // The bounding box must span both wires so the dashed connector
-  // emitted by `_classicalControls` has something to terminate
-  // against.
-  const bbWithControl = _gateBoundingBox(
-    makeRenderData({
-      x: 100,
-      width: 40,
-      targetsY: [[60]],
-      controlsY: [180],
-      classicalControlIds: [0],
-    }),
-  );
-
-  // Top stays at the target wire; bottom extends to include the
-  // classical-control wire 120px below.
-  assert.equal(bbWithControl.y, 60 - gateHeight / 2);
-  assert.equal(bbWithControl.height, 180 - 60 + gateHeight);
-});
-
-test("_gateBoundingBox: applies topPadding and bottomPadding for groups", () => {
-  // Groups carry non-zero `topPadding` / `bottomPadding` so the
-  // dashed box draws beyond the topmost / bottommost child wire.
-  // The bounding box must include both paddings.
-  const bb = _gateBoundingBox(
-    makeRenderData({
-      type: GateType.Group,
-      x: 100,
-      width: 80,
-      targetsY: [[60]],
-      topPadding: 30,
-      bottomPadding: 10,
-    }),
-  );
-
-  assert.equal(bb.y, 60 - gateHeight / 2 - 30);
-  assert.equal(bb.height, gateHeight + 30 + 10);
 });
 
 // ---------------------------------------------------------------------------

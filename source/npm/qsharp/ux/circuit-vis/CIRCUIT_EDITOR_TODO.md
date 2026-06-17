@@ -2657,6 +2657,52 @@ tests shouldn't be either.
 concern from the test reorganization that surfaced it. Should
 land alongside the next action-layer cleanup pass.
 
+### `makeDropzoneBox` API is too heavy — deferred
+
+Found while auditing
+[draggable.test.mjs](../../test/circuit-editor/draggable.test.mjs)'s
+dropzone-geometry tests.
+
+[`makeDropzoneBox`](editor/draggable.ts) fuses two unrelated
+jobs: **geometry** (turn a column/wire/mode into an SVG rect)
+and **identity** (stamp the `data-dropzone-*` attributes the
+drop handler reads back to resolve a model slot). That forced
+tests to fabricate a `LayoutScope` + `wireData` + `opIndex`
+just to assert pixel math.
+
+Done so far (the testability half): extracted a pure
+[`dropzoneRect`](editor/draggable.ts)`(colStartX, colWidth,
+wireY, interColumn)` geometry helper and exported
+[`columnGeometry`](editor/draggable.ts); geometry is now tested
+with bare primitives (no fabricated scope/wireData/opIndex) and
+`makeDropzoneBox` is a thin wrapper. `composeLocation` already
+delegates to the data-layer [`Location`](data/location.ts)
+type, so there was no duplicated address format to retire.
+
+Still unsatisfying (deferred): `makeDropzoneBox`'s
+_caller-facing signature is unchanged_ — still 7 positional args
+(`colIndex, opIndex, scope, wireData, wireIndex, interColumn,
+pathPrefix`). A naive arg reduction backfires: all four callers
+([`_populateDropzonesForGrid`](editor/draggable.ts),
+[`_appendTrailingColumnForScope`](editor/draggable.ts),
+[dragController.ts](editor/controllers/dragController.ts) ×2)
+hold `(scope, wireData)` + loop indices, **not** resolved
+geometry — so passing `colStartX/colWidth/wireY` would add
+boilerplate at every call site. Candidate idea (not
+implemented): group the three identity args into one address
+object — `makeDropzoneBox(scope, wireData, wireIndex,
+interColumn, { pathPrefix, colIndex, opIndex })` — dropping 7→5
+and making the geometry-vs-identity seam visible in the
+signature. Layering constraint to preserve: geometry stays in
+`editor/` (dropzones are an edit-mode affordance; don't couple
+read-only `renderer/` to them), the identity value lives in
+`data/` (`Location`), and the DOM `setAttribute` must stay in
+the View layer (`data/` + `actions/` never touch the DOM).
+
+**Not in this PR** — user is not happy with the API but wants a
+closer look during the holistic rearchitecting pass _after_ the
+test audit, not a piecemeal change now.
+
 ### B7. Qubit rearrangement doesn't update group contents correctly — ✅ shipped
 
 **Symptom.** Drag a qubit label to reorder wires. Ops whose

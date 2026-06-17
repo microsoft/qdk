@@ -183,6 +183,17 @@ test reorg first):
   pattern for measurements), with the primitive demoted to
   `_findAndRemoveOperations`. See
   [`findAndRemoveOperations` should be action-layer internal — deferred](CIRCUIT_EDITOR_TODO.md#findandremoveoperations-should-be-action-layer-internal--deferred).
+- **`makeDropzoneBox` API is too heavy.** Fuses geometry
+  (column/wire/mode → SVG rect) with identity (`data-dropzone-*`
+  attrs). The testability half is done — pure `dropzoneRect` +
+  exported `columnGeometry`, geometry now tested with bare
+  primitives — but the caller-facing 7-arg signature is
+  unchanged. Candidate end state: group the three identity args
+  into one address object (`{ pathPrefix, colIndex, opIndex }`)
+  to drop 7→5 and surface the geometry-vs-identity seam.
+  Deferred to the holistic rearchitecting pass, not piecemeal.
+  See
+  [`makeDropzoneBox` API is too heavy — deferred](CIRCUIT_EDITOR_TODO.md#makedropzonebox-api-is-too-heavy--deferred).
 
 Deferred follow-ups (not blocking PR):
 
