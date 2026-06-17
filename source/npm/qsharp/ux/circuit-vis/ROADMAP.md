@@ -105,19 +105,23 @@ A snapshot of where coverage stands at the close of the
 re-architecture campaign, focused on what's worth landing before
 the PR opens.
 
-**Current totals.** 399 tests across 21 `.mjs` files in
+**Current totals.** 420 tests across 30 `.mjs` files in
 [test/circuit-editor/](../../test/circuit-editor/) — all passing —
 plus 21 snapshot fixtures in
-[test/circuits-cases/](../../test/circuits-cases/).
+[test/circuits-cases/](../../test/circuits-cases/). Action-layer
+cases live in the
+[circuit-actions/](../../test/circuit-editor/circuit-actions/)
+subfolder (10 files); the other 20 sit at the top level.
 
 **Strongest areas.**
 
 - Data layer (`circuitModel`, `location`, `viewState`) — direct
   unit tests, no JSDOM.
-- Action layer — [`circuitActions.test.mjs`](../../test/circuit-editor/circuitActions.test.mjs)
-  (126 tests) is the crown jewel; pins every move / control /
-  extend-cascade / classical-ref-remap / clone-move path along
-  with the M5 / B5 / B6 gates.
+- Action layer — the [circuit-actions/](../../test/circuit-editor/circuit-actions/)
+  suite (10 files, 132 tests, split out from the former monolithic
+  `circuitActions.test.mjs`) is the crown jewel; pins every move /
+  control / extend-cascade / classical-ref-remap / clone-move path
+  along with the M5 / B5 / B6 gates.
 - Utilities — [`utils.test.mjs`](../../test/circuit-editor/utils.test.mjs)
   (32 tests) covers wire-pick, parse-wire-Ys, sibling-wire
   enumeration, child-target derivation, and find helpers.
@@ -130,7 +134,7 @@ plus 21 snapshot fixtures in
 | `operationPrompts.ts` (B2 / B3 wrappers)            | ✅ 12 direct tests in [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) cover both wrappers end-to-end under JSDOM: fast paths, singular / plural delete prompts, the three move-message shapes (pure-survivors / pure-invalidated / mixed), OK-cascade contracts, and the Cancel-path invariant (no mutation, no `renderFn`).                                                                                                |
 | `prompts.ts` (`_createConfirmPrompt` primitive)     | ✅ 7 direct tests in [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs) pin DOM shape, OK / Cancel click semantics, Enter / Escape keyboard semantics, listener cleanup on close, and the ignore-other-keys contract.                                                                                                                                                                                                                            |
 | `contextMenu.ts` (M5 / M7 / B5 UI gates)            | ✅ 13 direct tests in [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs) cover every kind branch (measurement, ket), control-dot on simple / multi-target parent (B5), X-gate ordering with / without controls, M5 (multi-target unitary), M7 (group), ordinary unitary with / without controls + params, menu-replace + outside-click lifecycle, and `_startAddingControl` delegation.                                                  |
-| `dragController.ts` (929 lines, 28 tests)           | ✅ Major paths covered: toolbox drop, drag-out delete, B11 carve-out, `commitAddControl` no-duplicate, `hideInvalidDropzones` / `showAllDropzones` cycle, D4 Stage B shift-extend lifecycle, Ctrl-clone, document-mouseup `!dragging` no-op, qubit-drag-off, movingControl drag-out, wire-dropzone cleanup. `onArgButtonClick` waits on the deferred context-menu DOM harness.                                                                               |
+| `dragController.ts` (929 lines, 26 tests)           | ✅ Major paths covered: toolbox drop, drag-out delete, B11 carve-out, `commitAddControl` no-duplicate, `hideInvalidDropzones` / `showAllDropzones` cycle, D4 Stage B shift-extend lifecycle, Ctrl-clone, document-mouseup `!dragging` no-op, qubit-drag-off, movingControl drag-out, wire-dropzone cleanup. `onArgButtonClick` waits on the deferred context-menu DOM harness.                                                                               |
 | `draggable.ts` (800 lines, 14 direct + 15 dropzone) | ✅ Pure-helper geometry pinned: `makeDropzoneBox` / `makeShiftExtendGhost` / `createWireDropzone` / `removeAllWireDropzones`. `_populateDropzonesForGrid` recursion still indirect via `dropzones.test.mjs`; no dead code found in the audit.                                                                                                                                                                                                                |
 | `gateFormatter.ts` group-control geometry (M2/B9)   | ⚠️ Classical-controls-on-groups path covered directly (`_getQuantumControlYs`, `_classicalControls`, `_gateBoundingBox`, `_createGate` — 18 tests in `gateFormatter.test.mjs`). Quantum-controls-on-groups geometry still snapshot-only; deferred with M6.                                                                                                                                                                                                   |
 | `isValidAngleExpression` (Edit Argument flow)       | ✅ 18 tests in [angleExpression.test.mjs](../../test/circuit-editor/angleExpression.test.mjs) pin the validity contract used by the Edit Argument prompt (numbers, π in all four case forms, arithmetic + parens, whitespace tolerance, plus the full rejection set) and the `normalizeAngleExpression` preprocessing step (trim + case-insensitive `pi` → `π` fold + idempotency). `evaluateAngleExpression` itself remains covered by the state-viz suite. |
@@ -209,16 +213,19 @@ Deferred follow-ups (not blocking PR):
 - **Renderer geometry tests** for
   `_renderQuantumGroupControls` — bundled with the deferred M6
   work, since the rendering rule is expected to change there.
-- **Circuit-test fixture DSL** — nice-to-have, not required.
-  Action-layer tests in [test/circuit-editor/](../../test/circuit-editor/)
-  build their input circuits as nested `componentGrid` literals,
-  which are explicit but verbose enough that the layout under
-  test isn't always obvious at a glance. A small set of
-  file-local builder helpers (`group`, `gate`, `M`, `circuit`,
-  etc.) or an ASCII-diagram parser would let a reader see
-  "two ops in two columns inside a group" without decoding
-  three levels of JSON. Worth doing if test-file maintenance
-  burden grows; not worth doing speculatively.
+- **Circuit-test fixture DSL** — ✅ shipped. Built as a shared
+  [\_helpers.mjs](../../test/circuit-editor/_helpers.mjs) module of
+  builder helpers (`gate`, `meas`, `group`, `circuit`, `build`,
+  `qubits`) plus extraction/assertion helpers (`at`, `expectGrid`
+  / `expectOp`, and the `assert*Shape` / `assert*Wires` family).
+  Applied across the action-layer suites in
+  [circuit-actions/](../../test/circuit-editor/circuit-actions/)
+  and the controller + `sqore` test files, collapsing the former
+  multi-level `componentGrid` literals to one-liners. Purely
+  additive — remaining hand-rolled literals can migrate
+  opportunistically. The ASCII-diagram-parser alternative was
+  not pursued (deferred until many more collision-split-style
+  files would justify the upfront cost).
 
 See [the full audit in the TODO](CIRCUIT_EDITOR_TODO.md#test-coverage-audit--pr-readiness)
 for the per-module table, milestone-grouped gap list, and

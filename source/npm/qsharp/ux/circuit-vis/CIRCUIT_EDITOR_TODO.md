@@ -3094,12 +3094,16 @@ re-architecture campaign, written up so the gap list survives across
 sessions and the "what to write before the PR" decisions are
 explicit.
 
-**Current totals.** 412 tests across 22 `.mjs` files in
+**Current totals.** 420 tests across 30 `.mjs` files in
 [test/circuit-editor/](../../test/circuit-editor/) — all passing —
 plus 21 fixtures in [test/circuits-cases/](../../test/circuits-cases/)
 (9 `.qsc` + 12 `.qs`) driven by the snapshot harness in
 [test/circuits.js](../../test/circuits.js) (regenerate with
-`--test-update-snapshots`). The three quantum-control-on-group
+`--test-update-snapshots`). The action-layer cases live in the
+[circuit-actions/](../../test/circuit-editor/circuit-actions/)
+subfolder (10 files, split out from the former monolithic
+`circuitActions.test.mjs`); the remaining 20 files sit at the top
+level. The three quantum-control-on-group
 fixtures (`quantum-control-group.qsc`,
 `quantum-control-group-collapsed.qsc`,
 `quantum-control-classical-group.qsc`) were regenerated after the
@@ -3270,7 +3274,10 @@ for what to land before opening the PR.
    `normalizeAngleExpression` (the prompt's preprocessing step).
 5. **`dragController` horizontal-drag commit-path test.** ✅
    shipped — the dragController-coverage wave landed 18 new
-   tests (10 pre-existing → 28), covering toolbox drop, drag-out
+   tests (10 pre-existing → 28); a later DSL-cleanup pass dropped
+   two redundant cases (a tautological `showAllDropzones`
+   restatement and an unreachable expanded-group control-dot
+   scenario), netting 26. Coverage spans toolbox drop, drag-out
    delete, B11 carve-out, the full `hideInvalidDropzones` /
    `showAllDropzones` cycle, the D4 Stage B shift-extend
    lifecycle, Ctrl-clone via `addOperation`, document-mouseup
@@ -3303,13 +3310,22 @@ Larger follow-ups (deferred — not blocking PR):
   single-target unitary call site is covered by
   `gateFormatter.test.mjs`'s `_getQuantumControlYs` mixed-controls
   tests plus the snapshot suite.
-- **Circuit-test fixture DSL.** Nice-to-have, not blocking. The
-  action-layer test files build their input circuits as nested
-  `componentGrid` object literals — explicit and self-contained,
-  but verbose enough that the layout under test isn't always
-  obvious at a glance (a two-op, two-column group can take 30+
-  lines). Two shapes worth considering if maintenance burden
-  grows:
+- **Circuit-test fixture DSL.** ✅ shipped. Built as a shared
+  [\_helpers.mjs](../../test/circuit-editor/_helpers.mjs) module
+  (leading underscore keeps it out of the `**/*.test.mjs`
+  discovery glob) following option 1 below — small builder
+  helpers, no parser. Construction: `qubits`, `gate(name, q, opts?)`,
+  `meas(q, opts?)`, `group(name, innerGrid, opts?)`, and
+  `circuit(nQubits, cols)` compose a circuit literal in a line or
+  two; `build` wraps it in a `CircuitModel`. Extraction/assertion:
+  `at(model, location)`, `expectGrid` / `expectOp` (a compact
+  op-spec grammar), plus the `assert*Shape` / `assert*Wires`
+  family. Applied across the action-layer suites in
+  [circuit-actions/](../../test/circuit-editor/circuit-actions/)
+  and the controller + `sqore` test files; the former 30-line
+  `componentGrid` literals are now one-liners. Existing tests
+  that still hand-roll literals can migrate opportunistically —
+  the DSL is purely additive. The two shapes originally weighed:
   1. **Small file-local builder helpers** — a handful of pure
      functions like `group(name, targets, cols)`, `gate(name, q, ctrls?)`,
      `M(q)`, and `circuit(nQubits, cols)` that compose into a
@@ -3322,10 +3338,11 @@ Larger follow-ups (deferred — not blocking PR):
      upfront cost; only worth it if many more test files like
      `groupCollisionSplit.test.mjs` get added.
 
-  Either form is purely additive — existing tests can keep using
-  literals indefinitely. Not worth doing speculatively; revisit
-  if the next round of test additions in this area starts to
-  drown the assertions in setup boilerplate.
+  Option 1 was the one built. The ASCII-diagram parser (option 2)
+  was not pursued — the builder helpers already collapse the
+  setup boilerplate, and a parser's upfront cost only pays off if
+  many more collision-split-style files appear. Revisit option 2
+  only if that happens.
 
 ### Working principles
 
