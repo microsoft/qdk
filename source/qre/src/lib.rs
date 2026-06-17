@@ -58,7 +58,7 @@ pub enum Error {
     FactoryTimeExceedsAlgorithmRuntime {
         id: u64,
         factory_time: u64,
-        algorithm_runtime: u64,
+        algorithm_runtime: f64,
     },
     /// Unsupported instruction in trace transformation
     #[error("unsupported instruction {} in trace transformation '{name}'", instruction_name(*id).unwrap_or(&id.to_string()))]

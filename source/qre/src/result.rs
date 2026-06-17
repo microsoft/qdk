@@ -13,7 +13,7 @@ use crate::{ISA, ParetoFrontier2D, ParetoItem2D, Property};
 #[derive(Clone, Default)]
 pub struct EstimationResult {
     qubits: u64,
-    runtime: u64,
+    runtime: f64,
     error: f64,
     factories: FxHashMap<u64, FactoryResult>,
     isa: ISA,
@@ -34,7 +34,7 @@ impl EstimationResult {
     }
 
     #[must_use]
-    pub fn runtime(&self) -> u64 {
+    pub fn runtime(&self) -> f64 {
         self.runtime
     }
 
@@ -52,7 +52,7 @@ impl EstimationResult {
         self.qubits = qubits;
     }
 
-    pub fn set_runtime(&mut self, runtime: u64) {
+    pub fn set_runtime(&mut self, runtime: f64) {
         self.runtime = runtime;
     }
 
@@ -67,7 +67,7 @@ impl EstimationResult {
     }
 
     /// Adds to the current runtime and returns the new value.
-    pub fn add_runtime(&mut self, runtime: u64) -> u64 {
+    pub fn add_runtime(&mut self, runtime: f64) -> f64 {
         self.runtime += runtime;
         self.runtime
     }
@@ -154,7 +154,7 @@ impl Display for EstimationResult {
 
 impl ParetoItem2D for EstimationResult {
     type Objective1 = u64; // qubits
-    type Objective2 = u64; // runtime
+    type Objective2 = f64; // runtime
 
     fn objective1(&self) -> Self::Objective1 {
         self.qubits
@@ -172,7 +172,7 @@ pub struct ResultSummary {
     pub trace_index: usize,
     pub isa_index: usize,
     pub qubits: u64,
-    pub runtime: u64,
+    pub runtime: f64,
 }
 
 #[derive(Default)]
@@ -249,15 +249,15 @@ impl DerefMut for EstimationCollection {
 
 #[derive(Clone)]
 pub struct FactoryResult {
-    copies: u64,
-    runs: u64,
-    states: u64,
+    copies: f64,
+    runs: f64,
+    states: f64,
     error_rate: f64,
 }
 
 impl FactoryResult {
     #[must_use]
-    pub fn new(copies: u64, runs: u64, states: u64, error_rate: f64) -> Self {
+    pub fn new(copies: f64, runs: f64, states: f64, error_rate: f64) -> Self {
         Self {
             copies,
             runs,
@@ -267,17 +267,17 @@ impl FactoryResult {
     }
 
     #[must_use]
-    pub fn copies(&self) -> u64 {
+    pub fn copies(&self) -> f64 {
         self.copies
     }
 
     #[must_use]
-    pub fn runs(&self) -> u64 {
+    pub fn runs(&self) -> f64 {
         self.runs
     }
 
     #[must_use]
-    pub fn states(&self) -> u64 {
+    pub fn states(&self) -> f64 {
         self.states
     }
 

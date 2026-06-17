@@ -886,7 +886,7 @@ impl EstimationCollection {
     /// Returns lightweight summaries of ALL successful estimates as a list
     /// of (trace index, isa index, qubits, runtime) tuples.
     #[getter]
-    pub fn all_summaries(&self) -> Vec<(usize, usize, u64, u64)> {
+    pub fn all_summaries(&self) -> Vec<(usize, usize, u64, f64)> {
         self.0
             .all_summaries()
             .iter()
@@ -932,8 +932,8 @@ pub struct EstimationResult(qre::EstimationResult);
 #[pymethods]
 impl EstimationResult {
     #[new]
-    #[pyo3(signature = (*, qubits = 0, runtime = 0, error = 0.0))]
-    pub fn new(qubits: u64, runtime: u64, error: f64) -> Self {
+    #[pyo3(signature = (*, qubits = 0, runtime = 0.0, error = 0.0))]
+    pub fn new(qubits: u64, runtime: f64, error: f64) -> Self {
         let mut result = qre::EstimationResult::new();
         result.add_qubits(qubits);
         result.add_runtime(runtime);
@@ -953,12 +953,12 @@ impl EstimationResult {
     }
 
     #[getter]
-    pub fn runtime(&self) -> u64 {
+    pub fn runtime(&self) -> f64 {
         self.0.runtime()
     }
 
     #[setter]
-    pub fn set_runtime(&mut self, runtime: u64) {
+    pub fn set_runtime(&mut self, runtime: f64) {
         self.0.set_runtime(runtime);
     }
 
@@ -1033,17 +1033,17 @@ pub struct FactoryResult(qre::FactoryResult);
 #[pymethods]
 impl FactoryResult {
     #[getter]
-    pub fn copies(&self) -> u64 {
+    pub fn copies(&self) -> f64 {
         self.0.copies()
     }
 
     #[getter]
-    pub fn runs(&self) -> u64 {
+    pub fn runs(&self) -> f64 {
         self.0.runs()
     }
 
     #[getter]
-    pub fn states(&self) -> u64 {
+    pub fn states(&self) -> f64 {
         self.0.states()
     }
 
@@ -1150,7 +1150,7 @@ impl Trace {
         let dict = PyDict::new(self_.py());
         if let Some(resource_states) = self_.0.get_resource_states() {
             for (resource_id, count) in resource_states {
-                if *count != 0 {
+                if *count != 0.0 {
                     dict.set_item(resource_id, *count)?;
                 }
             }
@@ -1164,17 +1164,17 @@ impl Trace {
     }
 
     #[getter]
-    pub fn depth(&self) -> u64 {
+    pub fn depth(&self) -> f64 {
         self.0.depth()
     }
 
-    pub fn runtime(&self, isa: &ISA) -> Option<u64> {
+    pub fn runtime(&self, isa: &ISA) -> Option<f64> {
         let locked = isa.0.lock();
         self.0.runtime(&locked).ok()
     }
 
     #[getter]
-    pub fn num_gates(&self) -> u64 {
+    pub fn num_gates(&self) -> f64 {
         self.0.num_gates()
     }
 
@@ -1231,7 +1231,7 @@ impl Trace {
         self.0.increment_memory_qubits(amount);
     }
 
-    pub fn increment_resource_state(&mut self, resource_id: u64, amount: u64) {
+    pub fn increment_resource_state(&mut self, resource_id: u64, amount: f64) {
         self.0.increment_resource_state(resource_id, amount);
     }
 

@@ -5,8 +5,6 @@ use crate::property_keys::NUM_TS_PER_ROTATION;
 use crate::trace::{Gate, TraceTransform};
 use crate::{Error, Property, Trace, instruction_ids};
 
-use super::super::round_up_to_u64;
-
 /// Implements the Parellel Synthesis Sequential Pauli Computation (PSSPC)
 /// layout algorithm described in Appendix D in
 /// [arXiv:2211.07629](https://arxiv.org/pdf/2211.07629).  This scheme combines
@@ -137,7 +135,7 @@ impl PSSPC {
         transformed.increment_resource_state(instruction_ids::T, t_states);
         transformed.increment_resource_state(instruction_ids::CCX, ccx_states);
 
-        let block = transformed.add_block(logical_depth as f64);
+        let block = transformed.add_block(logical_depth);
         block.add_operation(
             instruction_ids::MULTI_PAULI_MEAS,
             (0..logical_qubits).collect(),
@@ -172,16 +170,14 @@ impl PSSPC {
     /// Calculates the number of multi-qubit Pauli measurements executed in
     /// sequence according to Eq. (D3) in
     /// [arXiv:2211.07629](https://arxiv.org/pdf/2211.07629)
-    fn logical_depth_overhead(&self, counter: &PSSPCCounts) -> u64 {
-        round_up_to_u64(
-            (counter.measurements + counter.t_like + counter.rotation_like)
+    fn logical_depth_overhead(&self, counter: &PSSPCCounts) -> f64 {
+        (counter.measurements + counter.t_like + counter.rotation_like)
+            * self.num_measurements_per_r as f64
+            + counter.ccx_like * self.num_measurements_per_ccx as f64
+            + counter.read_from_memory * self.num_measurements_per_rfm as f64
+            + counter.write_to_memory * self.num_measurements_per_wtm as f64
+            + (self.num_ts_per_rotation as f64 * counter.rotation_depth)
                 * self.num_measurements_per_r as f64
-                + counter.ccx_like * self.num_measurements_per_ccx as f64
-                + counter.read_from_memory * self.num_measurements_per_rfm as f64
-                + counter.write_to_memory * self.num_measurements_per_wtm as f64
-                + (self.num_ts_per_rotation as f64 * counter.rotation_depth)
-                    * self.num_measurements_per_r as f64,
-        )
     }
 
     /// Calculates the number of T and CCX magic states that are consumed by
@@ -190,15 +186,13 @@ impl PSSPC {
     ///
     /// CCX magic states are only counted if the hyper parameter
     /// `ccx_magic_states` is set to true.
-    fn num_magic_states(&self, counter: &PSSPCCounts) -> (u64, u64) {
-        let t_states = round_up_to_u64(
-            counter.t_like + self.num_ts_per_rotation as f64 * counter.rotation_like,
-        );
+    fn num_magic_states(&self, counter: &PSSPCCounts) -> (f64, f64) {
+        let t_states = counter.t_like + self.num_ts_per_rotation as f64 * counter.rotation_like;
 
         if self.ccx_magic_states {
-            (t_states, round_up_to_u64(counter.ccx_like))
+            (t_states, counter.ccx_like)
         } else {
-            (t_states + round_up_to_u64(4.0 * counter.ccx_like), 0)
+            (t_states + 4.0 * counter.ccx_like, 0.0)
         }
     }
 

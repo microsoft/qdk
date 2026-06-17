@@ -909,14 +909,14 @@ class EstimationResult:
     """
 
     def __new__(
-        cls, *, qubits: int = 0, runtime: int = 0, error: float = 0.0
+        cls, *, qubits: int = 0, runtime: float = 0.0, error: float = 0.0
     ) -> EstimationResult:
         """
         Create a new estimation result.
 
         Args:
             qubits (int): The number of logical qubits.
-            runtime (int): The runtime in nanoseconds.
+            runtime (float): The runtime in nanoseconds.
             error (float): The error probability of the computation.
 
         Returns:
@@ -945,22 +945,22 @@ class EstimationResult:
         ...
 
     @property
-    def runtime(self) -> int:
+    def runtime(self) -> float:
         """
         The runtime in nanoseconds.
 
         Returns:
-            int: The runtime in nanoseconds.
+            float: The runtime in nanoseconds.
         """
         ...
 
     @runtime.setter
-    def runtime(self, runtime: int) -> None:
+    def runtime(self, runtime: float) -> None:
         """
         Set the runtime.
 
         Args:
-            runtime (int): The runtime in nanoseconds to set.
+            runtime (float): The runtime in nanoseconds to set.
         """
         ...
 
@@ -1098,13 +1098,13 @@ class _EstimationCollection:
         ...
 
     @property
-    def all_summaries(self) -> list[tuple[int, int, int, int]]:
+    def all_summaries(self) -> list[tuple[int, int, int, float]]:
         """
         Return lightweight summaries of ALL successful estimates as a list
         of (trace_index, isa_index, qubits, runtime) tuples.
 
         Returns:
-            list[tuple[int, int, int, int]]: List of (trace_index, isa_index,
+            list[tuple[int, int, int, float]]: List of (trace_index, isa_index,
                 qubits, runtime) for every successful estimation.
         """
         ...
@@ -1125,22 +1125,22 @@ class FactoryResult:
     """
 
     @property
-    def copies(self) -> int:
+    def copies(self) -> float:
         """
         The number of factory copies.
 
         Returns:
-            int: The number of factory copies.
+            float: The number of factory copies.
         """
         ...
 
     @property
-    def runs(self) -> int:
+    def runs(self) -> float:
         """
         The number of factory runs.
 
         Returns:
-            int: The number of factory runs.
+            float: The number of factory runs.
         """
         ...
 
@@ -1155,12 +1155,12 @@ class FactoryResult:
         ...
 
     @property
-    def states(self) -> int:
+    def states(self) -> float:
         """
         The number of states produced by the factory.
 
         Returns:
-            int: The number of states produced by the factory.
+            float: The number of states produced by the factory.
         """
         ...
 
@@ -1294,13 +1294,13 @@ class Trace:
         """
         ...
 
-    def increment_resource_state(self, resource_id: int, amount: int) -> None:
+    def increment_resource_state(self, resource_id: int, amount: float) -> None:
         """
         Increments a resource state count.
 
         Args:
             resource_id (int): The resource state ID.
-            amount (int): The amount to increment.
+            amount (float): The amount to increment.
         """
         ...
 
@@ -1351,16 +1351,16 @@ class Trace:
         ...
 
     @property
-    def depth(self) -> int:
+    def depth(self) -> float:
         """
         The trace depth.
 
         Returns:
-            int: The trace depth.
+            float: The trace depth.
         """
         ...
 
-    def runtime(self, isa: ISA) -> Optional[int]:
+    def runtime(self, isa: ISA) -> Optional[float]:
         """
         The trace runtime in nanoseconds for a given ISA.
 
@@ -1368,17 +1368,17 @@ class Trace:
             isa (ISA): The ISA to compute the runtime for.
 
         Returns:
-            Optional[int]: The trace runtime in nanoseconds, or None if it
+            Optional[float]: The trace runtime in nanoseconds, or None if it
               cannot be computed.
         """
 
     @property
-    def num_gates(self) -> int:
+    def num_gates(self) -> float:
         """
         The total number of gates in the trace.
 
         Returns:
-            int: The total number of gates.
+            float: The total number of gates.
         """
         ...
 
@@ -1400,12 +1400,12 @@ class Trace:
         ...  # The implementation in Rust returns Option<EstimationResult>, so it fits
 
     @property
-    def resource_states(self) -> dict[int, int]:
+    def resource_states(self) -> dict[int, float]:
         """
         The resource states used in the trace.
 
         Returns:
-            dict[int, int]: A dictionary mapping instruction IDs to their counts.
+            dict[int, float]: A dictionary mapping instruction IDs to their counts.
         """
         ...
 

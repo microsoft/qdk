@@ -35,7 +35,7 @@ pub struct Trace {
     base_error: f64,
     compute_qubits: u64,
     memory_qubits: Option<u64>,
-    resource_states: Option<FxHashMap<u64, u64>>,
+    resource_states: Option<FxHashMap<u64, f64>>,
     properties: FxHashMap<u64, Property>,
 }
 
@@ -117,8 +117,8 @@ impl Trace {
         self.compute_qubits + self.memory_qubits.unwrap_or(0)
     }
 
-    pub fn increment_resource_state(&mut self, resource_id: u64, amount: u64) {
-        if amount == 0 {
+    pub fn increment_resource_state(&mut self, resource_id: u64, amount: f64) {
+        if amount <= 0.0 {
             return;
         }
         let states = self.resource_states.get_or_insert_with(FxHashMap::default);
@@ -126,18 +126,18 @@ impl Trace {
     }
 
     #[must_use]
-    pub fn get_resource_states(&self) -> Option<&FxHashMap<u64, u64>> {
+    pub fn get_resource_states(&self) -> Option<&FxHashMap<u64, f64>> {
         self.resource_states.as_ref()
     }
 
     #[must_use]
-    pub fn get_resource_state_count(&self, resource_id: u64) -> u64 {
+    pub fn get_resource_state_count(&self, resource_id: u64) -> f64 {
         if let Some(states) = &self.resource_states
             && let Some(count) = states.get(&resource_id)
         {
             return *count;
         }
-        0
+        0.0
     }
 
     pub fn set_property(&mut self, key: u64, value: Property) {
@@ -195,7 +195,7 @@ impl Trace {
         }
         if let Some(ref rs) = self.resource_states {
             for (res_id, count) in rs {
-                update_constraints(*res_id, 1, *count as f64);
+                update_constraints(*res_id, 1, *count);
             }
         }
         if let Some(memory_qubits) = self.memory_qubits {
@@ -216,28 +216,25 @@ impl Trace {
     }
 
     #[must_use]
-    pub fn depth(&self) -> u64 {
+    pub fn depth(&self) -> f64 {
         self.block.depth()
     }
 
     #[must_use]
-    pub fn num_gates(&self) -> u64 {
-        round_up_to_u64(
-            self.deep_iter()
-                .map(|(_, multiplier)| multiplier)
-                .sum::<f64>(),
-        )
+    pub fn num_gates(&self) -> f64 {
+        self.deep_iter()
+            .map(|(_, multiplier)| multiplier)
+            .sum::<f64>()
     }
 
-    pub fn runtime(&self, locked: &LockedISA) -> Result<u64, Error> {
-        Ok(round_up_to_u64(
-            self.block
-                .depth_and_used(Some(&|op: &Gate| {
-                    let instr = get_instruction(locked, op.id)?;
-                    Ok(instr.expect_time(Some(op.qubits.len() as u64)))
-                }))?
-                .0,
-        ))
+    pub fn runtime(&self, locked: &LockedISA) -> Result<f64, Error> {
+        Ok(self
+            .block
+            .depth_and_used(Some(&|op: &Gate| {
+                let instr = get_instruction(locked, op.id)?;
+                Ok(instr.expect_time(Some(op.qubits.len() as u64)))
+            }))?
+            .0)
     }
 
     #[allow(
@@ -263,7 +260,7 @@ impl Trace {
         result.add_error(self.base_error);
 
         // Counts how many magic state factories are needed per resource state ID
-        let mut factories: FxHashMap<u64, u64> = FxHashMap::default();
+        let mut factories: FxHashMap<u64, f64> = FxHashMap::default();
 
         // This will track the number of physical qubits per logical qubit while
         // processing all the instructions.  Normally, we assume that the number
@@ -276,7 +273,7 @@ impl Trace {
         if let Some(resource_states) = &self.resource_states {
             for (state_id, count) in resource_states {
                 let rate = get_error_rate_by_id(&locked, *state_id)?;
-                let actual_error = result.add_error(rate * (*count as f64));
+                let actual_error = result.add_error(rate * *count);
                 if actual_error > max_error {
                     return Err(Error::MaximumErrorExceeded {
                         actual_error,
@@ -335,9 +332,9 @@ impl Trace {
             let factory_time = get_time(instr)?;
             let factory_space = get_space(instr)?;
             let factory_error_rate = get_error_rate(instr)?;
-            let runs = result.runtime() / factory_time;
+            let runs = result.runtime() / factory_time as f64;
 
-            if runs == 0 {
+            if runs <= 0.0 {
                 return Err(Error::FactoryTimeExceedsAlgorithmRuntime {
                     id: *factory,
                     factory_time,
@@ -345,9 +342,9 @@ impl Trace {
                 });
             }
 
-            let copies = count.div_ceil(runs);
+            let copies = count / runs;
 
-            total_factory_qubits += copies * factory_space;
+            total_factory_qubits += (copies * factory_space as f64).ceil() as u64;
             result.add_factory_result(
                 *factory,
                 FactoryResult::new(copies, runs, *count, factory_error_rate),
@@ -375,9 +372,10 @@ impl Trace {
 
             // The number of rounds for the memory qubits to stay alive with
             // respect to the total runtime of the algorithm.
-            let rounds = result
+            let rounds = (result
                 .runtime()
-                .div_ceil(memory.expect_time(Some(memory_qubits)));
+                / memory.expect_time(Some(memory_qubits)) as f64)
+                .ceil() as u64;
 
             let actual_error =
                 result.add_error(rounds as f64 * memory.expect_error_rate(Some(memory_qubits)));
@@ -429,11 +427,6 @@ impl Display for Trace {
         }
         write!(f, "{}", self.block)
     }
-}
-
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub(crate) fn round_up_to_u64(value: f64) -> u64 {
-    if value <= 0.0 { 0 } else { value.ceil() as u64 }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -583,12 +576,10 @@ impl Block {
     }
 
     #[must_use]
-    pub fn depth(&self) -> u64 {
-        round_up_to_u64(
-            self.depth_and_used::<fn(&Gate) -> Result<u64, Error>>(None)
-                .expect("Duration function is None")
-                .0,
-        )
+    pub fn depth(&self) -> f64 {
+        self.depth_and_used::<fn(&Gate) -> Result<u64, Error>>(None)
+            .expect("Duration function is None")
+            .0
     }
 }
 
