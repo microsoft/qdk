@@ -322,6 +322,16 @@ extends:
                 inputs:
                   workingFile: .npmrc
 
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: source/jupyterlab/.npmrc
+
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: source/widgets/.npmrc
+
               - script: |
                   python ./prereqs.py --skip-wasm && python ./version.py
                 displayName: Install Prereqs and set version
