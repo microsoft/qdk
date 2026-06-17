@@ -447,6 +447,9 @@ fn check_rca_for_function_cycle_within_call_input() {
                                 runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
                                 value_kind: Variable
                         [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
+                                value_kind: Variable
                             static_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
                                 value_kind: Variable
@@ -701,6 +704,9 @@ fn check_rca_for_multi_param_recursive_unit_function() {
                                 runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
                                 value_kind: Constant
                         [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
+                                value_kind: Constant
                             static_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(CallToCyclicFunctionWithDynamicArg)
                                 value_kind: Constant

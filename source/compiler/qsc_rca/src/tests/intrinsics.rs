@@ -91,6 +91,7 @@ fn check_rca_for_length() {
                     inherent: Static
                     dynamic_param_applications:
                         [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Static
                             static_size: Static
                             dynamic_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
@@ -1317,6 +1318,7 @@ fn check_rca_for_account_for_estimates_internal() {
                         value_kind: Constant
                     dynamic_param_applications:
                         [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Static
                             static_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                                 value_kind: Constant
@@ -1331,6 +1333,7 @@ fn check_rca_for_account_for_estimates_internal() {
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                                 value_kind: Constant
                         [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Static
                             static_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                                 value_kind: Constant

@@ -458,6 +458,7 @@ impl Display for ArrayParamApplication {
         let mut indent = set_indentation(indented(f), 0);
         write!(indent, "ArrayParamApplication:")?;
         indent = set_indentation(indent, 1);
+        write!(indent, "\nconstant_content: {}", self.constant_content)?;
         write!(indent, "\nstatic_size: {}", self.static_size)?;
         write!(indent, "\ndynamic_size: {}", self.dynamic_size)?;
         Ok(())
