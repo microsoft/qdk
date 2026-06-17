@@ -10,11 +10,11 @@
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { CircuitModel } from "../../dist/ux/circuit-vis/data/circuitModel.js";
 import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
 import { DragController } from "../../dist/ux/circuit-vis/editor/controllers/dragController.js";
 import { QubitController } from "../../dist/ux/circuit-vis/editor/controllers/qubitController.js";
 import { Location } from "../../dist/ux/circuit-vis/data/location.js";
+import { at, build, circuit, gate, group, meas } from "./_helpers.mjs";
 
 /** @type {JSDOM | null} */
 let jsdom = null;
@@ -107,6 +107,9 @@ function appendDropzone(
  * Construct a DragController + its `QubitController` dependency
  * against the fixture. `wireData` is filled with stable y-coords so
  * any spawned wire dropzones have somewhere to anchor.
+ *
+ * The returned `renderCalls()` accessor reports how many times the
+ * controller asked for a re-render — most tests assert on this.
  */
 function makeController(
   /** @type {any} */ fixture,
@@ -114,7 +117,12 @@ function makeController(
   /** @type {{ renderFn?: () => void }} */ options = {},
 ) {
   const interaction = new InteractionState();
-  const renderFn = options.renderFn ?? (() => {});
+  let renderCalls = 0;
+  const userRender = options.renderFn;
+  const renderFn = () => {
+    renderCalls++;
+    userRender?.();
+  };
   const wireData = Array.from(
     { length: model.qubits.length + 1 },
     (_, i) => 40 + 60 * i,
@@ -142,13 +150,89 @@ function makeController(
     /** @type {any} */ (ctx),
     qubitController,
   );
-  return { dragController, qubitController, ctx, interaction };
+  return {
+    dragController,
+    qubitController,
+    ctx,
+    interaction,
+    renderCalls: () => renderCalls,
+  };
 }
 
-const emptyCircuit = (/** @type {number} */ n) => ({
-  qubits: Array.from({ length: n }, (_, id) => ({ id })),
-  componentGrid: [],
-});
+/**
+ * Recursively stamp `dataAttributes.location` onto every op based on
+ * its grid position — `"col,row"` at the top level, `"…-col,row"`
+ * for nested children. Mirrors the location strings the editor
+ * computes at render time, so the DSL-built circuits the tests feed
+ * in resolve the same way the controller expects.
+ *
+ * @param {any[]} grid
+ * @param {string} [prefix]
+ */
+function assignLocations(grid, prefix = "") {
+  grid.forEach((/** @type {any} */ col, /** @type {number} */ colIdx) => {
+    col.components.forEach(
+      (/** @type {any} */ op, /** @type {number} */ opIdx) => {
+        const location = `${prefix}${colIdx},${opIdx}`;
+        op.dataAttributes = { ...(op.dataAttributes ?? {}), location };
+        if (op.children) assignLocations(op.children, `${location}-`);
+      },
+    );
+  });
+}
+
+/**
+ * Build a `CircuitModel` from a DSL circuit literal, stamping
+ * grid-position locations onto every op first.
+ *
+ * @param {any} circuitObj
+ * @returns {any}
+ */
+function buildModel(circuitObj) {
+  assignLocations(circuitObj.componentGrid);
+  return build(circuitObj);
+}
+
+/**
+ * One-call test setup: fixture + located model + controller.
+ *
+ * `options.beforeController(fixture, model)` runs after the model is
+ * built but before the controller is constructed — use it to seed
+ * dropzones / gate elements that must exist when the controller
+ * wires its listeners.
+ *
+ * @param {any} circuitObj
+ * @param {{ beforeController?: (fixture: any, model: any) => void }} [options]
+ */
+function setup(circuitObj, options = {}) {
+  const fixture = buildFixture();
+  const model = buildModel(circuitObj);
+  options.beforeController?.(fixture, model);
+  const controller = makeController(fixture, model);
+  return { fixture, model, ...controller };
+}
+
+/**
+ * Count how many ops named `name` appear anywhere in the model's
+ * tree (top-level columns and every nested child grid).
+ *
+ * @param {any} model
+ * @param {string} name
+ * @returns {number}
+ */
+function countGate(model, name) {
+  let count = 0;
+  const walk = (/** @type {any[]} */ grid) => {
+    for (const col of grid) {
+      for (const op of col.components) {
+        if (op.gate === name) count++;
+        if (op.children) walk(op.children);
+      }
+    }
+  };
+  walk(model.componentGrid);
+  return count;
+}
 
 const dispatchMouseDown = (
   /** @type {EventTarget} */ target,
@@ -171,9 +255,7 @@ const dispatchMouseUp = (
 // ---------------------------------------------------------------
 
 test("toolbox mousedown sets selectedOperation to the toolbox prototype", () => {
-  const fixture = buildFixture();
-  const model = new CircuitModel(emptyCircuit(2));
-  const { interaction, dragController } = makeController(fixture, model);
+  const { fixture, interaction, dragController } = setup(circuit(2, []));
 
   dispatchMouseDown(fixture.toolboxItem);
 
@@ -186,15 +268,16 @@ test("toolbox mousedown sets selectedOperation to the toolbox prototype", () => 
 });
 
 test("dropzone mouseup after a toolbox drag adds the operation to the model", () => {
-  const fixture = buildFixture();
-  const dropzone = appendDropzone(fixture.dropzoneLayer, "0,0", 0);
-  const model = new CircuitModel(emptyCircuit(2));
-  let renderCalls = 0;
-  const { interaction, dragController } = makeController(fixture, model, {
-    renderFn: () => {
-      renderCalls++;
+  /** @type {any} */
+  let dropzone;
+  const { fixture, model, interaction, dragController, renderCalls } = setup(
+    circuit(2, []),
+    {
+      beforeController: (f) => {
+        dropzone = appendDropzone(f.dropzoneLayer, "0,0", 0);
+      },
     },
-  });
+  );
 
   dispatchMouseDown(fixture.toolboxItem);
   // Verify drag actually started before we test the drop.
@@ -206,13 +289,9 @@ test("dropzone mouseup after a toolbox drag adds the operation to the model", ()
   // even when there are no params to prompt for.
   return Promise.resolve().then(() => {
     assert.equal(model.componentGrid.length, 1);
-    assert.equal(model.componentGrid[0].components[0].gate, "H");
-    assert.equal(
-      /** @type {any} */ (model.componentGrid[0].components[0]).targets[0]
-        .qubit,
-      0,
-    );
-    assert.equal(renderCalls, 1);
+    assert.equal(at(model, "0,0").gate, "H");
+    assert.equal(at(model, "0,0").targets[0].qubit, 0);
+    assert.equal(renderCalls(), 1);
     // Transient state cleared after commit.
     assert.equal(interaction.selectedOperation, null);
     assert.equal(interaction.dragging, false);
@@ -222,28 +301,11 @@ test("dropzone mouseup after a toolbox drag adds the operation to the model", ()
 });
 
 test("startAddingControl spawns one dropzone per non-target / non-control wire", () => {
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController } = makeController(fixture, model);
+  const { fixture, model, dragController } = setup(
+    circuit(4, [[gate("X", 1, { ctrls: [0] })]]),
+  );
 
-  const op = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const op = at(model, "0,0");
   /** @type {any} */ (dragController).startAddingControl(op, "0,0");
 
   // wireData has length n+1 (= 5) including the trailing ghost wire.
@@ -265,28 +327,11 @@ test("startAddingControl spawns one dropzone per non-target / non-control wire",
 });
 
 test("startRemovingControl spawns one dropzone per existing control", () => {
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 3 }],
-            controls: [{ qubit: 0 }, { qubit: 2 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController } = makeController(fixture, model);
+  const { fixture, model, dragController } = setup(
+    circuit(4, [[gate("X", 3, { ctrls: [0, 2] })]]),
+  );
 
-  const op = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const op = at(model, "0,0");
   dragController.startRemovingControl(op);
 
   // One dropzone per control → 2 dropzones.
@@ -303,36 +348,13 @@ test("startRemovingControl spawns one dropzone per existing control", () => {
 });
 
 test("document mouseup off-circuit during a drag removes the source operation", () => {
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  let renderCalls = 0;
-  const { interaction, dragController } = makeController(fixture, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, interaction, dragController, renderCalls } = setup(
+    circuit(2, [[gate("H", 0)]]),
+  );
 
   // Simulate a drag in progress: source op is selected and ghost is
   // out, but the mouseup never landed on the circuit surface.
-  interaction.selectedOperation = /** @type {any} */ (
-    model.componentGrid[0].components[0]
-  );
+  interaction.selectedOperation = at(model, "0,0");
   interaction.dragging = true;
   interaction.mouseUpOnCircuit = false;
 
@@ -340,7 +362,7 @@ test("document mouseup off-circuit during a drag removes the source operation", 
 
   // Source op was removed via removeOperation → grid is empty.
   assert.equal(model.componentGrid.length, 0);
-  assert.equal(renderCalls, 1);
+  assert.equal(renderCalls(), 1);
   // Transient state cleared.
   assert.equal(interaction.dragging, false);
 
@@ -348,38 +370,15 @@ test("document mouseup off-circuit during a drag removes the source operation", 
 });
 
 test("dispose() removes document listeners so subsequent mouseup is a no-op", () => {
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  let renderCalls = 0;
-  const { interaction, dragController } = makeController(fixture, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, interaction, dragController, renderCalls } = setup(
+    circuit(1, [[gate("H", 0)]]),
+  );
 
   dragController.dispose();
 
   // After dispose, the document mouseup handler is unregistered, so
   // a drag-out-delete style dispatch should NOT mutate the model.
-  interaction.selectedOperation = /** @type {any} */ (
-    model.componentGrid[0].components[0]
-  );
+  interaction.selectedOperation = at(model, "0,0");
   interaction.dragging = true;
   interaction.mouseUpOnCircuit = false;
 
@@ -387,126 +386,39 @@ test("dispose() removes document listeners so subsequent mouseup is a no-op", ()
 
   // Model unchanged; no render fired.
   assert.equal(model.componentGrid.length, 1);
-  assert.equal(renderCalls, 0);
+  assert.equal(renderCalls(), 0);
 });
 
 // ---------------------------------------------------------------
-// onGateMouseDown on an expanded group's control dot. An expanded
-// group renders as `<g class="gate" data-expanded="true">` with
-// control dots as direct children. The early return on
-// `data-expanded === "true"` carves out a `movingControl` exception
-// so a control-drag from an expanded group's control dot can start.
+// onGateMouseDown on an expanded group. An expanded group renders
+// as `<g class="gate" data-expanded="true">`. The early return on
+// `data-expanded === "true"` means a mousedown on the group's own
+// box / label must NOT select the whole group — the user edits its
+// children individually, not the group as a unit.
 // ---------------------------------------------------------------
 
-test("onGateMouseDown on an expanded group's control dot sets selectedOperation when movingControl is true", () => {
-  const fixture = buildFixture();
+test("onGateMouseDown on an expanded group's box / label does not select the group", () => {
+  // Ordinary clicks on the expanded group's dashed box / label must
+  // leave `selectedOperation` untouched so the user can't grab the
+  // group as a whole when expanded.
   /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 1 }, { qubit: 2 }],
-            controls: [{ qubit: 0 }],
-            children: [
-              {
-                components: [
-                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
-                ],
-              },
-            ],
-          },
-        ],
+  let gateElem;
+  const { interaction, dragController } = setup(
+    circuit(2, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+    {
+      beforeController: (fixture) => {
+        gateElem = document.createElementNS(SVG_NS, "g");
+        gateElem.setAttribute("class", "gate");
+        gateElem.setAttribute("data-expanded", "true");
+        gateElem.setAttribute("data-location", "0,0");
+        const dashedBox = document.createElementNS(SVG_NS, "rect");
+        dashedBox.setAttribute("class", "gate-unitary");
+        gateElem.appendChild(dashedBox);
+        fixture.svg.appendChild(gateElem);
       },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-
-  // Build the gate elem BEFORE constructing the controller — gate
-  // listeners are wired once, at construction, by `getGateElems`.
-  const gateElem = document.createElementNS(SVG_NS, "g");
-  gateElem.setAttribute("class", "gate");
-  gateElem.setAttribute("data-expanded", "true");
-  gateElem.setAttribute("data-location", "0,0");
-  // The control dot lives directly under the expanded group's `<g>`,
-  // not inside a nested `.gate` wrapper. (Nested child gates have
-  // their own `.gate` wrappers; only top-level controls of the group
-  // bubble up to this one.)
-  const controlDot = document.createElementNS(SVG_NS, "circle");
-  controlDot.setAttribute("class", "control-dot");
-  controlDot.setAttribute("data-wire", "0");
-  gateElem.appendChild(controlDot);
-  fixture.svg.appendChild(gateElem);
-
-  const { interaction, dragController } = makeController(fixture, model);
-
-  // Simulate the selectionController's effect (it runs first on the
-  // control-dot host element and sets these before the gate handler
-  // sees the bubbled event).
-  interaction.movingControl = true;
-  interaction.selectedWire = 0;
-
-  dispatchMouseDown(gateElem);
-
-  assert.ok(
-    interaction.selectedOperation,
-    "selectedOperation must be set so the drag flow can proceed",
-  );
-  assert.equal(
-    /** @type {any} */ (interaction.selectedOperation).gate,
-    "Foo",
-    "selectedOperation resolves to the expanded group itself",
+    },
   );
 
-  dragController.dispose();
-});
-
-test("onGateMouseDown on an expanded group WITHOUT movingControl still no-ops (no regression)", () => {
-  // The carve-out is `movingControl`-gated; ordinary clicks on the
-  // expanded group's dashed box / label must still leave
-  // `selectedOperation` untouched so the user can't grab the group
-  // as a whole when expanded.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-
-  const gateElem = document.createElementNS(SVG_NS, "g");
-  gateElem.setAttribute("class", "gate");
-  gateElem.setAttribute("data-expanded", "true");
-  gateElem.setAttribute("data-location", "0,0");
-  const dashedBox = document.createElementNS(SVG_NS, "rect");
-  dashedBox.setAttribute("class", "gate-unitary");
-  gateElem.appendChild(dashedBox);
-  fixture.svg.appendChild(gateElem);
-
-  const { interaction, dragController } = makeController(fixture, model);
-
-  // `movingControl` is the default-false; no selectionController
-  // emulation here.
   interaction.selectedWire = 0;
 
   dispatchMouseDown(gateElem);
@@ -514,7 +426,7 @@ test("onGateMouseDown on an expanded group WITHOUT movingControl still no-ops (n
   assert.equal(
     interaction.selectedOperation,
     null,
-    "expanded-group mousedown without movingControl must NOT set selectedOperation",
+    "expanded-group mousedown must NOT set selectedOperation",
   );
 
   dragController.dispose();
@@ -528,41 +440,14 @@ test("onGateMouseDown on an expanded group WITHOUT movingControl still no-ops (n
 // ---------------------------------------------------------------
 
 test("commitAddControl does not duplicate the source op when widening collides with a sibling", () => {
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    // 4 qubits. Column 0: [H on q0, Z on q3]. Adding a control on
-    // q3 to H widens H to span q0..q3 — overlaps Z, so the column
-    // must split.
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-          {
-            kind: "unitary",
-            gate: "Z",
-            targets: [{ qubit: 3 }],
-            dataAttributes: { location: "0,1" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  let renderCalls = 0;
-  const { dragController } = makeController(fixture, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  // 4 qubits. Column 0: [H on q0, Z on q3]. Adding a control on
+  // q3 to H widens H to span q0..q3 — overlaps Z, so the column
+  // must split.
+  const { model, fixture, dragController, renderCalls } = setup(
+    circuit(4, [[gate("H", 0), gate("Z", 3)]]),
+  );
 
-  const hOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const hOp = at(model, "0,0");
   dragController.startAddingControl(hOp);
 
   // Clicking the wire-pick dropzone for q3 widens H to span q0..q3
@@ -580,7 +465,7 @@ test("commitAddControl does not duplicate the source op when widening collides w
     model.componentGrid.length,
     2,
     `expected col 0 to split; got ${JSON.stringify(
-      model.componentGrid.map((c) =>
+      model.componentGrid.map((/** @type {any} */ c) =>
         c.components.map((/** @type {any} */ op) => op.gate),
       ),
     )}`,
@@ -598,12 +483,7 @@ test("commitAddControl does not duplicate the source op when widening collides w
 
   // H must appear exactly once in the grid. Count by gate name to
   // catch any phantom duplicate wherever it ended up.
-  let hCount = 0;
-  for (const col of model.componentGrid) {
-    for (const op of col.components) {
-      if (/** @type {any} */ (op).gate === "H") hCount++;
-    }
-  }
+  const hCount = countGate(model, "H");
   assert.equal(
     hCount,
     1,
@@ -618,7 +498,7 @@ test("commitAddControl does not duplicate the source op when widening collides w
   );
 
   // Exactly one renderFn call from commitAddControl.
-  assert.equal(renderCalls, 1, "expected exactly one render after commit");
+  assert.equal(renderCalls(), 1, "expected exactly one render after commit");
 
   dragController.dispose();
 });
@@ -628,46 +508,11 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
   // of Foo widens Foo's `.targets` to enclose the new wire; if that
   // widened span overlaps a top-level sibling, the top-level column
   // splits. Pin: no duplicate at either level.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                    dataAttributes: { location: "0,0-0,0" },
-                  },
-                ],
-              },
-            ],
-            dataAttributes: { location: "0,0" },
-          },
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 3 }],
-            dataAttributes: { location: "0,1" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController } = makeController(fixture, model);
+  const { model, fixture, dragController } = setup(
+    circuit(4, [[group("Foo", [[gate("H", 0)]]), gate("X", 3)]]),
+  );
 
-  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
-  const hOp = /** @type {any} */ (fooOp.children[0].components[0]);
+  const hOp = at(model, "0,0-0,0");
   dragController.startAddingControl(hOp);
 
   // q3 is the X's wire — adding a control there widens H to
@@ -684,7 +529,7 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
     model.componentGrid.length,
     2,
     `expected top-level column to split; got ${JSON.stringify(
-      model.componentGrid.map((c) =>
+      model.componentGrid.map((/** @type {any} */ c) =>
         c.components.map((/** @type {any} */ op) => op.gate),
       ),
     )}`,
@@ -692,20 +537,9 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
 
   // H appears exactly once across the entire tree (no duplicate
   // at the inner OR outer level).
-  let hCount = 0;
-  let fooCount = 0;
-  let xCount = 0;
-  const walk = (/** @type {any} */ grid) => {
-    for (const col of grid) {
-      for (const op of col.components) {
-        if (op.gate === "H") hCount++;
-        if (op.gate === "Foo") fooCount++;
-        if (op.gate === "X") xCount++;
-        if (op.children) walk(op.children);
-      }
-    }
-  };
-  walk(model.componentGrid);
+  const hCount = countGate(model, "H");
+  const fooCount = countGate(model, "Foo");
+  const xCount = countGate(model, "X");
   assert.equal(hCount, 1, `H must appear exactly once; got ${hCount}`);
   assert.equal(fooCount, 1, `Foo must appear exactly once; got ${fooCount}`);
   assert.equal(xCount, 1, `X must appear exactly once; got ${xCount}`);
@@ -714,19 +548,21 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
 });
 
 // ---------------------------------------------------------------
-// hideInvalidDropzones / showAllDropzones — the producer-before-
-// consumer dropzone filter and its reset cycle.
+// hideInvalidDropzones — the producer-before-consumer dropzone
+// filter and its reset cycle.
 //
 // `hideInvalidDropzones(selectedLocation)` prevents dropping a
 // classically-conditional op into a column at-or-before its
-// producing measurement. `showAllDropzones` is the reset half:
-// shared by `hideInvalidDropzones` (so each drag starts clean)
-// and by the layer-mouseup teardown (so a canceled drag doesn't
-// leave stale `display:none` marks for the next drag).
+// producing measurement. It first calls `showAllDropzones` (the
+// reset half) so each drag starts clean; the layer-mouseup
+// teardown calls the same reset so a canceled drag doesn't leave
+// stale `display:none` marks for the next drag. `showAllDropzones`
+// has no standalone test — it's a trivial one-liner exercised
+// through both of its callers below.
 //
-// Tests invoke the methods directly via `/** @type {any} */` casts
-// to focus on the filter contract; the gate-mousedown tests cover
-// the end-to-end mouse path.
+// Tests invoke `hideInvalidDropzones` directly via
+// `/** @type {any} */` casts to focus on the filter contract; the
+// gate-mousedown tests cover the end-to-end mouse path.
 // ---------------------------------------------------------------
 
 /** Append a `.dropzone` rect with display:none preset (stale-mark fixture). */
@@ -740,29 +576,6 @@ function appendHiddenDropzone(
   return dz;
 }
 
-test("showAllDropzones clears stale display:none marks on every dropzone in the layer", () => {
-  const fixture = buildFixture();
-  const dzA = appendHiddenDropzone(fixture.dropzoneLayer, "0,0", 0);
-  const dzB = appendHiddenDropzone(fixture.dropzoneLayer, "1,0", 0);
-  // Pre-condition: both dropzones have display:none.
-  assert.equal(/** @type {any} */ (dzA).style.display, "none");
-  assert.equal(/** @type {any} */ (dzB).style.display, "none");
-
-  const model = new CircuitModel(emptyCircuit(1));
-  const { dragController } = makeController(fixture, model);
-
-  /** @type {any} */ (dragController).showAllDropzones();
-
-  // Empty string → inherit from CSS (visible). The reset ditches
-  // the inline mark rather than swapping it for "block";
-  // layer-level visibility is controlled by
-  // `dropzoneLayer.style.display`.
-  assert.equal(/** @type {any} */ (dzA).style.display, "");
-  assert.equal(/** @type {any} */ (dzB).style.display, "");
-
-  dragController.dispose();
-});
-
 test("hideInvalidDropzones hides dropzones whose location is not strictly after the external producer", () => {
   // Circuit: top-level col 0 has measurement M on q0 producing
   // result 0; col 1 has consumer Z on q1 with classical control
@@ -773,37 +586,12 @@ test("hideInvalidDropzones hides dropzones whose location is not strictly after 
   //   "0,0" → producer.col(0) NOT < target.col(0) → HIDE
   //   "1,0" → producer.col(0) <   target.col(1) → keep
   //   "2,0" → producer.col(0) <   target.col(2) → keep
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "measurement",
-            gate: "Measure",
-            qubits: [{ qubit: 0 }],
-            results: [{ qubit: 0, result: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Z",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0, result: 0 }],
-            dataAttributes: { location: "1,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController } = makeController(fixture, model);
+  const { fixture, dragController } = setup(
+    circuit(2, [
+      [meas(0, { gate: "Measure" })],
+      [gate("Z", 1, { ctrls: [{ q: 0, r: 0 }] })],
+    ]),
+  );
 
   const dzAtZero = appendDropzone(fixture.dropzoneLayer, "0,0", 1);
   const dzAtOne = appendDropzone(fixture.dropzoneLayer, "1,0", 1);
@@ -835,25 +623,7 @@ test("hideInvalidDropzones with no external producers leaves every dropzone visi
   // Dragging an op with no classical-control dependencies: every
   // dropzone stays visible, and any stale display:none marks left
   // over from a prior drag are cleared (belt-and-suspenders reset).
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController } = makeController(fixture, model);
+  const { fixture, dragController } = setup(circuit(2, [[gate("H", 0)]]));
 
   // Two stale display:none dropzones simulating leftover state
   // from a prior drag that had external producers.
@@ -877,37 +647,12 @@ test("hideInvalidDropzones skips dropzones missing data-dropzone-location (defen
   // and skips entries where the attribute is missing. Defensive
   // — the filter shouldn't crash if a stray `.dropzone` snuck into
   // the layer some other way.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "measurement",
-            gate: "Measure",
-            qubits: [{ qubit: 0 }],
-            results: [{ qubit: 0, result: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Z",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0, result: 0 }],
-            dataAttributes: { location: "1,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController } = makeController(fixture, model);
+  const { fixture, dragController } = setup(
+    circuit(2, [
+      [meas(0, { gate: "Measure" })],
+      [gate("Z", 1, { ctrls: [{ q: 0, r: 0 }] })],
+    ]),
+  );
 
   // A stray .dropzone with no location attr. Should be skipped
   // (untouched) by the filter loop.
@@ -929,12 +674,16 @@ test("container mouseup teardown clears stale per-dropzone display marks", () =>
   // when a drag is canceled or its commit doesn't re-render, the
   // layer-level mouseup must wipe any `display:none` marks the
   // filter applied — otherwise the next drag inherits them.
-  const fixture = buildFixture();
-  const dzHidden = appendHiddenDropzone(fixture.dropzoneLayer, "0,0", 0);
-  const dzAlsoHidden = appendHiddenDropzone(fixture.dropzoneLayer, "1,0", 0);
-
-  const model = new CircuitModel(emptyCircuit(1));
-  const { dragController } = makeController(fixture, model);
+  /** @type {any} */
+  let dzHidden;
+  /** @type {any} */
+  let dzAlsoHidden;
+  const { fixture, dragController } = setup(circuit(1, []), {
+    beforeController: (f) => {
+      dzHidden = appendHiddenDropzone(f.dropzoneLayer, "0,0", 0);
+      dzAlsoHidden = appendHiddenDropzone(f.dropzoneLayer, "1,0", 0);
+    },
+  });
 
   dispatchMouseUp(fixture.container);
 
@@ -988,25 +737,7 @@ test("setupShiftExtend no-ops for a top-level source (depth < 2)", () => {
   // Top-level ops have no ancestor group to extend. Calling
   // setupShiftExtend with their `Location` must leave the controller
   // disarmed — no `_shiftExtendCtx`, no installed shift listeners.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController } = makeController(fixture, model);
+  const { dragController } = setup(circuit(2, [[gate("H", 0)]]));
 
   /** @type {any} */ (dragController).setupShiftExtend(Location.parse("0,0"));
 
@@ -1022,38 +753,11 @@ test("setupShiftExtend arms _shiftExtendCtx and installs shift listeners for an 
   // capture the parent group's wire span + scope and install
   // document keydown/keyup listeners so the user can toggle the
   // shift-extend UI mid-drag.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            // Parent group spans wires 0..1.
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                    dataAttributes: { location: "0,0-0,0" },
-                  },
-                ],
-              },
-            ],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController, ctx } = makeController(fixture, model);
+  // Parent group Foo spans wires 0..1 because its children occupy
+  // q0 and q1; the dragged child H is at inner location "0,0".
+  const { dragController, ctx } = setup(
+    circuit(4, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
   // setupShiftExtend looks up the IMMEDIATE parent's scope.
   setScope(ctx, "0,0");
 
@@ -1090,32 +794,9 @@ test("setupShiftExtend no-ops when the parent scope isn't in the LayoutMap (defe
   // Defensive — every expanded group's scope should be in the
   // LayoutMap, but the method must skip silently rather than
   // throw if it isn't.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
-                ],
-              },
-            ],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController } = makeController(fixture, model);
+  const { dragController } = setup(
+    circuit(2, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
   // Intentionally do NOT register a scope for "0,0".
 
   /** @type {any} */ (dragController).setupShiftExtend(
@@ -1135,37 +816,9 @@ test("spawnShiftExtendDropzones emits dropzones only for wires outside the paren
   // already covered by regular inner dropzones.
   //
   // Per-column count: 3 wires × 2 columns (1 real + 1 trailing) = 6.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                    dataAttributes: { location: "0,0-0,0" },
-                  },
-                ],
-              },
-            ],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController, ctx } = makeController(fixture, model);
+  const { fixture, dragController, ctx } = setup(
+    circuit(4, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
   setScope(ctx, "0,0");
 
   /** @type {any} */ (dragController).setupShiftExtend(
@@ -1198,43 +851,9 @@ test("spawnShiftExtendDropzones skips wires blocked by ancestor-column siblings"
   // with X.
   //
   // Eligible outside-span wires: {2, 3, 4}. Blocked: {3}. Emitted: {2, 4}.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                    dataAttributes: { location: "0,0-0,0" },
-                  },
-                ],
-              },
-            ],
-            dataAttributes: { location: "0,0" },
-          },
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 3 }],
-            dataAttributes: { location: "0,1" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController, ctx } = makeController(fixture, model);
+  const { fixture, dragController, ctx } = setup(
+    circuit(4, [[group("Foo", [[gate("H", 0), gate("Z", 1)]]), gate("X", 3)]]),
+  );
   setScope(ctx, "0,0");
 
   /** @type {any} */ (dragController).setupShiftExtend(
@@ -1271,37 +890,9 @@ test("spawnShiftExtendDropzones tags every dropzone and is re-spawn-safe", () =>
   //      handler doesn't insert a new column).
   //   2. Calling spawn twice in a row leaves the layer with one
   //      copy, not two — the method clears its prior spawn first.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                    dataAttributes: { location: "0,0-0,0" },
-                  },
-                ],
-              },
-            ],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController, ctx } = makeController(fixture, model);
+  const { fixture, dragController, ctx } = setup(
+    circuit(3, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
   setScope(ctx, "0,0");
 
   /** @type {any} */ (dragController).setupShiftExtend(
@@ -1337,37 +928,9 @@ test("paintGhostBorder appends a .shift-extend-ghost rect and replaces a prior o
   // Each `paintGhostBorder` call clears the existing ghost before
   // appending a new one, so the overlay never carries two ghost
   // rects at once (would be visible as a doubled halo).
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                    dataAttributes: { location: "0,0-0,0" },
-                  },
-                ],
-              },
-            ],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController, ctx } = makeController(fixture, model);
+  const { fixture, dragController, ctx } = setup(
+    circuit(3, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
   setScope(ctx, "0,0");
   /** @type {any} */ (dragController).setupShiftExtend(
     Location.parse("0,0-0,0"),
@@ -1401,37 +964,9 @@ test("tearDownShiftExtend clears dropzones, ghost border, _shiftExtendCtx, and s
   // Full teardown chain. After teardown the controller is back to
   // its initial unarmed state — no dropzones in the DOM, no ghost
   // border, no listener refs.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                    dataAttributes: { location: "0,0-0,0" },
-                  },
-                ],
-              },
-            ],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { dragController, ctx } = makeController(fixture, model);
+  const { fixture, dragController, ctx } = setup(
+    circuit(3, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
   setScope(ctx, "0,0");
   /** @type {any} */ (dragController).setupShiftExtend(
     Location.parse("0,0-0,0"),
@@ -1495,46 +1030,28 @@ test("Ctrl+drag clone of a regular op: source stays, copy lands at the target", 
   // Copying (Ctrl) routes through `addOperation` instead of
   // `_moveOperationWithConfirmation`; the source must remain in
   // place and the clone must land in a fresh column.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-
+  //
   // IMPORTANT: append the target dropzone BEFORE constructing the
   // controller. `installDropzoneListeners` wires mouseup listeners
   // at construction time; dropzones added later are inert.
-  const targetDz = appendDropzone(
-    fixture.dropzoneLayer,
-    "0,0",
-    0,
-    /* interColumn */ true,
-  );
-
-  let renderCalls = 0;
-  const { interaction, dragController } = makeController(fixture, model, {
-    renderFn: () => {
-      renderCalls++;
+  /** @type {any} */
+  let targetDz;
+  const { model, interaction, dragController, renderCalls } = setup(
+    circuit(2, [[gate("H", 0)]]),
+    {
+      beforeController: (f) => {
+        targetDz = appendDropzone(
+          f.dropzoneLayer,
+          "0,0",
+          0,
+          /* interColumn */ true,
+        );
+      },
     },
-  });
+  );
 
   // Simulate the in-progress drag of the H op.
-  interaction.selectedOperation = /** @type {any} */ (
-    model.componentGrid[0].components[0]
-  );
+  interaction.selectedOperation = at(model, "0,0");
   interaction.selectedWire = 0;
   interaction.dragging = true;
 
@@ -1548,20 +1065,14 @@ test("Ctrl+drag clone of a regular op: source stays, copy lands at the target", 
 
   return Promise.resolve().then(() => {
     // Two gates now: the original H and the clone.
-    const allGates = [];
-    for (const col of model.componentGrid) {
-      for (const op of col.components) {
-        allGates.push(/** @type {any} */ (op).gate);
-      }
-    }
-    const hCount = allGates.filter((g) => g === "H").length;
+    const hCount = countGate(model, "H");
     assert.equal(
       hCount,
       2,
-      `expected 2 H gates after Ctrl+drag clone, got ${hCount} (${allGates})`,
+      `expected 2 H gates after Ctrl+drag clone, got ${hCount}`,
     );
     // renderFn fires from the deepEqual block (grid changed).
-    assert.equal(renderCalls, 1);
+    assert.equal(renderCalls(), 1);
     // Transient cleared.
     assert.equal(interaction.selectedOperation, null);
 
@@ -1572,30 +1083,9 @@ test("Ctrl+drag clone of a regular op: source stays, copy lands at the target", 
 test("document mouseup with !dragging is a no-op (no model change, no render)", () => {
   // Mouseup events from unrelated UI must not trigger the
   // drag-out-delete branch. The guard is `interaction.dragging`.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  let renderCalls = 0;
-  const { interaction, dragController } = makeController(fixture, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, interaction, dragController, renderCalls } = setup(
+    circuit(1, [[gate("H", 0)]]),
+  );
 
   // Default state: dragging is false; selectedOperation is null.
   assert.equal(interaction.dragging, false);
@@ -1605,7 +1095,7 @@ test("document mouseup with !dragging is a no-op (no model change, no render)", 
   // Model is untouched; renderFn was never called.
   assert.equal(model.componentGrid.length, 1);
   assert.equal(model.componentGrid[0].components.length, 1);
-  assert.equal(renderCalls, 0);
+  assert.equal(renderCalls(), 0);
 
   dragController.dispose();
 });
@@ -1619,30 +1109,9 @@ test("qubit-drag-off (only selectedWire, no selectedOperation) removes the qubit
   // The qubit controller skips the confirmation prompt when the
   // qubit has zero ops attached, so we test against an unused qubit
   // and assert the model shrinks.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  let renderCalls = 0;
-  const { interaction, dragController } = makeController(fixture, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, interaction, dragController, renderCalls } = setup(
+    circuit(2, [[gate("H", 0)]]),
+  );
 
   // Simulate an in-progress qubit-label drag.
   interaction.selectedOperation = null;
@@ -1656,7 +1125,7 @@ test("qubit-drag-off (only selectedWire, no selectedOperation) removes the qubit
   assert.equal(model.qubits.length, 1);
   assert.equal(model.qubits[0].id, 0);
   // Render fired (from the doRemove fast-path inside the qubit controller).
-  assert.equal(renderCalls, 1);
+  assert.equal(renderCalls(), 1);
 
   dragController.dispose();
 });
@@ -1666,36 +1135,12 @@ test("drag-off with movingControl removes just the dragged control via removeCon
   // routes through `removeControl(selectedOperation, selectedWire)`,
   // not `_deleteOperationWithConfirmation`. The op stays in the
   // grid with its `.controls` array shortened by one.
-  const fixture = buildFixture();
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-            // The control on q1 is the one being dragged off.
-            controls: [{ qubit: 1 }],
-            dataAttributes: { location: "0,0" },
-          },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  let renderCalls = 0;
-  const { interaction, dragController } = makeController(fixture, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
-
-  interaction.selectedOperation = /** @type {any} */ (
-    model.componentGrid[0].components[0]
+  // The control on q1 is the one being dragged off.
+  const { model, interaction, dragController, renderCalls } = setup(
+    circuit(2, [[gate("H", 0, { ctrls: [1] })]]),
   );
+
+  interaction.selectedOperation = at(model, "0,0");
   interaction.selectedWire = 1; // the control's wire
   interaction.movingControl = true;
   interaction.dragging = true;
@@ -1705,7 +1150,7 @@ test("drag-off with movingControl removes just the dragged control via removeCon
 
   // The H op is still there — only the control was removed.
   assert.equal(model.componentGrid.length, 1);
-  const op = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const op = at(model, "0,0");
   assert.equal(op.gate, "H");
   // `removeControl` empties or nulls the controls array when the
   // last control is removed; either is a "no controls" state.
@@ -1716,7 +1161,7 @@ test("drag-off with movingControl removes just the dragged control via removeCon
     `expected zero remaining controls, got ${JSON.stringify(remainingControls)}`,
   );
   // One render fired from the removeControl branch.
-  assert.equal(renderCalls, 1);
+  assert.equal(renderCalls(), 1);
 
   dragController.dispose();
 });
@@ -1725,9 +1170,7 @@ test("document mousedown clears wire dropzones in the SVG", () => {
   // The wire-pick UIs (`startAddingControl`, qubit-label drag) drop
   // `.dropzone-full-wire` rects into the SVG. The document-mousedown
   // handler clears them so a click elsewhere dismisses the flow.
-  const fixture = buildFixture();
-  const model = new CircuitModel(emptyCircuit(1));
-  const { dragController } = makeController(fixture, model);
+  const { fixture, dragController } = setup(circuit(1, []));
 
   // Inject two wire dropzones directly, mirroring what
   // `createWireDropzone` produces.
