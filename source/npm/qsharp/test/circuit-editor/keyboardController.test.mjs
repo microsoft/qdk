@@ -72,6 +72,35 @@ const dispatchPlainKey = (/** @type {string} */ type) => {
   );
 };
 
+/**
+ * A placed gate: `dataAttributes.location` is what
+ * getGateLocationString reads to distinguish a real placement from
+ * a toolbox drag.
+ *
+ * @param {string} [location]
+ */
+const placedGate = (location = "0,1") => ({
+  kind: "unitary",
+  dataAttributes: { location },
+});
+
+/**
+ * A toolbox prototype: a selectedOperation with no location yet
+ * (it gets one once dropped).
+ */
+const toolboxProto = () => ({ kind: "unitary" });
+
+/**
+ * Build an InteractionState whose `selectedOperation` is `op`.
+ *
+ * @param {any} op
+ */
+const withSelection = (op) => {
+  const interaction = new InteractionState();
+  interaction.selectedOperation = /** @type {any} */ (op);
+  return interaction;
+};
+
 test("Ctrl-down with no selection is a no-op", () => {
   const { container } = makeController();
   // No selectedOperation set → no class change.
@@ -81,14 +110,7 @@ test("Ctrl-down with no selection is a no-op", () => {
 });
 
 test("Ctrl-down on a placed gate switches moving → copying", () => {
-  const interaction = new InteractionState();
-  // Stand in for a placed gate: dataAttributes.location is what
-  // getGateLocationString reads.
-  interaction.selectedOperation = /** @type {any} */ ({
-    kind: "unitary",
-    dataAttributes: { location: "0,1" },
-  });
-  const { container } = makeController(interaction);
+  const { container } = makeController(withSelection(placedGate()));
   container.classList.add("moving");
 
   dispatchCtrlKey("keydown");
@@ -98,12 +120,7 @@ test("Ctrl-down on a placed gate switches moving → copying", () => {
 });
 
 test("Ctrl-up flips copying → moving", () => {
-  const interaction = new InteractionState();
-  interaction.selectedOperation = /** @type {any} */ ({
-    kind: "unitary",
-    dataAttributes: { location: "0,1" },
-  });
-  const { container } = makeController(interaction);
+  const { container } = makeController(withSelection(placedGate()));
   container.classList.add("copying");
 
   dispatchCtrlKey("keyup");
@@ -113,12 +130,7 @@ test("Ctrl-up flips copying → moving", () => {
 });
 
 test("Non-Ctrl keys are ignored", () => {
-  const interaction = new InteractionState();
-  interaction.selectedOperation = /** @type {any} */ ({
-    kind: "unitary",
-    dataAttributes: { location: "0,1" },
-  });
-  const { container } = makeController(interaction);
+  const { container } = makeController(withSelection(placedGate()));
   container.classList.add("moving");
 
   dispatchPlainKey("keydown");
@@ -130,13 +142,7 @@ test("Non-Ctrl keys are ignored", () => {
 });
 
 test("Toolbox-drag (op without location) is treated as no-selection", () => {
-  const interaction = new InteractionState();
-  // A toolbox prototype: selectedOperation is set but has no
-  // dataAttributes.location yet (it gets one once dropped).
-  interaction.selectedOperation = /** @type {any} */ ({
-    kind: "unitary",
-  });
-  const { container } = makeController(interaction);
+  const { container } = makeController(withSelection(toolboxProto()));
 
   dispatchCtrlKey("keydown");
 
@@ -144,12 +150,7 @@ test("Toolbox-drag (op without location) is treated as no-selection", () => {
 });
 
 test("dispose() removes document listeners", () => {
-  const interaction = new InteractionState();
-  interaction.selectedOperation = /** @type {any} */ ({
-    kind: "unitary",
-    dataAttributes: { location: "0,1" },
-  });
-  const { container } = makeController(interaction);
+  const { container } = makeController(withSelection(placedGate()));
   container.classList.add("moving");
 
   controller?.dispose();

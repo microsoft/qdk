@@ -17,9 +17,9 @@
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { CircuitModel } from "../../dist/ux/circuit-vis/data/circuitModel.js";
 import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
 import { QubitController } from "../../dist/ux/circuit-vis/editor/controllers/qubitController.js";
+import { build, circuit, expectGrid, gate } from "./_helpers.mjs";
 
 /** @type {JSDOM | null} */
 let jsdom = null;
@@ -90,7 +90,12 @@ function makeController(
   /** @type {{ renderFn?: () => void }} */ options = {},
 ) {
   const interaction = new InteractionState();
-  const renderFn = options.renderFn ?? (() => {});
+  let renderCalls = 0;
+  const userRender = options.renderFn;
+  const renderFn = () => {
+    renderCalls++;
+    userRender?.();
+  };
   const wireData = Array.from(
     { length: model.qubits.length + 1 },
     (_, i) => 40 + 60 * i,
@@ -107,15 +112,25 @@ function makeController(
     wireData,
     renderFn,
   };
-  // eslint-disable-next-line no-new
   const controller = new QubitController(/** @type {any} */ (ctx));
-  return { controller, ctx, interaction };
+  return { controller, ctx, interaction, renderCalls: () => renderCalls };
 }
 
-const emptyCircuit = (/** @type {number} */ n) => ({
-  qubits: Array.from({ length: n }, (_, id) => ({ id })),
-  componentGrid: [],
-});
+/**
+ * One-call setup: build a model from a DSL circuit literal, a
+ * fixture with one qubit label per wire, and a QubitController
+ * wired to both. Returns the fixture pieces plus the controller
+ * handles (including a `renderCalls()` accessor).
+ *
+ * @param {any} circuitObj
+ * @param {{ renderFn?: () => void }} [options]
+ */
+function setup(circuitObj, options = {}) {
+  const model = build(circuitObj);
+  const fixture = buildFixture(model.qubits.length);
+  const controller = makeController(fixture.container, model, options);
+  return { model, ...fixture, ...controller };
+}
 
 const dispatchMouseDown = (/** @type {EventTarget} */ target) =>
   target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
@@ -129,7 +144,7 @@ test("constructor on a fixture with no labels is a safe no-op", () => {
 
   // No g.qubit-input-states → getQubitLabelElems returns [] → no listeners.
   assert.doesNotThrow(() => {
-    const model = new CircuitModel(emptyCircuit(0));
+    const model = build(circuit(0, []));
     const ctx = {
       model,
       interaction: new InteractionState(),
@@ -149,23 +164,9 @@ test("constructor on a fixture with no labels is a safe no-op", () => {
 test("removeQubitLineWithConfirmation removes an empty wire without prompting", () => {
   // Pre-populate wire 0 with an op so `removeTrailingUnusedQubits`
   // doesn't trim every wire after the target removal.
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { container } = buildFixture(3);
-  let renderCalls = 0;
-  const { controller, ctx } = makeController(container, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, controller, ctx, renderCalls } = setup(
+    circuit(3, [[gate("H", 0)]]),
+  );
 
   // Wire 1 has zero use count → no prompt.
   controller.removeQubitLineWithConfirmation(1);
@@ -174,7 +175,7 @@ test("removeQubitLineWithConfirmation removes an empty wire without prompting", 
   // trim that fires after each removal. Wire 0 (use count 1) stays.
   assert.equal(model.qubits.length, 1);
   assert.equal(model.qubits[0].id, 0);
-  assert.equal(renderCalls, 1);
+  assert.equal(renderCalls(), 1);
   // wireData was spliced in step with the model.
   assert.equal(ctx.wireData.length, 3);
   // No prompt was added to the document.
@@ -182,23 +183,9 @@ test("removeQubitLineWithConfirmation removes an empty wire without prompting", 
 });
 
 test("removeQubitLineWithConfirmation prompts when the wire has operations", () => {
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 1 }] }],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { container } = buildFixture(2);
-  let renderCalls = 0;
-  const { controller } = makeController(container, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, controller, renderCalls } = setup(
+    circuit(2, [[gate("H", 1)]]),
+  );
 
   controller.removeQubitLineWithConfirmation(1);
 
@@ -206,7 +193,7 @@ test("removeQubitLineWithConfirmation prompts when the wire has operations", () 
   // for user confirmation, so the model is unchanged at this point.
   assert.equal(document.querySelectorAll(".prompt-overlay").length, 1);
   assert.equal(model.qubits.length, 2);
-  assert.equal(renderCalls, 0);
+  assert.equal(renderCalls(), 0);
 });
 
 /**
@@ -222,18 +209,7 @@ const findPromptButton = (/** @type {string} */ label) =>
   );
 
 test("removeQubitLineWithConfirmation prompt message reflects operation count (singular vs plural)", () => {
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 1 }] }],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { container } = buildFixture(2);
-  const { controller } = makeController(container, model);
+  const { controller } = setup(circuit(2, [[gate("H", 1)]]));
 
   controller.removeQubitLineWithConfirmation(1);
 
@@ -245,20 +221,9 @@ test("removeQubitLineWithConfirmation prompt message reflects operation count (s
   // Cancel to dismiss before the plural-case fixture.
   findPromptButton("Cancel")?.click();
 
-  /** @type {any} */
-  const circuit2 = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
-          { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
-        ],
-      },
-    ],
-  };
-  const model2 = new CircuitModel(circuit2);
-  const { controller: controller2 } = makeController(container, model2);
+  const { controller: controller2 } = setup(
+    circuit(2, [[gate("H", 1), gate("X", 1)]]),
+  );
 
   controller2.removeQubitLineWithConfirmation(1);
 
@@ -268,31 +233,14 @@ test("removeQubitLineWithConfirmation prompt message reflects operation count (s
 });
 
 test("removeQubitLineWithConfirmation OK click cascades findAndRemoveOperations + removeQubit + render", () => {
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
-          { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { container } = buildFixture(3);
-  let renderCalls = 0;
-  const { controller, ctx } = makeController(container, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, controller, ctx, renderCalls } = setup(
+    circuit(3, [[gate("H", 1), gate("X", 0)]]),
+  );
 
   controller.removeQubitLineWithConfirmation(1);
   // Pre-click: model unchanged.
   assert.equal(model.qubits.length, 3);
-  assert.equal(renderCalls, 0);
+  assert.equal(renderCalls(), 0);
 
   // Simulate the user clicking OK.
   const okButton = findPromptButton("OK");
@@ -305,43 +253,25 @@ test("removeQubitLineWithConfirmation OK click cascades findAndRemoveOperations 
   // removeTrailingUnusedQubits, leaving just wire 0).
   assert.equal(model.qubits.length, 1);
   assert.equal(model.qubits[0].id, 0);
-  // Surviving op is the X on wire 0; renumbering may or may not
-  // shift its qubit index depending on removeQubit's behavior —
-  // assert only that the H is gone.
-  const remainingOps = model.componentGrid.flatMap(
-    (col) => /** @type {any[]} */ (col.components),
-  );
-  assert.equal(remainingOps.length, 1);
-  assert.equal(remainingOps[0].gate, "X");
+  // Surviving op is the X; renumbering may or may not shift its
+  // qubit index depending on removeQubit's behavior — assert only
+  // that the H is gone and the X remains.
+  expectGrid(model, [["X"]]);
 
   // wireData was spliced in step with the model removal.
   assert.equal(ctx.wireData.length, 3);
 
   // One render call from doRemove.
-  assert.equal(renderCalls, 1);
+  assert.equal(renderCalls(), 1);
 
   // Prompt was torn down after the click.
   assert.equal(document.querySelectorAll(".prompt-overlay").length, 0);
 });
 
 test("removeQubitLineWithConfirmation Cancel click leaves the model untouched and does not render", () => {
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 1 }] }],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { container } = buildFixture(2);
-  let renderCalls = 0;
-  const { controller, ctx } = makeController(container, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, controller, ctx, renderCalls } = setup(
+    circuit(2, [[gate("H", 1)]]),
+  );
 
   controller.removeQubitLineWithConfirmation(1);
 
@@ -353,13 +283,9 @@ test("removeQubitLineWithConfirmation Cancel click leaves the model untouched an
   // NOT trigger a re-render.
   assert.equal(model.qubits.length, 2);
   assert.equal(ctx.wireData.length, 3);
-  assert.equal(renderCalls, 0);
+  assert.equal(renderCalls(), 0);
   // The op on wire 1 is still in the grid.
-  const ops = model.componentGrid.flatMap(
-    (col) => /** @type {any[]} */ (col.components),
-  );
-  assert.equal(ops.length, 1);
-  assert.equal(ops[0].gate, "H");
+  expectGrid(model, [[{ H: 1 }]]);
 
   // Prompt was torn down after the click.
   assert.equal(document.querySelectorAll(".prompt-overlay").length, 0);
@@ -371,9 +297,7 @@ test("removeQubitLineWithConfirmation Cancel click leaves the model untouched an
 // ---------------------------------------------------------------------------
 
 test("mousedown on a qubit label sets selectedWire and dragging", () => {
-  const { container, labels } = buildFixture(3);
-  const model = new CircuitModel(emptyCircuit(3));
-  const { interaction } = makeController(container, model);
+  const { labels, interaction } = setup(circuit(3, []));
 
   dispatchMouseDown(labels[1]);
 
@@ -384,9 +308,7 @@ test("mousedown on a qubit label sets selectedWire and dragging", () => {
 });
 
 test("mousedown on a label spawns swap and insert-between dropzones along OTHER wires", () => {
-  const { container, labels, overlay } = buildFixture(3);
-  const model = new CircuitModel(emptyCircuit(3));
-  makeController(container, model);
+  const { labels, overlay } = setup(circuit(3, []));
 
   dispatchMouseDown(labels[1]);
 
@@ -411,26 +333,9 @@ test("mousedown on a label spawns swap and insert-between dropzones along OTHER 
 });
 
 test("mouseup on a spawned swap dropzone calls moveQubit and renderFn", () => {
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
-          { kind: "unitary", gate: "H", targets: [{ qubit: 2 }] },
-        ],
-      },
-    ],
-  };
-  const model = new CircuitModel(circuit);
-  const { container, labels, overlay } = buildFixture(3);
-  let renderCalls = 0;
-  makeController(container, model, {
-    renderFn: () => {
-      renderCalls++;
-    },
-  });
+  const { model, labels, overlay, renderCalls } = setup(
+    circuit(3, [[gate("X", 0), gate("H", 2)]]),
+  );
 
   dispatchMouseDown(labels[0]);
 
@@ -446,11 +351,6 @@ test("mouseup on a spawned swap dropzone calls moveQubit and renderFn", () => {
 
   // After the swap the H originally on wire 2 now lives on wire 0,
   // and the X originally on wire 0 now lives on wire 2.
-  const ops = model.componentGrid[0].components;
-  // Column is sorted by lowest reg → H (wire 0) first.
-  assert.equal(/** @type {any} */ (ops[0]).gate, "H");
-  assert.equal(/** @type {any} */ (ops[0]).targets[0].qubit, 0);
-  assert.equal(/** @type {any} */ (ops[1]).gate, "X");
-  assert.equal(/** @type {any} */ (ops[1]).targets[0].qubit, 2);
-  assert.equal(renderCalls, 1);
+  expectGrid(model, [[{ H: 0 }, { X: 2 }]]);
+  assert.equal(renderCalls(), 1);
 });

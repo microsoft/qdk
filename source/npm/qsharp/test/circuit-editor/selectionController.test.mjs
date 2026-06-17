@@ -101,11 +101,15 @@ function buildFixture() {
 
 /**
  * Construct a SelectionController with the minimum viable
- * `InteractionContext` and a stub `CircuitEvents`.
+ * `InteractionContext` and a stub `CircuitEvents`. Pass `wireData`
+ * (matching a multi-wire fixture) to exercise the closest-wire path.
+ *
+ * @param {HTMLElement} container
+ * @param {{ interaction?: InteractionState, wireData?: number[] }} [options]
  */
 function makeController(
-  /** @type {HTMLElement} */ container,
-  interaction = new InteractionState(),
+  container,
+  { interaction = new InteractionState(), wireData = [] } = {},
 ) {
   const ctx = {
     model: /** @type {any} */ ({}),
@@ -116,7 +120,7 @@ function makeController(
     overlayLayer: /** @type {any} */ ({}),
     dropzoneLayer: /** @type {any} */ ({}),
     ghostQubitLayer: /** @type {any} */ ({}),
-    wireData: [],
+    wireData,
     renderFn: () => {},
   };
   // Stub CircuitEvents — only used as a closure capture by
@@ -169,7 +173,7 @@ test("mousedown on a host without data-wire sets selectedWire to null", () => {
   const interaction = new InteractionState();
   // Pre-seed with a non-null value so we can see the explicit clear.
   interaction.selectedWire = 7;
-  makeController(container, interaction);
+  makeController(container, { interaction });
 
   dispatchMouseDown(orphan);
 
@@ -183,7 +187,7 @@ test("mousedown on a non-control gate does not set movingControl", () => {
   // — it only sets the flag, never clears it. (Clearing happens via
   // `resetTransient` in interactionActions.)
   interaction.movingControl = true;
-  makeController(container, interaction);
+  makeController(container, { interaction });
 
   dispatchMouseDown(gateH);
 
@@ -238,35 +242,9 @@ function buildMultiWireFixture(wireYs = [40, 100, 160]) {
 }
 
 /**
- * Make a controller with `wireData` matching the fixture so
- * `pickClosestWireIndex` can resolve the closest Y to an index.
+ * Dispatch a primary-button mousedown at a given client Y so the
+ * closest-wire resolution has a coordinate to project.
  */
-function makeControllerWithWireData(
-  /** @type {HTMLElement} */ container,
-  /** @type {number[]} */ wireData,
-) {
-  const interaction = new InteractionState();
-  const ctx = {
-    model: /** @type {any} */ ({}),
-    interaction,
-    layoutMap: /** @type {any} */ ({}),
-    container,
-    circuitSvg: container.querySelector("svg.qviz"),
-    overlayLayer: /** @type {any} */ ({}),
-    dropzoneLayer: /** @type {any} */ ({}),
-    ghostQubitLayer: /** @type {any} */ ({}),
-    wireData,
-    renderFn: () => {},
-  };
-  const stubEvents = /** @type {any} */ ({
-    componentGrid: [],
-    model: ctx.model,
-    renderFn: ctx.renderFn,
-  });
-  new SelectionController(/** @type {any} */ (ctx), stubEvents);
-  return { ctx, interaction };
-}
-
 const dispatchMouseDownAt = (
   /** @type {EventTarget} */ target,
   /** @type {number} */ clientY,
@@ -283,7 +261,9 @@ const dispatchMouseDownAt = (
 
 test("multi-wire host: click near top wire picks top wire (overrides data-wire shortcut)", () => {
   const { container, groupBody } = buildMultiWireFixture();
-  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+  const { interaction } = makeController(container, {
+    wireData: [40, 100, 160],
+  });
 
   dispatchMouseDownAt(groupBody, 42); // closest to 40
 
@@ -292,7 +272,9 @@ test("multi-wire host: click near top wire picks top wire (overrides data-wire s
 
 test("multi-wire host: click near middle wire picks middle wire", () => {
   const { container, groupBody } = buildMultiWireFixture();
-  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+  const { interaction } = makeController(container, {
+    wireData: [40, 100, 160],
+  });
 
   dispatchMouseDownAt(groupBody, 95);
 
@@ -305,7 +287,9 @@ test("multi-wire host: click near middle wire picks middle wire", () => {
 
 test("multi-wire host: click near bottom wire picks bottom wire", () => {
   const { container, groupBody } = buildMultiWireFixture();
-  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+  const { interaction } = makeController(container, {
+    wireData: [40, 100, 160],
+  });
 
   dispatchMouseDownAt(groupBody, 158);
 
@@ -314,7 +298,9 @@ test("multi-wire host: click near bottom wire picks bottom wire", () => {
 
 test("multi-wire host: click far above the span clamps to topmost wire", () => {
   const { container, groupBody } = buildMultiWireFixture();
-  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+  const { interaction } = makeController(container, {
+    wireData: [40, 100, 160],
+  });
 
   dispatchMouseDownAt(groupBody, -200);
 
@@ -323,7 +309,9 @@ test("multi-wire host: click far above the span clamps to topmost wire", () => {
 
 test("multi-wire host: click far below the span clamps to bottommost wire", () => {
   const { container, groupBody } = buildMultiWireFixture();
-  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+  const { interaction } = makeController(container, {
+    wireData: [40, 100, 160],
+  });
 
   dispatchMouseDownAt(groupBody, 1000);
 
@@ -337,7 +325,9 @@ test("multi-wire host: falls back to data-wire when getScreenCTM returns null", 
   const { container, groupBody } = buildMultiWireFixture();
   const svg = /** @type {any} */ (container.querySelector("svg.qviz"));
   svg.getScreenCTM = () => null;
-  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+  const { interaction } = makeController(container, {
+    wireData: [40, 100, 160],
+  });
 
   dispatchMouseDownAt(groupBody, 95);
 
@@ -353,7 +343,7 @@ test("multi-wire host: falls back to data-wire if closest wireY is not in wireDa
   // [200, 300] — table mismatch. pickClosestWireIndex returns -1,
   // the controller falls back to the static data-wire.
   const { container, groupBody } = buildMultiWireFixture();
-  const { interaction } = makeControllerWithWireData(container, [200, 300]);
+  const { interaction } = makeController(container, { wireData: [200, 300] });
 
   dispatchMouseDownAt(groupBody, 95);
 
@@ -378,7 +368,7 @@ test("single-wire host: closest-wire path is skipped, data-wire still wins", () 
   dot.setAttribute("data-wire", "1");
   svg.appendChild(dot);
 
-  const { interaction } = makeControllerWithWireData(container, [40, 100]);
+  const { interaction } = makeController(container, { wireData: [40, 100] });
 
   dispatchMouseDownAt(dot, -999);
 

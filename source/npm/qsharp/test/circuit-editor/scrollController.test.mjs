@@ -79,73 +79,81 @@ const move = (/** @type {number} */ clientX, /** @type {number} */ clientY) =>
 const releaseMouse = () =>
   document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 
-test("mousemove in the middle of the area does not scroll", () => {
+/**
+ * Create an InteractionState (with optional field overrides) and
+ * arm `enableAutoScroll` against the fixture's circuitSvg. Returns
+ * the interaction so tests can assert on flag state.
+ *
+ * @param {Partial<InteractionState>} [overrides]
+ */
+const arm = (overrides = {}) => {
   const interaction = new InteractionState();
+  Object.assign(interaction, overrides);
   enableAutoScroll(/** @type {SVGElement} */ (circuitSvg), interaction);
+  return interaction;
+};
+
+/** The scrollable fixture, narrowed to HTMLElement. */
+const el = () => /** @type {HTMLElement} */ (scrollable);
+
+test("mousemove in the middle of the area does not scroll", () => {
+  arm();
 
   move(200, 200); // center of the 100..300 / 100..300 rect
 
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollTop, 0);
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollLeft, 0);
+  assert.equal(el().scrollTop, 0);
+  assert.equal(el().scrollLeft, 0);
 });
 
 test("mousemove near the top edge scrolls up (negative scrollTop)", () => {
-  const interaction = new InteractionState();
-  enableAutoScroll(/** @type {SVGElement} */ (circuitSvg), interaction);
+  arm();
   // Pre-seed scrollTop so the negative delta is observable.
-  /** @type {HTMLElement} */ (scrollable).scrollTop = 100;
+  el().scrollTop = 100;
 
   // edgeThreshold = 50 → anything within 50px of top (i.e. clientY < 150).
   move(200, 120);
 
   // Scroll moved up by scrollSpeed (10).
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollTop, 90);
+  assert.equal(el().scrollTop, 90);
 });
 
 test("mousemove near the bottom edge scrolls down", () => {
-  const interaction = new InteractionState();
-  enableAutoScroll(/** @type {SVGElement} */ (circuitSvg), interaction);
+  arm();
 
   move(200, 280); // within 50px of bottom (300)
 
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollTop, 10);
+  assert.equal(el().scrollTop, 10);
 });
 
 test("mousemove near the left edge scrolls left", () => {
-  const interaction = new InteractionState();
-  enableAutoScroll(/** @type {SVGElement} */ (circuitSvg), interaction);
-  /** @type {HTMLElement} */ (scrollable).scrollLeft = 100;
+  arm();
+  el().scrollLeft = 100;
 
   move(120, 200); // within 50px of left (100)
 
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollLeft, 90);
+  assert.equal(el().scrollLeft, 90);
 });
 
 test("mousemove near the right edge scrolls right", () => {
-  const interaction = new InteractionState();
-  enableAutoScroll(/** @type {SVGElement} */ (circuitSvg), interaction);
+  arm();
 
   move(280, 200); // within 50px of right (300)
 
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollLeft, 10);
+  assert.equal(el().scrollLeft, 10);
 });
 
 test("disableLeftAutoScroll suppresses the left-edge scroll trigger", () => {
-  const interaction = new InteractionState();
-  interaction.disableLeftAutoScroll = true;
-  enableAutoScroll(/** @type {SVGElement} */ (circuitSvg), interaction);
-  /** @type {HTMLElement} */ (scrollable).scrollLeft = 100;
+  arm({ disableLeftAutoScroll: true });
+  el().scrollLeft = 100;
 
   move(120, 200); // would normally scroll left
 
   // Left-scroll suppressed by the flag.
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollLeft, 100);
+  assert.equal(el().scrollLeft, 100);
 });
 
 test("disableLeftAutoScroll is lifted once the cursor moves far enough right", () => {
-  const interaction = new InteractionState();
-  interaction.disableLeftAutoScroll = true;
-  enableAutoScroll(/** @type {SVGElement} */ (circuitSvg), interaction);
+  const interaction = arm({ disableLeftAutoScroll: true });
 
   // Threshold for lifting: clientX > leftBoundary + 3 * edgeThreshold
   // = 100 + 150 = 250. A move past that releases the flag.
@@ -155,17 +163,16 @@ test("disableLeftAutoScroll is lifted once the cursor moves far enough right", (
 });
 
 test("mouseup removes both document listeners", () => {
-  const interaction = new InteractionState();
-  enableAutoScroll(/** @type {SVGElement} */ (circuitSvg), interaction);
+  arm();
 
   // Establish that the controller was active (a move scrolls).
   move(200, 280);
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollTop, 10);
+  assert.equal(el().scrollTop, 10);
 
   releaseMouse();
 
   // After mouseup the listener is gone; subsequent moves are no-ops.
-  /** @type {HTMLElement} */ (scrollable).scrollTop = 0;
+  el().scrollTop = 0;
   move(200, 280);
-  assert.equal(/** @type {HTMLElement} */ (scrollable).scrollTop, 0);
+  assert.equal(el().scrollTop, 0);
 });
