@@ -15,7 +15,8 @@ const extensionLogLevel = "warn";
  * this; the timeout only exists to prevent a hung test from blocking the suite
  * indefinitely.
  */
-export const TEST_TIMEOUT_MS = 10 * 60 * 1000;
+// TEMPORARY: reduced from 10 minutes to 5 seconds to test timeout behavior
+export const TEST_TIMEOUT_MS = 5 * 1000;
 
 // The code for the document status diagnostic.
 const documentStatusDiagnosticCode = "Qdk.Dev.DocumentStatus";

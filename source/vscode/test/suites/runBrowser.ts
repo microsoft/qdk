@@ -27,6 +27,11 @@ export function runMochaTests(
     // suite() global is defined by mocha.
     requireTestModules();
 
+    // TEMPORARY: Add a 20-second delay to every test to verify timeout behavior
+    mocha.suite.beforeEach("slow down for timeout testing", function (done) {
+      setTimeout(done, 20000);
+    });
+
     try {
       // Run the mocha test
       mocha.run((failures) => {
