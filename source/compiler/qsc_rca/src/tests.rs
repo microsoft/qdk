@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#![allow(clippy::too_many_lines)]
-
 mod arrays;
 mod assigns;
 mod bindings;

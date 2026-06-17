@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// Test snapshots can grow large, so allow long functions here.
+#![allow(clippy::too_many_lines)]
+
 use super::{
     CompilationContext, check_callable_compute_properties, check_last_statement_compute_properties,
 };
