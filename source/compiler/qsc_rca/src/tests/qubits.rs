@@ -202,9 +202,13 @@ fn check_rca_for_operation_without_allocation_omits_qubit_allocation() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
