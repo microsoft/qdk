@@ -366,7 +366,7 @@ fn process_block(
                 //    qubits are read from memory.  This preserves the
                 //    compact block representation while producing accurate
                 //    per-iteration counts.
-                let entry = if inner.repetitions > 1 {
+                let entry = if inner.repetitions > 1.0 {
                     Some(state.clone())
                 } else {
                     None

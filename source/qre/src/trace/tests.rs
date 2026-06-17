@@ -42,7 +42,7 @@ fn test_walk_iter_simple() {
 fn test_walk_iter_with_block() {
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]);
-    let block = trace.add_block(3);
+    let block = trace.add_block(3.0);
     block.add_operation(2, vec![1], vec![]);
     trace.add_operation(3, vec![0], vec![]);
 
@@ -54,9 +54,9 @@ fn test_walk_iter_with_block() {
 fn test_walk_iter_nested_blocks() {
     let mut trace = Trace::new(3);
     trace.add_operation(1, vec![0], vec![]);
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(2, vec![1], vec![]);
-    let inner = block.add_block(3);
+    let inner = block.add_block(3.0);
     inner.add_operation(3, vec![2], vec![]);
     trace.add_operation(4, vec![0], vec![]);
 
@@ -70,15 +70,15 @@ fn test_walk_iter_nested_blocks() {
 fn test_walk_iter_count_matches_deep_iter() {
     let mut trace = Trace::new(3);
     trace.add_operation(1, vec![0], vec![]);
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(2, vec![1], vec![]);
-    let inner = block.add_block(3);
+    let inner = block.add_block(3.0);
     inner.add_operation(3, vec![2], vec![]);
     trace.add_operation(4, vec![0], vec![]);
 
     let walk_count = trace.walk_iter().count();
-    let deep_count: u64 = trace.deep_iter().map(|(_, m)| m).sum();
-    assert_eq!(walk_count as u64, deep_count);
+    let deep_count: f64 = trace.deep_iter().map(|(_, m)| m).sum();
+    assert_eq!(walk_count as f64, deep_count);
 }
 
 #[test]

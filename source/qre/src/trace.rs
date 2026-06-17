@@ -236,7 +236,7 @@ impl Trace {
     }
 
     #[must_use]
-    pub fn gate_counts(&self) -> FxHashMap<u64, u64> {
+    pub fn gate_counts(&self) -> FxHashMap<u64, f64> {
         let mut counts = FxHashMap::default();
         for (gate, mult) in self.deep_iter() {
             *counts.entry(gate.id).or_default() += mult;
@@ -670,7 +670,7 @@ impl<'a> Iterator for TraceIterator<'a> {
 
 pub struct WalkIterator<'a> {
     // Each frame: (operations slice, current index, remaining repetitions)
-    stack: Vec<(&'a [Operation], usize, u64)>,
+    stack: Vec<(&'a [Operation], usize, f64)>,
 }
 
 impl<'a> WalkIterator<'a> {
@@ -697,8 +697,8 @@ impl<'a> Iterator for WalkIterator<'a> {
                     }
                 }
             } else {
-                *remaining -= 1;
-                if *remaining > 0 {
+                *remaining -= 1.0;
+                if *remaining > 0.0 {
                     *idx = 0;
                 } else {
                     self.stack.pop();
