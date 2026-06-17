@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Code action: "Convert to integer literal to double"
+//! Code action: "Convert integer literal to double"
 //! Detects when an integer literal is passed where a double is expected and
 //! offers to add a trailing `.` to make it into a double literal.
 
@@ -45,8 +45,7 @@ pub(crate) fn int_to_double_fixes(
         });
 
     for (expected, actual, error_span) in ty_mismatches {
-        // Check if expected is Array(T) and actual is a matching primitive T.
-        // Scoped to primitives to include Qubit, exclude tuples, and provide an intelligible stopping point.
+        // Check if expected is Double and actual is Int.
         if matches!(&expected.kind, TyInfoKind::Prim(Prim::Double))
             && matches!(&actual.kind, TyInfoKind::Prim(Prim::Int))
         {
