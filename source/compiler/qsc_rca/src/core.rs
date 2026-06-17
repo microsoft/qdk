@@ -262,13 +262,21 @@ impl<'a> Analyzer<'a> {
             value_kind,
         } = &mut compute_kind
         {
+            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
+            if is_any_result(lhs_expr_ty) {
+                // The only binary operators on result types are equality and inequality. In this path, we know
+                // at least one side of the comparison is dynamic (constant or variable), so the boolean that comes
+                // from the comparison must be variable. This is the critical source of dynamic variable values
+                // in a program that operates on qubits measurements.
+                *value_kind = ValueKind::Variable;
+            }
+
             *runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(*value_kind, expr_type);
 
-            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
             if *value_kind == ValueKind::Variable
-                && matches!(lhs_expr_ty, Ty::Prim(Prim::String))
-                && expr_type == &Ty::Prim(Prim::Bool)
+                && *lhs_expr_ty == Ty::Prim(Prim::String)
+                && *expr_type == Ty::Prim(Prim::Bool)
             {
                 // Strings can only be concatenated or compared for equality, and only equality comparison
                 // can affect control flow of the program in a way that required runtime features,
@@ -748,6 +756,11 @@ impl<'a> Analyzer<'a> {
                     // runtime feature since the result of the index expression can be used in a context that requires tuple-specific runtime features.
                     dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicTuple;
                 }
+                Ty::Prim(Prim::Result) => {
+                    // If the type of the index expression is a Result, we need to add the `UseOfDynamicResult`
+                    // runtime feature since the output will need to be stored in a variable of type Result.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicResult;
+                }
                 _ => {
                     // Other dynamic content types are already handled by the `derive_runtime_features_for_value_kind_associated_to_type` function
                     // called below, so we don't need to do anything else here.
@@ -896,8 +909,9 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_string(&mut self, components: &Vec<StringComponent>) -> ComputeKind {
         // Visit the string components to determine their compute kind, aggregate its runtime features and track whether
-        // any of them is variable to construct the compute kind of the string expression itself.
+        // any of them is variable or a result to construct the compute kind of the string expression itself.
         let mut has_variable_components = false;
+        let mut has_dynamic_result = false;
         let mut compute_kind = ComputeKind::Static;
         for component in components {
             match component {
@@ -909,6 +923,8 @@ impl<'a> Analyzer<'a> {
                     compute_kind = compute_kind
                         .aggregate_runtime_features(component_compute_kind, ValueKind::Constant);
                     has_variable_components |= component_compute_kind.is_variable_value_kind();
+                    has_dynamic_result |= is_any_result(&self.get_expr(*expr_id).ty)
+                        && !matches!(component_compute_kind, ComputeKind::Static);
                 }
                 StringComponent::Lit(_) => {
                     // Nothing to aggregate.
@@ -916,8 +932,8 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        // If any of the string components is variable, then the string expression is variable as well.
-        if has_variable_components {
+        // If any of the string components is variable or contains a dynamic result, then the string expression is variable as well.
+        if has_variable_components || has_dynamic_result {
             compute_kind.set_variable_value_kind();
         }
 
@@ -2345,10 +2361,12 @@ fn derive_instrinsic_operation_application_generator_set(
 ) -> ApplicationGeneratorSet {
     assert!(matches!(callable_context.kind, CallableKind::Operation));
 
-    // The value kind of intrinsic operations is inherently dynamic if their output is not `Unit` or `Qubit`.
+    // The value kind of intrinsic operations is inherently variable if their output is not `Unit`, `Qubit`, or `Result`.
     let runtime_kind = if callable_context.output_type == Ty::UNIT
-        || callable_context.output_type == Ty::Prim(Prim::Qubit)
-    {
+        || matches!(
+            callable_context.output_type,
+            Ty::Prim(Prim::Qubit | Prim::Result)
+        ) {
         ValueKind::Constant
     } else {
         ValueKind::new_variable_from_type(&callable_context.output_type)
