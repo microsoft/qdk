@@ -11,7 +11,13 @@ import { build as esbuildBuild, context } from "esbuild";
 const thisDir = dirname(fileURLToPath(import.meta.url));
 const libsDir = join(thisDir, "..", "..", "node_modules");
 
-// ── Shared esbuild options ──────────────────────────────────────────
+// Watch builds skip minification so rebuilds stay fast and stack traces stay
+// readable during development. One-shot builds (CI and `build.py`) minify to
+// keep the shipped webview/extension bundles small. Linked source maps are
+// emitted either way, so minified output remains debuggable.
+const isWatch = process.argv.includes("--watch");
+
+// ── Shared esbuild options ──────────────────────────────────────
 
 /** @type {import("esbuild").BuildOptions} */
 const commonBuildOptions = {
@@ -20,6 +26,7 @@ const commonBuildOptions = {
   format: "cjs",
   target: ["es2022"],
   sourcemap: "linked",
+  minify: !isWatch,
 };
 
 // ── Per-platform build options ──────────────────────────────────────
@@ -290,8 +297,6 @@ export async function watchVsCode() {
 (async () => {
   const thisFilePath = resolve(fileURLToPath(import.meta.url));
   if (thisFilePath === resolve(process.argv[1])) {
-    const isWatch = process.argv.includes("--watch");
-
     if (isWatch) {
       await watchVsCode();
     } else {
