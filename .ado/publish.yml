@@ -23,7 +23,7 @@ variables:
   # CFS requires that we have a .npmrc next to each package.json.  If we set this variable, it will
   # synthesize everything it requires during the pipeline run, leaving our external contributors
   # free to continue using the default npmjs.org registry.
-  # https://eng.ms/docs/coreai/devdiv/one-engineering-system-1es/1es-docs/secure-supply-chain/central-feed-services-cfs/central-feed-services-cfs
+  # (To learn more, search eng.ms for AZURE_ARTIFACTS_FEED.)
   #
   # Caveat: the synthesized .npmrc file doesn't seem to contain the necessary token, so we'll have to
   # use the npmAuthenticate task explicitly.
