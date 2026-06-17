@@ -798,12 +798,14 @@ impl With<'_> {
             }
             ast::ExprKind::Lit(lit) => self.lower_lit(lit),
             ast::ExprKind::Parallel(expr) => {
-                hir::ExprKind::Parallel(None, Box::new(self.lower_expr(expr)))
+                let inner = self.lower_expr(expr);
+                self.lower_parallel(None, inner)
             }
-            ast::ExprKind::ParallelLimited(limit, body) => hir::ExprKind::Parallel(
-                Some(Box::new(self.lower_expr(limit))),
-                Box::new(self.lower_expr(body)),
-            ),
+            ast::ExprKind::ParallelLimited(limit, body) => {
+                let limit = self.lower_expr(limit);
+                let body = self.lower_expr(body);
+                self.lower_parallel(Some(Box::new(limit)), body)
+            }
             ast::ExprKind::Paren(_) => unreachable!("parentheses should be removed earlier"),
             ast::ExprKind::Path(PathKind::Ok(path)) => {
                 let args = self
@@ -1184,6 +1186,34 @@ impl With<'_> {
                 hir::ExprKind::String(vec![hir::StringComponent::Lit(Rc::clone(value))])
             }
         }
+    }
+
+    fn lower_parallel(&mut self, limit: Option<Box<hir::Expr>>, expr: hir::Expr) -> hir::ExprKind {
+        // We lower the target expression of `parallel` into a block if it isn't already one.
+        // This gives it a convenient scope for later transformations.
+        let expr = if matches!(expr.kind, hir::ExprKind::Block(_)) {
+            expr
+        } else {
+            let ty = expr.ty.clone();
+            let stmt = hir::Stmt {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                kind: hir::StmtKind::Expr(expr),
+            };
+            let block = hir::Block {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                ty: ty.clone(),
+                stmts: vec![stmt],
+            };
+            hir::Expr {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                ty,
+                kind: hir::ExprKind::Block(block),
+            }
+        };
+        hir::ExprKind::Parallel(limit, Box::new(expr))
     }
 }
 
