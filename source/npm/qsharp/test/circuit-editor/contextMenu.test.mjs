@@ -17,8 +17,9 @@
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { CircuitModel } from "../../dist/ux/circuit-vis/data/circuitModel.js";
 import { addContextMenuToHostElem } from "../../dist/ux/circuit-vis/editor/contextMenu.js";
+import { build, circuit, gate, meas, qubits } from "./_helpers.mjs";
+/** @typedef {import("../../dist/ux/circuit-vis/data/circuitModel.js").CircuitModel} CircuitModel */
 
 /** @type {JSDOM | null} */
 let jsdom = null;
@@ -133,21 +134,7 @@ function getMenuLabels() {
 test("addContextMenuToHostElem: measurement gate shows ONLY Delete", () => {
   // Measurements have no adjoint, controls, or params. The kind ===
   // "measurement" branch offers only delete.
-  const model = new CircuitModel({
-    qubits: [{ id: 0, numResults: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "measurement",
-            gate: "Measure",
-            qubits: [{ qubit: 0 }],
-            results: [{ qubit: 0, result: 0 }],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(circuit(qubits(1, { 0: 1 }), [[meas(0)]]));
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -160,20 +147,9 @@ test("addContextMenuToHostElem: measurement gate shows ONLY Delete", () => {
 test("addContextMenuToHostElem: ket gate shows ONLY Delete", () => {
   // Kets are treated like measurements for menu purposes — no
   // controls, params, or adjoint.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "ket",
-            gate: "|0〉",
-            targets: [{ qubit: 0 }],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(
+    circuit(1, [[{ kind: "ket", gate: "|0〉", targets: [{ qubit: 0 }] }]]),
+  );
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -191,21 +167,7 @@ test("addContextMenuToHostElem: control-dot on a SIMPLE unitary shows ONLY Remov
   // Right-clicking the control dot of an ordinary CNOT offers only
   // "Remove control"; gestures affecting the whole gate are reached
   // from the gate body.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0 }],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(circuit(2, [[gate("X", 1, { ctrls: [0] })]]));
   const { stub } = makeStubEvents(model);
   // Host is the control dot on wire 0. The wrapper's
   // `data-location` points at the gate's grid coords ("0,0"); the
@@ -223,21 +185,18 @@ test("addContextMenuToHostElem: control-dot on a MULTI-TARGET unitary shows NO m
   // `_isMultiTargetOrGroup` mirrors the action layer's refusal —
   // no items appended, no fallback to body-style items. The menu
   // element is created but empty.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "MyMultiTarget",
-            targets: [{ qubit: 1 }, { qubit: 2 }],
-            controls: [{ qubit: 0 }],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(
+    circuit(3, [
+      [
+        {
+          kind: "unitary",
+          gate: "MyMultiTarget",
+          targets: [{ qubit: 1 }, { qubit: 2 }],
+          controls: [{ qubit: 0 }],
+        },
+      ],
+    ]),
+  );
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "control-dot", 0);
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -260,14 +219,7 @@ test("addContextMenuToHostElem: X gate WITHOUT controls shows [Add Control, Dele
   // X is special-cased: no Toggle Adjoint (X† == X) and no Edit
   // Argument (no params). Order is "Add Control, [Remove Control,]
   // Delete".
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "X", targets: [{ qubit: 0 }] }],
-      },
-    ],
-  });
+  const model = build(circuit(1, [[gate("X", 0)]]));
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -280,21 +232,7 @@ test("addContextMenuToHostElem: X gate WITHOUT controls shows [Add Control, Dele
 test("addContextMenuToHostElem: X gate WITH controls shows [Add Control, Remove Control, Delete]", () => {
   // Same X branch with an existing control — Remove Control is
   // inserted between Add Control and Delete.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0 }],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(circuit(2, [[gate("X", 1, { ctrls: [0] })]]));
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -316,20 +254,17 @@ test("addContextMenuToHostElem: multi-target unitary drops Add/Remove Control", 
   // Any non-X unitary with `targets.length > 1` must not surface
   // control authoring. The body still gets Toggle Adjoint (not a
   // group) and Delete.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "SWAP",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(
+    circuit(2, [
+      [
+        {
+          kind: "unitary",
+          gate: "SWAP",
+          targets: [{ qubit: 0 }, { qubit: 1 }],
+        },
+      ],
+    ]),
+  );
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -348,27 +283,24 @@ test("addContextMenuToHostElem: group drops Toggle Adjoint", () => {
   // Groups also satisfy `_isMultiTargetOrGroup`, so control
   // authoring is suppressed too. Net menu for a param-less group:
   // just Delete.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "MyGroup",
-            targets: [{ qubit: 0 }],
-            children: [
-              {
-                components: [
-                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(
+    circuit(1, [
+      [
+        {
+          kind: "unitary",
+          gate: "MyGroup",
+          targets: [{ qubit: 0 }],
+          children: [
+            {
+              components: [
+                { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+              ],
+            },
+          ],
+        },
+      ],
+    ]),
+  );
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -385,22 +317,19 @@ test("addContextMenuToHostElem: group drops Toggle Adjoint", () => {
 test("addContextMenuToHostElem: ordinary unitary with params shows [Toggle Adjoint, Add Control, Edit Argument, Delete]", () => {
   // General-case body menu without controls. Edit Argument only
   // appears when `params.length > 0`.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Rx",
-            targets: [{ qubit: 0 }],
-            params: [{ name: "theta", type: "Double" }],
-            args: ["0.0"],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(
+    circuit(1, [
+      [
+        {
+          kind: "unitary",
+          gate: "Rx",
+          targets: [{ qubit: 0 }],
+          params: [{ name: "theta", type: "Double" }],
+          args: ["0.0"],
+        },
+      ],
+    ]),
+  );
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -418,23 +347,20 @@ test("addContextMenuToHostElem: ordinary unitary with params shows [Toggle Adjoi
 test("addContextMenuToHostElem: ordinary unitary with controls + params shows the full menu including Remove Control", () => {
   // Adds an existing control to the prior fixture: Remove Control
   // appears between Add Control and Edit Argument.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Ry",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0 }],
-            params: [{ name: "theta", type: "Double" }],
-            args: ["0.0"],
-          },
-        ],
-      },
-    ],
-  });
+  const model = build(
+    circuit(2, [
+      [
+        {
+          kind: "unitary",
+          gate: "Ry",
+          targets: [{ qubit: 1 }],
+          controls: [{ qubit: 0 }],
+          params: [{ name: "theta", type: "Double" }],
+          args: ["0.0"],
+        },
+      ],
+    ]),
+  );
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -458,14 +384,7 @@ test("addContextMenuToHostElem: opening a second time replaces the first menu (n
   // The builder removes any existing `.context-menu` before
   // appending the new one, so a double right-click doesn't stack
   // menus.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
-      },
-    ],
-  });
+  const model = build(circuit(1, [[gate("H", 0)]]));
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -485,14 +404,7 @@ test("addContextMenuToHostElem: outside-click closes the menu", () => {
   // `{ once: true }` and removes the menu on the next click anywhere
   // in the page — the same path that closes the menu after the user
   // picks an item.
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
-      },
-    ],
-  });
+  const model = build(circuit(1, [[gate("H", 0)]]));
   const { stub } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);
@@ -513,15 +425,8 @@ test("addContextMenuToHostElem: outside-click closes the menu", () => {
 test("addContextMenuToHostElem: clicking Add Control invokes _startAddingControl with the selected op", () => {
   // The Add Control item's click handler calls
   // `circuitEvents._startAddingControl(selectedOperation)`.
-  const op = {
-    kind: "unitary",
-    gate: "H",
-    targets: [{ qubit: 0 }],
-  };
-  const model = new CircuitModel({
-    qubits: [{ id: 0 }],
-    componentGrid: [{ components: [/** @type {any} */ (op)] }],
-  });
+  const op = { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] };
+  const model = build(circuit(1, [[/** @type {any} */ (op)]]));
   const { stub, startAddingCalls } = makeStubEvents(model);
   const { host } = buildGateFixture("0,0", "body");
   addContextMenuToHostElem(/** @type {any} */ (stub), host);

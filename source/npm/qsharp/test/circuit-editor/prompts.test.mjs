@@ -63,18 +63,46 @@ function getPrompt() {
   };
 }
 
+/**
+ * Open a confirm prompt over the current document and return a handle
+ * to the located DOM parts plus two accessors:
+ *   - `result()`    — the value the callback last received (null until fired)
+ *   - `callCount()` — how many times the callback has fired
+ */
+function openPrompt(message = "ok?") {
+  /** @type {boolean | null} */
+  let captured = null;
+  let callCount = 0;
+  _createConfirmPrompt(message, (c) => {
+    captured = c;
+    callCount++;
+  });
+  const parts = getPrompt();
+  assert.ok(parts, "prompt overlay should be open after _createConfirmPrompt");
+  return { ...parts, result: () => captured, callCount: () => callCount };
+}
+
+/** Dispatch a document-level keydown — the path the prompt listens on. */
+function pressKey(/** @type {string} */ key) {
+  document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+}
+
+/** Assert the prompt overlay has been removed from the DOM. */
+function assertPromptClosed(label = "prompt overlay must be removed") {
+  assert.equal(document.querySelector(".prompt-overlay"), null, label);
+}
+
+/** Assert the prompt overlay is still present in the DOM. */
+function assertPromptOpen(label = "prompt overlay must still be open") {
+  assert.ok(document.querySelector(".prompt-overlay"), label);
+}
+
 test("_createConfirmPrompt: builds the expected DOM subtree under document.body", () => {
   // Pinning the DOM shape because both the host page's CSS and
   // the operationPrompts tests rely on these specific class names
   // and the button ordering (OK first, Cancel second).
-  /** @type {boolean | null} */
-  let captured = null;
-  _createConfirmPrompt("Confirm something?", (c) => {
-    captured = c;
-  });
+  const p = openPrompt("Confirm something?");
 
-  const p = getPrompt();
-  assert.ok(p, "overlay should be appended to document.body");
   assert.equal(p.overlay.parentNode, document.body);
   assert.ok(p.container, "container should exist inside overlay");
   assert.equal(
@@ -85,86 +113,42 @@ test("_createConfirmPrompt: builds the expected DOM subtree under document.body"
   assert.equal(p.okButton.textContent, "OK");
   assert.equal(p.cancelButton.textContent, "Cancel");
   // Callback shouldn't have fired yet — just the construction.
-  assert.equal(captured, null);
+  assert.equal(p.result(), null);
 });
 
 test("_createConfirmPrompt: OK button click fires callback(true) and removes the overlay", () => {
-  /** @type {boolean | null} */
-  let captured = null;
-  _createConfirmPrompt("ok?", (c) => {
-    captured = c;
-  });
-
-  const p = getPrompt();
-  assert.ok(p);
+  const p = openPrompt();
   p.okButton.click();
 
-  assert.equal(captured, true, "OK click must pass true to callback");
-  assert.equal(
-    document.querySelector(".prompt-overlay"),
-    null,
-    "overlay must be removed from the DOM after OK",
-  );
+  assert.equal(p.result(), true, "OK click must pass true to callback");
+  assertPromptClosed("overlay must be removed from the DOM after OK");
 });
 
 test("_createConfirmPrompt: Cancel button click fires callback(false) and removes the overlay", () => {
-  /** @type {boolean | null} */
-  let captured = null;
-  _createConfirmPrompt("ok?", (c) => {
-    captured = c;
-  });
-
-  const p = getPrompt();
-  assert.ok(p);
+  const p = openPrompt();
   p.cancelButton.click();
 
-  assert.equal(captured, false, "Cancel click must pass false to callback");
-  assert.equal(
-    document.querySelector(".prompt-overlay"),
-    null,
-    "overlay must be removed from the DOM after Cancel",
-  );
+  assert.equal(p.result(), false, "Cancel click must pass false to callback");
+  assertPromptClosed("overlay must be removed from the DOM after Cancel");
 });
 
 test("_createConfirmPrompt: Enter key commits as if OK was clicked", () => {
   // The document-level keydown listener is registered in capture
   // phase, so dispatching a `keydown` from `document` directly
   // exercises the same path real key events take in the browser.
-  /** @type {boolean | null} */
-  let captured = null;
-  _createConfirmPrompt("ok?", (c) => {
-    captured = c;
-  });
+  const p = openPrompt();
+  pressKey("Enter");
 
-  document.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-  );
-
-  assert.equal(captured, true, "Enter must commit (callback(true))");
-  assert.equal(
-    document.querySelector(".prompt-overlay"),
-    null,
-    "Enter must close the prompt",
-  );
+  assert.equal(p.result(), true, "Enter must commit (callback(true))");
+  assertPromptClosed("Enter must close the prompt");
 });
 
 test("_createConfirmPrompt: Escape key cancels as if Cancel was clicked", () => {
-  /** @type {boolean | null} */
-  let captured = null;
-  _createConfirmPrompt("ok?", (c) => {
-    captured = c;
-  });
+  const p = openPrompt();
+  pressKey("Escape");
 
-  document.dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-  );
-
-  assert.equal(captured, false, "Escape must cancel (callback(false))");
-  assert.equal(
-    document.querySelector(".prompt-overlay"),
-    null,
-    "Escape must close the prompt",
-  );
+  assert.equal(p.result(), false, "Escape must cancel (callback(false))");
+  assertPromptClosed("Escape must close the prompt");
 });
 
 test("_createConfirmPrompt: keydown listener is removed after close — subsequent keys do not fire callback again", () => {
@@ -175,21 +159,18 @@ test("_createConfirmPrompt: keydown listener is removed after close — subseque
   // opened. The implementation uses `removeEventListener` with
   // matching capture flag inside both click handlers; here we
   // pin that contract.
-  let callCount = 0;
-  _createConfirmPrompt("ok?", () => {
-    callCount++;
-  });
+  const p = openPrompt();
 
   // First Enter → OK → callback fires once, prompt closes.
-  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
-  assert.equal(callCount, 1);
-  assert.equal(document.querySelector(".prompt-overlay"), null);
+  pressKey("Enter");
+  assert.equal(p.callCount(), 1);
+  assertPromptClosed();
 
   // Subsequent Enter must NOT fire the now-closed prompt's
   // callback again.
-  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+  pressKey("Enter");
   assert.equal(
-    callCount,
+    p.callCount(),
     1,
     "callback must NOT fire after the prompt is closed",
   );
@@ -199,23 +180,16 @@ test("_createConfirmPrompt: keys other than Enter/Escape are ignored", () => {
   // Defense-in-depth: typing inside the prompt (e.g. someone
   // accidentally hitting a letter key) must not close it. Only
   // Enter and Escape are honored.
-  /** @type {boolean | null} */
-  let captured = null;
-  _createConfirmPrompt("ok?", (c) => {
-    captured = c;
-  });
+  const p = openPrompt();
 
-  document.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
-  document.dispatchEvent(new KeyboardEvent("keydown", { key: " " }));
-  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+  pressKey("a");
+  pressKey(" ");
+  pressKey("Tab");
 
   assert.equal(
-    captured,
+    p.result(),
     null,
     "callback must not fire for non-Enter/Escape keys",
   );
-  assert.ok(
-    document.querySelector(".prompt-overlay"),
-    "prompt must still be open after stray keypresses",
-  );
+  assertPromptOpen("prompt must still be open after stray keypresses");
 });
