@@ -10,7 +10,7 @@ mod tests;
 
 use qsc::{
     Span,
-    ast::{self, Expr, ExprKind},
+    ast::{self, Expr, ExprKind, UnOp},
     compile::{ErrorKind, TyInfoKind},
     hir::ty::Prim,
     line_column::Encoding,
@@ -54,8 +54,12 @@ pub(crate) fn int_to_double_fixes(
                 continue;
             };
 
-            if !matches!(expr.kind.as_ref(), ExprKind::Lit(_)) {
-                continue;
+            match expr.kind.as_ref() {
+                ExprKind::Lit(_) => (),
+                ExprKind::UnOp(un_op, expr)
+                    if (matches!(un_op, UnOp::Pos) || matches!(un_op, UnOp::Neg))
+                        && matches!(expr.kind.as_ref(), ExprKind::Lit(_)) => {}
+                _ => continue,
             }
 
             // Generate the fix: add a trailing `.`

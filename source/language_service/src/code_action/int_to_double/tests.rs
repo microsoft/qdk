@@ -7,6 +7,13 @@ use crate::{
 };
 use qsc::{line_column::Encoding, location::Location};
 
+fn expect_single<T: std::fmt::Debug>(items: &[T]) -> &T {
+    let [item] = items else {
+        panic!("expected a single item, got: {items:?}");
+    };
+    item
+}
+
 fn get_int_to_double_actions(source: &str) -> (Vec<Location>, Vec<crate::protocol::CodeAction>) {
     let (compilation, targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], false);
@@ -30,14 +37,13 @@ fn int_literal_to_double() {
 }
 ";
     let (locations, actions) = get_int_to_double_actions(source);
-    assert_eq!(actions.len(), 1, "Expected 1 action, got: {actions:?}");
-    let action = &actions[0];
+    let action = expect_single(&actions);
     let edit = action.edit.as_ref().expect("expected edit");
-    assert_eq!(edit.changes.len(), 1);
-    let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), locations.len());
-    assert_eq!(text_edits[0].range, locations[0].range);
-    assert_eq!(text_edits[0].new_text, ".");
+    let (_, text_edits) = expect_single(&edit.changes);
+    let text_edit = expect_single(text_edits);
+    let location = expect_single(&locations);
+    assert_eq!(text_edit.range, location.range);
+    assert_eq!(text_edit.new_text, ".");
 }
 
 #[test]
@@ -49,14 +55,61 @@ fn int_literal_to_double_with_parens() {
 }
 ";
     let (locations, actions) = get_int_to_double_actions(source);
-    assert_eq!(actions.len(), 1, "Expected 1 action, got: {actions:?}");
-    let action = &actions[0];
+    let action = expect_single(&actions);
     let edit = action.edit.as_ref().expect("expected edit");
-    assert_eq!(edit.changes.len(), 1);
-    let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), locations.len());
-    assert_eq!(text_edits[0].range, locations[0].range);
-    assert_eq!(text_edits[0].new_text, ".");
+    let (_, text_edits) = expect_single(&edit.changes);
+    let text_edit = expect_single(text_edits);
+    let location = expect_single(&locations);
+    assert_eq!(text_edit.range, location.range);
+    assert_eq!(text_edit.new_text, ".");
+}
+
+#[test]
+fn int_literal_to_double_with_pos() {
+    let source = "namespace A {
+    function Foo(d: Double) : Unit {
+        Foo((+1◉◉));
+    }
+}
+";
+    let (locations, actions) = get_int_to_double_actions(source);
+    let action = expect_single(&actions);
+    let edit = action.edit.as_ref().expect("expected edit");
+    let (_, text_edits) = expect_single(&edit.changes);
+    let text_edit = expect_single(text_edits);
+    let location = expect_single(&locations);
+    assert_eq!(text_edit.range, location.range);
+    assert_eq!(text_edit.new_text, ".");
+}
+
+#[test]
+fn int_literal_to_double_with_neg() {
+    let source = "namespace A {
+    function Foo(d: Double) : Unit {
+        Foo((-1◉◉));
+    }
+}
+";
+    let (locations, actions) = get_int_to_double_actions(source);
+    let action = expect_single(&actions);
+    let edit = action.edit.as_ref().expect("expected edit");
+    let (_, text_edits) = expect_single(&edit.changes);
+    let text_edit = expect_single(text_edits);
+    let location = expect_single(&locations);
+    assert_eq!(text_edit.range, location.range);
+    assert_eq!(text_edit.new_text, ".");
+}
+
+#[test]
+fn int_literal_to_double_with_notb() {
+    let source = "namespace A {
+    function Foo(d: Double) : Unit {
+        Foo((~~~1◉◉));
+    }
+}
+";
+    let (_, actions) = get_int_to_double_actions(source);
+    assert_eq!(actions.len(), 0, "Expected 0 actions, got: {actions:?}");
 }
 
 #[test]
