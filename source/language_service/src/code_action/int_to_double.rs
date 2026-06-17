@@ -50,16 +50,23 @@ pub(crate) fn int_to_double_fixes(
             && matches!(&actual.kind, TyInfoKind::Prim(Prim::Int))
         {
             // Confirm that it's a literal and not just some expression of type int
-            let Some(expr) = find_expr_at(package, error_span) else {
+            let Some(mut expr) = find_expr_at(package, error_span) else {
                 continue;
             };
 
-            match expr.kind.as_ref() {
-                ExprKind::Lit(_) => (),
-                ExprKind::UnOp(un_op, expr)
-                    if (matches!(un_op, UnOp::Pos) || matches!(un_op, UnOp::Neg))
-                        && matches!(expr.kind.as_ref(), ExprKind::Lit(_)) => {}
-                _ => continue,
+            // Strip off any + or - unary operators
+            loop {
+                if let ExprKind::UnOp(un_op, expr2) = expr.kind.as_ref()
+                    && (matches!(un_op, UnOp::Pos) || matches!(un_op, UnOp::Neg))
+                {
+                    expr = expr2;
+                } else {
+                    break;
+                }
+            }
+
+            if !matches!(expr.kind.as_ref(), ExprKind::Lit(_)) {
+                continue;
             }
 
             // Generate the fix: add a trailing `.`
