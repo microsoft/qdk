@@ -455,13 +455,13 @@ extends:
                   # Windows arm64
                   - script: |
                       python build.py --qdk --no-check-prereqs --no-integration-tests --no-optional-dependencies
-                    displayName: Build Platform-Dependent Py Packages
+                    displayName: Build Platform-Dependent Py Packages (Windows ARM64)
                     condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
                   # every other platform
                   - script: |
                       python build.py --qdk --no-check-prereqs --integration-tests
-                    displayName: Build Platform-Dependent Py Packages
+                    displayName: Build Platform-Dependent Py Packages (Other)
                     condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
                   - script: |
