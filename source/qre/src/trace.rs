@@ -389,10 +389,8 @@ impl Trace {
 
             // The number of rounds for the memory qubits to stay alive with
             // respect to the total runtime of the algorithm.
-            let rounds = (result
-                .runtime()
-                / memory.expect_time(Some(memory_qubits)) as f64)
-                .ceil() as u64;
+            let rounds =
+                (result.runtime() / memory.expect_time(Some(memory_qubits)) as f64).ceil() as u64;
 
             let actual_error =
                 result.add_error(rounds as f64 * memory.expect_error_rate(Some(memory_qubits)));
