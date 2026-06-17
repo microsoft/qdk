@@ -357,7 +357,7 @@ export class QSharpWebViewPanel {
       <link rel="stylesheet" href="${githubCss}" />
       <link rel="stylesheet" href="${katexCss}" />
       <link rel="stylesheet" href="${webviewCss}" />
-      <script src="${webviewJs}"></script>
+      <script type="module" src="${webviewJs}"></script>
       <script>
         window.resourcesUri = "${resourcesUri.toString()}";
       </script>

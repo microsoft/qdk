@@ -32,10 +32,28 @@ const platformBuildOptions = {
     outbase: join(thisDir, "src"),
     outdir: join(thisDir, "out"),
     entryPoints: [
-      join(thisDir, "src", "webview/webview.tsx"),
       join(thisDir, "src", "webview/editor.tsx"),
       join(thisDir, "src", "learning/webview/webview-client.tsx"),
     ],
+    define: {
+      "import.meta.url": "undefined",
+      __PLATFORM__: JSON.stringify("browser"),
+    },
+    // plugins added at build time (needs inlineStateComputeWorkerPlugin)
+  },
+  // The main webview bundle is built as ESM with code splitting enabled so
+  // that heavy, rarely-used dependencies (e.g. three.js used only by the
+  // Bloch sphere) are emitted as separate chunks that are loaded on demand
+  // via dynamic import(), rather than bloating the shared webview.js.
+  webview: {
+    ...commonBuildOptions,
+    format: "esm",
+    splitting: true,
+    platform: "browser",
+    outbase: join(thisDir, "src"),
+    outdir: join(thisDir, "out"),
+    chunkNames: "webview/chunks/[name]-[hash]",
+    entryPoints: [join(thisDir, "src", "webview/webview.tsx")],
     define: {
       "import.meta.url": "undefined",
       __PLATFORM__: JSON.stringify("browser"),
@@ -209,8 +227,8 @@ async function buildPlatform(platform) {
   const options = platformBuildOptions[platform];
   if (!options) throw new Error(`Invalid platform: ${platform}`);
 
-  // UI build needs the inline worker plugin
-  if (platform === "ui") {
+  // UI builds need the inline worker plugin
+  if (platform === "ui" || platform === "webview") {
     options.plugins = [inlineStateComputeWorkerPlugin];
   }
 
@@ -282,6 +300,7 @@ export async function watchVsCode() {
 
       await Promise.all([
         buildPlatform("ui"),
+        buildPlatform("webview"),
         buildPlatform("browser"),
         buildPlatform("node"),
         buildPlatform("node-worker"),

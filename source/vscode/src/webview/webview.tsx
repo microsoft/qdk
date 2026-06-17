@@ -6,12 +6,12 @@
 const vscodeApi = acquireVsCodeApi();
 
 import { render } from "preact";
+import { lazy, Suspense } from "preact/compat";
 import {
   CircuitPanel,
   CircuitProps,
   EstimatesPanel,
   Histogram,
-  BlochSphere,
   setRenderer,
   detectThemeChange,
   updateStyleSheetTheme,
@@ -20,6 +20,13 @@ import {
 import { HelpPage } from "./help";
 import { DocumentationView, IDocFile } from "./docview";
 import "./webview.css";
+
+// The Bloch sphere pulls in three.js, which is large and only needed when a
+// Bloch sphere view is actually opened. Load it lazily via a dynamic import so
+// esbuild emits it (and three.js) as a separate chunk kept out of webview.js.
+const BlochSphere = lazy(() =>
+  import("qsharp-lang/ux/bloch").then((m) => ({ default: m.BlochSphere })),
+);
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - there are no types for this
@@ -234,7 +241,11 @@ function App({ state }: { state: State }) {
     case "help":
       return <HelpPage />;
     case "bloch":
-      return <BlochSphere />;
+      return (
+        <Suspense fallback={<div>Loading...</div>}>
+          <BlochSphere />
+        </Suspense>
+      );
     case "documentation":
       // Ideally we'd have this on all web views, but it makes the font a little
       // too large in the others right now. Something to unify later.

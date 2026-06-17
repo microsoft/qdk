@@ -49,7 +49,8 @@ import {
 // Set up the Markdown renderer with KaTeX support
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
-import { setRenderer, BlochSphere } from "qsharp-lang/ux";
+import { setRenderer } from "qsharp-lang/ux";
+import { BlochSphere } from "qsharp-lang/ux/bloch";
 
 const md = markdownIt("commonmark");
 md.use((mk as any).default, {
