@@ -5,17 +5,20 @@ use crate::{
     code_action,
     test_utils::{compile_project_with_markers_no_cursor, whole_document_range},
 };
-use qsc::line_column::Encoding;
+use qsc::{line_column::Encoding, location::Location};
 
-fn get_wrap_in_array_actions(source: &str) -> Vec<crate::protocol::CodeAction> {
-    let (compilation, _targets) =
+fn get_wrap_in_array_actions(source: &str) -> (Vec<Location>, Vec<crate::protocol::CodeAction>) {
+    let (compilation, targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], false);
     let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
-    actions
-        .into_iter()
-        .filter(|a| a.title == "Convert to single-element array")
-        .collect()
+    (
+        targets,
+        actions
+            .into_iter()
+            .filter(|a| a.title == "Convert to single-element array")
+            .collect(),
+    )
 }
 
 #[test]
@@ -23,18 +26,20 @@ fn single_arg_qubit_to_qubit_array() {
     let source = "namespace A {
     operation Foo(qs: Qubit[]) : Unit is Adj {
         use q = Qubit();
-        Foo(q);
+        Foo(◉◉q◉◉);
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (locations, actions) = get_wrap_in_array_actions(source);
     assert_eq!(actions.len(), 1, "Expected 1 action, got: {actions:?}");
     let action = &actions[0];
     let edit = action.edit.as_ref().expect("expected edit");
     let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), 2);
+    assert_eq!(text_edits.len(), locations.len());
     assert_eq!(text_edits[0].new_text, "[");
+    assert_eq!(text_edits[0].range, locations[0].range);
     assert_eq!(text_edits[1].new_text, "]");
+    assert_eq!(text_edits[1].range, locations[1].range);
 }
 
 #[test]
@@ -42,18 +47,20 @@ fn multi_arg_second_param_is_array() {
     let source = "namespace A {
     operation Bar(x: Int, qs: Qubit[]) : Unit {
         use q = Qubit();
-        Bar(1, q);
+        Bar(1, ◉◉q◉◉);
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (locations, actions) = get_wrap_in_array_actions(source);
     assert_eq!(actions.len(), 1, "Expected 1 action, got: {actions:?}");
     let action = &actions[0];
     let edit = action.edit.as_ref().expect("expected edit");
     let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), 2);
+    assert_eq!(text_edits.len(), locations.len());
     assert_eq!(text_edits[0].new_text, "[");
+    assert_eq!(text_edits[0].range, locations[0].range);
     assert_eq!(text_edits[1].new_text, "]");
+    assert_eq!(text_edits[1].range, locations[1].range);
 }
 
 #[test]
@@ -65,7 +72,7 @@ fn no_action_when_types_already_match() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
@@ -79,7 +86,7 @@ fn no_action_for_unrelated_mismatch() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
@@ -94,7 +101,7 @@ fn no_action_for_tuple_to_tuple_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
@@ -109,7 +116,7 @@ fn no_action_for_array_to_nested_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
@@ -124,7 +131,7 @@ fn no_action_for_arrow_to_arrow_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
@@ -138,7 +145,7 @@ fn no_action_for_param_to_param_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
@@ -153,6 +160,6 @@ fn no_action_for_udt_to_udt_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
