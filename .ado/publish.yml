@@ -20,6 +20,14 @@ schedules:
 variables:
   CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN_VERSION: "1.95"
+  # CFS requires that we have a .npmrc next to each package.json.  If we set this variable, it will
+  # synthesize everything it requires during the pipeline run, leaving our external contributors
+  # free to continue using the default npmjs.org registry.
+  # https://eng.ms/docs/coreai/devdiv/one-engineering-system-1es/1es-docs/secure-supply-chain/central-feed-services-cfs/central-feed-services-cfs
+  #
+  # Caveat: the synthesized .npmrc file doesn't seem to contain the necessary token, so we'll have to
+  # use the npmAuthenticate task explicitly.
+  AZURE_ARTIFACTS_FEED: https://pkgs.dev.azure.com/ms-azurequantum/AzureQuantum/_packaging/azure-quantum/npm/registry/
 
 resources:
   repositories:
@@ -125,6 +133,11 @@ extends:
                 inputs:
                   version: "22.x"
 
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: .npmrc
+
               - script: |
                   python ./prereqs.py --install && python ./version.py
                 displayName: Install Prereqs and set version
@@ -177,6 +190,11 @@ extends:
               - task: UseNode@1
                 inputs:
                   version: "22.x"
+
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: .npmrc
 
               - script: |
                   python ./prereqs.py --install && python ./version.py
