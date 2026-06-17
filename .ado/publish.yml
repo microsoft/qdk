@@ -453,8 +453,10 @@ extends:
                     displayName: Set version
 
                   # Windows arm64
+                  # Skip checking because that would force npm install, which won't work properly until UseNode supports arm64
+                  # https://github.com/microsoft/azure-pipelines-tasks/issues/21743
                   - script: |
-                      python build.py --qdk --no-check-prereqs --no-integration-tests --no-optional-dependencies
+                      python build.py --qdk --no-check --no-check-prereqs --no-integration-tests --no-optional-dependencies
                     displayName: Build Platform-Dependent Py Packages (Windows ARM64)
                     condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
