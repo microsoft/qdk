@@ -342,223 +342,285 @@ impl<'noise> Compiler<'noise> {
 
         match instruction.name.as_str() {
             // Pauli Gates
-            "I" | "X" | "Y" | "Z" => self.compile_pauli_gate(instruction),
+            "I" => (),
+            "X" | "Y" | "Z" => self.emit_single(instruction, &instruction.name.to_lowercase()),
 
             // Single Qubit Clifford Gates
-            "C_NXYZ" | "C_NZYX" | "C_XNYZ" | "C_XYNZ" | "C_XYZ" | "C_ZNYX" | "C_ZYNX" | "C_ZYX"
-            | "H" | "H_NXY" | "H_NXZ" | "H_NYZ" | "H_XY" | "H_XZ" | "H_YZ" | "S" | "SQRT_X"
-            | "SQRT_X_DAG" | "SQRT_Y" | "SQRT_Y_DAG" | "SQRT_Z" | "SQRT_Z_DAG" | "S_DAG" => {
-                self.compile_single_qubit_clifford_gate(instruction)
+            "H" => self.emit_single(instruction, &instruction.name.to_lowercase()),
+            "S" | "SQRT_Z" => self.emit_single(instruction, "s"),
+            "S_DAG" | "SQRT_Z_DAG" => self.emit_single_adj(instruction, "s"),
+            "SQRT_X" => self.emit_single(instruction, "sx"),
+            "SQRT_X_DAG" => {
+                self.emit_single(instruction, "s");
+                self.emit_single(instruction, "h");
+                self.emit_single(instruction, "s");
+            }
+            "SQRT_Y" => {
+                self.emit_single(instruction, "s");
+                self.emit_single(instruction, "s");
+                self.emit_single(instruction, "h");
+            }
+            "SQRT_Y_DAG" => {
+                self.emit_single(instruction, "h");
+                self.emit_single(instruction, "s");
+                self.emit_single(instruction, "s");
             }
 
             // Two Qubit Clifford Gates
-            "CNOT" | "CX" | "CXSWAP" | "CY" | "CZ" | "CZSWAP" | "II" | "ISWAP" | "ISWAP_DAG"
-            | "SQRT_XX" | "SQRT_XX_DAG" | "SQRT_YY" | "SQRT_YY_DAG" | "SQRT_ZZ" | "SQRT_ZZ_DAG"
-            | "SWAP" | "SWAPCX" | "SWAPCZ" | "XCX" | "XCY" | "XCZ" | "YCX" | "YCY" | "YCZ"
-            | "ZCX" | "ZCY" | "ZCZ" => self.compile_two_qubit_clifford_gate(instruction),
+            "II" => (),
+            "CX" | "CY" | "CZ" | "SWAP" => {
+                self.emit_pair(instruction, &instruction.name.to_lowercase())
+            }
 
             // Noise Channels
-            "CORRELATED_ERROR"
-            | "DEPOLARIZE1"
-            | "DEPOLARIZE2"
-            | "E"
-            | "ELSE_CORRELATED_ERROR"
-            | "HERALDED_ERASE"
-            | "HERALDED_PAULI_CHANNEL_1"
-            | "II_ERROR"
-            | "I_ERROR"
-            | "PAULI_CHANNEL_1"
-            | "PAULI_CHANNEL_2"
-            | "X_ERROR"
-            | "Y_ERROR"
-            | "Z_ERROR"
-            | "LOSS_ERROR" => self.compile_noise_channel(instruction),
+            "CORRELATED_ERROR" | "ELSE_CORRELATED_ERROR" => {
+                self.accumulate_correlated_error(instruction)
+            }
+
+            "X_ERROR" | "Y_ERROR" | "Z_ERROR" | "LOSS_ERROR" => {
+                self.compile_fault_error(instruction)
+            }
+
+            "DEPOLARIZE1" => self.compile_depolarize_1(instruction),
+            "DEPOLARIZE2" => self.compile_depolarize_2(instruction),
 
             // Collapsing Gates
-            "M" | "MR" | "MRX" | "MRY" | "MRZ" | "MX" | "MY" | "MZ" | "R" | "RX" | "RY" | "RZ" => {
-                self.compile_collapsing_gate(instruction)
+            "R" | "RZ" => self.emit_single(instruction, "reset"),
+            "RX" => {
+                self.emit_single(instruction, "reset"); // RZ
+                self.emit_single(instruction, "h"); // Z -> X
+            }
+            "RY" => {
+                self.emit_single(instruction, "reset"); // RZ
+                self.emit_single(instruction, "h"); // Z -> X
+                self.emit_single(instruction, "s"); // X -> Y
+            }
+            "M" | "MZ" => self.emit_measure(instruction, "m"),
+            "MX" => {
+                self.emit_single(instruction, "h"); // X -> Z
+                self.emit_measure(instruction, "m"); // MZ
+                self.emit_single(instruction, "h"); // Z -> X
+            }
+            "MY" => {
+                self.emit_single_adj(instruction, "s"); // Y -> X
+                self.emit_single(instruction, "h"); // X -> Z
+                self.emit_measure(instruction, "m"); // MZ
+                self.emit_single(instruction, "h"); // Z -> X
+                self.emit_single(instruction, "s"); // X -> Y
+            }
+            "MR" | "MRZ" => self.emit_measure(instruction, "mresetz"),
+            "MRX" => {
+                self.emit_single(instruction, "h"); // X -> Z
+                self.emit_measure(instruction, "mresetz"); // MRZ
+                self.emit_single(instruction, "h"); // Z -> X
+            }
+            "MRY" => {
+                self.emit_single_adj(instruction, "s"); // Y -> X
+                self.emit_single(instruction, "h"); // X -> Z
+                self.emit_measure(instruction, "mresetz"); // MRZ
+                self.emit_single(instruction, "h"); // Z -> X
+                self.emit_single(instruction, "s"); // X -> Y
             }
 
             // Pair Measurement Gates
-            "MXX" | "MYY" | "MZZ" => self.compile_pair_measurement_gate(instruction),
 
             // Generalized Pauli Product Gates
-            "MPP" | "SPP" | "SPP_DAG" => self.compile_generalized_pauli_product_gate(instruction),
 
             // Control Flow
-            "REPEAT" => self.compile_control_flow(instruction),
 
             // Annotations
-            "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
-            | "TICK" => self.compile_annotations(instruction),
 
             // Custom Instructions
-            "#!preselect_begin" | "#!preselect_expect" | "#!rhai" => {
-                self.compile_custom_instruction(instruction)
-            }
+            "!rhai" => (),
+            "#!preselect_begin" => self.compile_preselect_begin(),
+            "#!preselect_expect" => self.compile_preselect_expect(instruction),
 
             _ => self.unsupported(instruction),
         }
     }
 
-    fn compile_pauli_gate(&mut self, instruction: &Instruction) {
-        let gate = instruction.name.to_lowercase();
+    fn emit_single(&mut self, instruction: &Instruction, intrinsic: &str) {
         for target in &instruction.targets {
             let TargetKind::Qubit { value, .. } = target.kind else {
                 continue;
             };
-            self.writer.write_qis_call(&gate, &[Operand::Qubit(value)]);
+            self.writer
+                .write_qis_call(intrinsic, &[Operand::Qubit(value)]);
         }
     }
 
-    fn compile_single_qubit_clifford_gate(&mut self, instruction: &Instruction) {
-        let gate = instruction.name.to_lowercase();
-        if gate == "h" || gate == "s" {
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                self.writer.write_qis_call(&gate, &[Operand::Qubit(value)]);
-            }
-        } else if gate == "sqrt_x" {
-            // decomposed into H S H
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                let q = Operand::Qubit(value);
-                self.writer.write_qis_call("sx", &[q]);
-            }
-        } else if gate == "s_dag" {
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                self.writer
-                    .write_qis_adj_call("s", &[Operand::Qubit(value)]);
-            }
-        }
-    }
-
-    fn compile_two_qubit_clifford_gate(&mut self, instruction: &Instruction) {
-        let gate = instruction.name.to_lowercase();
-        if gate == "cz" || gate == "cx" || gate == "cy" {
-            let targets = &instruction.targets;
-            for pair in targets.chunks(2) {
-                let TargetKind::Qubit { value: v0, .. } = pair[0].kind else {
-                    continue;
-                };
-                let TargetKind::Qubit { value: v1, .. } = pair[1].kind else {
-                    continue;
-                };
-                self.writer
-                    .write_qis_call(&gate, &[Operand::Qubit(v0), Operand::Qubit(v1)]);
-            }
-        } else if gate == "swap" {
-            let targets = &instruction.targets;
-            for pair in targets.chunks(2) {
-                let TargetKind::Qubit { value: v0, .. } = pair[0].kind else {
-                    continue;
-                };
-                let TargetKind::Qubit { value: v1, .. } = pair[1].kind else {
-                    continue;
-                };
-                self.writer
-                    .write_qis_call("swap", &[Operand::Qubit(v0), Operand::Qubit(v1)]);
-            }
-        }
-    }
-
-    fn compile_noise_channel(&mut self, instruction: &Instruction) {
-        let gate = instruction.name.to_lowercase();
-        if gate == "correlated_error" || gate == "else_correlated_error" {
-            self.accumulate_correlated_error(instruction);
-        } else if gate == "x_error"
-            || gate == "y_error"
-            || gate == "z_error"
-            || gate == "loss_error"
-        {
-            let fault = match gate.as_str() {
-                "x_error" => FaultChar::X,
-                "y_error" => FaultChar::Y,
-                "z_error" => FaultChar::Z,
-                _ => FaultChar::Loss,
+    fn emit_single_adj(&mut self, instruction: &Instruction, intrinsic: &str) {
+        for target in &instruction.targets {
+            let TargetKind::Qubit { value, .. } = target.kind else {
+                continue;
             };
-            let probability = instruction.args[0];
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                self.current_correlated_group
-                    .get_or_insert_with(CorrelatedGroup::default)
-                    .rows
-                    .push(CorrelatedRow {
+            self.writer
+                .write_qis_adj_call(intrinsic, &[Operand::Qubit(value)]);
+        }
+    }
+
+    fn emit_pair(&mut self, instruction: &Instruction, intrinsic: &str) {
+        let targets = &instruction.targets;
+        for pair in targets.chunks(2) {
+            let TargetKind::Qubit { value: v0, .. } = pair[0].kind else {
+                continue;
+            };
+            let TargetKind::Qubit { value: v1, .. } = pair[1].kind else {
+                continue;
+            };
+            self.writer
+                .write_qis_call(intrinsic, &[Operand::Qubit(v0), Operand::Qubit(v1)]);
+        }
+    }
+
+    fn compile_fault_error(&mut self, instruction: &Instruction) {
+        let gate = instruction.name.to_lowercase();
+        let fault = match gate.as_str() {
+            "x_error" => FaultChar::X,
+            "y_error" => FaultChar::Y,
+            "z_error" => FaultChar::Z,
+            _ => FaultChar::Loss,
+        };
+        let probability = instruction.args[0];
+        for target in &instruction.targets {
+            let TargetKind::Qubit { value, .. } = target.kind else {
+                continue;
+            };
+            self.current_correlated_group
+                .get_or_insert_with(CorrelatedGroup::default)
+                .rows
+                .push(CorrelatedRow {
+                    terms: vec![(value, fault)],
+                    probability,
+                });
+            self.finish_correlated_group(); // one independent table per qubit
+        }
+    }
+
+    fn compile_depolarize_1(&mut self, instruction: &Instruction) {
+        let each = instruction.args[0] / 3.0;
+        for target in &instruction.targets {
+            let TargetKind::Qubit { value, .. } = target.kind else {
+                continue;
+            };
+            {
+                let group = self
+                    .current_correlated_group
+                    .get_or_insert_with(CorrelatedGroup::default);
+                for fault in [FaultChar::X, FaultChar::Y, FaultChar::Z] {
+                    group.rows.push(CorrelatedRow {
                         terms: vec![(value, fault)],
-                        probability,
+                        probability: each,
                     });
-                self.finish_correlated_group(); // one independent table per qubit
+                }
             }
-        } else if gate == "depolarize1" {
-            let each = instruction.args[0] / 3.0;
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                {
-                    let group = self
-                        .current_correlated_group
-                        .get_or_insert_with(CorrelatedGroup::default);
-                    for fault in [FaultChar::X, FaultChar::Y, FaultChar::Z] {
+            self.finish_correlated_group(); // one independent 1-qubit table per target
+        }
+    }
+
+    fn compile_depolarize_2(&mut self, instruction: &Instruction) {
+        let each = instruction.args[0] / 15.0;
+        for pair in instruction.targets.chunks(2) {
+            let TargetKind::Qubit { value: q0, .. } = pair[0].kind else {
+                continue;
+            };
+            let TargetKind::Qubit { value: q1, .. } = pair[1].kind else {
+                continue;
+            };
+            {
+                let group = self
+                    .current_correlated_group
+                    .get_or_insert_with(CorrelatedGroup::default);
+                // All 16 (p0, p1) combos except (I, I); None means identity on that qubit.
+                let options = [
+                    None,
+                    Some(FaultChar::X),
+                    Some(FaultChar::Y),
+                    Some(FaultChar::Z),
+                ];
+                for p0 in options {
+                    for p1 in options {
+                        if p0.is_none() && p1.is_none() {
+                            continue; // skip identity
+                        }
+                        let mut terms = Vec::new();
+                        if let Some(f) = p0 {
+                            terms.push((q0, f));
+                        }
+                        if let Some(f) = p1 {
+                            terms.push((q1, f));
+                        }
                         group.rows.push(CorrelatedRow {
-                            terms: vec![(value, fault)],
+                            terms,
                             probability: each,
                         });
                     }
                 }
-                self.finish_correlated_group(); // one independent 1-qubit table per target
             }
-        } else if gate == "depolarize2" {
-            let each = instruction.args[0] / 15.0;
-            for pair in instruction.targets.chunks(2) {
-                let TargetKind::Qubit { value: q0, .. } = pair[0].kind else {
-                    continue;
-                };
-                let TargetKind::Qubit { value: q1, .. } = pair[1].kind else {
-                    continue;
-                };
-                {
-                    let group = self
-                        .current_correlated_group
-                        .get_or_insert_with(CorrelatedGroup::default);
-                    // All 16 (p0, p1) combos except (I, I); None means identity on that qubit.
-                    let options = [
-                        None,
-                        Some(FaultChar::X),
-                        Some(FaultChar::Y),
-                        Some(FaultChar::Z),
-                    ];
-                    for p0 in options {
-                        for p1 in options {
-                            if p0.is_none() && p1.is_none() {
-                                continue; // skip identity
-                            }
-                            let mut terms = Vec::new();
-                            if let Some(f) = p0 {
-                                terms.push((q0, f));
-                            }
-                            if let Some(f) = p1 {
-                                terms.push((q1, f));
-                            }
-                            group.rows.push(CorrelatedRow {
-                                terms,
-                                probability: each,
-                            });
-                        }
-                    }
-                }
-                self.finish_correlated_group(); // one independent 2-qubit table per pair
-            }
+            self.finish_correlated_group(); // one independent 2-qubit table per pair
         }
+    }
+
+    fn emit_measure(&mut self, instruction: &Instruction, intrinsic: &str) {
+        for target in &instruction.targets {
+            let TargetKind::Qubit { value, .. } = target.kind else {
+                continue;
+            };
+            self.writer
+                .write_qis_call(intrinsic, &[Operand::Qubit(value), Operand::Result]);
+        }
+    }
+
+    fn compile_preselect_begin(&mut self) {
+        self.last_preselect_begin = match self.last_preselect_begin {
+            None => Some(0),
+            Some(n) => Some(n + 1),
+        };
+        let id = self.last_preselect_begin.unwrap();
+        let label = format!("preselect_begin_{id}");
+        self.writer.write_jump(&label); // terminate the previous block
+        self.writer.write_label(&label); // start the new block
+    }
+
+    fn compile_preselect_expect(&mut self, instruction: &Instruction) {
+        let id = self.last_preselect_begin.unwrap();
+        let reg = format!("preselect_r{}", self.num_preselect_expects);
+        self.num_preselect_expects += 1;
+
+        // First target: which result to read
+        let TargetKind::Qubit {
+            value: result_id, ..
+        } = instruction.targets[0].kind
+        else {
+            return;
+        };
+        // Second target: expected value (0 or 1)
+        let TargetKind::Qubit {
+            value: expected, ..
+        } = instruction.targets[1].kind
+        else {
+            return;
+        };
+
+        // Read the result into %reg
+        self.writer
+            .write_read_result(&reg, Operand::Qubit(result_id));
+
+        let begin_label = format!("preselect_begin_{id}");
+        let continue_label = format!("preselect_continue_{id}");
+
+        // Branch: if result matches expected → continue, else → retry
+        if expected == 0 {
+            // expected 0: if read is true (1) → mismatch → retry
+            self.writer
+                .write_branch(&reg, &begin_label, &continue_label);
+        } else {
+            // expected 1: if read is true (1) → match → continue
+            self.writer
+                .write_branch(&reg, &continue_label, &begin_label);
+        }
+
+        self.writer.write_label(&continue_label);
     }
 
     fn accumulate_correlated_error(&mut self, instruction: &Instruction) {
@@ -636,107 +698,6 @@ impl<'noise> Compiler<'noise> {
         self.noise.intrinsics.insert(id, table);
 
         self.writer.write_noise_intrinsic(&name, &columns);
-    }
-
-    fn compile_collapsing_gate(&mut self, instruction: &Instruction) {
-        let gate = instruction.name.to_lowercase();
-        if gate == "r" {
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                self.writer
-                    .write_qis_call("reset", &[Operand::Qubit(value)]);
-            }
-        } else if gate == "m" {
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                self.writer
-                    .write_qis_call("m", &[Operand::Qubit(value), Operand::Result]);
-            }
-        } else if gate == "mr" {
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                self.writer
-                    .write_qis_call("mresetz", &[Operand::Qubit(value), Operand::Result]);
-            }
-        } else if gate == "mrx" {
-            // decomposed into H MRZ H
-            for target in &instruction.targets {
-                let TargetKind::Qubit { value, .. } = target.kind else {
-                    continue;
-                };
-                let q = Operand::Qubit(value);
-                self.writer.write_qis_call("h", &[q]);
-                self.writer.write_qis_call("mresetz", &[q, Operand::Result]);
-                self.writer.write_qis_call("h", &[q]);
-            }
-        }
-    }
-
-    fn compile_pair_measurement_gate(&mut self, _instruction: &Instruction) {}
-
-    fn compile_generalized_pauli_product_gate(&mut self, _instruction: &Instruction) {}
-
-    fn compile_control_flow(&mut self, _instruction: &Instruction) {}
-
-    fn compile_annotations(&mut self, _instruction: &Instruction) {}
-
-    fn compile_custom_instruction(&mut self, instruction: &Instruction) {
-        let instruction_name = instruction.name.to_lowercase();
-        if instruction_name == "#!preselect_begin" {
-            self.last_preselect_begin = match self.last_preselect_begin {
-                None => Some(0),
-                Some(n) => Some(n + 1),
-            };
-            let id = self.last_preselect_begin.unwrap();
-            let label = format!("preselect_begin_{id}");
-            self.writer.write_jump(&label); // terminate the previous block
-            self.writer.write_label(&label); // start the new block
-        } else if instruction_name == "#!preselect_expect" {
-            let id = self.last_preselect_begin.unwrap();
-            let reg = format!("preselect_r{}", self.num_preselect_expects);
-            self.num_preselect_expects += 1;
-
-            // First target: which result to read
-            let TargetKind::Qubit {
-                value: result_id, ..
-            } = instruction.targets[0].kind
-            else {
-                return;
-            };
-            // Second target: expected value (0 or 1)
-            let TargetKind::Qubit {
-                value: expected, ..
-            } = instruction.targets[1].kind
-            else {
-                return;
-            };
-
-            // Read the result into %reg
-            self.writer
-                .write_read_result(&reg, Operand::Qubit(result_id));
-
-            let begin_label = format!("preselect_begin_{id}");
-            let continue_label = format!("preselect_continue_{id}");
-
-            // Branch: if result matches expected → continue, else → retry
-            if expected == 0 {
-                // expected 0: if read is true (1) → mismatch → retry
-                self.writer
-                    .write_branch(&reg, &begin_label, &continue_label);
-            } else {
-                // expected 1: if read is true (1) → match → continue
-                self.writer
-                    .write_branch(&reg, &continue_label, &begin_label);
-            }
-
-            self.writer.write_label(&continue_label);
-        }
     }
 
     fn unsupported(&mut self, instruction: &Instruction) {
