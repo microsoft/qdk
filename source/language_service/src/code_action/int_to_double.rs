@@ -55,14 +55,8 @@ pub(crate) fn int_to_double_fixes(
             };
 
             // Strip off any + or - unary operators
-            loop {
-                if let ExprKind::UnOp(un_op, expr2) = expr.kind.as_ref()
-                    && (matches!(un_op, UnOp::Pos) || matches!(un_op, UnOp::Neg))
-                {
-                    expr = expr2;
-                } else {
-                    break;
-                }
+            while let ExprKind::UnOp(UnOp::Pos | UnOp::Neg, inner) = expr.kind.as_ref() {
+                expr = inner;
             }
 
             if !matches!(expr.kind.as_ref(), ExprKind::Lit(_)) {
