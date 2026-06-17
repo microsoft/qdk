@@ -117,11 +117,12 @@ class TargetProfile(Enum):
     extension defined by the QIR specification.
     """
 
-    Adaptive_RIFLA: TargetProfile
+    Adaptive: TargetProfile
     """
-    Target supports the Adaptive profile with integer & floating-point
-    computation extensions as well as loop extension and statically-sized
-    arrays extension.
+    Target supports the Adaptive profile with all supported extensions.
+
+    This profile includes all required Adaptive Profile features and
+    all the optional extensions defined by the QIR specification.
     """
 
     Unrestricted: TargetProfile

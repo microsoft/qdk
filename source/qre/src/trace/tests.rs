@@ -29,6 +29,59 @@ fn test_nested_blocks() {
 }
 
 #[test]
+fn test_walk_iter_simple() {
+    let mut trace = Trace::new(2);
+    trace.add_operation(1, vec![0], vec![]);
+    trace.add_operation(2, vec![1], vec![]);
+
+    let ids: Vec<u64> = trace.walk_iter().map(|g| g.id).collect();
+    assert_eq!(ids, vec![1, 2]);
+}
+
+#[test]
+fn test_walk_iter_with_block() {
+    let mut trace = Trace::new(2);
+    trace.add_operation(1, vec![0], vec![]);
+    let block = trace.add_block(3);
+    block.add_operation(2, vec![1], vec![]);
+    trace.add_operation(3, vec![0], vec![]);
+
+    let ids: Vec<u64> = trace.walk_iter().map(|g| g.id).collect();
+    assert_eq!(ids, vec![1, 2, 2, 2, 3]);
+}
+
+#[test]
+fn test_walk_iter_nested_blocks() {
+    let mut trace = Trace::new(3);
+    trace.add_operation(1, vec![0], vec![]);
+    let block = trace.add_block(2);
+    block.add_operation(2, vec![1], vec![]);
+    let inner = block.add_block(3);
+    inner.add_operation(3, vec![2], vec![]);
+    trace.add_operation(4, vec![0], vec![]);
+
+    // Expected: gate 1, then 2x(gate 2, 3x(gate 3)), then gate 4
+    // = 1, [2, 3, 3, 3, 2, 3, 3, 3], 4
+    let ids: Vec<u64> = trace.walk_iter().map(|g| g.id).collect();
+    assert_eq!(ids, vec![1, 2, 3, 3, 3, 2, 3, 3, 3, 4]);
+}
+
+#[test]
+fn test_walk_iter_count_matches_deep_iter() {
+    let mut trace = Trace::new(3);
+    trace.add_operation(1, vec![0], vec![]);
+    let block = trace.add_block(2);
+    block.add_operation(2, vec![1], vec![]);
+    let inner = block.add_block(3);
+    inner.add_operation(3, vec![2], vec![]);
+    trace.add_operation(4, vec![0], vec![]);
+
+    let walk_count = trace.walk_iter().count();
+    let deep_count: u64 = trace.deep_iter().map(|(_, m)| m).sum();
+    assert_eq!(walk_count as u64, deep_count);
+}
+
+#[test]
 fn test_depth_simple() {
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]);

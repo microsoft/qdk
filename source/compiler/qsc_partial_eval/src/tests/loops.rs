@@ -409,7 +409,7 @@ fn rotation_call_within_a_for_loop() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -544,7 +544,7 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -642,7 +642,7 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -717,7 +717,7 @@ fn for_loop_over_qubits() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -857,7 +857,7 @@ fn rotation_call_within_a_while_loop() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -941,7 +941,7 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -1028,7 +1028,7 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     expect![[r#"

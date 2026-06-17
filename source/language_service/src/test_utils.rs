@@ -399,3 +399,8 @@ fn target_offsets_to_spans(target_offsets: &[u32]) -> Vec<Span> {
     }
     spans
 }
+
+pub(crate) fn whole_document_range(source: &str) -> Range {
+    let len = u32::try_from(source.len()).expect("source length fits in u32");
+    Range::from_span(Encoding::Utf8, source, &Span { lo: 0, hi: len })
+}

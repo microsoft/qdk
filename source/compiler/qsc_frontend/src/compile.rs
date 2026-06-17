@@ -108,6 +108,16 @@ impl Error {
             _ => None,
         }
     }
+
+    /// If this is a type-mismatch error (diagnostic code `Qsc.TypeCk.TyMismatch`),
+    /// returns (expected, actual, span), otherwise `None`.
+    #[must_use]
+    pub fn ty_mismatch(&self) -> Option<(&typeck::TyInfo, &typeck::TyInfo, Span)> {
+        match &self.0 {
+            ErrorKind::Type(type_error) => type_error.ty_mismatch(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Diagnostic, Error)]

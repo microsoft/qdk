@@ -332,7 +332,7 @@ q_2    ── H ──
 
 
 def test_qir_from_callable_returning_closure_passed_to_qsharp_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIFLA)
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
     qsharp.eval("""
         function First<'T>(arr : 'T[]) : 'T {
             arr[0]
@@ -384,7 +384,7 @@ def test_qir_early_return_in_dynamic_branch_synthetic_and_reinvoke_parity() -> N
     # Today this raises QSharpError at the `qsharp.eval` below: the interpreter's eager
     # RCA capability check rejects the `ReturnWithinDynamicScope` body of `RunOp` before
     # codegen routing is ever reached (see the xfail reason above).
-    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIFLA)
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
     qsharp.eval("""
         import Std.Measurement.*;
 
