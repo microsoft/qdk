@@ -1,18 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Toolbox panel rendering tests — covers the structural contract
-// `createToolboxElement` exposes to the rest of the editor:
+// Toolbox editor-contract tests — cover the things interaction code
+// depends on:
 //
-//   - Panel skeleton: `<div class="toolbox-panel">` with an
-//     `<h2 class="title">Toolbox</h2>` and a
-//     `<svg class="toolbox-panel-svg">`.
-//   - One `[toolbox-item]` SVG node per `toolboxGateDictionary`
-//     entry, with `data-type` matching the dictionary key.
-//   - Two-column grid layout: every other gate starts a new row.
-//   - SVG `height` attribute grows when the Run button is present.
+//   - Each rendered toolbox item exposes a `[toolbox-item]` attribute
+//     and a `data-type` the dragController uses to look up the
+//     prototype op.
+//   - The optional Run button: present (and wired) only when a
+//     callback is provided, absent otherwise.
 //
-// Run button callback wiring lives in toolboxRunButton.test.mjs.
+// Panel layout, title, and gate positions are visual concerns
+// covered by the snapshot suite in `test/circuits.js`.
 
 // @ts-check
 
@@ -44,163 +43,87 @@ afterEach(() => {
   jsdom = null;
 });
 
-// Layout constants inlined from `renderer/constants.ts`. Importing
-// them would make the test a tautology against the same module that
-// supplies them to `toolbox.ts`; pinning literals here flags any
-// constant change as a toolbox layout regression.
-const GATE_HEIGHT = 40;
-const VERTICAL_GAP = 10;
-
-test("panel structure: toolbox-panel div with title and toolbox-panel-svg child", () => {
-  const toolbox = createToolboxElement();
-
-  // Outer element is exactly `<div class="toolbox-panel">`.
-  assert.equal(toolbox.tagName, "DIV");
-  assert.ok(toolbox.classList.contains("toolbox-panel"));
-
-  // Two direct children: title (h2.title) + svg.toolbox-panel-svg.
-  const title = toolbox.querySelector("h2.title");
-  assert.ok(title, "expected an h2.title header");
-  assert.equal(title?.textContent, "Toolbox");
-
-  const svg = toolbox.querySelector("svg.toolbox-panel-svg");
-  assert.ok(svg, "expected an svg.toolbox-panel-svg container");
-  // Title comes before the svg in DOM order.
-  const children = Array.from(toolbox.children);
-  assert.equal(children[0], title);
-  assert.equal(children[1], svg);
-});
-
-test("renders one [toolbox-item] per toolboxGateDictionary entry", () => {
-  const toolbox = createToolboxElement();
-  const items = toolbox.querySelectorAll("[toolbox-item]");
-
-  // Pin the count via the dictionary itself so new toolbox gates
-  // don't require a lockstep test update.
-  const dictKeys = Object.keys(toolboxGateDictionary);
-  assert.equal(
-    items.length,
-    dictKeys.length,
-    `expected one [toolbox-item] per dictionary key (${dictKeys.length})`,
-  );
-
-  // Defense-in-depth: also pin the literal count so a dictionary
-  // shrink fails here instead of silently passing.
-  assert.equal(dictKeys.length, 12);
-
-  // `dragController.onToolboxMouseDown` checks for attribute
-  // presence; locking down "true" catches an accidental falsy swap.
-  for (const item of Array.from(items)) {
-    assert.equal(item.getAttribute("toolbox-item"), "true");
-  }
-});
-
-test("each toolbox item carries a data-type matching its dictionary key", () => {
-  // `dragController.onToolboxMouseDown` looks up the prototype op
-  // by reading `data-type` off the toolbox item:
+test("each toolbox item exposes a [toolbox-item] flag and a data-type matching its dictionary key", () => {
+  // `dragController.onToolboxMouseDown` selects on `[toolbox-item]`
+  // and reads `data-type` to look up the prototype op:
   //
   //   const gateType = elem.getAttribute("data-type")!;
   //   const proto = toolboxGateDictionary[gateType];
   //
-  // A wrong/missing `data-type` either drags the wrong op or returns
-  // a no-op proto. Pin every dictionary key against the rendered
-  // items.
+  // Keying every assertion off `toolboxGateDictionary` means editing
+  // the toolbox gates updates this test automatically.
   const toolbox = createToolboxElement();
   const items = toolbox.querySelectorAll("[toolbox-item]");
+
+  // `dragController` checks for attribute presence; locking down
+  // "true" catches an accidental falsy swap.
+  for (const item of Array.from(items)) {
+    assert.equal(item.getAttribute("toolbox-item"), "true");
+  }
 
   const renderedTypes = Array.from(items)
     .map((item) => item.getAttribute("data-type"))
-    .filter(/** @returns {x is string} */ (x) => x != null);
+    .filter(/** @returns {x is string} */ (x) => x != null)
+    .sort();
+  const expectedTypes = Object.keys(toolboxGateDictionary).sort();
 
-  // Sort both for set-equality without dragging in an extra dep.
-  const expectedTypes = Object.keys(toolboxGateDictionary).slice().sort();
-  const actualTypes = renderedTypes.slice().sort();
-
-  assert.deepEqual(actualTypes, expectedTypes);
+  assert.deepEqual(renderedTypes, expectedTypes);
 });
 
-test("two-column grid layout: column 1 sits beside column 0 on the same row; row 2 sits below row 1", () => {
-  // The toolbox lays gates out in a 2-column grid via:
-  //
-  //   if (index % 2 === 0 && index !== 0) {
-  //     prefixX = 0;
-  //     prefixY += gateHeight + verticalGap;
-  //   }
-  //
-  // Expected positions for the dictionary's first few unitary gates:
-  //   index 0 (RX): (x=0, y=0)
-  //   index 2 (RY): (x=0, y=GATE_HEIGHT + VERTICAL_GAP)
-  //   index 3 (Y):  (x>0, y=GATE_HEIGHT + VERTICAL_GAP)
-  //
-  // Index 1 (X) renders as an `oplus` glyph with no `<rect>` and is
-  // skipped. `_unitary` centers the body rect around the target wire
-  // y with height `gateHeight`, so `rect.y = targetY - gateHeight/2`
-  // and row deltas match `gateHeight + verticalGap`.
+// ---------------------------------------------------------------------------
+// Run button — the only optional piece of the toolbox. Hosts that
+// can't run circuits (e.g. read-only previews) pass no callback and
+// should get no button at all, not a hidden one taking up space.
+// ---------------------------------------------------------------------------
+
+test("toolbox without runCallback renders no Run button", () => {
   const toolbox = createToolboxElement();
-  const items = toolbox.querySelectorAll("[toolbox-item]");
 
-  /** @param {Element} item */
-  const rectY = (item) => Number(item.querySelector("rect")?.getAttribute("y"));
-  /** @param {Element} item */
-  const rectX = (item) => Number(item.querySelector("rect")?.getAttribute("x"));
-
-  // Indices 0 (RX), 2 (RY), 3 (Y) are all unitary gates that render
-  // a labeled rect — pick those for layout comparisons.
-  const y0 = rectY(items[0]); // RX, row 0, col 0
-  const y2 = rectY(items[2]); // RY, row 1, col 0
-  const y3 = rectY(items[3]); // Y,  row 1, col 1
-  const x0 = rectX(items[0]); // RX, row 0, col 0
-  const x2 = rectX(items[2]); // RY, row 1, col 0
-  const x3 = rectX(items[3]); // Y,  row 1, col 1
-
-  // Same row (row 1): col 0 (RY) and col 1 (Y) share y.
-  assert.equal(y2, y3, "row 1 items must share the same y");
-
-  // Different rows: row 2 sits exactly `gateHeight + verticalGap`
-  // below row 1.
   assert.equal(
-    y2 - y0,
-    GATE_HEIGHT + VERTICAL_GAP,
-    "row 2 must sit exactly gateHeight + verticalGap below row 1",
+    toolbox.querySelectorAll(".svg-run-button").length,
+    0,
+    "Run button must not be rendered when no callback is provided",
   );
-
-  // Same column (col 0): row 0 (RX) and row 1 (RY) share x.
-  assert.equal(x0, x2, "column 0 x-coordinate must reset to row 0's column 0");
-
-  // Different columns (same row): col 1 (Y) sits right of col 0 (RY).
-  assert.ok(x3 > x2, `column 1 (x=${x3}) must sit right of column 0 (x=${x2})`);
+  // The toolbox itself still renders — only the button is suppressed.
+  assert.ok(
+    toolbox.querySelector(".toolbox-panel-svg"),
+    "toolbox SVG should still be present",
+  );
 });
 
-test("SVG height grows when a Run button is added", () => {
-  // The toolbox sizes its SVG to its content so the surrounding
-  // `<div class="toolbox-panel">` has a known height. Computed:
-  //
-  //   no button:   prefixY + gateHeight + 16
-  //   with button: prefixY + 2 * gateHeight + 32
-  //
-  // Difference must be `gateHeight + 16`.
-  const withoutBtn = createToolboxElement();
-  const withBtn = createToolboxElement(() => {});
+test("toolbox with runCallback renders exactly one Run button", () => {
+  const toolbox = createToolboxElement(() => {});
 
-  const hNo = Number(
-    withoutBtn.querySelector(".toolbox-panel-svg")?.getAttribute("height"),
-  );
-  const hYes = Number(
-    withBtn.querySelector(".toolbox-panel-svg")?.getAttribute("height"),
-  );
+  const buttons = toolbox.querySelectorAll(".svg-run-button");
+  assert.equal(buttons.length, 1, "exactly one Run button expected");
 
-  assert.ok(
-    Number.isFinite(hNo) && hNo > 0,
-    `no-button height must be a positive number, got ${hNo}`,
-  );
-  assert.ok(
-    Number.isFinite(hYes) && hYes > 0,
-    `with-button height must be a positive number, got ${hYes}`,
-  );
-
+  const button = buttons[0];
+  // Accessibility wiring set by `_createRunButton` — guards against
+  // a future refactor silently dropping the role/tabindex.
+  assert.equal(button.getAttribute("role"), "button");
+  assert.equal(button.getAttribute("tabindex"), "0");
   assert.equal(
-    hYes - hNo,
-    GATE_HEIGHT + 16,
-    "Run button must contribute exactly gateHeight + 16 of vertical space",
+    button.querySelector(".svg-run-button-text")?.textContent,
+    "Run",
   );
+});
+
+test("clicking the Run button invokes the callback exactly once per click", () => {
+  let callCount = 0;
+  const toolbox = createToolboxElement(() => {
+    callCount += 1;
+  });
+
+  const button = toolbox.querySelector(".svg-run-button");
+  assert.ok(button, "Run button should be present");
+
+  button.dispatchEvent(
+    new /** @type {any} */ (jsdom).window.Event("click", { bubbles: true }),
+  );
+  assert.equal(callCount, 1, "one click → one callback invocation");
+
+  button.dispatchEvent(
+    new /** @type {any} */ (jsdom).window.Event("click", { bubbles: true }),
+  );
+  assert.equal(callCount, 2, "second click → second invocation (no debounce)");
 });
