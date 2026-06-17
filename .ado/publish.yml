@@ -317,6 +317,11 @@ extends:
                 inputs:
                   version: "22.x"
 
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: .npmrc
+
               - script: |
                   python ./prereqs.py --skip-wasm && python ./version.py
                 displayName: Install Prereqs and set version
@@ -406,6 +411,11 @@ extends:
                   - task: UseNode@1
                     inputs:
                       version: "22.x"
+
+                  # See the note on AZURE_ARTIFACTS_FEED
+                  - task: npmAuthenticate@0
+                    inputs:
+                      workingFile: .npmrc
 
                   - script: |
                       sudo apt update
