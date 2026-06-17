@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use crate::{
     ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ComputePropertiesLookup,
-    ParamApplication, RuntimeFeatureFlags, ValueKind,
+    ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
         AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
@@ -2242,13 +2242,17 @@ fn default_application_generator_set_for_callable(
     for param in &callable_context.input_params {
         let param_application = match &param.ty {
             Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
+                constant_content: ComputeKind::Static,
                 static_size: ComputeKind::Static,
                 dynamic_size: ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
                     value_kind: ValueKind::Variable,
                 },
             }),
-            _ => ParamApplication::Element(ComputeKind::Static),
+            _ => ParamApplication::Element(ElementParamApplication {
+                constant: ComputeKind::Static,
+                variable: ComputeKind::Static,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }
@@ -2268,6 +2272,7 @@ fn derive_intrinsic_function_application_generator_set(
         return ApplicationGeneratorSet {
             inherent: ComputeKind::Static,
             dynamic_param_applications: vec![ParamApplication::Array(ArrayParamApplication {
+                constant_content: ComputeKind::Static,
                 static_size: ComputeKind::Static,
                 dynamic_size: ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
@@ -2300,7 +2305,13 @@ fn derive_intrinsic_function_application_generator_set(
             Ty::Array(_) => {
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
-            _ => ParamApplication::Element(param_compute_kind),
+            _ => ParamApplication::Element(ElementParamApplication {
+                constant: ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: ValueKind::Constant,
+                },
+                variable: param_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }
@@ -2317,6 +2328,7 @@ fn array_param_application_from_runtime_features(
     value_kind: ValueKind,
 ) -> ParamApplication {
     ParamApplication::Array(ArrayParamApplication {
+        constant_content: ComputeKind::Static,
         static_size: ComputeKind::Dynamic {
             runtime_features,
             value_kind,
@@ -2379,7 +2391,13 @@ fn derive_instrinsic_operation_application_generator_set(
             Ty::Array(_) => {
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
-            _ => ParamApplication::Element(param_compute_kind),
+            _ => ParamApplication::Element(ElementParamApplication {
+                constant: ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: ValueKind::Constant,
+                },
+                variable: param_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }

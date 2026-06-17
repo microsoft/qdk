@@ -38,9 +38,13 @@ fn check_rca_for_quantum_rt_qubit_release() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -61,9 +65,13 @@ fn check_rca_for_quantum_qis_m_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -107,9 +115,13 @@ fn check_rca_for_quantum_qis_mresetz_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -128,9 +140,13 @@ fn check_rca_for_int_as_double() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -149,9 +165,13 @@ fn check_rca_for_int_as_big_int() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -190,9 +210,13 @@ fn check_rca_for_check_zero() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -211,9 +235,13 @@ fn check_rca_for_message() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(0x0)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -232,9 +260,13 @@ fn check_rca_for_arc_cos() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -253,9 +285,13 @@ fn check_rca_for_arc_sin() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -274,9 +310,13 @@ fn check_rca_for_arc_tan() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -295,12 +335,20 @@ fn check_rca_for_arc_tan_2() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -319,9 +367,13 @@ fn check_rca_for_cos() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -340,9 +392,13 @@ fn check_rca_for_cosh() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -361,9 +417,13 @@ fn check_rca_for_sin() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -382,9 +442,13 @@ fn check_rca_for_sinh() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -403,9 +467,13 @@ fn check_rca_for_tan() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -424,9 +492,13 @@ fn check_rca_for_tanh() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -445,9 +517,13 @@ fn check_rca_for_sqrt() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -466,9 +542,13 @@ fn check_rca_for_log() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -487,9 +567,13 @@ fn check_rca_for_truncate() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -510,15 +594,27 @@ fn check_rca_for_quantum_qis_ccx_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -539,12 +635,20 @@ fn check_rca_for_quantum_qis_cx_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -565,12 +669,20 @@ fn check_rca_for_quantum_qis_cy_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -591,12 +703,20 @@ fn check_rca_for_quantum_qis_cz_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -617,12 +737,20 @@ fn check_rca_for_quantum_qis_rx_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -643,15 +771,27 @@ fn check_rca_for_quantum_qis_rxx_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -672,12 +812,20 @@ fn check_rca_for_quantum_qis_ry_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -698,15 +846,27 @@ fn check_rca_for_quantum_qis_ryy_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -727,12 +887,20 @@ fn check_rca_for_quantum_qis_rz_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -753,15 +921,27 @@ fn check_rca_for_quantum_qis_rzz_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [2]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -782,9 +962,13 @@ fn check_rca_for_quantum_qis_h_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -805,9 +989,13 @@ fn check_rca_for_quantum_qis_s_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -828,9 +1016,13 @@ fn check_rca_for_quantum_qis_s_adj() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -851,9 +1043,13 @@ fn check_rca_for_quantum_qis_sx_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -874,9 +1070,13 @@ fn check_rca_for_quantum_qis_t_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -897,9 +1097,13 @@ fn check_rca_for_quantum_qis_t_adj() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -920,9 +1124,13 @@ fn check_rca_for_quantum_qis_x_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -943,9 +1151,13 @@ fn check_rca_for_quantum_qis_y_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -966,9 +1178,13 @@ fn check_rca_for_quantum_qis_z_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -989,12 +1205,20 @@ fn check_rca_for_quantum_qis_swap_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -1015,9 +1239,13 @@ fn check_rca_for_quantum_qis_reset_body() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -1036,12 +1264,20 @@ fn check_rca_for_begin_estimate_caching() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(0x0)
-                            value_kind: Variable
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                            value_kind: Variable
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Variable
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                                value_kind: Variable
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -1087,9 +1323,13 @@ fn check_rca_for_account_for_estimates_internal() {
                             dynamic_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
                                 value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                            value_kind: Constant
+                        [1]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                                value_kind: Constant
                         [2]: [Parameter Type Array] ArrayParamApplication:
                             static_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
@@ -1117,9 +1357,13 @@ fn check_rca_for_begin_repeat_estimates_internal() {
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(0x0)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
