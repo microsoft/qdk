@@ -38,7 +38,7 @@ import {
   gate,
   group,
   meas,
-} from "./_helpers.mjs";
+} from "../_helpers.mjs";
 
 // Local shorthands over the shared helpers: these suites use the
 // "Measure" gate name (asserted in places) and classically-

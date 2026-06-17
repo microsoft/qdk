@@ -22,7 +22,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { moveOperation } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
-import { at, build, circuit, gate, group } from "./_helpers.mjs";
+import { at, build, circuit, gate, group } from "../_helpers.mjs";
 
 test("moveOperation: returned op carries sqore-prev-location stamp with the source location", () => {
   const model = build(circuit(2, [[gate("H", 0)], [gate("X", 1)]]));

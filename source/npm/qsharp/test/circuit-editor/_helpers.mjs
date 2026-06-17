@@ -12,8 +12,8 @@
 // can stay free of `/** @type {any} */` ceremony.
 
 import assert from "node:assert/strict";
-import { CircuitModel } from "../../../dist/ux/circuit-vis/data/circuitModel.js";
-import { findOperation } from "../../../dist/ux/circuit-vis/utils.js";
+import { CircuitModel } from "../../dist/ux/circuit-vis/data/circuitModel.js";
+import { findOperation } from "../../dist/ux/circuit-vis/utils.js";
 
 // ---------------------------------------------------------------
 // Construction
@@ -97,13 +97,17 @@ export const meas = (qubit, opts) => ({
  * (recursively for nested groups, since each nested group's own
  * `.targets` is similarly auto-derived). The group's own controls
  * (from `opts.ctrls`) live on `.controls`, not `.targets` — same as
- * the real `CircuitModel`.
+ * the real `CircuitModel`. Pass `opts.span` to force a wider extent
+ * than the children imply (e.g. a group that visually covers a wire
+ * none of its children touch).
  *
  * @param {string} name
  * @param {any[][]} innerGrid  array of inner columns, each column an
  *   array of ops (built with `gate` / `meas` / nested `group`)
  * @param {{ ctrls?: (number | { q: number, r?: number })[],
- *           conditional?: boolean }} [opts]
+ *           conditional?: boolean,
+ *           expanded?: boolean,
+ *           span?: number[] }} [opts]
  * @returns {any}
  */
 export const group = (name, innerGrid, opts) => {
@@ -128,12 +132,15 @@ export const group = (name, innerGrid, opts) => {
     }
   }
   const wires = [...childWires].sort((a, b) => a - b);
+  // `opts.span` overrides the derived extent when the group should
+  // visually cover wires its children don't all occupy.
+  const targetWires = opts?.span ?? wires;
 
   /** @type {any} */
   const out = {
     kind: "unitary",
     gate: name,
-    targets: wires.map((q) => ({ qubit: q })),
+    targets: targetWires.map((q) => ({ qubit: q })),
     children: innerGrid.map((col) => ({ components: col })),
   };
   if (opts?.ctrls) {
@@ -142,6 +149,10 @@ export const group = (name, innerGrid, opts) => {
     );
   }
   if (opts?.conditional) out.isConditional = true;
+  // Mark the group as render-expanded (the renderer reads
+  // `dataAttributes.expanded` to show the body instead of a
+  // collapsed box).
+  if (opts?.expanded) out.dataAttributes = { expanded: "true" };
   return out;
 };
 

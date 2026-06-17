@@ -23,7 +23,7 @@ import {
   group,
   meas,
   qubits,
-} from "./_helpers.mjs";
+} from "../_helpers.mjs";
 
 test("addOperation: clone-copy of a group with delta>0 shifts every nested register", () => {
   const model = build(

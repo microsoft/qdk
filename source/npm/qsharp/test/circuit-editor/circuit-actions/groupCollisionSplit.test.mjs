@@ -28,7 +28,7 @@ import {
   gate,
   group,
   meas,
-} from "./_helpers.mjs";
+} from "../_helpers.mjs";
 
 // ---------------------------------------------------------------------------
 // Collision-split when extending a group's span overlaps a sibling.

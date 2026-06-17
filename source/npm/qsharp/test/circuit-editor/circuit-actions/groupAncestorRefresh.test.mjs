@@ -30,7 +30,7 @@ import {
   meas,
   topShape,
   wires,
-} from "./_helpers.mjs";
+} from "../_helpers.mjs";
 
 // ---------------------------------------------------------------------------
 // addOperation / removeOperation: ancestor refresh.

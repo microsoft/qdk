@@ -26,7 +26,7 @@ import {
   gate,
   group,
   meas,
-} from "./_helpers.mjs";
+} from "../_helpers.mjs";
 
 // Local shorthands over the shared helpers.
 const _mGate = (/** @type {number} */ q, /** @type {number} */ r) =>

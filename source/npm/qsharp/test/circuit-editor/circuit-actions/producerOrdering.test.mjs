@@ -17,7 +17,7 @@ import {
   moveOperation,
 } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
 import { Location } from "../../../dist/ux/circuit-vis/data/location.js";
-import { build, circuit, gate, group, meas, qubits } from "./_helpers.mjs";
+import { build, circuit, gate, group, meas, qubits } from "../_helpers.mjs";
 
 // classically-conditional group: H@0 gated on classical reg 0:0.
 const ifGroup = () =>

@@ -31,7 +31,7 @@ import {
   group,
   meas,
   qubits,
-} from "./_helpers.mjs";
+} from "../_helpers.mjs";
 
 // ---------------------------------------------------------------------------
 // `moveOperation` cross-scope correctness.

@@ -17,6 +17,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { draw } from "../../dist/ux/circuit-vis/index.js";
+import { circuit, gate, group } from "./_helpers.mjs";
 
 const documentTemplate = `<!doctype html><html>
   <head></head>
@@ -41,33 +42,35 @@ afterEach(() => {
   jsdom = null;
 });
 
+// No-op editCallback — tests just need the editor branch to run so
+// dropzones are created. Shared (read-only) across draw/Sqore calls.
+const noopEditor = { editCallback: () => {} };
+
 /**
- * Render a CircuitGroup with the editor enabled (so `createDropzones`
- * runs) and return the dropzone descriptors found in the resulting SVG.
+ * Create a fresh `.qs-circuit` container attached to the document body.
+ * `afterEach` tears down the whole JSDOM, so there's nothing to clean
+ * up per-container here.
  *
- * @param {import("../../dist/ux/circuit-vis/index.js").CircuitGroup} group
- * @returns {{ location: string; wire: number; interColumn: boolean }[]}
+ * @returns {HTMLDivElement}
  */
-function renderAndCollectDropzones(group) {
+function makeContainer() {
   const container = document.createElement("div");
   container.className = "qs-circuit";
   document.body.appendChild(container);
+  return container;
+}
 
-  draw(group, container, {
-    editor: {
-      // No-op editCallback — we just need the editor branch to run so
-      // dropzones are created.
-      editCallback: () => {},
-    },
-    // Ask for a deep render so any expanded groups in the input are
-    // actually rendered as expanded (not auto-collapsed).
-    renderDepth: 5,
-  });
-
-  const dropzones = container.querySelectorAll(
+/**
+ * Scrape every dropzone descriptor out of an already-rendered container.
+ *
+ * @param {Element} container
+ * @returns {{ location: string; wire: number; interColumn: boolean }[]}
+ */
+function collectDropzones(container) {
+  const rects = container.querySelectorAll(
     "g.dropzone-layer rect.dropzone[data-dropzone-location]",
   );
-  return Array.from(dropzones).map((rect) => ({
+  return Array.from(rects).map((rect) => ({
     location: rect.getAttribute("data-dropzone-location") ?? "",
     wire: Number(rect.getAttribute("data-dropzone-wire") ?? "-1"),
     interColumn: rect.getAttribute("data-dropzone-inter-column") === "true",
@@ -75,17 +78,112 @@ function renderAndCollectDropzones(group) {
 }
 
 /**
+ * Render a CircuitGroup with the editor enabled (so `createDropzones`
+ * runs) and return the dropzone descriptors found in the resulting SVG.
+ * `renderDepth: 5` forces any group in the input to render expanded
+ * (not auto-collapsed).
+ *
+ * @param {import("../../dist/ux/circuit-vis/index.js").CircuitGroup} circuitGroup
+ * @returns {{ location: string; wire: number; interColumn: boolean }[]}
+ */
+function renderAndCollectDropzones(circuitGroup) {
+  const container = makeContainer();
+  draw(circuitGroup, container, { editor: noopEditor, renderDepth: 5 });
+  return collectDropzones(container);
+}
+
+/**
+ * Filter dropzones — or any `{ location }` descriptors, e.g. rendered
+ * hosts — to those nested under `prefix`. The default `"0,0-"` matches
+ * the body of the single top-level `Foo` group used throughout.
+ *
+ * @template {{ location: string }} T
+ * @param {T[]} items
+ * @param {string} [prefix]
+ * @returns {T[]}
+ */
+function nestedUnder(items, prefix = "0,0-") {
+  return items.filter((d) => d.location.startsWith(prefix));
+}
+
+/**
+ * Filter dropzones to the trailing band at `location` — the
+ * `!interColumn` "append a new column here" rects. Works for both a
+ * group's inner band (`"0,0-1,0"`, the default) and the top-level band
+ * (`"1,0"`).
+ *
+ * @param {{ location: string; wire: number; interColumn: boolean }[]} dropzones
+ * @param {string} [location]
+ */
+function trailingBand(dropzones, location = "0,0-1,0") {
+  return dropzones.filter((d) => d.location === location && !d.interColumn);
+}
+
+/**
+ * Render a CircuitGroup through `Sqore` directly (rather than `draw`)
+ * so the test can drive `renderCircuit` / `updateCircuit` and inspect
+ * `viewState`. Returns the live `Sqore` and its container.
+ *
+ * @param {import("../../dist/ux/circuit-vis/index.js").CircuitGroup} circuitGroup
+ */
+async function drawWithSqore(circuitGroup) {
+  const { Sqore } = await import("../../dist/ux/circuit-vis/sqore.js");
+  const container = makeContainer();
+  const sqore = new Sqore(circuitGroup, { editor: noopEditor });
+  sqore.draw(container);
+  return { sqore, container };
+}
+
+/**
+ * Click the expand button on the group op rendered at `location`,
+ * simulating a user expanding a collapsed group. Asserts the gate and
+ * its expand button exist. Returns the gate element.
+ *
+ * @param {Element} container
+ * @param {string} location
+ */
+function clickExpandButton(container, location) {
+  const gate = container.querySelector(`[data-location="${location}"]`);
+  assert.ok(gate, `expected gate group at location ${location}`);
+  const expandButton = gate.querySelector(".gate-control.gate-expand");
+  assert.ok(
+    expandButton,
+    `expected expand button on collapsed gate at ${location}`,
+  );
+  // JSDOM's MouseEvent constructor lives on its window.
+  const win = /** @type {any} */ (container.ownerDocument.defaultView);
+  expandButton.dispatchEvent(new win.MouseEvent("click", { bubbles: true }));
+  return gate;
+}
+
+/**
+ * Assert no dropzone in `dropzones` lands on a wire at or below
+ * `boundary` — i.e. on a wire whose index is `>= boundary`. Wires are
+ * numbered top-to-bottom (wire 0 at the top), so a higher index sits
+ * lower on screen. This is the wire-extent clipping contract for
+ * nested bands.
+ *
+ * @param {{ wire: number }[]} dropzones
+ * @param {number} boundary
+ * @param {string} label
+ */
+function assertNoDropzoneAtOrBelowWire(dropzones, boundary, label) {
+  const leaked = dropzones.filter((d) => d.wire >= boundary);
+  assert.deepEqual(leaked, [], `${label}; leaked: ${JSON.stringify(leaked)}`);
+}
+
+/**
  * Build a minimal CircuitGroup wrapping a single Circuit. Keeps the
  * test fixtures readable by hiding the boilerplate.
  *
  * @param {{ qubits: import("../../dist/ux/circuit-vis/index.js").Qubit[];
- *           componentGrid: import("../../dist/ux/circuit-vis/index.js").ComponentGrid; }} circuit
+ *           componentGrid: import("../../dist/ux/circuit-vis/index.js").ComponentGrid; }} circuitData
  * @returns {import("../../dist/ux/circuit-vis/index.js").CircuitGroup}
  */
-function singleCircuit(circuit) {
+function singleCircuit(circuitData) {
   return {
     version: 1,
-    circuits: [circuit],
+    circuits: [circuitData],
   };
 }
 
@@ -97,32 +195,11 @@ function singleCircuit(circuit) {
 test("flat circuit emits only top-level dropzones", () => {
   // Two qubits, two columns: H on q0, then CNOT (control q0,
   // target q1). No groups.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "H",
-            targets: [{ qubit: 0 }],
-          },
-        ],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0 }],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(2, [[gate("H", 0)], [gate("X", 1, { ctrls: [0] })]]),
+  );
 
-  const dropzones = renderAndCollectDropzones(group);
+  const dropzones = renderAndCollectDropzones(cg);
 
   // Every emitted dropzone should have a single-segment location (no `-`).
   const nested = dropzones.filter((d) => d.location.includes("-"));
@@ -147,38 +224,17 @@ test("flat circuit emits only top-level dropzones", () => {
 test("expanded group emits nested-location dropzones inside its body", () => {
   // Custom gate `Foo` containing one nested `H`. Foo is marked
   // expanded via `dataAttributes` so the renderer shows its body.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            dataAttributes: { expanded: "true" },
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(2, [
+      [group("Foo", [[gate("H", 0)]], { expanded: true, span: [0, 1] })],
+    ]),
+  );
 
-  const dropzones = renderAndCollectDropzones(group);
+  const dropzones = renderAndCollectDropzones(cg);
 
   // We expect at least one nested dropzone — one with a location string
   // that starts with the parent's "0,0" prefix (the only top-level op).
-  const nested = dropzones.filter((d) => d.location.startsWith("0,0-"));
+  const nested = nestedUnder(dropzones);
   assert.ok(
     nested.length > 0,
     `expected nested dropzones inside expanded Foo group, got locations: ${JSON.stringify(
@@ -197,40 +253,17 @@ test("expanded group emits nested-location dropzones inside its body", () => {
 test("nested dropzones are clipped to the group's wire extent", () => {
   // 3 qubits. Foo only spans wires 0-1; wire 2 has its own X gate
   // sitting alongside (so the renderer keeps wire 2 visible).
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            dataAttributes: { expanded: "true" },
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 2 }],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(3, [
+      [
+        group("Foo", [[gate("H", 0)]], { expanded: true, span: [0, 1] }),
+        gate("X", 2),
+      ],
+    ]),
+  );
 
-  const dropzones = renderAndCollectDropzones(group);
-  const nested = dropzones.filter((d) => d.location.startsWith("0,0-"));
+  const dropzones = renderAndCollectDropzones(cg);
+  const nested = nestedUnder(dropzones);
 
   // Nested dropzones must exist — otherwise the clipping assertion
   // below is vacuously true.
@@ -240,19 +273,16 @@ test("nested dropzones are clipped to the group's wire extent", () => {
   );
 
   // None of them may target wire 2 (outside Foo's [0, 1] extent).
-  const leaked = nested.filter((d) => d.wire >= 2);
-  assert.deepEqual(
-    leaked,
-    [],
-    `nested dropzones must be clipped to Foo's wire extent (wires 0-1); leaked: ${JSON.stringify(
-      leaked,
-    )}`,
+  assertNoDropzoneAtOrBelowWire(
+    nested,
+    2,
+    "nested dropzones must be clipped to Foo's wire extent (wires 0-1)",
   );
 });
 
 // ---------------------------------------------------------------------------
 // Nested dropzones must appear when a group is rendered expanded by
-// the renderer (via `renderDepth` or chevron click) even when the
+// the renderer (via `renderDepth` or expand-button click) even when the
 // source op has no pre-baked `dataAttributes.expanded` flag.
 //
 // `Sqore.renderCircuit` deep-copies the circuit and runs
@@ -265,38 +295,13 @@ test("nested dropzones are clipped to the group's wire extent", () => {
 test("nested dropzones appear when expansion is render-time only (not pre-baked)", () => {
   // Foo has children but no `dataAttributes.expanded`. Render-time
   // expansion comes from `renderDepth: 5` in the helper.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            // No `dataAttributes` here — what the editor sees in
-            // `sqore.circuit.componentGrid` for a group expanded via
-            // the chevron.
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(2, [[group("Foo", [[gate("H", 0)]], { span: [0, 1] })]]),
+  );
 
-  const dropzones = renderAndCollectDropzones(group);
+  const dropzones = renderAndCollectDropzones(cg);
 
-  const nested = dropzones.filter((d) => d.location.startsWith("0,0-"));
+  const nested = nestedUnder(dropzones);
   assert.ok(
     nested.length > 0,
     `expected nested dropzones inside render-time-expanded Foo group, got locations: ${JSON.stringify(
@@ -306,71 +311,27 @@ test("nested dropzones appear when expansion is render-time only (not pre-baked)
 });
 
 // ---------------------------------------------------------------------------
-// Persistent view state: a user-initiated expand (chevron click) must
+// Persistent view state: a user-initiated expand (expand-button click) must
 // survive subsequent re-renders, including those triggered by editor
 // mutations. `ViewState` decouples view preferences from the saved
 // circuit so they survive the per-render deep copy.
 // ---------------------------------------------------------------------------
 
 test("user expand choice survives a re-render via ViewState", async () => {
-  // Construct Sqore directly so the test can call its renderCircuit
-  // method to simulate an editor-mutation refresh.
-  const { Sqore } = await import("../../dist/ux/circuit-vis/sqore.js");
-
   // 2 columns prevents `expandIfSingleOperation` from auto-expanding;
   // Foo starts collapsed.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 2 }],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(3, [
+      [group("Foo", [[gate("H", 0)]], { span: [0, 1] })],
+      [gate("X", 2)],
+    ]),
+  );
 
-  const container = document.createElement("div");
-  container.className = "qs-circuit";
-  document.body.appendChild(container);
+  // Construct Sqore directly so the test can call renderCircuit to
+  // simulate an editor-mutation refresh.
+  const { sqore, container } = await drawWithSqore(cg);
 
-  const sqore = new Sqore(group, {
-    editor: { editCallback: () => {} },
-  });
-  sqore.draw(container);
-
-  const collectNested = () =>
-    Array.from(
-      container.querySelectorAll(
-        "g.dropzone-layer rect.dropzone[data-dropzone-location]",
-      ),
-    )
-      .map((el) => el.getAttribute("data-dropzone-location") ?? "")
-      .filter((loc) => loc.startsWith("0,0-"));
+  const collectNested = () => nestedUnder(collectDropzones(container));
 
   // Sanity: Foo starts collapsed.
   assert.equal(
@@ -379,26 +340,14 @@ test("user expand choice survives a re-render via ViewState", async () => {
     "Foo should start collapsed (no auto-expand applies to a multi-column grid)",
   );
 
-  // Find the expand chevron and click it. The Sqore handler writes
+  // Find the expand button and click it. The Sqore handler writes
   // to viewState and triggers a re-render.
-  const fooGate = container.querySelector('[data-location="0,0"]');
-  assert.ok(fooGate, "expected to find Foo gate group");
-  const expandBtn = fooGate.querySelector(".gate-control.gate-expand");
-  assert.ok(expandBtn, "expected to find expand chevron on collapsed Foo");
-  // JSDOM's MouseEvent constructor lives on its window.
-  expandBtn.dispatchEvent(
-    new /** @type {any} */ (container.ownerDocument.defaultView).MouseEvent(
-      "click",
-      {
-        bubbles: true,
-      },
-    ),
-  );
+  clickExpandButton(container, "0,0");
 
   // After click: Foo is expanded; nested dropzones appear.
   assert.ok(
     collectNested().length > 0,
-    "Foo should be expanded after chevron click",
+    "Foo should be expanded after expand-button click",
   );
 
   // Verify the user choice was recorded in viewState.
@@ -435,68 +384,20 @@ test("user expand choice survives a re-render via ViewState", async () => {
 // ---------------------------------------------------------------------------
 
 test("user expand choice survives an upstream column-shift mutation", async () => {
-  const { Sqore } = await import("../../dist/ux/circuit-vis/sqore.js");
-
   // Top-level grid: [col 0: X on q2] [col 1: Foo group with H inside].
   // Foo lives at "1,0". The test will splice a new column at index 0,
   // shifting Foo to "2,0".
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 2 }],
-          },
-        ],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  });
-
-  const container = document.createElement("div");
-  container.className = "qs-circuit";
-  document.body.appendChild(container);
-
-  const sqore = new Sqore(group, {
-    editor: { editCallback: () => {} },
-  });
-  sqore.draw(container);
-
-  // User expands Foo (at "1,0") via the chevron.
-  const fooGate = container.querySelector('[data-location="1,0"]');
-  assert.ok(fooGate, "expected Foo gate at location 1,0");
-  const expandBtn = fooGate.querySelector(".gate-control.gate-expand");
-  assert.ok(expandBtn, "expected expand chevron on collapsed Foo");
-  expandBtn.dispatchEvent(
-    new /** @type {any} */ (container.ownerDocument.defaultView).MouseEvent(
-      "click",
-      {
-        bubbles: true,
-      },
-    ),
+  const cg = singleCircuit(
+    circuit(3, [
+      [gate("X", 2)],
+      [group("Foo", [[gate("H", 0)]], { span: [0, 1] })],
+    ]),
   );
+
+  const { sqore, container } = await drawWithSqore(cg);
+
+  // User expands Foo (at "1,0") via the expand button.
+  clickExpandButton(container, "1,0");
   assert.equal(
     sqore.viewState.expanded.get("1,0"),
     true,
@@ -554,61 +455,17 @@ test("user expand choice survives an upstream column-shift mutation", async () =
 // ---------------------------------------------------------------------------
 
 test("user expand choice survives an external circuit update via updateCircuit", async () => {
-  const { Sqore } = await import("../../dist/ux/circuit-vis/sqore.js");
-
   const buildGroup = () =>
-    singleCircuit({
-      qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-      componentGrid: [
-        {
-          components: [
-            {
-              kind: "unitary",
-              gate: "Foo",
-              targets: [{ qubit: 0 }, { qubit: 1 }],
-              children: [
-                {
-                  components: [
-                    {
-                      kind: "unitary",
-                      gate: "H",
-                      targets: [{ qubit: 0 }],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-        {
-          components: [
-            {
-              kind: "unitary",
-              gate: "X",
-              targets: [{ qubit: 2 }],
-            },
-          ],
-        },
-      ],
-    });
+    singleCircuit(
+      circuit(3, [
+        [group("Foo", [[gate("H", 0)]], { span: [0, 1] })],
+        [gate("X", 2)],
+      ]),
+    );
 
-  const container = document.createElement("div");
-  container.className = "qs-circuit";
-  document.body.appendChild(container);
+  const { sqore, container } = await drawWithSqore(buildGroup());
 
-  const sqore = new Sqore(buildGroup(), {
-    editor: { editCallback: () => {} },
-  });
-  sqore.draw(container);
-
-  const collectNested = () =>
-    Array.from(
-      container.querySelectorAll(
-        "g.dropzone-layer rect.dropzone[data-dropzone-location]",
-      ),
-    )
-      .map((el) => el.getAttribute("data-dropzone-location") ?? "")
-      .filter((loc) => loc.startsWith("0,0-"));
+  const collectNested = () => nestedUnder(collectDropzones(container));
 
   // Sanity: Foo starts collapsed.
   assert.equal(
@@ -617,22 +474,11 @@ test("user expand choice survives an external circuit update via updateCircuit",
     "Foo should start collapsed (no auto-expand applies to a multi-column grid)",
   );
 
-  // User expands Foo via the chevron.
-  const fooGate = container.querySelector('[data-location="0,0"]');
-  assert.ok(fooGate, "expected to find Foo gate group");
-  const expandBtn = fooGate.querySelector(".gate-control.gate-expand");
-  assert.ok(expandBtn, "expected to find expand chevron on collapsed Foo");
-  expandBtn.dispatchEvent(
-    new /** @type {any} */ (container.ownerDocument.defaultView).MouseEvent(
-      "click",
-      {
-        bubbles: true,
-      },
-    ),
-  );
+  // User expands Foo via the expand button.
+  clickExpandButton(container, "0,0");
   assert.ok(
     collectNested().length > 0,
-    "Foo should be expanded after chevron click",
+    "Foo should be expanded after expand-button click",
   );
 
   // Capture the SVG identity to verify `updateCircuit` does an
@@ -676,17 +522,12 @@ test("user expand choice survives an external circuit update via updateCircuit",
  * rendered host elements (the gate boxes) and the produced dropzones,
  * each annotated with bounding-box coordinates pulled from SVG attrs.
  *
- * @param {import("../../dist/ux/circuit-vis/index.js").CircuitGroup} group
+ * @param {import("../../dist/ux/circuit-vis/index.js").CircuitGroup} circuitGroup
  */
-function renderAndCollectGeometry(group) {
-  const container = document.createElement("div");
-  container.className = "qs-circuit";
-  document.body.appendChild(container);
+function renderAndCollectGeometry(circuitGroup) {
+  const container = makeContainer();
 
-  draw(group, container, {
-    editor: { editCallback: () => {} },
-    renderDepth: 5,
-  });
+  draw(circuitGroup, container, { editor: noopEditor, renderDepth: 5 });
 
   // The gate body box carries `data-width` and `x` in absolute SVG
   // coords. `data-location` lives on a parent `<g class="gate">` (set
@@ -786,29 +627,15 @@ function assertHostsCoveredByColumnDropzones(
 
 test("flat circuit: every gate is covered by its on-column dropzone", () => {
   // Two 1-qubit gates and one CNOT — three columns, all at top level.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
-      },
-      {
-        components: [{ kind: "unitary", gate: "T", targets: [{ qubit: 1 }] }],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0 }],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(2, [
+      [gate("H", 0)],
+      [gate("T", 1)],
+      [gate("X", 1, { ctrls: [0] })],
+    ]),
+  );
 
-  const { hosts, dropzones } = renderAndCollectGeometry(group);
+  const { hosts, dropzones } = renderAndCollectGeometry(cg);
 
   assert.ok(hosts.length > 0, "expected at least some host elements");
   assertHostsCoveredByColumnDropzones(hosts, dropzones, "flat circuit");
@@ -817,47 +644,17 @@ test("flat circuit: every gate is covered by its on-column dropzone", () => {
 test("expanded group: nested gates are covered by their on-column dropzones", () => {
   // Nested gates emit dropzones with locations like `0,0-…`. Each
   // must overlap the gate's x range.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            dataAttributes: { expanded: "true" },
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                ],
-              },
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "X",
-                    targets: [{ qubit: 1 }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(2, [
+      [group("Foo", [[gate("H", 0)], [gate("X", 1)]], { expanded: true })],
+    ]),
+  );
 
-  const { hosts, dropzones } = renderAndCollectGeometry(group);
+  const { hosts, dropzones } = renderAndCollectGeometry(cg);
 
   // Filter to nested hosts — the gates inside Foo's body. Their
   // location strings start with "0,0-".
-  const nestedHosts = hosts.filter((h) => h.location.startsWith("0,0-"));
+  const nestedHosts = nestedUnder(hosts);
   assert.ok(
     nestedHosts.length > 0,
     `expected some nested host elements inside Foo, got hosts: ${JSON.stringify(
@@ -876,29 +673,12 @@ test("expanded group: nested gates are covered by their on-column dropzones", ()
 // ---------------------------------------------------------------------------
 
 test("editor-only DOM lives inside the editor-overlay group", () => {
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
-      },
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 1 }],
-            controls: [{ qubit: 0 }],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(2, [[gate("H", 0)], [gate("X", 1, { ctrls: [0] })]]),
+  );
 
-  const container = document.createElement("div");
-  container.className = "qs-circuit";
-  document.body.appendChild(container);
-  draw(group, container, { editor: { editCallback: () => {} } });
+  const container = makeContainer();
+  draw(cg, container, { editor: noopEditor });
 
   const svg = container.querySelector("svg.qviz");
   assert.ok(svg, "expected an svg.qviz");
@@ -944,19 +724,9 @@ test("trailing-append column lands past the rightmost gate", () => {
   // Locks down the synthesized "past-end" position used for the
   // append-new-column dropzones at top level. If makeDropzoneBox's
   // out-of-bounds colIndex synthesis ever drifts, this catches it.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
-      },
-      {
-        components: [{ kind: "unitary", gate: "T", targets: [{ qubit: 1 }] }],
-      },
-    ],
-  });
+  const cg = singleCircuit(circuit(2, [[gate("H", 0)], [gate("T", 1)]]));
 
-  const { hosts, dropzones } = renderAndCollectGeometry(group);
+  const { hosts, dropzones } = renderAndCollectGeometry(cg);
 
   // Locate the rightmost host (top-level only — nested gates would
   // start with "0,0-" etc., so a simple substring filter excludes them).
@@ -1017,54 +787,24 @@ test("expanded group emits a trailing inner-column dropzone band on its right ed
   // trailing inner-column band sits at the synthesized past-end
   // column index `1`, prefixed by Foo's location `0,0` — location
   // string `0,0-1,0`.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            dataAttributes: { expanded: "true" },
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                  {
-                    kind: "unitary",
-                    gate: "Y",
-                    targets: [{ qubit: 1 }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(2, [
+      [group("Foo", [[gate("H", 0), gate("Y", 1)]], { expanded: true })],
+    ]),
+  );
 
-  const dropzones = renderAndCollectDropzones(group);
+  const dropzones = renderAndCollectDropzones(cg);
 
   // Trailing inner-column dropzones are tagged
   // `data-dropzone-inter-column="false"` (drop, don't insert-between)
   // and live at colIndex == childrenColumnCount inside Foo's scope.
-  const innerTrailing = dropzones.filter(
-    (d) => d.location === "0,0-1,0" && !d.interColumn,
-  );
+  const innerTrailing = trailingBand(dropzones);
   assert.equal(
     innerTrailing.length,
     2,
     `expected one trailing inner-column dropzone per wire Foo spans (2),` +
       ` got locations: ${JSON.stringify(
-        dropzones
-          .filter((d) => d.location.startsWith("0,0-"))
-          .map((d) => `${d.location}@w${d.wire}`),
+        nestedUnder(dropzones).map((d) => `${d.location}@w${d.wire}`),
       )}`,
   );
 
@@ -1083,44 +823,19 @@ test("trailing inner-column dropzones are clipped to the group's wire extent", (
   // Foo spans wires 0-1 only; a sibling X on wire 2 keeps that wire
   // visible. Foo's trailing inner-column band must not leak onto
   // wire 2.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            dataAttributes: { expanded: "true" },
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            kind: "unitary",
-            gate: "X",
-            targets: [{ qubit: 2 }],
-          },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(3, [
+      [
+        group("Foo", [[gate("H", 0)]], { expanded: true, span: [0, 1] }),
+        gate("X", 2),
+      ],
+    ]),
+  );
 
-  const dropzones = renderAndCollectDropzones(group);
+  const dropzones = renderAndCollectDropzones(cg);
 
   // Inner-trailing band: `!interColumn` at location `0,0-1,0`.
-  const innerTrailing = dropzones.filter(
-    (d) => d.location === "0,0-1,0" && !d.interColumn,
-  );
+  const innerTrailing = trailingBand(dropzones);
 
   // Must exist — otherwise the clipping assertion below is
   // vacuously true.
@@ -1129,16 +844,14 @@ test("trailing inner-column dropzones are clipped to the group's wire extent", (
     "expected trailing inner-column dropzones inside Foo to be emitted",
   );
 
-  const leaked = innerTrailing.filter((d) => d.wire >= 2);
-  assert.deepEqual(
-    leaked,
-    [],
-    `trailing inner-column dropzones must be clipped to Foo's wire span;` +
-      ` leaked: ${JSON.stringify(leaked)}`,
+  assertNoDropzoneAtOrBelowWire(
+    innerTrailing,
+    2,
+    "trailing inner-column dropzones must be clipped to Foo's wire span",
   );
 });
 
-test("collapsed group does NOT emit any inner trailing-column dropzones", () => {
+test("collapsed group emits no inner dropzones", () => {
   // A collapsed group has no `LayoutMap` scope entry, so the
   // dropzone recursion never enters it and the trailing-column
   // helper never runs. No inner-scope dropzones should leak out.
@@ -1146,57 +859,21 @@ test("collapsed group does NOT emit any inner trailing-column dropzones", () => 
   // The sibling top-level op pins Foo collapsed: without it,
   // `expandIfSingleOperation` would auto-expand Foo when it's the
   // only op at the top level.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }],
-    componentGrid: [
-      {
-        components: [
-          {
-            kind: "unitary",
-            gate: "Foo",
-            targets: [{ qubit: 0 }, { qubit: 1 }],
-            // No `dataAttributes.expanded` and the draw below uses
-            // renderDepth: 0; the sibling H below blocks the
-            // single-op auto-expansion path.
-            children: [
-              {
-                components: [
-                  {
-                    kind: "unitary",
-                    gate: "H",
-                    targets: [{ qubit: 0 }],
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-      {
-        components: [{ kind: "unitary", gate: "X", targets: [{ qubit: 0 }] }],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(2, [
+      [group("Foo", [[gate("H", 0)]], { span: [0, 1] })],
+      [gate("X", 0)],
+    ]),
+  );
 
   // Render with renderDepth: 0 so Foo stays collapsed. We can't use
   // the helper (it forces renderDepth: 5), so inline the draw call.
-  const container = document.createElement("div");
-  container.className = "qs-circuit";
-  document.body.appendChild(container);
-  draw(group, container, {
-    editor: { editCallback: () => {} },
-    renderDepth: 0,
-  });
+  const container = makeContainer();
+  draw(cg, container, { editor: noopEditor, renderDepth: 0 });
 
-  const dropzones = Array.from(
-    container.querySelectorAll(
-      "g.dropzone-layer rect.dropzone[data-dropzone-location]",
-    ),
-  ).map((rect) => ({
-    location: rect.getAttribute("data-dropzone-location") ?? "",
-  }));
-
-  const nested = dropzones.filter((d) => d.location.includes("-"));
+  const nested = collectDropzones(container).filter((d) =>
+    d.location.includes("-"),
+  );
   assert.deepEqual(
     nested,
     [],
@@ -1205,24 +882,15 @@ test("collapsed group does NOT emit any inner trailing-column dropzones", () => 
   );
 });
 
-test("top-level trailing-column band is preserved by the refactor", () => {
+test("top-level trailing-column band is not clipped to any group's wire span", () => {
   // The top-level trailing band must cover every wire, not just the
   // wires of any group inside it. A wire-clamp regression would
   // restrict the band to a subset of `[0, wireData.length)`.
-  const group = singleCircuit({
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [
-      {
-        components: [
-          { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
-          { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
-          { kind: "unitary", gate: "Y", targets: [{ qubit: 2 }] },
-        ],
-      },
-    ],
-  });
+  const cg = singleCircuit(
+    circuit(3, [[gate("H", 0), gate("X", 1), gate("Y", 2)]]),
+  );
 
-  const dropzones = renderAndCollectDropzones(group);
+  const dropzones = renderAndCollectDropzones(cg);
 
   // One column at top level, so trailing colIndex is 1. Location
   // "1,0" is the trailing band's location (no prefix). The editor
@@ -1230,9 +898,7 @@ test("top-level trailing-column band is preserved by the refactor", () => {
   // for the add-a-qubit affordance, so the top-level trailing band
   // covers more wires than the circuit declares. Assert wires
   // {0, 1, 2} are present rather than nailing the exact count.
-  const topTrailing = dropzones.filter(
-    (d) => d.location === "1,0" && !d.interColumn,
-  );
+  const topTrailing = trailingBand(dropzones, "1,0");
   const wires = new Set(topTrailing.map((d) => d.wire));
   for (const w of [0, 1, 2]) {
     assert.ok(

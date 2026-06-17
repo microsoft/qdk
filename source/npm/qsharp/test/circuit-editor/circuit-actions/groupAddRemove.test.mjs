@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import { findAndRemoveOperations } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
-import { at, build, circuit, expectOp, gate, group } from "./_helpers.mjs";
+import { at, build, circuit, expectOp, gate, group } from "../_helpers.mjs";
 
 test("findAndRemoveOperations recurses into expanded-group children", () => {
   const model = build(

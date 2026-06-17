@@ -25,7 +25,7 @@ import {
   group,
   meas,
   qubits,
-} from "./_helpers.mjs";
+} from "../_helpers.mjs";
 
 /** Fresh empty circuit literal with `n` qubits and no operations. */
 const emptyCircuit = (/** @type {number} */ n) => circuit(n, []);
