@@ -1264,6 +1264,13 @@ fn resolve_same_package_callable_return(
         args_expr_id,
         package_id,
     );
+    // Snapshot the parameter -> caller-argument expression map immediately
+    // after seeding and before the body is analyzed. The body's own local
+    // bindings can collide with caller-scope `LocalVarId`s, which would make
+    // a transitive walk over the merged `state.exprs` ambiguous. This clean 
+    // snapshot lets capture resolution stop at a producing-function parameter
+    // and substitute the caller-scope argument bound to it.
+    let param_substitutions: FxHashMap<LocalVarId, ExprId> = state.exprs.clone();
     analyze_block_flow(pkg, store, body_block_id, &mut state, package_id, None);
 
     let block = pkg.get_block(body_block_id);
@@ -1285,6 +1292,7 @@ fn resolve_same_package_callable_return(
     materialize_capture_exprs_from_state(
         pkg,
         &state,
+        &param_substitutions,
         resolve_callee_projection(
             pkg,
             store,
@@ -1359,23 +1367,31 @@ fn remap_condition_expr(pkg: &Package, locals: &LocalState, expr_id: ExprId) -> 
 }
 
 /// Materializes `CapturedVar::expr` fields for each capture appearing in a
-/// `CalleeLattice` by looking up the capture's defining expression in the
-/// current `LocalState` so rewrite can re-emit the captures as arguments.
+/// `CalleeLattice` by resolving the capture's defining expression in the
+/// callee's analyzed `LocalState`, substituting producing-function parameters
+/// with the caller-scope argument expressions in `param_substitutions`, so
+/// rewrite can re-emit the captures as caller-scope arguments.
 fn materialize_capture_exprs_from_state(
     pkg: &Package,
     state: &LocalState,
+    param_substitutions: &FxHashMap<LocalVarId, ExprId>,
     resolved: CalleeLattice,
 ) -> CalleeLattice {
     match resolved {
-        CalleeLattice::Single(concrete) => {
-            CalleeLattice::Single(materialize_capture_exprs_in_callable(pkg, state, concrete))
-        }
+        CalleeLattice::Single(concrete) => CalleeLattice::Single(
+            materialize_capture_exprs_in_callable(pkg, state, param_substitutions, concrete),
+        ),
         CalleeLattice::Multi(entries) => CalleeLattice::Multi(
             entries
                 .into_iter()
                 .map(|(concrete, condition)| {
                     (
-                        materialize_capture_exprs_in_callable(pkg, state, concrete),
+                        materialize_capture_exprs_in_callable(
+                            pkg,
+                            state,
+                            param_substitutions,
+                            concrete,
+                        ),
                         condition,
                     )
                 })
@@ -1385,12 +1401,15 @@ fn materialize_capture_exprs_from_state(
     }
 }
 
-/// Walks every reaching lattice entry recorded for the callables in a
-/// reachable item set and calls [`materialize_capture_exprs_from_state`]
-/// for each one so the final `LatticeStates` exposes capture expressions.
+/// Resolves each closure capture to a caller-scope expression. For a
+/// partial-application closure returned across a function boundary, the
+/// capture references a producing-function parameter; this walks the callee
+/// `state` from the capture var, stops at the first producing-function
+/// parameter, and substitutes the caller-scope argument bound to it.
 fn materialize_capture_exprs_in_callable(
     pkg: &Package,
     state: &LocalState,
+    param_substitutions: &FxHashMap<LocalVarId, ExprId>,
     concrete: ConcreteCallable,
 ) -> ConcreteCallable {
     match concrete {
@@ -1400,8 +1419,10 @@ fn materialize_capture_exprs_in_callable(
             functor,
         } => {
             for capture in &mut captures {
-                if capture.expr.is_none() {
-                    capture.expr = resolve_capture_expr_from_state(pkg, state, capture.var);
+                if let Some(expr) =
+                    resolve_capture_to_caller(pkg, state, param_substitutions, capture.var)
+                {
+                    capture.expr = Some(expr);
                 }
             }
 
@@ -1415,29 +1436,37 @@ fn materialize_capture_exprs_in_callable(
     }
 }
 
-/// Resolves the defining expression for a captured local by consulting the
-/// flow-sensitive `LocalState::exprs` map populated during analysis.
-fn resolve_capture_expr_from_state(
+/// Resolves a closure capture variable to a caller-scope expression.
+///
+/// Walks `Var(Local)` indirection through the callee's analyzed `state`
+/// starting from `var`. When the walk reaches a producing-function parameter
+/// it returns the caller-scope argument expression bound to that parameter at
+/// the call site. Checking `param_substitutions` first is essential: the 
+/// callee body's local bindings can collide with caller-scope `LocalVarId`s,
+/// so following the merged `state.exprs` past a parameter would misinterpret
+/// a caller-scope id as a callee-scope one. Returns the terminal expression
+/// when the walk ends at a non-variable, or `None` when nothing is resolvable.
+fn resolve_capture_to_caller(
     pkg: &Package,
     state: &LocalState,
+    param_substitutions: &FxHashMap<LocalVarId, ExprId>,
     var: LocalVarId,
 ) -> Option<ExprId> {
     let mut current = var;
-
     for _ in 0..MAX_RESOLVE_DEPTH {
+        if let Some(&arg_expr_id) = param_substitutions.get(&current) {
+            return Some(arg_expr_id);
+        }
         let &expr_id = state.exprs.get(&current)?;
         let expr = pkg.get_expr(expr_id);
-        if let ExprKind::Var(Res::Local(next_var), _) = &expr.kind
-            && *next_var != current
-            && state.exprs.contains_key(next_var)
+        if let ExprKind::Var(Res::Local(next), _) = &expr.kind
+            && *next != current
         {
-            current = *next_var;
+            current = *next;
             continue;
         }
-
         return Some(expr_id);
     }
-
     None
 }
 
