@@ -4843,10 +4843,12 @@ struct ReturnScanner<'a> {
 
 impl<'a> qsc_fir::visit::Visitor<'a> for ReturnScanner<'a> {
     fn visit_expr(&mut self, expr: ExprId) {
-        if matches!(self.get_expr(expr).kind, ExprKind::Return(_)) {
-            self.found = true;
+        match self.get_expr(expr).kind {
+            ExprKind::Return(_) => {
+                self.found = true;
+            }
+            _ => qsc_fir::visit::walk_expr(self, expr),
         }
-        qsc_fir::visit::walk_expr(self, expr);
     }
 
     fn get_block(&self, id: BlockId) -> &'a Block {

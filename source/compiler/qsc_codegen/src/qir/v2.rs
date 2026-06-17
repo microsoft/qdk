@@ -751,57 +751,10 @@ impl ToQir<String> for rir::Program {
             callables,
             self.num_qubits,
             self.num_results,
-            get_additional_module_attributes(self),
-            get_module_flags(self)
+            get_additional_module_attributes(self)
         );
         body
     }
-}
-
-/// Determines whether the program emits at least one IR function, i.e. a non-entry bodied
-/// `Regular` callable rendered as an LLVM `define`.
-fn has_ir_functions(program: &rir::Program) -> bool {
-    program.callables.iter().any(|(id, callable)| {
-        id != program.entry
-            && callable.body.is_some()
-            && callable.call_type == rir::CallableType::Regular
-    })
-}
-
-/// Builds the `!llvm.module.flags` block for the program.
-///
-/// The base flags are always emitted. Optional capability flags are appended conditionally based
-/// on what the program actually generates (per the QIR spec: a lack of an optional capability
-/// flag indicates that the capability is not used). The `ir_functions` flag is emitted only when
-/// the program contains at least one IR function. The metadata indices are assigned contiguously
-/// so the list stays valid regardless of which optional flags are present.
-fn get_module_flags(program: &rir::Program) -> String {
-    let mut flag_bodies: Vec<&str> = vec![
-        "!{i32 1, !\"qir_major_version\", i32 2}",
-        "!{i32 7, !\"qir_minor_version\", i32 1}",
-        if program.use_dynamic_qubit_management {
-            "!{i32 1, !\"dynamic_qubit_management\", i1 true}"
-        } else {
-            "!{i32 1, !\"dynamic_qubit_management\", i1 false}"
-        },
-        "!{i32 1, !\"dynamic_result_management\", i1 false}",
-        "!{i32 5, !\"int_computations\", !{!\"i64\"}}",
-        "!{i32 5, !\"float_computations\", !{!\"double\"}}",
-        "!{i32 7, !\"backwards_branching\", i2 3}",
-        "!{i32 1, !\"arrays\", i1 true}",
-    ];
-    if has_ir_functions(program) {
-        flag_bodies.push("!{i32 1, !\"ir_functions\", i1 true}");
-    }
-    let list = (0..flag_bodies.len())
-        .map(|idx| format!("!{idx}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let mut flags = format!("!llvm.module.flags = !{{{list}}}\n");
-    for (idx, flag_body) in flag_bodies.iter().enumerate() {
-        write!(flags, "\n!{idx} = {flag_body}").expect("writing to string should succeed");
-    }
-    flags
 }
 
 fn get_additional_module_attributes(program: &rir::Program) -> String {

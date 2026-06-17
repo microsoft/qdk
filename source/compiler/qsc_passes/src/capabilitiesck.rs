@@ -508,7 +508,7 @@ impl<'a> Checker<'a> {
 
 fn get_spec_level_runtime_features(runtime_features: RuntimeFeatureFlags) -> RuntimeFeatureFlags {
     const SPEC_LEVEL_RUNTIME_FEATURES: RuntimeFeatureFlags =
-        RuntimeFeatureFlags::CyclicOperationSpec.union(RuntimeFeatureFlags::QubitAllocation);
+        RuntimeFeatureFlags::CyclicOperationSpec;
     runtime_features & SPEC_LEVEL_RUNTIME_FEATURES
 }
 

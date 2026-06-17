@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::target::TargetCapabilityFlags;
+use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 use qsc_eval::val::Value;
 use qsc_partial_eval::{
     PartialEvalConfig, Program, ProgramEntry, partially_evaluate, partially_evaluate_call,
@@ -12,16 +12,6 @@ use qsc_rir::{passes::check_and_transform, rir};
 pub mod name;
 pub mod v1;
 pub mod v2;
-
-/// Determines whether the QIR v2 emission path is required for the given capabilities.
-fn requires_qir_v2(capabilities: TargetCapabilityFlags) -> bool {
-    capabilities.intersects(
-        TargetCapabilityFlags::BackwardsBranching
-            | TargetCapabilityFlags::StaticSizedArrays
-            | TargetCapabilityFlags::CallSupport
-            | TargetCapabilityFlags::DynamicQubitAllocation,
-    )
-}
 
 /// converts the given sources to RIR using the given language features.
 pub fn fir_to_rir(
@@ -60,10 +50,10 @@ pub fn fir_to_qir(
         },
     )?;
     check_and_transform(&mut program);
-    if requires_qir_v2(capabilities) {
-        Ok(v2::ToQir::<String>::to_qir(&program, &program))
-    } else {
+    if capabilities <= Profile::AdaptiveRIF.into() {
         Ok(v1::ToQir::<String>::to_qir(&program, &program))
+    } else {
+        Ok(v2::ToQir::<String>::to_qir(&program, &program))
     }
 }
 
@@ -86,10 +76,10 @@ pub fn fir_to_qir_from_callable(
         },
     )?;
     check_and_transform(&mut program);
-    if requires_qir_v2(capabilities) {
-        Ok(v2::ToQir::<String>::to_qir(&program, &program))
-    } else {
+    if capabilities <= Profile::AdaptiveRIF.into() {
         Ok(v1::ToQir::<String>::to_qir(&program, &program))
+    } else {
+        Ok(v2::ToQir::<String>::to_qir(&program, &program))
     }
 }
 

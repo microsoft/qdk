@@ -80,7 +80,7 @@ impl From<(LocalItemId, FunctorSetValue)> for LocalSpecId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct GlobalSpecId {
     pub callable: StoreItemId,
     pub functor_set_value: FunctorSetValue,
