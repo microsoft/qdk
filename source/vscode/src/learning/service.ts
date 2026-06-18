@@ -207,9 +207,6 @@ export class LearningService {
     const ws = this.requireWorkspace();
     const currentPos = ws.progressData.position;
     const nextPos = this.nextActivity(currentPos);
-    if (!nextPos) {
-      return { moved: false };
-    }
 
     // Auto-mark lesson activities complete when moving forward
     const oldKata = this.findUnit(currentPos.unitId);
@@ -220,11 +217,17 @@ export class LearningService {
       this.markComplete(currentPos);
     }
 
-    ws.progressData.position = nextPos;
+    const hasNext = !!nextPos;
+
+    if (hasNext) {
+      ws.progressData.position = nextPos;
+    }
+
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     this.sendActivityActionTelemetry("navigate", source);
-    return { moved: true };
+
+    return { moved: hasNext };
   }
 
   async previous(source: TelemetrySource): Promise<NavigationResult> {
