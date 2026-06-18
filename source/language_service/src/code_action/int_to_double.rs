@@ -95,7 +95,7 @@ pub(crate) fn int_to_double_fixes(
     code_actions
 }
 
-/// Finds the AST expression whose span exactly matches `target` and returns its `NodeId`.
+/// Finds the AST expression whose span exactly matches `target`.
 fn find_expr_at(package: &ast::Package, target: Span) -> Option<&ast::Expr> {
     let mut finder = ExprSpanFinder {
         target,
