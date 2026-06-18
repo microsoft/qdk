@@ -2259,6 +2259,12 @@ impl<'a> PartialEvaluator<'a> {
                     span,
                 };
                 body_args.push(Arg::Var(local_var_id, variable));
+            } else {
+                // A discarded parameter is not bound in the body, but it must still occupy an
+                // argument slot so that the call scope's `args_compute_kind` arity matches the RCA
+                // application generator. The scope's binding loop ignores `Arg::Discard`,
+                // so this only contributes to the argument count, not to the bound locals.
+                body_args.push(Arg::Discard(Value::Var(eval_var)));
             }
         }
 

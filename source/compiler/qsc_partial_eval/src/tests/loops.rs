@@ -395,9 +395,8 @@ fn rotation_call_within_a_for_loop_unrolled() {
 
 #[test]
 fn rotation_call_within_a_for_loop() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -408,8 +407,7 @@ fn rotation_call_within_a_for_loop() {
             }
         }
         "#,
-        },
-    );
+    });
 
     expect![[r#"
         Program:
@@ -526,9 +524,8 @@ fn rotation_call_within_a_while_loop_unrolled() {
 
 #[test]
 fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -542,8 +539,7 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
             }
         }
         "#,
-        },
-    );
+    });
 
     expect![[r#"
         Program:
@@ -626,9 +622,8 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
 
 #[test]
 fn for_loop_over_arrays_of_tuples_unrolled() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -639,8 +634,7 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
             }
         }
         "#,
-        },
-    );
+    });
 
     expect![[r#"
         Program:
@@ -699,9 +693,8 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
 
 #[test]
 fn for_loop_over_qubits() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             operation op(q : Qubit) : Unit { body intrinsic; }
             @EntryPoint()
@@ -713,8 +706,7 @@ fn for_loop_over_qubits() {
             }
         }
         "#,
-        },
-    );
+    });
 
     expect![[r#"
         Program:
@@ -835,9 +827,8 @@ fn for_loop_over_qubits_unrolled() {
 
 #[test]
 fn rotation_call_within_a_while_loop() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             operation rotation(theta : Double, q : Qubit) : Unit { body intrinsic; }
             @EntryPoint()
@@ -852,8 +843,7 @@ fn rotation_call_within_a_while_loop() {
             }
         }
         "#,
-        },
-    );
+    });
 
     expect![[r#"
         Program:
@@ -918,9 +908,8 @@ fn rotation_call_within_a_while_loop() {
 
 #[test]
 fn rotation_call_within_a_while_loop_index_used_twice() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             operation rotation(theta : Double, q : Qubit) : Unit { body intrinsic; }
             @EntryPoint()
@@ -935,8 +924,7 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
             }
         }
         "#,
-        },
-    );
+    });
 
     expect![[r#"
         Program:
@@ -1003,9 +991,8 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
 
 #[test]
 fn rotation_call_within_a_while_loop_over_dynamic_array() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             operation rotation(theta : Double, q : Qubit) : Unit { body intrinsic; }
             @EntryPoint()
@@ -1021,8 +1008,7 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
             }
         }
         "#,
-        },
-    );
+    });
 
     expect![[r#"
         Program:

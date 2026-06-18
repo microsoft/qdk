@@ -41,7 +41,7 @@ fn eligible_void_operation_called_twice_emits_one_callable_and_two_calls() {
         r#"
         namespace Test {
             operation ApplyX(q : Qubit) : Unit {
-                Microsoft.Quantum.Intrinsic.X(q);
+                X(q);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -101,7 +101,7 @@ fn scalar_and_qubit_parameters_are_threaded_as_variables() {
         r#"
         namespace Test {
             operation ApplyRz(theta : Double, q : Qubit) : Unit {
-                Microsoft.Quantum.Intrinsic.Rz(theta, q);
+                Rz(theta, q);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -158,7 +158,7 @@ fn body_and_adjoint_specializations_emit_distinct_functions() {
         r#"
         namespace Test {
             operation ApplyS(q : Qubit) : Unit is Adj {
-                Microsoft.Quantum.Intrinsic.S(q);
+                S(q);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -189,7 +189,7 @@ fn controlled_specialization_is_inlined() {
         r#"
         namespace Test {
             operation ApplyS(q : Qubit) : Unit is Ctl {
-                Microsoft.Quantum.Intrinsic.S(q);
+                S(q);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -213,7 +213,7 @@ fn entry_callable_is_not_emitted_as_ir_function() {
         r#"
         namespace Test {
             operation ApplyX(q : Qubit) : Unit {
-                Microsoft.Quantum.Intrinsic.X(q);
+                X(q);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -239,14 +239,14 @@ fn entry_callable_is_not_emitted_as_ir_function() {
 }
 
 #[test]
-fn composite_tuple_parameter_callee_is_inlined() {
+fn un_promoted_tuple_parameter_callee_is_inlined() {
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
             operation ApplyToPair(qs : (Qubit, Qubit)) : Unit {
                 let (a, b) = qs;
-                Microsoft.Quantum.Intrinsic.X(a);
-                Microsoft.Quantum.Intrinsic.X(b);
+                X(a);
+                X(b);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -267,7 +267,7 @@ fn recursive_callee_is_inlined() {
         namespace Test {
             operation Recurse(n : Int, q : Qubit) : Unit {
                 if n > 0 {
-                    Microsoft.Quantum.Intrinsic.X(q);
+                    X(q);
                     Recurse(n - 1, q);
                 }
             }
@@ -293,7 +293,7 @@ fn cross_package_callee_is_inlined() {
             @EntryPoint()
             operation Main() : Unit {
                 use q = Qubit();
-                Microsoft.Quantum.Intrinsic.X(q);
+                X(q);
             }
         }
         "#,
@@ -309,7 +309,7 @@ fn qubit_allocating_callee_is_inlined_when_dynamic_allocation_disabled() {
         namespace Test {
             operation AllocAndX() : Unit {
                 use a = Qubit();
-                Microsoft.Quantum.Intrinsic.X(a);
+                X(a);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -329,7 +329,7 @@ fn qubit_allocating_callee_is_emitted_when_dynamic_allocation_enabled() {
         namespace Test {
             operation AllocAndX() : Unit {
                 use a = Qubit();
-                Microsoft.Quantum.Intrinsic.X(a);
+                X(a);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -355,7 +355,7 @@ fn dynamic_qubit_allocation_inside_ir_function_emits_runtime_alloc_and_release_c
         namespace Test {
             operation AllocAndX() : Unit {
                 use a = Qubit();
-                Microsoft.Quantum.Intrinsic.X(a);
+                X(a);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -425,7 +425,7 @@ fn int_returning_callee_emits_typed_ir_function_and_binds_output_var() {
         r#"
         namespace Test {
             operation ApplyAndReturn(q : Qubit) : Int {
-                Microsoft.Quantum.Intrinsic.X(q);
+                X(q);
                 42
             }
             @EntryPoint()
@@ -483,7 +483,7 @@ fn double_returning_callee_emits_typed_ir_function() {
         r#"
         namespace Test {
             operation ApplyAndAngle(q : Qubit) : Double {
-                Microsoft.Quantum.Intrinsic.X(q);
+                X(q);
                 1.5
             }
             @EntryPoint()
@@ -540,7 +540,7 @@ fn bool_returning_callee_emits_typed_ir_function() {
         r#"
         namespace Test {
             operation ApplyAndFlag(q : Qubit) : Bool {
-                Microsoft.Quantum.Intrinsic.X(q);
+                X(q);
                 true
             }
             @EntryPoint()
@@ -596,7 +596,7 @@ fn result_returning_callee_is_inlined() {
         r#"
         namespace Test {
             operation MeasureIt(q : Qubit) : Result {
-                Microsoft.Quantum.Measurement.MResetZ(q)
+                MResetZ(q)
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -624,7 +624,7 @@ fn qubit_returning_callee_is_inlined() {
             operation Main() : Unit {
                 use q = Qubit();
                 let q2 = Echo(q);
-                Microsoft.Quantum.Intrinsic.X(q2);
+                X(q2);
             }
         }
         "#,
@@ -637,7 +637,7 @@ fn qubit_returning_callee_is_inlined() {
 fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
     // A value-returning IR function whose returned mutable is read, updated, and stored again in
     // the same merge block must reload the freshly stored value before `Return`. The
-    // `set x = x + 1; x` sequence reads `x`, adds one, stores it, then returns it from the same
+    // `x = x + 1; x` sequence reads `x`, adds one, stores it, then returns it from the same
     // block, so after the non-SSA alloca/load transform the returning block ends with a `Load` that
     // follows the final `Store` and feeds `Return`.
     let mut program = get_rir_program_with_adaptive_profile(
@@ -645,10 +645,10 @@ fn store_backed_value_returning_ir_function_reloads_after_same_block_store() {
         namespace Test {
             operation Foo(q : Qubit) : Int {
                 mutable x = 0;
-                if Microsoft.Quantum.Measurement.MResetZ(q) == One {
-                    set x = 5;
+                if MResetZ(q) == One {
+                    x = 5;
                 }
-                set x = x + 1;
+                x = x + 1;
                 x
             }
             @EntryPoint()
@@ -709,7 +709,7 @@ fn ir_functions_are_not_emitted_without_call_support_capability() {
         r#"
         namespace Test {
             operation ApplyX(q : Qubit) : Unit {
-                Microsoft.Quantum.Intrinsic.X(q);
+                X(q);
             }
             @EntryPoint()
             operation Main() : Unit {
@@ -722,4 +722,143 @@ fn ir_functions_are_not_emitted_without_call_support_capability() {
     );
 
     assert_ir_function_names(&program, &expect!["[]"]);
+}
+
+#[test]
+fn tuple_discarded_parameter_is_threaded_as_call_site_operand() {
+    // The callee has a discarded tuple leaf parameter (`_ : Int`, d : `Double``).
+    // When the call is emitted as an IR function, the discarded argument has no
+    // body binding, but its call-site value must still be mapped to an operand
+    // and passed in input-parameter order. This exercises the `Arg::Discard`
+    //branch of the call-site operand mapping. The quantum side effect (`Rz`)
+    // keeps the call from being folded classically so the IR function is actually emitted.
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Foo((_ : Int, d : Double), q : Qubit) : Double {
+                Rz(d, q);
+                d
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                let _ = Foo((5, 1.5), q);
+            }
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Foo",
+            ]"#]],
+    );
+
+    // The discarded `Int` leaf occupies the first input slot of the emitted callable but is not
+    // bound in the body; only the `Double` and `Qubit` leaves are threaded as body variables.
+    assert_callable(
+        &program,
+        CallableId(2),
+        &expect![[r#"
+            Callable:
+                name: Foo
+                call_type: Regular
+                input_type:
+                    [0]: Integer
+                    [1]: Double
+                    [2]: Qubit
+                input_vars:
+                    [0]: 0
+                    [1]: 1
+                    [2]: 2
+                output_type: Double
+                body: 1"#]],
+    );
+
+    // The call site passes the discarded literal `Integer(5)` as the first operand, exercising the
+    // `Arg::Discard` operand mapping branch.
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(3, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
+                Return Variable(1, Double)"#]],
+    );
+}
+
+#[test]
+fn discarded_parameter_is_threaded_as_call_site_operand() {
+    // The callee has a discarded leaf parameter `_ : Int`. When the call is emitted as an IR
+    // function, the discarded argument has no body binding, but its call-site value must still be
+    // mapped to an operand and passed in input-parameter order. This exercises the `Arg::Discard`
+    // branch of the call-site operand mapping. The quantum side effect (`Rz`) keeps the call from
+    // being folded classically so the IR function is actually emitted.
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Foo(_ : Int, d : Double, q : Qubit) : Double {
+                Rz(d, q);
+                d
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                let _ = Foo(5, 1.5, q);
+            }
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Foo",
+            ]"#]],
+    );
+
+    // The discarded `Int` leaf occupies the first input slot of the emitted callable but is not
+    // bound in the body; only the `Double` and `Qubit` leaves are threaded as body variables.
+    assert_callable(
+        &program,
+        CallableId(2),
+        &expect![[r#"
+            Callable:
+                name: Foo
+                call_type: Regular
+                input_type:
+                    [0]: Integer
+                    [1]: Double
+                    [2]: Qubit
+                input_vars:
+                    [0]: 0
+                    [1]: 1
+                    [2]: 2
+                output_type: Double
+                body: 1"#]],
+    );
+
+    // The call site passes the discarded literal `Integer(5)` as the first operand, exercising the
+    // `Arg::Discard` operand mapping branch.
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(3, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
+                Return Variable(1, Double)"#]],
+    );
 }

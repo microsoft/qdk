@@ -856,9 +856,8 @@ fn static_fact_call_evaluated() {
 
 #[test]
 fn measurement_in_loop_of_variable_qubit_supported() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-        r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+    r#"
         operation Main() : Bool {
             use qs = Qubit[2];
             mutable noisy = false;
@@ -870,8 +869,7 @@ fn measurement_in_loop_of_variable_qubit_supported() {
             noisy
         }
         "#,
-        },
-    );
+    });
 
     assert_blocks(
         &program,
@@ -911,9 +909,8 @@ fn measurement_in_loop_of_variable_qubit_supported() {
 
 #[test]
 fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-        r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+    r#"
         @Measurement()
         operation Mzz(q1 : Qubit, q2 : Qubit) : Result {
             body intrinsic;
@@ -929,8 +926,7 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
             noisy
         }
         "#,
-        },
-    );
+    });
 
     assert_blocks(
         &program,
@@ -979,15 +975,13 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
 
 #[test]
 fn test_length_with_embedded_qubit_operations() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-        r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+    r#"
         operation Main() : Int {
             Length({use q = Qubit(); M(q); [1]})
         }
         "#,
-        },
-    );
+    });
 
     assert_blocks(
         &program,
@@ -1003,17 +997,15 @@ fn test_length_with_embedded_qubit_operations() {
 
 #[test]
 fn test_length_and_isempty_as_loop_conditions() {
-    let program = get_rir_program_with_adaptive_profile(
-        indoc! {
-        r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+    r#"
         operation Main() : Unit {
             use qs = Qubit[3];
             while Length(qs) == 0 { X(qs[0]); }
             while Std.Arrays.IsEmpty(qs) { X(qs[0]); }
         }
         "#,
-        },
-    );
+    });
 
     // Expect to see the iteration variables from qubit allocation,
     // but no calls to X because the loops are never entered.
