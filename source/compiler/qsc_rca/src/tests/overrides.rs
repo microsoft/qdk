@@ -31,7 +31,9 @@ fn check_rca_for_length_of_statically_sized_array_with_dynamic_content() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Static
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }

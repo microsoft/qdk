@@ -26,6 +26,7 @@ class CirqApplicationParams:
             they are decompsed into SWAP and RESET instructions.  Defaults to
             True.
     """
+
     track_memory_qubits: bool = field(default=True, metadata={"domain": [True]})
 
 
@@ -67,7 +68,9 @@ class CirqApplication(Application[CirqApplicationParams]):
         else:
             self._circuit = self.circuit_or_qasm
 
-    def get_trace(self, parameters: CirqApplicationParams = CirqApplicationParams()) -> Trace:
+    def get_trace(
+        self, parameters: CirqApplicationParams = CirqApplicationParams()
+    ) -> Trace:
         """Return the resource estimation trace for the Cirq circuit.
 
         Args:

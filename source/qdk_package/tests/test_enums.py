@@ -19,7 +19,7 @@ def test_target_profile_int_values_match_enum_values() -> None:
     assert 0 == TargetProfile.Base
     assert 1 == TargetProfile.Adaptive_RI
     assert 2 == TargetProfile.Adaptive_RIF
-    assert 3 == TargetProfile.Adaptive_RIFLA
+    assert 3 == TargetProfile.Adaptive
     assert 4 == TargetProfile.Unrestricted
 
 
@@ -47,9 +47,9 @@ def test_target_profile_str_values_match_enum_values() -> None:
     target_profile = TargetProfile.Adaptive_RIF
     str_value = str(target_profile)
     assert str_value == "Adaptive_RIF"
-    target_profile = TargetProfile.Adaptive_RIFLA
+    target_profile = TargetProfile.Adaptive
     str_value = str(target_profile)
-    assert str_value == "Adaptive_RIFLA"
+    assert str_value == "Adaptive"
     target_profile = TargetProfile.Unrestricted
     str_value = str(target_profile)
     assert str_value == "Unrestricted"
@@ -65,7 +65,7 @@ def test_target_profile_from_str_match_enum_values() -> None:
     target_profile = TargetProfile.Adaptive_RIF
     str_value = str(target_profile)
     assert TargetProfile.from_str(str_value) == target_profile
-    target_profile = TargetProfile.Adaptive_RIFLA
+    target_profile = TargetProfile.Adaptive
     str_value = str(target_profile)
     assert TargetProfile.from_str(str_value) == target_profile
     target_profile = TargetProfile.Unrestricted

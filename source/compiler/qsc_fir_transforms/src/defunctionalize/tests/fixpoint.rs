@@ -1189,72 +1189,72 @@ fn producer_body_closure_cleanup_converges() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        // namespace test
-        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
-            op(q);
-        }
-        operation InnerOp(extra : Bool, q : Qubit) : Unit {
-            H(q);
-        }
-        function MakeOp(extra : Bool) : (Qubit => Unit) {
-            return {
-                let arg : Bool = extra;
-                / * closure item = 5 captures = [arg] * / _lambda_
-            };
-        }
-        operation Main() : Unit {
-            let q : Qubit = __quantum__rt__qubit_allocate();
-            let op : (Qubit => Unit) = MakeOp(true);
-            ApplyOp_Empty_(op, q);
-            __quantum__rt__qubit_release(q);
-        }
-        operation _lambda_(arg : Bool, hole : Qubit) : Unit {
-            InnerOp(arg, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-            op(q);
-        }
-        // entry
-        Main()
+            BEFORE:
+            // namespace test
+            operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            operation InnerOp(extra : Bool, q : Qubit) : Unit {
+                H(q);
+            }
+            function MakeOp(extra : Bool) : (Qubit => Unit) {
+                return {
+                    let arg : Bool = extra;
+                    / * closure item = 5 captures = [arg] * / _lambda_
+                };
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let op : (Qubit => Unit) = MakeOp(true);
+                ApplyOp_Empty_(op, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_(arg : Bool, hole : Qubit) : Unit {
+                InnerOp(arg, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            // entry
+            Main()
 
-        AFTER:
-        // namespace test
-        operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
-            op(q);
-        }
-        operation InnerOp(extra : Bool, q : Qubit) : Unit {
-            H(q);
-        }
-        function MakeOp(extra : Bool) : (Qubit => Unit) {
-            return {
-                let arg : Bool = extra;
-                ()
-            };
-        }
-        operation Main() : Unit {
-            let q : Qubit = __quantum__rt__qubit_allocate();
-            ApplyOp_Empty__closure_(q, q);
-            __quantum__rt__qubit_release(q);
-        }
-        operation _lambda_(arg : Bool, hole : Qubit) : Unit {
-            InnerOp(arg, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
-            op(q);
-        }
-        operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Bool) : Unit {
-            _lambda_(__capture_0, q);
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            // namespace test
+            operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            operation InnerOp(extra : Bool, q : Qubit) : Unit {
+                H(q);
+            }
+            function MakeOp(extra : Bool) : (Qubit => Unit) {
+                return {
+                    let arg : Bool = extra;
+                    ()
+                };
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                ApplyOp_Empty__closure_(q, true);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_(arg : Bool, hole : Qubit) : Unit {
+                InnerOp(arg, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Bool) : Unit {
+                _lambda_(__capture_0, q);
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

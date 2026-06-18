@@ -872,7 +872,7 @@ fn measurement_in_loop_of_variable_qubit_supported() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     assert_blocks(
@@ -932,7 +932,7 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
 
     assert_blocks(
@@ -977,5 +977,62 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
         Block 7:Block:
             Variable(1, Boolean) = Store Bool(true)
             Jump(6)"#]],
+    );
+}
+
+#[test]
+fn test_length_with_embedded_qubit_operations() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+        r#"
+        operation Main() : Int {
+            Length({use q = Qubit(); M(q); [1]})
+        }
+        "#,
+        },
+        Profile::Adaptive.into(),
+    );
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Call id(3), args( Integer(1), Tag(0, 3), )
+            Return"#]],
+    );
+}
+
+#[test]
+fn test_length_and_isempty_as_loop_conditions() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+        r#"
+        operation Main() : Unit {
+            use qs = Qubit[3];
+            while Length(qs) == 0 { X(qs[0]); }
+            while Std.Arrays.IsEmpty(qs) { X(qs[0]); }
+        }
+        "#,
+        },
+        Profile::Adaptive.into(),
+    );
+
+    // Expect to see the iteration variables from qubit allocation,
+    // but no calls to X because the loops are never entered.
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Variable(0, Integer) = Store Integer(1)
+                Variable(0, Integer) = Store Integer(2)
+                Variable(0, Integer) = Store Integer(3)
+                Call id(2), args( Integer(0), Tag(0, 3), )
+                Return"#]],
     );
 }

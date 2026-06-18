@@ -317,7 +317,7 @@ fn parallel_forces_loop_unrolling_with_adaptive_rifla() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
     assert_blocks(
         &program_no_parallel,
@@ -361,7 +361,7 @@ fn parallel_forces_loop_unrolling_with_adaptive_rifla() {
         }
         "#,
         },
-        Profile::AdaptiveRIFLA.into(),
+        Profile::Adaptive.into(),
     );
     assert_blocks(
         &program_parallel,

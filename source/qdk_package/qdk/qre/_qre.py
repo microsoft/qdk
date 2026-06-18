@@ -33,4 +33,6 @@ from .._native import (
     property_name,
     _float_to_bits,
     _float_from_bits,
+    DynamicMemoryCompute,
+    Unmemory,
 )

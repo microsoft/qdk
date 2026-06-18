@@ -308,9 +308,13 @@ fn check_rca_for_parallel_calling_operation_that_branches_dynamically() {
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],
@@ -362,9 +366,13 @@ fn check_rca_for_parallel_within_calling_operation_that_branches_dynamically() {
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
-                            value_kind: Constant
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],

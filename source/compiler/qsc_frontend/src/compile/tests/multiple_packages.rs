@@ -493,8 +493,18 @@ fn reexports_still_type_check() {
                     Type(
                         Error(
                             TyMismatch(
-                                "Bool",
-                                "Int",
+                                TyInfo {
+                                    kind: Prim(
+                                        Bool,
+                                    ),
+                                    display: "Bool",
+                                },
+                                TyInfo {
+                                    kind: Prim(
+                                        Int,
+                                    ),
+                                    display: "Int",
+                                },
                                 Span {
                                     lo: 137,
                                     hi: 139,
