@@ -231,7 +231,7 @@ fn update_qubit_state(shot_idx: u32) {
 // mark the qubit as no longer in a definite basis state so the execute stage
 // recomputes its probabilities. Shared by `prep_measure_reset` and
 // `prep_loss_commit`; the caller sets `shot.op_idx` and `shot.op_type`.
-fn write_measure_reset_instrument(shot_idx: u32, qubit: u32, result: u32, resets_to_zero: bool) {
+fn prep_measure_reset_instrument(shot_idx: u32, qubit: u32, result: u32, resets_to_zero: bool) {
     let shot = &shots[shot_idx];
 
     // Construct the measurement/reset instrument based on the measured result
@@ -276,9 +276,9 @@ fn write_measure_reset_instrument(shot_idx: u32, qubit: u32, result: u32, resets
 fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: bool, resets_to_zero: bool) {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
+    let qubit = get_measure_qubit(shot_idx, op_idx);
 
     // Choose measurement result based on qubit probabilities and random number
-    let qubit = get_measure_qubit(shot_idx, op_idx);
     let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
 
     // If this is being called due to loss noise, we don't write the result back to the results buffer
@@ -312,7 +312,7 @@ fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: 
         shot.qubit_state[qubit].heat = -1.0;
     }
 
-    write_measure_reset_instrument(shot_idx, qubit, result, resets_to_zero);
+    prep_measure_reset_instrument(shot_idx, qubit, result, resets_to_zero);
 
     shot.op_idx = op_idx;
     // Use OPID_MRESETZ as the op_type for all three variants in execute stage
@@ -356,18 +356,18 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         shot.unitary[1] = op.unitary[5];
         shot.unitary[4] = op.unitary[0];
         shot.unitary[5] = op.unitary[1];
-    } else if (rand < (p_x + p_z)) {
-        // Apply Z error (negate |1> state)
-        shot.unitary[0] = op.unitary[0];
-        shot.unitary[1] = op.unitary[1];
-        shot.unitary[4] = cplxNeg(op.unitary[4]);
-        shot.unitary[5] = cplxNeg(op.unitary[5]);
-    } else if (rand < (p_x + p_z + p_y)) {
+    } else if (rand < (p_x + p_y)) {
         // Apply the Y permutation (swap rows with negated |0> state)
         shot.unitary[0] = cplxNeg(op.unitary[4]);
         shot.unitary[1] = cplxNeg(op.unitary[5]);
         shot.unitary[4] = op.unitary[0];
         shot.unitary[5] = op.unitary[1];
+    } else if (rand < (p_x + p_y + p_z)) {
+        // Apply Z error (negate |1> state)
+        shot.unitary[0] = op.unitary[0];
+        shot.unitary[1] = op.unitary[1];
+        shot.unitary[4] = cplxNeg(op.unitary[4]);
+        shot.unitary[5] = cplxNeg(op.unitary[5]);
     } else {
         // Either loss or no noise: the gate executes unmodified. If loss was
         // sampled, schedule a loss commit for this qubit; a following

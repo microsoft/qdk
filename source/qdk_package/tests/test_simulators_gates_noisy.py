@@ -266,7 +266,7 @@ def test_correlated_loss_only_entry(sim_type):
     # An "L"-only entry loses the qubit with the entry's probability, like the
     # scalar loss field, but expressed inside a correlated string.
     noise = NoiseConfig()
-    noise.x.set_pauli_noise("L", 0.1)
+    noise.x.L = 0.1
     results = compile_and_run(
         "{use q = Qubit(); X(q); MResetZ(q)}",
         shots=1000,
@@ -283,7 +283,7 @@ def test_correlated_pauli_and_loss(sim_type):
     # with probability 0.1, as a single correlated event. The X on the control
     # cancels the gate's X, so the control reads 0 exactly when the target is lost.
     noise = NoiseConfig()
-    noise.cx.set_pauli_noise("XL", 0.1)
+    noise.cx.XL = 0.1
     results = compile_and_run(
         "{use qs = Qubit[2]; X(qs[0]); CNOT(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
         shots=10_000,
@@ -300,7 +300,7 @@ def test_correlated_pauli_and_loss(sim_type):
 def test_correlated_multi_qubit_loss(sim_type):
     # "LL" loses both qubits of the gate together with probability 0.1.
     noise = NoiseConfig()
-    noise.cz.set_pauli_noise("LL", 0.1)
+    noise.cz.LL = 0.1
     results = compile_and_run(
         "{use qs = Qubit[2]; CZ(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
         shots=10_000,
