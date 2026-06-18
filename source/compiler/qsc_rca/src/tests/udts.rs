@@ -38,7 +38,7 @@ fn check_rca_for_udt_constructor_with_a_dynamic_value() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -82,7 +82,7 @@ fn check_rca_for_udt_field_update_with_dynamic_value() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

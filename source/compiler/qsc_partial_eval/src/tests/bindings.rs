@@ -59,7 +59,7 @@ fn immutable_result_binding_does_not_generate_store_instruction() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(3), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -110,7 +110,7 @@ fn mutable_result_binding_does_not_generate_store_instruction() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(3), args( Result(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -178,7 +178,7 @@ fn immutable_bool_binding_does_not_generate_store_instruction() {
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -246,7 +246,7 @@ fn mutable_bool_binding_generates_store_instruction() {
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -316,7 +316,7 @@ fn immutable_int_binding_does_not_generate_store_instruction() {
                 Variable(3, Integer) = Store Variable(2, Integer)
                 Variable(4, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -392,7 +392,7 @@ fn mutable_int_binding_does_generate_store_instruction() {
                 Variable(3, Integer) = Store Variable(2, Integer)
                 Variable(4, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -478,7 +478,7 @@ fn mutable_variable_in_outer_scope_set_to_mutable_from_inner_scope() {
             Block 1:Block:
                 Variable(4, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(3, Integer) = Store Integer(1)
                 Variable(0, Integer) = Store Integer(1)
@@ -555,7 +555,7 @@ fn mutable_double_binding_does_generate_store_instruction() {
                 Variable(3, Double) = Store Variable(2, Double)
                 Variable(4, Double) = Store Variable(3, Double)
                 Call id(4), args( Variable(4, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0.1)
                 Jump(1)

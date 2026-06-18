@@ -160,7 +160,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 }

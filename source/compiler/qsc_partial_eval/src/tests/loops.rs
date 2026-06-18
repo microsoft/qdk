@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::tests::get_rir_program_with_capabilities;
+use crate::tests::{get_rir_program_with_adaptive_profile, get_rir_program_with_capabilities};
 
 use super::{assert_block_instructions, assert_blocks, assert_callable, get_rir_program};
 use expect_test::expect;
 use indoc::indoc;
-use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
+use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
@@ -53,7 +53,7 @@ fn unitary_call_within_a_for_loop_unrolled() {
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(4)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -106,7 +106,7 @@ fn unitary_call_within_a_for_loop() {
                 Branch Variable(1, Boolean), 3, 4
             Block 2:Block:
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Branch Variable(2, Boolean), 5, 2
             Block 4:Block:
@@ -166,7 +166,7 @@ fn unitary_call_within_a_while_loop_unrolled() {
                 Call id(2), args( Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -220,7 +220,7 @@ fn unitary_call_within_a_while_loop() {
                 Branch Variable(1, Boolean), 3, 2
             Block 2:Block:
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Call id(2), args( Qubit(0), )
                 Variable(2, Integer) = Add Variable(0, Integer), Integer(1)
@@ -279,7 +279,7 @@ fn unitary_call_within_a_repeat_until_loop_unrolled() {
                 Variable(0, Integer) = Store Integer(3)
                 Variable(1, Boolean) = Store Bool(false)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -333,7 +333,7 @@ fn unitary_call_within_a_repeat_until_loop() {
                 Branch Variable(1, Boolean), 3, 2
             Block 2:Block:
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Call id(2), args( Qubit(0), )
                 Variable(2, Integer) = Add Variable(0, Integer), Integer(1)
@@ -389,15 +389,14 @@ fn rotation_call_within_a_for_loop_unrolled() {
                 Call id(2), args( Double(2), Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
 #[test]
 fn rotation_call_within_a_for_loop() {
-    let program = get_rir_program_with_capabilities(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -408,9 +407,7 @@ fn rotation_call_within_a_for_loop() {
             }
         }
         "#,
-        },
-        Profile::Adaptive.into(),
-    );
+    });
 
     expect![[r#"
         Program:
@@ -455,7 +452,7 @@ fn rotation_call_within_a_for_loop() {
                     Branch Variable(1, Boolean), 3, 2
                 Block 2: Block:
                     Call id(3), args( Integer(0), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
                 Block 3: Block:
                     Variable(2, Double) = Index Array(0), Variable(0, Integer)
                     Variable(3, Double) = Store Variable(2, Double)
@@ -464,7 +461,7 @@ fn rotation_call_within_a_for_loop() {
                     Variable(0, Integer) = Store Variable(4, Integer)
                     Jump(1)
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
             num_results: 0
             tags:
@@ -521,15 +518,14 @@ fn rotation_call_within_a_while_loop_unrolled() {
                 Call id(2), args( Double(2), Qubit(0), )
                 Variable(0, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
 #[test]
 fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
-    let program = get_rir_program_with_capabilities(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -543,9 +539,7 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
             }
         }
         "#,
-        },
-        Profile::Adaptive.into(),
-    );
+    });
 
     expect![[r#"
         Program:
@@ -606,7 +600,7 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                 Block 5: Block:
                     Variable(0, Integer) = Store Integer(2)
                     Call id(3), args( Integer(0), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
                 Block 6: Block:
                     Variable(8, Double) = Index Array(1), Variable(6, Integer)
                     Variable(9, Double) = Store Variable(8, Double)
@@ -615,7 +609,7 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                     Variable(6, Integer) = Store Variable(10, Integer)
                     Jump(4)
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
             num_results: 0
             tags:
@@ -628,9 +622,8 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
 
 #[test]
 fn for_loop_over_arrays_of_tuples_unrolled() {
-    let program = get_rir_program_with_capabilities(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -641,9 +634,7 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
             }
         }
         "#,
-        },
-        Profile::Adaptive.into(),
-    );
+    });
 
     expect![[r#"
         Program:
@@ -690,9 +681,9 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
                     Call id(2), args( Double(1), Qubit(0), )
                     Variable(1, Integer) = Store Integer(2)
                     Call id(3), args( Integer(0), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
             num_results: 0
             tags:
@@ -702,9 +693,8 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
 
 #[test]
 fn for_loop_over_qubits() {
-    let program = get_rir_program_with_capabilities(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             operation op(q : Qubit) : Unit { body intrinsic; }
             @EntryPoint()
@@ -716,9 +706,7 @@ fn for_loop_over_qubits() {
             }
         }
         "#,
-        },
-        Profile::Adaptive.into(),
-    );
+    });
 
     expect![[r#"
         Program:
@@ -766,7 +754,7 @@ fn for_loop_over_qubits() {
                     Branch Variable(2, Boolean), 3, 2
                 Block 2: Block:
                     Call id(3), args( Integer(0), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
                 Block 3: Block:
                     Variable(3, Qubit) = Index Array(0), Variable(1, Integer)
                     Variable(4, Qubit) = Store Variable(3, Qubit)
@@ -775,7 +763,7 @@ fn for_loop_over_qubits() {
                     Variable(1, Integer) = Store Variable(5, Integer)
                     Jump(1)
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 3
             num_results: 0
             tags:
@@ -833,15 +821,14 @@ fn for_loop_over_qubits_unrolled() {
                 Call id(2), args( Qubit(2), )
                 Variable(1, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
 #[test]
 fn rotation_call_within_a_while_loop() {
-    let program = get_rir_program_with_capabilities(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             operation rotation(theta : Double, q : Qubit) : Unit { body intrinsic; }
             @EntryPoint()
@@ -856,9 +843,7 @@ fn rotation_call_within_a_while_loop() {
             }
         }
         "#,
-        },
-        Profile::Adaptive.into(),
-    );
+    });
 
     expect![[r#"
         Program:
@@ -903,7 +888,7 @@ fn rotation_call_within_a_while_loop() {
                     Branch Variable(1, Boolean), 3, 2
                 Block 2: Block:
                     Call id(3), args( Integer(0), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
                 Block 3: Block:
                     Variable(2, Double) = Index Array(0), Variable(0, Integer)
                     Call id(2), args( Variable(2, Double), Qubit(0), )
@@ -911,7 +896,7 @@ fn rotation_call_within_a_while_loop() {
                     Variable(0, Integer) = Store Variable(3, Integer)
                     Jump(1)
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
             num_results: 0
             tags:
@@ -923,9 +908,8 @@ fn rotation_call_within_a_while_loop() {
 
 #[test]
 fn rotation_call_within_a_while_loop_index_used_twice() {
-    let program = get_rir_program_with_capabilities(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             operation rotation(theta : Double, q : Qubit) : Unit { body intrinsic; }
             @EntryPoint()
@@ -940,9 +924,7 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
             }
         }
         "#,
-        },
-        Profile::Adaptive.into(),
-    );
+    });
 
     expect![[r#"
         Program:
@@ -987,7 +969,7 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
                     Branch Variable(1, Boolean), 3, 2
                 Block 2: Block:
                     Call id(3), args( Integer(0), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
                 Block 3: Block:
                     Variable(2, Double) = Index Array(0), Variable(0, Integer)
                     Variable(3, Double) = Index Array(0), Variable(0, Integer)
@@ -997,7 +979,7 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
                     Variable(0, Integer) = Store Variable(5, Integer)
                     Jump(1)
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
             num_results: 0
             tags:
@@ -1009,9 +991,8 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
 
 #[test]
 fn rotation_call_within_a_while_loop_over_dynamic_array() {
-    let program = get_rir_program_with_capabilities(
-        indoc! {
-            r#"
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
         namespace Test {
             operation rotation(theta : Double, q : Qubit) : Unit { body intrinsic; }
             @EntryPoint()
@@ -1027,9 +1008,7 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
             }
         }
         "#,
-        },
-        Profile::Adaptive.into(),
-    );
+    });
 
     expect![[r#"
         Program:
@@ -1095,7 +1074,7 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
                     Call id(4), args( Double(2), Qubit(0), )
                     Variable(3, Integer) = Store Integer(3)
                     Call id(5), args( Integer(0), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
                 Block 2: Block:
                     Variable(2, Double) = Store Double(1.5)
                     Jump(1)
@@ -1103,7 +1082,7 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
                     Variable(2, Double) = Store Double(1)
                     Jump(1)
             config: Config:
-                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
             num_results: 1
             tags:
@@ -1162,7 +1141,7 @@ fn rotation_call_within_a_repeat_until_loop_unrolled() {
                 Variable(0, Integer) = Store Integer(3)
                 Variable(1, Boolean) = Store Bool(false)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1242,7 +1221,7 @@ fn mutable_bool_updated_in_loop() {
                 Branch Variable(2, Boolean), 3, 4
             Block 2:Block:
                 Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Branch Variable(3, Boolean), 5, 2
             Block 4:Block:
@@ -1337,7 +1316,7 @@ fn mutable_int_updated_in_loop() {
                 Branch Variable(2, Boolean), 3, 4
             Block 2:Block:
                 Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Branch Variable(3, Boolean), 5, 2
             Block 4:Block:
@@ -1433,7 +1412,7 @@ fn mutable_double_updated_in_loop_unrolled() {
             Block 9:Block:
                 Variable(1, Integer) = Store Integer(4)
                 Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 10:Block:
                 Variable(13, Double) = Fmul Double(-1), Variable(0, Double)
                 Variable(0, Double) = Store Variable(13, Double)
@@ -1481,7 +1460,7 @@ fn mutable_double_updated_in_loop() {
                 Branch Variable(2, Boolean), 3, 4
             Block 2:Block:
                 Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Branch Variable(3, Boolean), 5, 2
             Block 4:Block:
@@ -1596,7 +1575,7 @@ fn result_array_index_range_in_for_loop_unrolled() {
                     Variable(3, Integer) = Store Integer(2)
                     Variable(9, Integer) = Store Variable(2, Integer)
                     Call id(4), args( Variable(9, Integer), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
                 Block 4: Block:
                     Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
                     Variable(2, Integer) = Store Variable(8, Integer)
@@ -1642,7 +1621,7 @@ fn dynamic_while_loop() {
                 Branch Variable(1, Boolean), 3, 2
             Block 2:Block:
                 Call id(5), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Jump(1)"#]],
     );
@@ -1679,7 +1658,7 @@ fn dynamic_repeat_until_loop() {
                 Branch Variable(0, Boolean), 3, 2
             Block 2:Block:
                 Call id(5), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Call id(2), args( Qubit(0), )
                 Call id(3), args( Qubit(0), Result(0), )
@@ -1725,7 +1704,7 @@ fn dynamic_repeat_until_fixup_loop() {
                 Branch Variable(0, Boolean), 3, 2
             Block 2:Block:
                 Call id(6), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Call id(2), args( Qubit(0), )
                 Call id(3), args( Qubit(0), Result(0), )
@@ -1776,7 +1755,7 @@ fn dynamic_nested_loop() {
                 Branch Variable(0, Boolean), 3, 2
             Block 2:Block:
                 Call id(7), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Jump(4)
             Block 4:Block:
@@ -1848,7 +1827,7 @@ fn classical_while_inside_dynamic_while_folds_mutable_variable() {
             Block 2:Block:
                 Variable(5, Integer) = Store Variable(0, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 3:Block:
                 Variable(3, Integer) = Store Integer(0)
                 Variable(4, Integer) = Add Variable(0, Integer), Integer(3)

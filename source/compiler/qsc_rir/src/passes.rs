@@ -10,6 +10,8 @@ mod remap_block_ids;
 mod simplify_control_flow;
 mod ssa_check;
 mod ssa_transform;
+#[cfg(test)]
+mod test_utils;
 mod type_check;
 mod unreachable_code_check;
 
@@ -48,7 +50,8 @@ pub fn check_and_transform(program: &mut Program) {
     check_types(program);
     remap_block_ids(program);
 
-    if program.config.capabilities >= Profile::Adaptive.into() {
+    let uses_non_ssa_pipeline = program.config.capabilities >= Profile::Adaptive.into();
+    if uses_non_ssa_pipeline {
         prune_unneeded_stores(program);
         insert_alloca_load_instrs(program);
     } else {

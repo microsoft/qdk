@@ -15,7 +15,7 @@ fn check_rca_for_quantum_rt_qubit_allocate() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(0x0)
+                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>

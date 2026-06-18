@@ -47,7 +47,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit() {
             Call id(1), args( Pointer, )
             Call id(2), args( Qubit(0), )
             Call id(3), args( Integer(0), Tag(0, 3), )
-            Return"#]]
+            Return Integer(0)"#]]
     .assert_eq(&program.get_block(BlockId(0)).to_string());
 }
 
@@ -108,7 +108,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits() {
                 Call id(2), args( Qubit(1), )
                 Call id(2), args( Qubit(2), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 3);
     assert_eq!(program.num_results, 0);
@@ -171,7 +171,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_one_qubit_multiple_times() {
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(0), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 0);
@@ -242,7 +242,7 @@ fn qubit_ids_are_correct_for_allocate_use_release_multiple_qubits_interleaved() 
                 Call id(2), args( Qubit(2), )
                 Call id(2), args( Qubit(3), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 4);
     assert_eq!(program.num_results, 0);
@@ -304,7 +304,7 @@ fn qubit_array_allocation_and_access() {
                 Call id(2), args( Qubit(1), )
                 Call id(2), args( Qubit(2), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 3);
     assert_eq!(program.num_results, 0);
@@ -335,7 +335,7 @@ fn qubit_array_length_is_preserved() {
                 Variable(0, Integer) = Store Integer(3)
                 Variable(0, Integer) = Store Integer(4)
                 Call id(2), args( Integer(4), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 4);
     assert_eq!(program.num_results, 0);
@@ -400,7 +400,7 @@ fn qubit_array_chunks_can_be_indexed() {
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(3), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 4);
     assert_eq!(program.num_results, 0);
@@ -434,7 +434,7 @@ fn qubit_array_chunk_count_is_preserved() {
                 Variable(0, Integer) = Store Integer(3)
                 Variable(0, Integer) = Store Integer(4)
                 Call id(2), args( Integer(2), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 4);
     assert_eq!(program.num_results, 0);
