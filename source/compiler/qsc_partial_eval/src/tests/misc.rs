@@ -3,7 +3,7 @@
 
 #![allow(clippy::needless_raw_string_hashes, clippy::similar_names)]
 
-use crate::tests::get_rir_program_with_capabilities;
+use crate::tests::get_rir_program_with_adaptive_profile;
 
 use super::{
     assert_block_instructions, assert_blocks, assert_callable, assert_error,
@@ -11,7 +11,6 @@ use super::{
 };
 use expect_test::expect;
 use indoc::indoc;
-use qsc_data_structures::target::Profile;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
@@ -857,7 +856,7 @@ fn static_fact_call_evaluated() {
 
 #[test]
 fn measurement_in_loop_of_variable_qubit_supported() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
         r#"
         operation Main() : Bool {
@@ -872,7 +871,6 @@ fn measurement_in_loop_of_variable_qubit_supported() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     assert_blocks(
@@ -913,7 +911,7 @@ fn measurement_in_loop_of_variable_qubit_supported() {
 
 #[test]
 fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
         r#"
         @Measurement()
@@ -932,7 +930,6 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     assert_blocks(
@@ -982,7 +979,7 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
 
 #[test]
 fn test_length_with_embedded_qubit_operations() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
         r#"
         operation Main() : Int {
@@ -990,7 +987,6 @@ fn test_length_with_embedded_qubit_operations() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     assert_blocks(
@@ -1007,7 +1003,7 @@ fn test_length_with_embedded_qubit_operations() {
 
 #[test]
 fn test_length_and_isempty_as_loop_conditions() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
         r#"
         operation Main() : Unit {
@@ -1017,7 +1013,6 @@ fn test_length_and_isempty_as_loop_conditions() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     // Expect to see the iteration variables from qubit allocation,

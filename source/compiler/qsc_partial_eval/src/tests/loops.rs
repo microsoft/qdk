@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::tests::get_rir_program_with_capabilities;
+use crate::tests::{get_rir_program_with_adaptive_profile, get_rir_program_with_capabilities};
 
 use super::{assert_block_instructions, assert_blocks, assert_callable, get_rir_program};
 use expect_test::expect;
 use indoc::indoc;
-use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
+use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
@@ -395,7 +395,7 @@ fn rotation_call_within_a_for_loop_unrolled() {
 
 #[test]
 fn rotation_call_within_a_for_loop() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
             r#"
         namespace Test {
@@ -409,7 +409,6 @@ fn rotation_call_within_a_for_loop() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -527,7 +526,7 @@ fn rotation_call_within_a_while_loop_unrolled() {
 
 #[test]
 fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
             r#"
         namespace Test {
@@ -544,7 +543,6 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -628,7 +626,7 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
 
 #[test]
 fn for_loop_over_arrays_of_tuples_unrolled() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
             r#"
         namespace Test {
@@ -642,7 +640,6 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -702,7 +699,7 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
 
 #[test]
 fn for_loop_over_qubits() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
             r#"
         namespace Test {
@@ -717,7 +714,6 @@ fn for_loop_over_qubits() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -839,7 +835,7 @@ fn for_loop_over_qubits_unrolled() {
 
 #[test]
 fn rotation_call_within_a_while_loop() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
             r#"
         namespace Test {
@@ -857,7 +853,6 @@ fn rotation_call_within_a_while_loop() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -923,7 +918,7 @@ fn rotation_call_within_a_while_loop() {
 
 #[test]
 fn rotation_call_within_a_while_loop_index_used_twice() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
             r#"
         namespace Test {
@@ -941,7 +936,6 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     expect![[r#"
@@ -1009,7 +1003,7 @@ fn rotation_call_within_a_while_loop_index_used_twice() {
 
 #[test]
 fn rotation_call_within_a_while_loop_over_dynamic_array() {
-    let program = get_rir_program_with_capabilities(
+    let program = get_rir_program_with_adaptive_profile(
         indoc! {
             r#"
         namespace Test {
@@ -1028,7 +1022,6 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
         }
         "#,
         },
-        Profile::Adaptive.into(),
     );
 
     expect![[r#"
