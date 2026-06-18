@@ -58,10 +58,8 @@ fn transform_body_to_ssa(
 ) {
     // Process the entry block together with every block reachable from it, in ascending block-id
     // order so that each block is handled after its predecessors.
-    let mut body_blocks = get_all_block_successors(entry, program);
-    body_blocks.push(entry);
-    body_blocks.sort_unstable();
-    body_blocks.dedup();
+    let mut body_blocks = vec![entry];
+    body_blocks.append(&mut get_all_block_successors(entry, program));
 
     // First, remove store instructions and propagate variables through individual blocks.
     // This produces a per-block map of dynamic variables to their values.
