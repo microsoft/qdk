@@ -1,6 +1,6 @@
 import math
 
-from qdk import code, qsharp, Context
+from qdk import Context
 from qdk.test_utils import dump_operation_on_state
 
 
@@ -10,8 +10,8 @@ def _assert_states_close(state1: list[complex], state2: list[complex]):
         assert abs(state1[i] - state2[i]) < 1e-9
 
 
-def test_dump_operation_on_state():
-    qsharp.eval("""
+def test_dump_operation_on_state(context: Context):
+    context.eval("""
     operation MyOp1(q: Qubit[]) : Unit {
         H(q[0]);
         CNOT(q[0], q[1]);
@@ -19,16 +19,16 @@ def test_dump_operation_on_state():
     }
     """)
 
-    vector = dump_operation_on_state(code.MyOp1, num_qubits=2)
+    vector = dump_operation_on_state(context.code.MyOp1, num_qubits=2)
     s = 0.5**0.5
     _assert_states_close(vector, [s, 0, 0, -s])
 
-    vector = dump_operation_on_state("MyOp1", num_qubits=2)
+    vector = dump_operation_on_state("MyOp1", num_qubits=2, context=context)
     _assert_states_close(vector, [s, 0, 0, -s])
 
 
-def test_dump_operation_on_state_with_two_registers():
-    qsharp.eval("""
+def test_dump_operation_on_state_with_two_registers(context: Context):
+    context.eval("""
     operation MyOp2(q1: Qubit[], q2: Qubit[]) : Unit {
         H(q1[0]);
         CNOT(q1[0], q2[0]);
@@ -40,13 +40,13 @@ def test_dump_operation_on_state_with_two_registers():
     }
     """)
 
-    vector = dump_operation_on_state(code.MyOp2_TestHelper, num_qubits=4)
+    vector = dump_operation_on_state(context.code.MyOp2_TestHelper, num_qubits=4)
     s = 0.5**0.5
     _assert_states_close(vector, [s, 0, 0, 0, 0, 0, 0, 0, 0, 0, s, 0, 0, 0, 0, 0])
 
 
-def test_dump_operation_on_state_with_partial_trace():
-    qsharp.eval("""
+def test_dump_operation_on_state_with_partial_trace(context: Context):
+    context.eval("""
     operation MyOp3(q1: Qubit[], q2: Qubit[]) : Unit {
         H(q1[0]);
         H(q2[0]);
@@ -59,13 +59,13 @@ def test_dump_operation_on_state_with_partial_trace():
     }
     """)
 
-    vector = dump_operation_on_state(code.MyOp3_TestHelper, num_qubits=2)
+    vector = dump_operation_on_state(context.code.MyOp3_TestHelper, num_qubits=2)
     s = 0.5**0.5
     _assert_states_close(vector, [s, 0, s, 0])
 
 
-def test_dump_operation_on_state_with_initial_state():
-    qsharp.eval("""
+def test_dump_operation_on_state_with_initial_state(context: Context):
+    context.eval("""
     operation MyOp4(q: Qubit[])  : Unit is Adj {
         CNOT(q[0], q[1]);
         H(q[0]);
@@ -74,14 +74,13 @@ def test_dump_operation_on_state_with_initial_state():
 
     s = 0.5**0.5
     vector = dump_operation_on_state(
-        code.MyOp4, num_qubits=2, initial_state=[s, 0, 0, s]
+        context.code.MyOp4, num_qubits=2, initial_state=[s, 0, 0, s]
     )
     _assert_states_close(vector, [1, 0, 0, 0])
 
 
-def test_dump_operation_on_state_with_parameters():
-    ctx = Context()
-    ctx.eval("""
+def test_dump_operation_on_state_with_parameters(context: Context):
+    context.eval("""
     operation MyOp5(qs: Qubit[], angle: Double)  : Unit is Adj {
       for q in qs {
         Rx(angle, q);
@@ -94,15 +93,15 @@ def test_dump_operation_on_state_with_parameters():
     """)
 
     vector = dump_operation_on_state(
-        ctx.code.MyOp5_TestHelper(0.3), num_qubits=2, context=ctx
+        context.code.MyOp5_TestHelper(0.3), num_qubits=2, context=context
     )
     c = math.cos(0.3 / 2)
     s = math.sin(0.3 / 2)
     _assert_states_close(vector, [c * c, -1j * c * s, -1j * c * s, -(s * s)])
 
 
-def test_dump_operation_on_state_with_parameterized_callable():
-    qsharp.eval("""
+def test_dump_operation_on_state_with_parameterized_callable(context: Context):
+    context.eval("""
     operation MyOp5(qs: Qubit[], angle: Double)  : Unit is Adj {
       for q in qs {
         Rx(angle, q);
@@ -110,7 +109,7 @@ def test_dump_operation_on_state_with_parameterized_callable():
     }
     """)
 
-    vector = dump_operation_on_state("MyOp5(_, 0.3)", num_qubits=2)
+    vector = dump_operation_on_state("MyOp5(_, 0.3)", num_qubits=2, context=context)
     c = math.cos(0.3 / 2)
     s = math.sin(0.3 / 2)
     _assert_states_close(vector, [c * c, -1j * c * s, -1j * c * s, -(s * s)])
