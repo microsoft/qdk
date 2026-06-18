@@ -48,7 +48,7 @@ pub fn check_and_transform(program: &mut Program) {
     check_types(program);
     remap_block_ids(program);
 
-    if program.config.capabilities >= Profile::AdaptiveRIFLA.into() {
+    if program.config.capabilities >= Profile::Adaptive.into() {
         prune_unneeded_stores(program);
         insert_alloca_load_instrs(program);
     } else {

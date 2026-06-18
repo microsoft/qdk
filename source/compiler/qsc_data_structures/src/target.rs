@@ -65,8 +65,8 @@ pub enum Profile {
     AdaptiveRI,
     /// Corresponds to a target with support for forward branching, qubit reuse, integer computations, and floating point computations.
     AdaptiveRIF,
-    /// Corresponds to a target with support for forward branching, qubit reuse, integer computations, floating point computations, loops, and static sized arrays.
-    AdaptiveRIFLA,
+    /// Corresponds to a target with support for full adaptive profile, including any extensions.
+    Adaptive,
 }
 
 impl Profile {
@@ -77,7 +77,7 @@ impl Profile {
             Self::Base => "Base",
             Self::AdaptiveRI => "Adaptive_RI",
             Self::AdaptiveRIF => "Adaptive_RIF",
-            Self::AdaptiveRIFLA => "Adaptive_RIFLA",
+            Self::Adaptive => "Adaptive",
         }
     }
 }
@@ -91,7 +91,7 @@ impl From<Profile> for TargetCapabilityFlags {
             Profile::AdaptiveRIF => {
                 Self::Adaptive | Self::IntegerComputations | Self::FloatingPointComputations
             }
-            Profile::AdaptiveRIFLA => {
+            Profile::Adaptive => {
                 Self::Adaptive
                     | Self::IntegerComputations
                     | Self::FloatingPointComputations
@@ -109,7 +109,7 @@ impl FromStr for Profile {
         match s.to_lowercase().as_str() {
             "adaptive_ri" => Ok(Self::AdaptiveRI),
             "adaptive_rif" => Ok(Self::AdaptiveRIF),
-            "adaptive_rifla" => Ok(Self::AdaptiveRIFLA),
+            "adaptive" => Ok(Self::Adaptive),
             "base" => Ok(Self::Base),
             "unrestricted" => Ok(Self::Unrestricted),
             _ => Err(()),

@@ -2508,82 +2508,82 @@ fn callable_returning_partial_application_resolves_statically() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        // namespace test
-        operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyParityOperation(bits : Bool[], register : Qubit[], target : Qubit) : Unit {
-            if bits[0] {
-                CNOT(register[0], target);
+            BEFORE:
+            // namespace test
+            operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
             }
+            operation ApplyParityOperation(bits : Bool[], register : Qubit[], target : Qubit) : Unit {
+                if bits[0] {
+                    CNOT(register[0], target);
+                }
 
-        }
-        operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
-            return {
-                let arg : Bool[] = bits;
-                / * closure item = 5 captures = [arg] * / _lambda_
-            };
-        }
-        operation Main() : Unit {
-            let register : Qubit[] = AllocateQubitArray(1);
-            let target : Qubit = __quantum__rt__qubit_allocate();
-            let op : ((Qubit[], Qubit) => Unit) = MakeParity([true]);
-            ApplyOp_Empty_(op, register, target);
-            __quantum__rt__qubit_release(target);
-            ReleaseQubitArray(register);
-        }
-        operation _lambda_(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        // entry
-        Main()
-
-        AFTER:
-        // namespace test
-        operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyParityOperation(bits : Bool[], register : Qubit[], target : Qubit) : Unit {
-            if bits[0] {
-                CNOT(register[0], target);
             }
+            operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
+                return {
+                    let arg : Bool[] = bits;
+                    / * closure item = 5 captures = [arg] * / _lambda_
+                };
+            }
+            operation Main() : Unit {
+                let register : Qubit[] = AllocateQubitArray(1);
+                let target : Qubit = __quantum__rt__qubit_allocate();
+                let op : ((Qubit[], Qubit) => Unit) = MakeParity([true]);
+                ApplyOp_Empty_(op, register, target);
+                __quantum__rt__qubit_release(target);
+                ReleaseQubitArray(register);
+            }
+            operation _lambda_(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            // entry
+            Main()
 
-        }
-        operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
-            return {
-                let arg : Bool[] = bits;
-                ()
-            };
-        }
-        operation Main() : Unit {
-            let register : Qubit[] = AllocateQubitArray(1);
-            let target : Qubit = __quantum__rt__qubit_allocate();
-            ApplyOp_Empty__closure_(register, target, register);
-            __quantum__rt__qubit_release(target);
-            ReleaseQubitArray(register);
-        }
-        operation _lambda_(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Bool[]) : Unit {
-            _lambda_(__capture_0, (register, target));
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            // namespace test
+            operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            operation ApplyParityOperation(bits : Bool[], register : Qubit[], target : Qubit) : Unit {
+                if bits[0] {
+                    CNOT(register[0], target);
+                }
+
+            }
+            operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
+                return {
+                    let arg : Bool[] = bits;
+                    ()
+                };
+            }
+            operation Main() : Unit {
+                let register : Qubit[] = AllocateQubitArray(1);
+                let target : Qubit = __quantum__rt__qubit_allocate();
+                ApplyOp_Empty__closure_(register, target, [true]);
+                __quantum__rt__qubit_release(target);
+                ReleaseQubitArray(register);
+            }
+            operation _lambda_(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Bool[]) : Unit {
+                _lambda_(__capture_0, (register, target));
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -2620,82 +2620,82 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        // namespace test
-        operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyParityOperation(bits : Bool[], register : Qubit[], target : Qubit) : Unit {
-            if bits[0] {
-                CNOT(register[0], target);
+            BEFORE:
+            // namespace test
+            operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
             }
+            operation ApplyParityOperation(bits : Bool[], register : Qubit[], target : Qubit) : Unit {
+                if bits[0] {
+                    CNOT(register[0], target);
+                }
 
-        }
-        operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
-            return {
-                let arg : Bool[] = bits;
-                / * closure item = 5 captures = [arg] * / _lambda_
-            };
-        }
-        operation Main() : Unit {
-            let register : Qubit[] = AllocateQubitArray(1);
-            let target : Qubit = __quantum__rt__qubit_allocate();
-            let op : ((Qubit[], Qubit) => Unit) = MakeParity([true]);
-            ApplyOp_Empty_(op, register, target);
-            __quantum__rt__qubit_release(target);
-            ReleaseQubitArray(register);
-        }
-        operation _lambda_(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        // entry
-        Main()
-
-        AFTER:
-        // namespace test
-        operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyParityOperation(bits : Bool[], register : Qubit[], target : Qubit) : Unit {
-            if bits[0] {
-                CNOT(register[0], target);
             }
+            operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
+                return {
+                    let arg : Bool[] = bits;
+                    / * closure item = 5 captures = [arg] * / _lambda_
+                };
+            }
+            operation Main() : Unit {
+                let register : Qubit[] = AllocateQubitArray(1);
+                let target : Qubit = __quantum__rt__qubit_allocate();
+                let op : ((Qubit[], Qubit) => Unit) = MakeParity([true]);
+                ApplyOp_Empty_(op, register, target);
+                __quantum__rt__qubit_release(target);
+                ReleaseQubitArray(register);
+            }
+            operation _lambda_(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            // entry
+            Main()
 
-        }
-        operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
-            return {
-                let arg : Bool[] = bits;
-                ()
-            };
-        }
-        operation Main() : Unit {
-            let register : Qubit[] = AllocateQubitArray(1);
-            let target : Qubit = __quantum__rt__qubit_allocate();
-            ApplyOp_Empty__closure_(register, target, register);
-            __quantum__rt__qubit_release(target);
-            ReleaseQubitArray(register);
-        }
-        operation _lambda_(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Bool[]) : Unit {
-            _lambda_(__capture_0, (register, target));
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            // namespace test
+            operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            operation ApplyParityOperation(bits : Bool[], register : Qubit[], target : Qubit) : Unit {
+                if bits[0] {
+                    CNOT(register[0], target);
+                }
+
+            }
+            operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
+                return {
+                    let arg : Bool[] = bits;
+                    ()
+                };
+            }
+            operation Main() : Unit {
+                let register : Qubit[] = AllocateQubitArray(1);
+                let target : Qubit = __quantum__rt__qubit_allocate();
+                ApplyOp_Empty__closure_(register, target, [true]);
+                __quantum__rt__qubit_release(target);
+                ReleaseQubitArray(register);
+            }
+            operation _lambda_(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Bool[]) : Unit {
+                _lambda_(__capture_0, (register, target));
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -2930,84 +2930,84 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        // namespace test
-        operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
-            if value == 1 {
-                CNOT(register[0], target);
+            BEFORE:
+            // namespace test
+            operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
             }
+            operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
+                if value == 1 {
+                    CNOT(register[0], target);
+                }
 
-        }
-        function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
-            return {
-                let arg : Int = value;
-                / * closure item = 5 captures = [arg] * / _lambda_
-            };
-        }
-        operation Main() : Unit {
-            let register : Qubit[] = AllocateQubitArray(1);
-            let target : Qubit = __quantum__rt__qubit_allocate();
-            let value : Int = 1;
-            let oracle : ((Qubit[], Qubit) => Unit) = Encode(value);
-            ApplyOp_Empty_(oracle, register, target);
-            __quantum__rt__qubit_release(target);
-            ReleaseQubitArray(register);
-        }
-        operation _lambda_(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        // entry
-        Main()
-
-        AFTER:
-        // namespace test
-        operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
-            if value == 1 {
-                CNOT(register[0], target);
             }
+            function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
+                return {
+                    let arg : Int = value;
+                    / * closure item = 5 captures = [arg] * / _lambda_
+                };
+            }
+            operation Main() : Unit {
+                let register : Qubit[] = AllocateQubitArray(1);
+                let target : Qubit = __quantum__rt__qubit_allocate();
+                let value : Int = 1;
+                let oracle : ((Qubit[], Qubit) => Unit) = Encode(value);
+                ApplyOp_Empty_(oracle, register, target);
+                __quantum__rt__qubit_release(target);
+                ReleaseQubitArray(register);
+            }
+            operation _lambda_(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            // entry
+            Main()
 
-        }
-        function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
-            return {
-                let arg : Int = value;
-                ()
-            };
-        }
-        operation Main() : Unit {
-            let register : Qubit[] = AllocateQubitArray(1);
-            let target : Qubit = __quantum__rt__qubit_allocate();
-            let value : Int = 1;
-            ApplyOp_Empty__closure_(register, target, register);
-            __quantum__rt__qubit_release(target);
-            ReleaseQubitArray(register);
-        }
-        operation _lambda_(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Int) : Unit {
-            _lambda_(__capture_0, (register, target));
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            // namespace test
+            operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
+                if value == 1 {
+                    CNOT(register[0], target);
+                }
+
+            }
+            function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
+                return {
+                    let arg : Int = value;
+                    ()
+                };
+            }
+            operation Main() : Unit {
+                let register : Qubit[] = AllocateQubitArray(1);
+                let target : Qubit = __quantum__rt__qubit_allocate();
+                let value : Int = 1;
+                ApplyOp_Empty__closure_(register, target, value);
+                __quantum__rt__qubit_release(target);
+                ReleaseQubitArray(register);
+            }
+            operation _lambda_(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Int) : Unit {
+                _lambda_(__capture_0, (register, target));
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -3150,110 +3150,110 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        // namespace test
-        operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
-            if value == 1 {
-                CNOT(register[0], target);
+            BEFORE:
+            // namespace test
+            operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
             }
-
-        }
-        function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
-            return {
-                let arg : Int = value;
-                / * closure item = 5 captures = [arg] * / _lambda_
-            };
-        }
-        operation Main() : Unit {
-            let register : Qubit[] = AllocateQubitArray(1);
-            let target : Qubit = __quantum__rt__qubit_allocate();
-            let _generated_ident_156 : Unit = {
-                let _array_id_118 : Int[] = [1, 2];
-                let _len_id_122 : Int = Length(_array_id_118);
-                mutable _index_id_127 : Int = 0;
-                while _index_id_127 < _len_id_122 {
-                    let value : Int = _array_id_118[_index_id_127];
-                    let oracle : ((Qubit[], Qubit) => Unit) = Encode(value);
-                    ApplyOp_Empty_(oracle, register, target);
-                    _index_id_127 += 1;
+            operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
+                if value == 1 {
+                    CNOT(register[0], target);
                 }
 
-            };
-            __quantum__rt__qubit_release(target);
-            ReleaseQubitArray(register);
-            _generated_ident_156
-        }
-        operation _lambda_(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        function Length(a : Int[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        // entry
-        Main()
-
-        AFTER:
-        // namespace test
-        operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
-            if value == 1 {
-                CNOT(register[0], target);
             }
+            function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
+                return {
+                    let arg : Int = value;
+                    / * closure item = 5 captures = [arg] * / _lambda_
+                };
+            }
+            operation Main() : Unit {
+                let register : Qubit[] = AllocateQubitArray(1);
+                let target : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_156 : Unit = {
+                    let _array_id_118 : Int[] = [1, 2];
+                    let _len_id_122 : Int = Length(_array_id_118);
+                    mutable _index_id_127 : Int = 0;
+                    while _index_id_127 < _len_id_122 {
+                        let value : Int = _array_id_118[_index_id_127];
+                        let oracle : ((Qubit[], Qubit) => Unit) = Encode(value);
+                        ApplyOp_Empty_(oracle, register, target);
+                        _index_id_127 += 1;
+                    }
 
-        }
-        function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
-            return {
-                let arg : Int = value;
-                ()
-            };
-        }
-        operation Main() : Unit {
-            let register : Qubit[] = AllocateQubitArray(1);
-            let target : Qubit = __quantum__rt__qubit_allocate();
-            let _generated_ident_156 : Unit = {
-                let _array_id_118 : Int[] = [1, 2];
-                let _len_id_122 : Int = Length(_array_id_118);
-                mutable _index_id_127 : Int = 0;
-                while _index_id_127 < _len_id_122 {
-                    let value : Int = _array_id_118[_index_id_127];
-                    ApplyOp_Empty__closure_(register, target, register);
-                    _index_id_127 += 1;
+                };
+                __quantum__rt__qubit_release(target);
+                ReleaseQubitArray(register);
+                _generated_ident_156
+            }
+            operation _lambda_(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Int[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation ApplyOp(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
+                if value == 1 {
+                    CNOT(register[0], target);
                 }
 
-            };
-            __quantum__rt__qubit_release(target);
-            ReleaseQubitArray(register);
-            _generated_ident_156
-        }
-        operation _lambda_(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        function Length(a : Qubit[]) : Int {
-            body intrinsic;
-        }
-        function Length(a : Int[]) : Int {
-            body intrinsic;
-        }
-        operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
-            op(register, target);
-        }
-        operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Int) : Unit {
-            _lambda_(__capture_0, (register, target));
-        }
-        // entry
-        Main()
-    "#]],
+            }
+            function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
+                return {
+                    let arg : Int = value;
+                    ()
+                };
+            }
+            operation Main() : Unit {
+                let register : Qubit[] = AllocateQubitArray(1);
+                let target : Qubit = __quantum__rt__qubit_allocate();
+                let _generated_ident_156 : Unit = {
+                    let _array_id_118 : Int[] = [1, 2];
+                    let _len_id_122 : Int = Length(_array_id_118);
+                    mutable _index_id_127 : Int = 0;
+                    while _index_id_127 < _len_id_122 {
+                        let value : Int = _array_id_118[_index_id_127];
+                        ApplyOp_Empty__closure_(register, target, value);
+                        _index_id_127 += 1;
+                    }
+
+                };
+                __quantum__rt__qubit_release(target);
+                ReleaseQubitArray(register);
+                _generated_ident_156
+            }
+            operation _lambda_(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            function Length(a : Int[]) : Int {
+                body intrinsic;
+            }
+            operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
+                op(register, target);
+            }
+            operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Int) : Unit {
+                _lambda_(__capture_0, (register, target));
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

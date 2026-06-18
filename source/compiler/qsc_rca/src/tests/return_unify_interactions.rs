@@ -60,6 +60,9 @@ fn flag_fallback_value_kind_after_dynamic_scope_return() {
                         value_kind: Variable
                     dynamic_param_applications:
                         [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult)
+                                value_kind: Variable
                             static_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult)
                                 value_kind: Variable
