@@ -1503,7 +1503,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
 
         declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
 
         ; module flags
@@ -1512,7 +1512,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 true}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
         !5 = !{i32 5, !"float_computations", !{!"double"}}
@@ -1586,7 +1586,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
         declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
 
         ; module flags
@@ -1595,7 +1595,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 true}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
         !5 = !{i32 5, !"float_computations", !{!"double"}}

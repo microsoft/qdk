@@ -1,7 +1,7 @@
 {}
 {}
 
-attributes #0 = {{ "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="{}" "required_num_results"="{}" }}
+attributes #0 = {{ "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" {}"required_num_results"="{}" }}
 attributes #1 = {{ "irreversible" }}{}
 
 ; module flags
@@ -10,7 +10,7 @@ attributes #1 = {{ "irreversible" }}{}
 
 !0 = !{{i32 1, !"qir_major_version", i32 2}}
 !1 = !{{i32 7, !"qir_minor_version", i32 1}}
-!2 = !{{i32 1, !"dynamic_qubit_management", i1 false}}
+!2 = !{{i32 1, !"dynamic_qubit_management", i1 {}}}
 !3 = !{{i32 1, !"dynamic_result_management", i1 false}}
 !4 = !{{i32 5, !"int_computations", !{{!"i64"}}}}
 !5 = !{{i32 5, !"float_computations", !{{!"double"}}}}

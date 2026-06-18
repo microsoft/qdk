@@ -8,6 +8,7 @@ mod instruction_tests;
 mod tests;
 
 use qsc_data_structures::attrs::Attributes;
+use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::{
     rir::{self, ConditionCode, FcmpConditionCode},
     utils::get_all_block_successors,
@@ -745,13 +746,27 @@ impl ToQir<String> for rir::Program {
             )
             .expect("writing to string should succeed");
         }
+        // When dynamic qubit allocation is enabled, qubits are allocated via the
+        // runtime API rather than declared up front. The spec states that the
+        // `required_num_qubits` entry-point attribute is not required in that case,
+        // and the `dynamic_qubit_management` module flag must be set to true.
+        let dynamic_qubit_management = self
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::DynamicQubitAllocation);
+        let required_num_qubits = if dynamic_qubit_management {
+            String::new()
+        } else {
+            format!("\"required_num_qubits\"=\"{}\" ", self.num_qubits)
+        };
         let body = format!(
             include_str!("./v2/template.ll"),
             constants,
             callables,
-            self.num_qubits,
+            required_num_qubits,
             self.num_results,
-            get_additional_module_attributes(self)
+            get_additional_module_attributes(self),
+            dynamic_qubit_management,
         );
         body
     }
