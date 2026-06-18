@@ -203,10 +203,18 @@ fn map_store_to_dominated_ssa(
         if block_id == entry {
             // Each parameter is its own initial SSA version, defined at the body entry.
             for &(var_id, ty) in input_vars {
-                var_map.entry(var_id).or_insert(Operand::Variable(Variable {
-                    variable_id: var_id,
-                    ty,
-                }));
+                assert!(
+                    var_map
+                        .insert(
+                            var_id,
+                            Operand::Variable(Variable {
+                                variable_id: var_id,
+                                ty,
+                            }),
+                        )
+                        .is_none(),
+                    "input vars should only be initialized once by parameters"
+                );
             }
         }
         map_variable_use_in_block(
