@@ -207,7 +207,7 @@ export class LearningService {
     const ws = this.requireWorkspace();
     const currentPos = ws.progressData.position;
     const nextPos = this.nextActivity(currentPos);
-
+  
     // Auto-mark lesson activities complete when moving forward
     const oldKata = this.findUnit(currentPos.unitId);
     const oldActivity = oldKata.activities.find(
@@ -216,18 +216,18 @@ export class LearningService {
     if (oldActivity?.type === "lesson") {
       this.markComplete(currentPos);
     }
-
-    if (!nextPos) {
-      await this.saveProgress();
-      this._onDidChangeState.fire(this.getState());
-      return { moved: false };
+  
+    const hasNext = !!nextPos;
+  
+    if (hasNext) {
+      ws.progressData.position = nextPos;
     }
-
-    ws.progressData.position = nextPos;
+  
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     this.sendActivityActionTelemetry("navigate", source);
-    return { moved: true };
+  
+    return { moved: hasNext };
   }
 
   async previous(source: TelemetrySource): Promise<NavigationResult> {
