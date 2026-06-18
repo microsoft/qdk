@@ -931,7 +931,7 @@ fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op>
         // decide how to handle the gate when one of its operands is lost.
         let mut gate_op = *op;
         if let Some(policy) = loss_policy_u32(op, noise) {
-            gate_op.q3 = policy;
+            gate_op.policy = policy;
         }
         let mut add_ops: Vec<Op> = vec![gate_op];
         // If there's a NoiseConfig, and we get noise for this op, append it
@@ -988,7 +988,7 @@ fn add_noise_to_adaptive_ops(
         // decide how to handle the gate when one of its operands is lost.
         let mut gate_op = *op;
         if let Some(policy) = loss_policy_u32(op, noise) {
-            gate_op.q3 = policy;
+            gate_op.policy = policy;
         }
         noisy_ops.push(gate_op);
 

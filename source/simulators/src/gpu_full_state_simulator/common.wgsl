@@ -444,7 +444,7 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
     let op = &ops[op_idx];
     let is_1q = is_1q_op(op.id);
     let is_2q = !is_1q;
-    let policy = op.q3;
+    let policy = op.policy;
 
     // Loss policies only make sense for multi-qubit gates.
     // If this is a single-qubit gate, skip it entirely.

@@ -296,6 +296,10 @@ pub struct Op {
     pub q1: u32,
     pub q2: u32,
     pub q3: u32, // For ccx
+    pub policy: u32,
+    pub pad0: u32, // for 16-byte alignment
+    pub pad1: u32, // for 16-byte alignment
+    pub pad2: u32, // for 16-byte alignment
     pub r00: f32,
     pub i00: f32,
     pub r01: f32,
@@ -331,7 +335,7 @@ pub struct Op {
 }
 
 // safety check to make sure Op is the correct size with padding at compile time
-const _: () = assert!(std::mem::size_of::<Op>() == 144);
+const _: () = assert!(std::mem::size_of::<Op>() == 160);
 
 impl Default for Op {
     fn default() -> Self {
@@ -340,6 +344,10 @@ impl Default for Op {
             q1: 0,
             q2: 0,
             q3: 0,
+            policy: 0,
+            pad0: 0,
+            pad1: 0,
+            pad2: 0,
             r00: 0.0,
             i00: 0.0,
             r01: 0.0,

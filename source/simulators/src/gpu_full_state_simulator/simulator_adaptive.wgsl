@@ -79,10 +79,14 @@ struct Op {
     q1: u32,
     q2: u32,
     q3: u32,
+    policy: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
     // Entries in the unitary are: 00, 01, 02, 03, 10, 11, 12, 13, 20, ..., 32, 33
     // 1q matrix elements are stored in: 00, 01, 10, 11 (i.e., indices 0, 1, 4, and 5)
     unitary: array<vec2f, 16>,
-} // Struct size: 4 * 4 + 16 * 8 = 144 bytes (which is aligned to 16 bytes)
+} // Struct size: 4 * 8 + 16 * 8 = 160 bytes (which is aligned to 16 bytes)
 
 @group(0) @binding(2)
 var<storage, read> ops: array<Op>;
@@ -1570,7 +1574,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             shot.op_type = op.id;
 
             // If any operand is lost, dispatch the gate's configured loss
-            // policy (stamped on op.q3). For most policies this fully handles
+            // policy (stamped on op.policy). For most policies this fully handles
             // the op; APPLY_ANYWAY returns false so the gate runs as usual.
             if gate_has_lost_operand(shot_idx, op_idx, q1, q2) {
                 if handle_lost_operand_policy(shot_idx, op_idx, q1, q2) {
