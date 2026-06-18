@@ -1,6 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# flake8: noqa E402
+
+
 import pytest
 
 cirq = pytest.importorskip("cirq")
