@@ -1336,14 +1336,3 @@ fn ssa_check_intrinsic_callables_skipped() {
 
     perform_ssa_check(&mut program);
 }
-
-#[test]
-fn ssa_check_single_body_unchanged_regression() {
-    // Single-body programs are validated exactly as before. The broader single-body behavior is
-    // covered by the existing positive tests (`ssa_check_passes_for_base_profile_program`,
-    // `ssa_check_passes_for_adaptive_program_with_all_literals`) and the existing negative tests;
-    // this case re-confirms a single-body program with no parameters still passes.
-    let mut program = bell_program();
-
-    perform_ssa_check(&mut program);
-}

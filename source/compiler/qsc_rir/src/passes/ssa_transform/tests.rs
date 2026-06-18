@@ -3469,18 +3469,3 @@ fn ssa_transform_mutable_parameter_versioned() {
             tags:
     "#]].assert_eq(&program.to_string());
 }
-
-#[test]
-fn ssa_transform_single_body_unchanged_regression() {
-    // The per-body driver must reduce to the prior single-body behavior. A single bodied program with
-    // no store instructions is left byte-identical by the transform. The broader single-body store
-    // and phi behavior is covered by the existing tests in this module that route through
-    // `transform_program`.
-    let mut program = bell_program();
-    program.config.capabilities = Profile::AdaptiveRIF.into();
-    let before = program.to_string();
-
-    transform_to_ssa_directly(&mut program);
-
-    assert_eq!(before, program.to_string());
-}
