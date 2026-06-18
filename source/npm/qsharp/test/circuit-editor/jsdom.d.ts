@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 // Minimal ambient declaration for the `jsdom` import used by the
 // circuit-editor tests. `@types/jsdom` is not installed in this repo,
 // so without this shim every test file that imports `JSDOM` would

@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
 // @ts-check
 //
 // Construction / extraction / assertion helpers for the

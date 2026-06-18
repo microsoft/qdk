@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 
 // Add/remove mutator tests on flat (non-grouped) shapes against `CircuitModel`.
-// Group recursion and group-internal span widening live in `circuitActions.test.mjs`.
+// Group recursion and group-internal span widening live in `groupAddRemove.test.mjs`.
 
 // @ts-check
 
@@ -381,7 +381,7 @@ test("removeControl: removing a control on a wire that only has a classical-ref 
 });
 
 // ---------------------------------------------------------------------------
-// findAndRemoveOperations (flat grid; group recursion lives in circuitActions.test.mjs)
+// findAndRemoveOperations (flat grid; group recursion lives in groupAddRemove.test.mjs)
 // ---------------------------------------------------------------------------
 
 test("findAndRemoveOperations decrements qubitUseCounts and prunes empty columns", () => {

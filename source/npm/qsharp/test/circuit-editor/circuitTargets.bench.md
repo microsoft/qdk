@@ -142,8 +142,8 @@ standalone improvements on the eager-cache baseline:
 - Snapshot harness for `if-else.qs` and `conditionals.qs`,
   which exercises classical-control rendering that was
   previously uncovered.
-- The 12 new/rewritten tests in
-  [`circuitActions.test.mjs`](./circuitActions.test.mjs) and
+- The 12 new/rewritten tests in the
+  [`circuit-actions/`](./circuit-actions/) suite and
   [`dropzones.test.mjs`](./dropzones.test.mjs) that lock down
   extend-cascade and overlap-split behavior. Their assertions
   read direct `.targets` (the eager-cache contract).

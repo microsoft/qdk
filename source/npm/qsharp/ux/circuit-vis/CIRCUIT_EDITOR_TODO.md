@@ -106,7 +106,7 @@ and [utils.ts](utils.ts). Re-verify before changing any of them.
    invariants. [circuitActions.ts](actions/circuitActions.ts) (replacing the
    old `circuitManipulation.ts`) takes a `CircuitModel` directly;
    functions are unit-testable without JSDOM. See
-   [test/circuitActions.test.mjs](../../test/circuitActions.test.mjs)
+   [the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
    for the proof.
 4. **Two parallel circuits.** [`Sqore.circuit`](sqore.ts) (original)
    and `_circuit` (deep-copied per-render). The renderer mutates the
@@ -349,7 +349,7 @@ test).
 
 Status: complete. 132 npm tests pass (the 125 from R2 plus 7 new
 direct-on-`CircuitModel` tests in
-[test/circuitActions.test.mjs](../../test/circuitActions.test.mjs)).
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)).
 
 **Delivered:**
 
@@ -391,7 +391,7 @@ direct-on-`CircuitModel` tests in
    bridge is unaffected.
 
 **Tests added:**
-[test/circuitActions.test.mjs](../../test/circuitActions.test.mjs)
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
 exercises the Action layer directly against a freshly-constructed
 `CircuitModel` — **no JSDOM, no `CircuitEvents` stub**. Coverage:
 
@@ -1084,7 +1084,7 @@ mysteriously refuse valid drops. Reset happens in
 container-mouseup teardown, alongside the layer-display reset.
 
 **Tests.** Nine regression tests in
-[circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
 cover: `Location.before` (kept for the generic comparator),
 `Location.inEarlierColumnThan` (column-strict, ancestor-aware),
 external producer collection (with internal exclusion), refusal,
@@ -1347,7 +1347,7 @@ Two PRs, sequenced.
     [test/circuit-editor/dropzones.test.mjs](../../test/circuit-editor/dropzones.test.mjs)
     (emission, wire-extent clipping, collapsed-group no-emission,
     top-level trailing-band preservation) and 3 new tests in
-    [test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+    [the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
     (`addOperation` to a group's trailing inner slot, external
     gate move into a group via the slot, internal gate move
     within a group via the slot). 306 tests passing (up from 299).
@@ -1422,7 +1422,7 @@ groupMaxWire, hoverWireIndex, hoverColIndex)` exports a single
     `.shift-extend-ghost` rule — translucent fill, dashed border,
     `pointer-events: none`.
   - **Test coverage**: 11 new action-layer tests in
-    [test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+    [the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
     covering the basic single-wire extend, multi-row gap extend,
     multi-wire source extend, nested cascade, cascade early-exit,
     empty-group B5 prune, the load-bearing cross-chain case where
@@ -1650,7 +1650,7 @@ several artifacts ship as standalone improvements:
   the Rust builder seeds via `new_group` + `merge_inputs`." The
   comment is independently valuable.
 - **New test scenarios** (12 in
-  [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+  [the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
   - [dropzones.test.mjs](../../test/circuit-editor/dropzones.test.mjs))
     lock down extend cascade and overlap-split behavior. Rewrite
     the assertions back to direct `.targets` checks (which IS the
@@ -1793,7 +1793,7 @@ shape of a bug factory.
   cache). Documented on the utility's doc comment.
 
 **Tests.** All 12 D6-era assertions in
-[circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
 continue to pass — they exercise exactly the
 cascade-and-refresh behavior the utility now owns. The
 end-to-end coverage is sufficient; no separate unit-level test
@@ -1953,7 +1953,7 @@ across non-adjacent wires.
   the hood. The drag-init still fires but the model is
   unchanged and the next render is a deepEqual no-op.
 
-**Tests.** [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+**Tests.** [the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
 pins five contracts:
 
 1. `addControl: refuses on a classically-controlled GROUP`.
@@ -2236,7 +2236,7 @@ edge case is implemented by partitioning the consumer set
 and surfacing both counts in the prompt message.
 
 **Tests.** 10 new cases in
-[`circuitActions.test.mjs`](../../test/circuit-editor/circuitActions.test.mjs)
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
 covering `collectMeasurementConsumers` (empty, top-level,
 nested, classical-ref must match), `removeMeasurementWithDependents`
 (cascade + location re-derive after collapse), and
@@ -2291,7 +2291,7 @@ the time this bug was retested:
 
 **Regression coverage.** Five `moveQubit`-with-classical-
 consumer tests in
-[circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs):
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/):
 single-M wire swap, two-Ms-on-different-wires swap, multiple-Ms-
 on-same-wire swap, `isBetween` move past a wire with multiple
 Ms-with-consumers, and a buried-in-nested-groups consumer.
@@ -2375,7 +2375,7 @@ quantum-control half; classical-condition editing waits for the
 broader editor-authoring work that B1 also defers to.
 
 **Tests.** Five new tests in
-[test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs):
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/):
 add quantum control on the classical-owner wire of a conditional
 gate succeeds (both entries survive in `.controls`); legacy
 duplicate-quantum-control dedup still returns false; remove
@@ -2519,7 +2519,7 @@ the doc.
     sibling wires from EVERY level, classical-ref exclusion
     propagates through the chain, unresolved location returns
     empty.
-- Three in [`circuitActions.test.mjs`](../../test/circuit-editor/circuitActions.test.mjs):
+- Three in [the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/):
   - Two pinning the cross-over cascade for shapes the earlier
     D4-Stage-B test coverage didn't reach (shallow case): a
     GROUP sibling (multi-wire, with children) splits the outer
@@ -2756,7 +2756,7 @@ walking children was already there.
    `resolveOverlappingOperations(model.componentGrid)` call.
 
 **Tests.** 3 new tests in
-[test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
 under "moveQubit: recurses into nested groups":
 
 - swap wires propagates into nested op `.targets`
@@ -2808,7 +2808,7 @@ wire the cloned subtree touched both mirror `moveOperation`'s
 unit-move tail.
 
 **Tests.** Six new tests in
-[test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs):
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/):
 group clone with delta>0, group clone with delta=0, multi-target
 (SWAP) clone, group-with-internal-classical-control clone (the
 classical ref shifts in lockstep with the cloned producer),
@@ -2955,7 +2955,7 @@ like-register guard (delta = 0, control already on targetWire),
 and `_moveX` handles the column relocation independently.
 
 **Tests.** Four new cases in
-[circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs):
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/):
 vertical control drag on a group rewires only the control;
 dropping a control onto a body wire swaps with that body wire and
 re-derives `.targets`; dropping onto a wire already occupied by
@@ -3053,7 +3053,7 @@ gains two cases:
   still no-ops (no regression on the original
   "can't grab an expanded group" guard).
 
-[`circuitActions.test.mjs`](../../test/circuit-editor/circuitActions.test.mjs)
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
 gains three cases pinning the stamp contract:
 
 - A plain `moveOperation` stamps `sqore-prev-location` on the
@@ -3134,7 +3134,7 @@ instances.
 
 | Module                                                         | Lines | Tests                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [actions/circuitActions.ts](actions/circuitActions.ts)         | 2551  | [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs) (126)        | The crown jewel: every move / add / remove / control path, plus extend cascade, classical-ref remap, clone-move, M5/B5 gates.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| [actions/circuitActions.ts](actions/circuitActions.ts)         | 2551  | [circuit-actions/](../../test/circuit-editor/circuit-actions/) (132)                      | The crown jewel: every move / add / remove / control path, plus extend cascade, classical-ref remap, clone-move, M5/B5 gates. Split across 10 topic files (addRemove, groupMove, measurementCascade, …).                                                                                                                                                                                                                                                                                                                            |
 | [actions/interactionState.ts](actions/interactionState.ts)     | 97    | [interactionActions.test.mjs](../../test/circuit-editor/interactionActions.test.mjs) (10) | Defaults + reset semantics pinned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | [actions/interactionActions.ts](actions/interactionActions.ts) | 118   | (same file)                                                                               | `beginToolboxDrag`, dropzone tracking, idempotency covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | [editor/operationPrompts.ts](editor/operationPrompts.ts)       | 203   | [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) (12)     | B2/B3 confirm prompts + cascade orchestration. `_deleteOperationWithConfirmation`: non-M / M-no-consumers fast paths, singular + plural prompt text, OK cascade, Cancel = no mutation + no `renderFn`. `_moveOperationWithConfirmation`: non-M / M-no-consumers fast paths, pure-survivors / pure-invalidated / mixed message shapes from `_buildMoveMConsumerMessage`, OK cascade through `moveMeasurementWithDependents`, Cancel = no mutation + no `renderFn`. `movingControl` threaded through the fast path (B11a regression). |
@@ -3181,7 +3181,7 @@ pinned by a test, organized so a reviewer can ask "is M5
 regression-tested?" and find the answer.
 
 - **M5 (refuse add/remove control on multi-target / groups).**
-  Action layer ✅ (5 tests in `circuitActions.test.mjs`).
+  Action layer ✅ (5 tests in the `circuit-actions/` suite).
   Context-menu UI gating ✅ — multi-target unitary case in
   [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs)
   asserts `[Toggle Adjoint, Delete]` (no Add/Remove Control); the
@@ -3207,7 +3207,7 @@ regression-tested?" and find the answer.
   consumption (deletion from `dataAttributes` after the rebase)
   is also asserted.
 - **B2 / B3 (M-with-dependents flows).** Action layer ✅
-  (10 tests in `circuitActions.test.mjs`). Confirm-prompt wrappers
+  (10 tests in the `circuit-actions/` suite). Confirm-prompt wrappers
   in [operationPrompts.ts](editor/operationPrompts.ts) ✅ —
   12 tests in
   [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs)
@@ -3232,7 +3232,7 @@ regression-tested?" and find the answer.
   The three quantum-control-group snapshots reflect that
   (regenerated this pass).
 - **D-series cascades.** All extend / overlap / split paths
-  covered in `circuitActions.test.mjs`. Dropzone visibility filter
+  covered in the `circuit-actions/` suite. Dropzone visibility filter
   paths covered in `dropzones.test.mjs`.
 
 ### Recommended quick-wins (cut line for the PR)
@@ -3353,8 +3353,8 @@ Larger follow-ups (deferred — not blocking PR):
   list is action-layer or pure-helper coverage; the JSDOM
   context-menu harness is the one place we'd actually need DOM
   setup, and it's deferred.
-- **Don't lower the bar on existing tests.** `circuitActions.test.mjs`
-  is the load-bearing test file — 126 cases — and its
+- **Don't lower the bar on existing tests.** The `circuit-actions/`
+  suite is the load-bearing test home — 132 cases — and its
   patterns should be the model for any new action-layer tests
   added during this pass.
 

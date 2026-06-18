@@ -11,7 +11,7 @@
 // the same multi-wire-leg shape and single-leg drag path
 // (`_moveAsUnit` returns false whenever a control is moving).
 // Single-target (CNOT / CCX) control-leg drags are covered
-// separately in `circuitActions.test.mjs`.
+// separately in the `circuit-actions/` suite.
 
 // @ts-check
 

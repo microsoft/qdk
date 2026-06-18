@@ -435,7 +435,7 @@ test("_moveOperationWithConfirmation: M-with-consumers OK cascades through moveM
   );
   // The Y (survivor) must still exist. The exact remap is the
   // contract of `moveMeasurementWithDependents`, covered in
-  // circuitActions.test.mjs.
+  // the circuit-actions/ suite (measurementCascade.test.mjs).
   assert.ok(
     allOps.find((o) => /** @type {any} */ (o).gate === "Y"),
     "survivor Y consumer must remain",

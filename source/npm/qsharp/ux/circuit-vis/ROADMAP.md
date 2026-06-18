@@ -92,10 +92,10 @@ The B2/B3/B4 trio (classical-register reference integrity under
 M edits and qubit reorders) is closed: B2's `_applyClassicalRefRemap`
 
 - cascade-delete pass, B3's structural immunity via `moveQubit`'s
-  1-to-1 wire permutation (regression-tested in
-  [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)),
-  and B4's subsumption by B2's cascade together remove the entire
-  class of orphaned-classical-ref crashes.
+  1-to-1 wire permutation (regression-tested in the
+  [circuit-actions/](../../test/circuit-editor/circuit-actions/)
+  suite), and B4's subsumption by B2's cascade together remove the
+  entire class of orphaned-classical-ref crashes.
 
 ---
 

@@ -437,7 +437,7 @@ test("getWireRange: endpoints are fresh objects, not aliases of op's registers",
 // "cross-over" case (extending past an in-between sibling) is
 // intentionally NOT covered here — that's a property of the
 // action-layer overlap resolver and is tested in
-// circuitActions.test.mjs.
+// the circuit-actions/ suite (producerOrdering.test.mjs).
 
 // Helper: build a single-component-grid from a component list.
 const grid = (/** @type {any[][]} */ componentLists) =>
