@@ -3488,3 +3488,177 @@ fn direct_call_preserves_lambda_body_span() {
         "surviving direct call should carry the lambda body span, got {slice:?}"
     );
 }
+
+/// A closure is created by a separate function, `MakeAdder`, that returns it,
+/// then bound to a local, `adder`, and passed to a higher-order function,
+/// `Apply`. Because the closure's capture, `base`, is defined across the
+/// function-return boundary, the HOF call-site rewrite cannot resolve the
+/// capture's value from the enclosing block and threads the wrong local.
+#[test]
+fn cross_function_closure_capture_threads_correct_value() {
+    let source = r#"
+        import Std.Convert.*;
+        operation Apply(f : (Qubit => Unit), q : Qubit) : Unit {
+            f(q);
+        }
+
+        operation ApplyRotation(base : Int, q : Qubit) : Unit {
+            Rx(IntAsDouble(base), q);
+        }
+
+        function MakeRotation(base : Int) : (Qubit => Unit) {
+            return ApplyRotation(base, _);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            let amount = 5;
+            let rotation = MakeRotation(amount);
+            Apply(rotation, q);
+        }
+        "#;
+    check_rewrite_with_capabilities(
+        source,
+        adaptive_qirgen_capabilities(),
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Apply(f : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+            }
+            operation ApplyRotation(base : Int, q : Qubit) : Unit {
+                Rx(IntAsDouble(base), q);
+            }
+            function MakeRotation(base : Int) : (Qubit => Unit) {
+                return {
+                    let arg : Int = base;
+                    / * closure item = 5 captures = [arg] * / _lambda_
+                };
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let amount : Int = 5;
+                let rotation : (Qubit => Unit) = MakeRotation(amount);
+                Apply_Empty_(rotation, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_(arg : Int, hole : Qubit) : Unit {
+                ApplyRotation(arg, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation Apply_Empty_(f : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Apply(f : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+            }
+            operation ApplyRotation(base : Int, q : Qubit) : Unit {
+                Rx(IntAsDouble(base), q);
+            }
+            function MakeRotation(base : Int) : (Qubit => Unit) {
+                return {
+                    let arg : Int = base;
+                    ()
+                };
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let amount : Int = 5;
+                Apply_Empty__closure_(q, amount);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_(arg : Int, hole : Qubit) : Unit {
+                ApplyRotation(arg, hole)
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation Apply_Empty_(f : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+            }
+            operation Apply_Empty__closure_(q : Qubit, __capture_0 : Int) : Unit {
+                _lambda_(__capture_0, q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// The closure is created inline in the same block as the HOF call.
+#[test]
+fn inline_closure_capture_threads_correct_value() {
+    let source = r#"
+        import Std.Convert.*;
+        operation Apply(f : (Qubit => Unit), q : Qubit) : Unit {
+            f(q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            let amount = 5;
+            Apply(qubit => Rx(IntAsDouble(amount), qubit), q);
+        }
+        "#;
+    check_rewrite_with_capabilities(
+        source,
+        adaptive_qirgen_capabilities(),
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            operation Apply(f : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let amount : Int = 5;
+                Apply_Empty_(/ * closure item = 3 captures = [amount] * / _lambda_, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_(amount : Int, qubit : Qubit) : Unit {
+                Rx(IntAsDouble(amount), qubit)
+            }
+            operation Apply_Empty_(f : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            operation Apply(f : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let amount : Int = 5;
+                Apply_Empty__closure_(q, amount);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_(amount : Int, qubit : Qubit) : Unit {
+                Rx(IntAsDouble(amount), qubit)
+            }
+            operation Apply_Empty_(f : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
+            }
+            operation Apply_Empty__closure_(q : Qubit, __capture_0 : Int) : Unit {
+                _lambda_(__capture_0, q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}

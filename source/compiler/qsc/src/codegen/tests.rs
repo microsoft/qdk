@@ -843,21 +843,21 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
         block_1:
           br label %block_2
         block_2:
-          %var_151 = phi i1 [true, %block_0], [false, %block_1]
+          %var_199 = phi i1 [true, %block_0], [false, %block_1]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
           %var_11 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
           br i1 %var_11, label %block_3, label %block_4
         block_3:
           br label %block_4
         block_4:
-          %var_152 = phi i1 [%var_151, %block_2], [false, %block_3]
+          %var_200 = phi i1 [%var_199, %block_2], [false, %block_3]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
           %var_13 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 2 to %Result*))
           br i1 %var_13, label %block_5, label %block_6
         block_5:
           br label %block_6
         block_6:
-          %var_153 = phi i1 [%var_152, %block_4], [false, %block_5]
+          %var_201 = phi i1 [%var_200, %block_4], [false, %block_5]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -874,21 +874,21 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
         block_7:
           br label %block_8
         block_8:
-          %var_154 = phi i1 [true, %block_6], [false, %block_7]
+          %var_202 = phi i1 [true, %block_6], [false, %block_7]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 4 to %Result*))
           %var_27 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 4 to %Result*))
           br i1 %var_27, label %block_9, label %block_10
         block_9:
           br label %block_10
         block_10:
-          %var_155 = phi i1 [%var_154, %block_8], [false, %block_9]
+          %var_203 = phi i1 [%var_202, %block_8], [false, %block_9]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 5 to %Result*))
           %var_29 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 5 to %Result*))
           br i1 %var_29, label %block_11, label %block_12
         block_11:
           br label %block_12
         block_12:
-          %var_156 = phi i1 [%var_155, %block_10], [false, %block_11]
+          %var_204 = phi i1 [%var_203, %block_10], [false, %block_11]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -947,26 +947,26 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 6 to %Result*))
-          %var_98 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 6 to %Result*))
-          br i1 %var_98, label %block_13, label %block_14
+          %var_130 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 6 to %Result*))
+          br i1 %var_130, label %block_13, label %block_14
         block_13:
           br label %block_14
         block_14:
-          %var_157 = phi i1 [true, %block_12], [false, %block_13]
+          %var_205 = phi i1 [true, %block_12], [false, %block_13]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 7 to %Result*))
-          %var_100 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 7 to %Result*))
-          br i1 %var_100, label %block_15, label %block_16
+          %var_132 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 7 to %Result*))
+          br i1 %var_132, label %block_15, label %block_16
         block_15:
           br label %block_16
         block_16:
-          %var_158 = phi i1 [%var_157, %block_14], [false, %block_15]
+          %var_206 = phi i1 [%var_205, %block_14], [false, %block_15]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 8 to %Result*))
-          %var_102 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 8 to %Result*))
-          br i1 %var_102, label %block_17, label %block_18
+          %var_134 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 8 to %Result*))
+          br i1 %var_134, label %block_17, label %block_18
         block_17:
           br label %block_18
         block_18:
-          %var_159 = phi i1 [%var_158, %block_16], [false, %block_17]
+          %var_207 = phi i1 [%var_206, %block_16], [false, %block_17]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -1005,32 +1005,32 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 9 to %Result*))
-          %var_143 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 9 to %Result*))
-          br i1 %var_143, label %block_19, label %block_20
+          %var_191 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 9 to %Result*))
+          br i1 %var_191, label %block_19, label %block_20
         block_19:
           br label %block_20
         block_20:
-          %var_160 = phi i1 [true, %block_18], [false, %block_19]
+          %var_208 = phi i1 [true, %block_18], [false, %block_19]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 10 to %Result*))
-          %var_145 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 10 to %Result*))
-          br i1 %var_145, label %block_21, label %block_22
+          %var_193 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 10 to %Result*))
+          br i1 %var_193, label %block_21, label %block_22
         block_21:
           br label %block_22
         block_22:
-          %var_161 = phi i1 [%var_160, %block_20], [false, %block_21]
+          %var_209 = phi i1 [%var_208, %block_20], [false, %block_21]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 11 to %Result*))
-          %var_147 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 11 to %Result*))
-          br i1 %var_147, label %block_23, label %block_24
+          %var_195 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 11 to %Result*))
+          br i1 %var_195, label %block_23, label %block_24
         block_23:
           br label %block_24
         block_24:
-          %var_162 = phi i1 [%var_161, %block_22], [false, %block_23]
+          %var_210 = phi i1 [%var_209, %block_22], [false, %block_23]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__rt__array_record_output(i64 4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 %var_153, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 %var_156, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 %var_159, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 %var_162, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 %var_201, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 %var_204, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 %var_207, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 %var_210, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
           ret i64 0
         }
 
@@ -6136,5 +6136,67 @@ mod adaptive_profile {
             !7 = !{i32 1, !"arrays", i1 true}
         "#]]
             .assert_eq(&qir);
+    }
+
+    /// Regression test for a defunctionalization capture-resolution bug where a
+    /// partial-application closure returned across a function boundary threaded
+    /// the wrong captured value into the specialized callable. This mirrors the
+    /// Bernstein-Vazirani sample shape: `MakeParity` returns
+    /// `ApplyParity(secret, _, _)` (capturing `secret`), which is then invoked
+    /// through the `Apply` higher-order operation. The captured `secret` (5 =
+    /// 0b101) must drive which `CNOT`s fire — controls on query qubits 0 and 2,
+    /// each targeting the shared ancilla. Before the fix, the capture was
+    /// resolved to a caller-scope qubit, corrupting the CNOT operands.
+    #[test]
+    fn cross_function_partial_application_capture_threads_correct_value() {
+        let source = "namespace Test {
+            import Std.Intrinsic.*;
+            operation ApplyParity(secret : Int, query : Qubit[], target : Qubit) : Unit {
+                if (secret &&& 1) != 0 {
+                    CNOT(query[0], target);
+                }
+                if (secret &&& 2) != 0 {
+                    CNOT(query[1], target);
+                }
+                if (secret &&& 4) != 0 {
+                    CNOT(query[2], target);
+                }
+            }
+            function MakeParity(secret : Int) : ((Qubit[], Qubit) => Unit) {
+                return ApplyParity(secret, _, _);
+            }
+            operation Apply(f : ((Qubit[], Qubit) => Unit), query : Qubit[], target : Qubit) : Unit {
+                f(query, target);
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use query = Qubit[3];
+                use target = Qubit();
+                let parity = MakeParity(5);
+                Apply(parity, query, target);
+            }
+        }";
+        let qir = compile_source_to_qir(source, *CAPABILITIES);
+        // secret = 5 (0b101) folds at compile time -> CNOT(query[0], target) and
+        // CNOT(query[2], target). query qubits are 0,1,2 and target is qubit 3, so
+        // both CNOTs use constant operands and share target qubit 3. Before the fix
+        // the captured `secret` resolved to a caller-scope qubit, corrupting the
+        // operands (and the bit selection).
+        assert!(
+            qir.contains(
+                "call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 3 to ptr))"
+            ),
+            "expected CNOT(query[0]=0, target=3), got:\n{qir}"
+        );
+        assert!(
+            qir.contains(
+                "call void @__quantum__qis__cx__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))"
+            ),
+            "expected CNOT(query[2]=2, target=3), got:\n{qir}"
+        );
+        assert!(
+            !qir.contains("call void @__quantum__qis__cx__body(ptr inttoptr (i64 1 to ptr),"),
+            "secret 0b101 must not fire CNOT on query[1], got:\n{qir}"
+        );
     }
 }

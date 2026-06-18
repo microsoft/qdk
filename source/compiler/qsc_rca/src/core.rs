@@ -1,9 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::rc::Rc;
+
 use crate::{
     ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ComputePropertiesLookup,
-    ParamApplication, RuntimeFeatureFlags, ValueKind,
+    ElementParamApplication, ParamApplication, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
         AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
@@ -341,14 +343,7 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            let call_compute_kind =
-                self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id, expr_type);
-            match call_compute_kind {
-                CallComputeKind::Regular(compute_kind) => compute_kind,
-                CallComputeKind::Override(compute_kind) => {
-                    return compute_kind;
-                }
-            }
+            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id, expr_type)
         };
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
@@ -394,40 +389,13 @@ impl<'a> Analyzer<'a> {
         compute_kind
     }
 
-    fn analyze_expr_call_for_length_intrinsic(&self, args_expr_id: ExprId) -> ComputeKind {
-        let application_instance = self.get_current_application_instance();
-        let args_compute_kind = *application_instance.get_expr_compute_kind(args_expr_id);
-        match args_compute_kind {
-            ComputeKind::Static => ComputeKind::Static,
-            ComputeKind::Dynamic {
-                runtime_features, ..
-            } => {
-                if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) {
-                    ComputeKind::Dynamic {
-                        runtime_features,
-                        value_kind: ValueKind::Variable,
-                    }
-                } else {
-                    ComputeKind::Static
-                }
-            }
-        }
-    }
-
     fn analyze_expr_call_with_spec_callee(
         &mut self,
         callee: &Callee,
         callable_decl: &'a CallableDecl,
         args_expr_id: ExprId,
         fixed_args: Option<Vec<LocalVarId>>,
-    ) -> CallComputeKind {
-        // The `Length` intrinsic function has a specialized override.
-        if is_length_intrinsic(callable_decl) {
-            return CallComputeKind::Override(
-                self.analyze_expr_call_for_length_intrinsic(args_expr_id),
-            );
-        }
-
+    ) -> ComputeKind {
         // Analyze the specialization to determine its application generator set.
         let callee_id = GlobalSpecId::from((callee.item, callee.functor_app.functor_set_value()));
         self.analyze_spec(callee_id, callable_decl);
@@ -461,7 +429,7 @@ impl<'a> Analyzer<'a> {
             fixed_args
                 .into_iter()
                 .map(|local_var_id| {
-                    self.get_current_application_instance()
+                    application_instance
                         .locals_map
                         .find_local_compute_kind(local_var_id)
                         .map_or(ComputeKind::Static, |v| v.compute_kind)
@@ -503,7 +471,7 @@ impl<'a> Analyzer<'a> {
             runtime_features.insert(RuntimeFeatureFlags::CallToCyclicOperation);
         }
 
-        CallComputeKind::Regular(compute_kind)
+        compute_kind
     }
 
     fn analyze_expr_call_with_static_callee(
@@ -511,7 +479,7 @@ impl<'a> Analyzer<'a> {
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
         expr_type: &Ty,
-    ) -> CallComputeKind {
+    ) -> ComputeKind {
         // Try to resolve the callee.
         let package_id = self.get_current_package_id();
         let package = self.package_store.get(package_id);
@@ -535,7 +503,7 @@ impl<'a> Analyzer<'a> {
             self.get_current_application_instance_mut()
                 .unresolved_callee_exprs
                 .push(callee_expr_id);
-            return CallComputeKind::Regular(compute_kind);
+            return compute_kind;
         };
 
         if self.callee_in_active_contexts(&callee) {
@@ -554,10 +522,10 @@ impl<'a> Analyzer<'a> {
             self.get_current_application_instance_mut()
                 .unresolved_callee_exprs
                 .push(callee_expr_id);
-            return CallComputeKind::Regular(ComputeKind::Dynamic {
+            return ComputeKind::Dynamic {
                 runtime_features: RuntimeFeatureFlags::CallToUnresolvedCallee,
                 value_kind: ValueKind::Constant,
-            });
+            };
         }
 
         // We try to resolve the callee and determine the compute kind of the call depending on the callee kind.
@@ -565,7 +533,7 @@ impl<'a> Analyzer<'a> {
             // If the callee is not found, that is an indication that it is an item that was removed during
             // incremental compilation but remains in the name resolution data structures. Assume it is static
             // so that it generates an "unbound name" error at runtime.
-            return CallComputeKind::Regular(ComputeKind::Static);
+            return ComputeKind::Static;
         };
         match global_callee {
             Global::Callable(callable_decl) => self.analyze_expr_call_with_spec_callee(
@@ -574,9 +542,7 @@ impl<'a> Analyzer<'a> {
                 args_expr_id,
                 fixed_args,
             ),
-            Global::Udt => {
-                CallComputeKind::Regular(self.analyze_expr_call_with_udt_callee(args_expr_id))
-            }
+            Global::Udt => self.analyze_expr_call_with_udt_callee(args_expr_id),
         }
     }
 
@@ -1174,8 +1140,8 @@ impl<'a> Analyzer<'a> {
             }
         };
 
-        // If the condition is dynamic, we require an additional runtime feature.
-        if !matches!(condition_expr_compute_kind, ComputeKind::Static) {
+        // If the condition is a dynamic variable, we require an additional runtime feature.
+        if condition_expr_compute_kind.is_variable_value_kind() {
             let ComputeKind::Dynamic {
                 runtime_features, ..
             } = &mut compute_kind
@@ -1296,6 +1262,7 @@ impl<'a> Analyzer<'a> {
         let input_params = package.derive_callable_input_params(callable_decl);
         let current_callable_context = self.get_current_item_context_mut();
         current_callable_context.set_callable_context(
+            Rc::clone(&callable_decl.name.name),
             callable_decl.kind,
             input_params,
             callable_decl.output.clone(),
@@ -1862,6 +1829,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
         let input_params = package.derive_callable_input_params(decl);
         let current_callable_context = self.get_current_item_context_mut();
         current_callable_context.set_callable_context(
+            Rc::clone(&decl.name.name),
             decl.kind,
             input_params,
             decl.output.clone(),
@@ -2205,6 +2173,7 @@ impl ItemContext {
 
     pub fn set_callable_context(
         &mut self,
+        name: Rc<str>,
         kind: CallableKind,
         input_params: Vec<InputParam>,
         output_type: Ty,
@@ -2212,6 +2181,7 @@ impl ItemContext {
     ) {
         assert!(self.callable_context.is_none());
         self.callable_context = Some(CallableContext {
+            name,
             kind,
             input_params,
             output_type,
@@ -2226,6 +2196,7 @@ impl ItemContext {
 }
 
 struct CallableContext {
+    pub name: Rc<str>,
     pub kind: CallableKind,
     pub input_params: Vec<InputParam>,
     pub output_type: Ty,
@@ -2252,11 +2223,6 @@ impl SpecContext {
     }
 }
 
-enum CallComputeKind {
-    Regular(ComputeKind),
-    Override(ComputeKind),
-}
-
 /// Builds a neutral, arity-matched `ApplicationGeneratorSet` for a callable whose body
 /// statements are being marked as "visited" without analysis (e.g. `@SimulatableIntrinsic`
 /// and `@Test` callable bodies in `set_all_stmts_in_block_to_default`).
@@ -2276,13 +2242,17 @@ fn default_application_generator_set_for_callable(
     for param in &callable_context.input_params {
         let param_application = match &param.ty {
             Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
+                constant_content: ComputeKind::Static,
                 static_size: ComputeKind::Static,
                 dynamic_size: ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
                     value_kind: ValueKind::Variable,
                 },
             }),
-            _ => ParamApplication::Element(ComputeKind::Static),
+            _ => ParamApplication::Element(ElementParamApplication {
+                constant: ComputeKind::Static,
+                variable: ComputeKind::Static,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }
@@ -2297,6 +2267,20 @@ fn derive_intrinsic_function_application_generator_set(
     callable_context: &CallableContext,
 ) -> ApplicationGeneratorSet {
     assert!(matches!(callable_context.kind, CallableKind::Function));
+
+    if callable_context.name.as_ref() == "Length" {
+        return ApplicationGeneratorSet {
+            inherent: ComputeKind::Static,
+            dynamic_param_applications: vec![ParamApplication::Array(ArrayParamApplication {
+                constant_content: ComputeKind::Static,
+                static_size: ComputeKind::Static,
+                dynamic_size: ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
+                    value_kind: ValueKind::Variable,
+                },
+            })],
+        };
+    }
 
     // Determine the compute kind for all dynamic parameter applications.
     let mut dynamic_param_applications =
@@ -2321,7 +2305,13 @@ fn derive_intrinsic_function_application_generator_set(
             Ty::Array(_) => {
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
-            _ => ParamApplication::Element(param_compute_kind),
+            _ => ParamApplication::Element(ElementParamApplication {
+                constant: ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: ValueKind::Constant,
+                },
+                variable: param_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }
@@ -2338,6 +2328,7 @@ fn array_param_application_from_runtime_features(
     value_kind: ValueKind,
 ) -> ParamApplication {
     ParamApplication::Array(ArrayParamApplication {
+        constant_content: ComputeKind::Static,
         static_size: ComputeKind::Dynamic {
             runtime_features,
             value_kind,
@@ -2400,7 +2391,13 @@ fn derive_instrinsic_operation_application_generator_set(
             Ty::Array(_) => {
                 array_param_application_from_runtime_features(runtime_features, value_kind)
             }
-            _ => ParamApplication::Element(param_compute_kind),
+            _ => ParamApplication::Element(ElementParamApplication {
+                constant: ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: ValueKind::Constant,
+                },
+                variable: param_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }
@@ -2409,11 +2406,6 @@ fn derive_instrinsic_operation_application_generator_set(
         inherent: inherent_compute_kind,
         dynamic_param_applications,
     }
-}
-
-fn is_length_intrinsic(callable_decl: &CallableDecl) -> bool {
-    matches!(callable_decl.implementation, CallableImpl::Intrinsic)
-        && callable_decl.name.name.as_ref() == "Length"
 }
 
 fn ty_to_runtime_runtime_output_flags(ty: &Ty) -> RuntimeFeatureFlags {
