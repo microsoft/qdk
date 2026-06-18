@@ -675,24 +675,6 @@ impl Simulator for StabilizerSimulator {
     }
 
     fn swap(&mut self, q1: QubitID, q2: QubitID) {
-        match (self.loss[q1], self.loss[q2]) {
-            (true, true) => (),
-            (true, false) | (false, true) => {
-                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
-                self.apply_idle_noise(remaining_qubit);
-                match self.noise_config.swap.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
-                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
-                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self.state.apply_permutation(&[1, 0], &[q1, q2]),
-                }
-            }
-            (false, false) => {
-                self.apply_idle_noise(q1);
-                self.apply_idle_noise(q2);
-                self.state.apply_permutation(&[1, 0], &[q1, q2]);
-            }
-        }
         // There are three kinds of swaps:
         //   1. A logical swap, also called a relabel.
         //   2. A swap by physically exchanging the location of the qubits.
@@ -701,7 +683,34 @@ impl Simulator for StabilizerSimulator {
         // This method is concerned with the kinds (1) and (2), since (3)
         // gets decomposed into other instructions before making it to the simulator.
         // In both (1) and (2), the loss state of the qubits gets exchanged.
-        self.loss.swap(q1, q2);
+
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let lost_qubit = if self.loss[q1] { q1 } else { q2 };
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.swap.on_loss {
+                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => {
+                        self.state.apply_permutation(&[1, 0], &[q1, q2]);
+                        self.residual_s_dagger(lost_qubit);
+                        self.loss.swap(q1, q2);
+                    }
+                    LossPolicy::ApplyAnyway => {
+                        self.state.apply_permutation(&[1, 0], &[q1, q2]);
+                        self.loss.swap(q1, q2);
+                    }
+                }
+            }
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
+                self.state.apply_permutation(&[1, 0], &[q1, q2]);
+                self.loss.swap(q1, q2);
+            }
+        }
 
         // Is up to the user if swap is a virtual operation or not.
         // If they don't specify noise/loss probability for swap, then it is virtual.

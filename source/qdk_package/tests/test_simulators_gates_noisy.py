@@ -266,123 +266,227 @@ def test_two_qubit_loss(sim_type):
 # probability of 1.0 and then applying that gate. The gate under test then sees
 # a lost operand and applies its configured policy. All outcomes are
 # deterministic, so a single shot is sufficient.
+#
+# Need to test: CX, CY, CZ, RXX, RYY, RZZ, SWAP
+#         with: SKIP, PROPAGATE, DEGRADE, RESIDUAL_S_DAGGER
+#
+# TEST 0: C*, R**, and SWAP default loss policies
+# TEST 1: C*, R**, and SWAP with SKIP do not apply unitary
+# TEST 2: C*, R**, and SWAP with PROPAGATE lose first qubit
+# TEST 3: C*, R**, and SWAP with PROPAGATE lose second qubit
+# TEST 4: C* and SWAP with DEGRADE behave like skip
+# TEST 5: R** with DEGRADE behave like R*
+# TEST 6: C*, R**, and SWAP with RESIDUAL_S_DAGGER do not apply unitary
+# TEST 7: SWAP always exchanges loss flags and qubit states
+
+# Two-qubit gate-call fragments, grouped by how they reduce when exactly one
+# operand is lost. Each entry is (NoiseConfig attribute, Q# gate call).
+CONTROLLED_GATES = [
+    ("cx", "CNOT(qs[0], qs[1])"),
+    ("cy", "CY(qs[0], qs[1])"),
+    ("cz", "CZ(qs[0], qs[1])"),
+]
+ROTATION_GATES = [
+    ("rxx", "Rxx(Std.Math.PI(), qs[0], qs[1])"),
+    ("ryy", "Ryy(Std.Math.PI(), qs[0], qs[1])"),
+    ("rzz", "Rzz(Std.Math.PI(), qs[0], qs[1])"),
+]
+SWAP_GATE = ("swap", "SWAP(qs[0], qs[1])")
+ALL_GATES = CONTROLLED_GATES + ROTATION_GATES + [SWAP_GATE]
+
+CONTROLLED_IDS = [attr for attr, _ in CONTROLLED_GATES]
+ROTATION_IDS = [attr for attr, _ in ROTATION_GATES]
+SWAP_ID = SWAP_GATE[0]
+ALL_IDS = [attr for attr, _ in ALL_GATES]
+
+# Rotation gates under DEGRADE reduce to their single-qubit version on the
+# survivor. With theta = PI the degraded rotation flips the survivor's measured
+# bit to 1, but Rz only adds phase, so Rzz is prepared/measured in the X basis.
+ROTATION_DEGRADE_RECIPES = [
+    ("rxx", "Rxx(Std.Math.PI(), qs[0], qs[1])", "", ""),
+    ("ryy", "Ryy(Std.Math.PI(), qs[0], qs[1])", "", ""),
+    ("rzz", "Rzz(Std.Math.PI(), qs[0], qs[1])", "H(qs[1]);", "H(qs[1]);"),
+]
 
 
-@pytest.mark.parametrize("sim_type", SIM_TYPES)
-def test_on_loss_default_controlled_gate_skips(sim_type):
-    # `cz.on_loss` defaults to SKIP: the lost control means CZ is skipped, so
-    # the surviving target qubit is left untouched in |0>.
-    noise = NoiseConfig()
-    noise.x.loss = 1.0  # deterministically lose qs[0] after X
-    results = compile_and_run(
-        "{use qs = Qubit[2]; X(qs[0]); H(qs[1]); CZ(qs[0], qs[1]); H(qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
-        shots=1,
-        seed=SEED,
-        noise=noise,
-        sim_type=sim_type,
-    )
-    check_histogram(results, {"-0": 1.0})
+def run_loss_policy_scenario(
+    gate: str,
+    sim_type: SimType,
+    *,
+    attr: str = "",
+    on_loss=None,
+    prep: str = "",
+    post: str = "",
+    lose: int = 0,
+) -> str:
+    """
+    Lose one operand of a two-qubit gate deterministically, apply the gate, and
+    measure both qubits.
 
-
-@pytest.mark.parametrize("sim_type", SIM_TYPES)
-def test_on_loss_propagate_marks_other_operand_lost(sim_type):
-    # PROPAGATE: a lost operand propagates the loss to the other operand, so
-    # both qubits measure as Loss.
-    noise = NoiseConfig()
-    noise.x.loss = 1.0
-    noise.cz.on_loss = LossPolicy.PROPAGATE
-    results = compile_and_run(
-        "{use qs = Qubit[2]; X(qs[0]); CZ(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
-        shots=1,
-        seed=SEED,
-        noise=noise,
-        sim_type=sim_type,
-    )
-    check_histogram(results, {"--": 1.0})
-
-
-@pytest.mark.parametrize("sim_type", SIM_TYPES)
-def test_on_loss_rxx_degrade_reduces_to_single_qubit(sim_type):
-    # `rxx.on_loss` defaults to DEGRADE: with one operand lost, Rxx reduces to
-    # Rx on the survivor. Rx(PI) flips qs[1] to |1>.
-    noise = NoiseConfig()
-    noise.x.loss = 1.0
-    results = compile_and_run(
-        "{use qs = Qubit[2]; X(qs[0]); Rxx(Std.Math.PI(), qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
-        shots=1,
-        seed=SEED,
-        noise=noise,
-        sim_type=sim_type,
-    )
-    check_histogram(results, {"-1": 1.0})
-
-
-@pytest.mark.parametrize("sim_type", SIM_TYPES)
-def test_on_loss_rxx_skip_leaves_survivor_untouched(sim_type):
-    # Overriding `rxx.on_loss` to SKIP leaves the surviving qubit in |0>.
-    noise = NoiseConfig()
-    noise.x.loss = 1.0
-    noise.rxx.on_loss = LossPolicy.SKIP
-    results = compile_and_run(
-        "{use qs = Qubit[2]; X(qs[0]); Rxx(Std.Math.PI(), qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
-        shots=1,
-        seed=SEED,
-        noise=noise,
-        sim_type=sim_type,
-    )
-    check_histogram(results, {"-0": 1.0})
-
-
-@pytest.mark.parametrize("sim_type", SIM_TYPES)
-def test_on_loss_residual_s_dagger_applies_s_adjoint(sim_type):
-    # RESIDUAL_S_DAGGER: the gate is skipped but an S-dagger is applied to each
-    # surviving operand. qs[1] is prepared in |+i> = S H |0>; the residual
-    # S-dagger maps it back to |+>, and a final H rotates it to |0>.
-    noise = NoiseConfig()
-    noise.x.loss = 1.0
-    noise.cx.on_loss = LossPolicy.RESIDUAL_S_DAGGER
-    results = compile_and_run(
-        "{use qs = Qubit[2]; H(qs[1]); S(qs[1]); X(qs[0]); CNOT(qs[0], qs[1]); H(qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
-        shots=1,
-        seed=SEED,
-        noise=noise,
-        sim_type=sim_type,
-    )
-    check_histogram(results, {"-0": 1.0})
-
-
-@pytest.mark.parametrize("sim_type", SIM_TYPES)
-def test_on_loss_swap_apply_anyway_exchanges_state(sim_type):
-    # `swap.on_loss` defaults to APPLY_ANYWAY: the SWAP unitary still runs, so
-    # qs[1]'s |1> moves into qs[0]. The loss flag is always exchanged, so qs[1]
-    # becomes the lost qubit. qs[0] is lost via Y so X-prepared qs[1] is intact.
+    The qubit at index *lose* is taken out via a Y gate configured with
+    ``loss = 1.0``; the survivor can therefore be prepared with any non-Y gate
+    through *prep* (and post-processed through *post*). Returns the single
+    deterministic shot as a two-character string for
+    ``[MResetZ(qs[0]), MResetZ(qs[1])]``.
+    """
     noise = NoiseConfig()
     noise.y.loss = 1.0
-    results = compile_and_run(
-        "{use qs = Qubit[2]; X(qs[1]); Y(qs[0]); SWAP(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
-        shots=1,
-        seed=SEED,
-        noise=noise,
-        sim_type=sim_type,
+    if on_loss is not None:
+        setattr(getattr(noise, attr), "on_loss", on_loss)
+    source = (
+        f"{{use qs = Qubit[2]; {prep} Y(qs[{lose}]); {gate}; {post} "
+        f"[MResetZ(qs[0]), MResetZ(qs[1])]}}"
     )
-    check_histogram(results, {"1-": 1.0})
+    return compile_and_run(source, shots=1, seed=SEED, noise=noise, sim_type=sim_type)[
+        0
+    ]
 
 
-@pytest.mark.parametrize("sim_type", SIM_TYPES)
-def test_on_loss_swap_skip_keeps_state_but_swaps_loss_flag(sim_type):
-    # Overriding `swap.on_loss` to SKIP skips the SWAP unitary, but the loss
-    # flag is still exchanged. qs[0] keeps its reset |0> and qs[1] becomes lost.
+# TEST 0: C*, R**, and SWAP default loss policies
+def test_on_loss_defaults():
     noise = NoiseConfig()
-    noise.y.loss = 1.0
-    noise.swap.on_loss = LossPolicy.SKIP
-    results = compile_and_run(
-        "{use qs = Qubit[2]; X(qs[1]); Y(qs[0]); SWAP(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
-        shots=1,
-        seed=SEED,
-        noise=noise,
-        sim_type=sim_type,
+    assert noise.cx.on_loss == LossPolicy.SKIP
+    assert noise.cy.on_loss == LossPolicy.SKIP
+    assert noise.cz.on_loss == LossPolicy.SKIP
+    assert noise.rxx.on_loss == LossPolicy.DEGRADE
+    assert noise.ryy.on_loss == LossPolicy.DEGRADE
+    assert noise.rzz.on_loss == LossPolicy.DEGRADE
+    assert noise.swap.on_loss == LossPolicy.APPLY_ANYWAY
+
+
+# TEST 1: SKIP never applies the unitary. C*/R** leave the survivor (|1>)
+# untouched ("-1"); SWAP also skips the unitary but still exchanges the loss
+# flag, so the survivor's |1> ends up on the now-lost qubit ("0-").
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+@pytest.mark.parametrize(
+    "attr,gate,expected",
+    [(*elt, "-1") for elt in ALL_GATES],
+    ids=ALL_IDS,
+)
+def test_on_loss_skip_does_not_apply_unitary(attr, gate, expected, sim_type):
+    res = run_loss_policy_scenario(
+        gate, sim_type, attr=attr, on_loss=LossPolicy.SKIP, prep="X(qs[1]);"
     )
-    check_histogram(results, {"0-": 1.0})
+    assert res == expected
+
+
+# TEST 2: PROPAGATE loses the surviving operand too. Here the first operand
+# (qs[0]) is the one originally lost, and the loss propagates to qs[1], so both
+# operands measure as loss.
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+@pytest.mark.parametrize("attr,gate", ALL_GATES, ids=ALL_IDS)
+def test_on_loss_propagate_lose_first(attr, gate, sim_type):
+    res = run_loss_policy_scenario(
+        gate, sim_type, attr=attr, on_loss=LossPolicy.PROPAGATE, lose=0
+    )
+    assert res == "--"
+
+
+# TEST 3: same as TEST 2 but the second operand (qs[1]) is the one originally
+# lost; the loss still propagates to the survivor, so both measure as loss.
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+@pytest.mark.parametrize("attr,gate", ALL_GATES, ids=ALL_IDS)
+def test_on_loss_propagate_lose_second(attr, gate, sim_type):
+    res = run_loss_policy_scenario(
+        gate, sim_type, attr=attr, on_loss=LossPolicy.PROPAGATE, lose=1
+    )
+    assert res == "--"
+
+
+# TEST 4: DEGRADE has no single-qubit reduction for controlled gates or SWAP,
+# so it falls back to SKIP. C* leave the survivor (|1>) untouched ("-1"); SWAP
+# skips the unitary but exchanges the loss flag ("0-").
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+@pytest.mark.parametrize(
+    "attr,gate,expected",
+    [(*elt, "-1") for elt in CONTROLLED_GATES + [SWAP_GATE]],
+    ids=CONTROLLED_IDS + [SWAP_ID],
+)
+def test_on_loss_degrade_behaves_like_skip(attr, gate, expected, sim_type):
+    res = run_loss_policy_scenario(
+        gate, sim_type, attr=attr, on_loss=LossPolicy.DEGRADE, prep="X(qs[1]);"
+    )
+    assert res == expected
+
+
+# TEST 5: DEGRADE reduces a two-qubit rotation to its single-qubit version on
+# the survivor (Rxx->Rx, Ryy->Ry, Rzz->Rz). With theta = PI the reduced
+# rotation flips the survivor's measured bit; Rz only adds phase, so Rzz is
+# measured in the X basis (H before and after).
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+@pytest.mark.parametrize(
+    "attr,gate,prep,post", ROTATION_DEGRADE_RECIPES, ids=ROTATION_IDS
+)
+def test_on_loss_degrade_reduces_rotation(attr, gate, prep, post, sim_type):
+    res = run_loss_policy_scenario(
+        gate, sim_type, attr=attr, on_loss=LossPolicy.DEGRADE, prep=prep, post=post
+    )
+    assert res == "-1"
+
+
+# TEST 6a: RESIDUAL_S_DAGGER skips the unitary but applies an S-dagger to the
+# survivor in place. The survivor is prepared in |+i> = S H |0>; S-dagger maps it
+# back to |+>, and the final H rotates it to |0>, so the survivor (still at
+# qs[1] for C*/R**) measures as 0 ("-0").
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+@pytest.mark.parametrize(
+    "attr,gate",
+    CONTROLLED_GATES + ROTATION_GATES,
+    ids=CONTROLLED_IDS + ROTATION_IDS,
+)
+def test_on_loss_residual_s_dagger_applies_s_adjoint(attr, gate, sim_type):
+    res = run_loss_policy_scenario(
+        gate,
+        sim_type,
+        attr=attr,
+        on_loss=LossPolicy.RESIDUAL_S_DAGGER,
+        prep="H(qs[1]); S(qs[1]);",
+        post="H(qs[1]);",
+    )
+    assert res == "-0"
+
+
+# TEST 6b: SWAP under RESIDUAL_S_DAGGER applies the full swap, then the S-dagger
+# to the survivor, then exchanges the loss flag. Unlike C*/R**, the swap
+# relocates the survivor to qs[0] (the originally-lost operand) and moves the
+# loss flag to qs[1]. The survivor |+i> = S H |0> maps under S-dagger to |+>, so
+# the post-processing H is applied to qs[0] (the survivor's new location) to
+# rotate it to |0>: qs[0] measures 0 and the now-lost qs[1] measures as loss
+# ("0-"). Measuring the survivor in place (its X-basis phase) is what verifies
+# the S-dagger was actually applied.
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_swap_residual_s_dagger_applies_s_adjoint(sim_type):
+    res = run_loss_policy_scenario(
+        SWAP_GATE[1],
+        sim_type,
+        attr=SWAP_GATE[0],
+        on_loss=LossPolicy.RESIDUAL_S_DAGGER,
+        prep="H(qs[1]); S(qs[1]);",
+        post="H(qs[0]);",
+    )
+    assert res == "0-"
+
+
+# TEST 7: SWAP always exchanges the loss flag between its operands, whatever the
+# policy. The survivor (|1>) becomes the lost qubit and the originally-lost
+# qubit returns as a reset |0> ("0-"); under PROPAGATE both end up lost ("--").
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+@pytest.mark.parametrize(
+    "on_loss,expected",
+    [
+        (LossPolicy.SKIP, "-1"),
+        (LossPolicy.PROPAGATE, "--"),
+        (LossPolicy.DEGRADE, "-1"),
+        (LossPolicy.RESIDUAL_S_DAGGER, "1-"),
+        (LossPolicy.APPLY_ANYWAY, "1-"),
+    ],
+    ids=["skip", "propagate", "residual_s_dagger", "degrade", "apply_anyway"],
+)
+def test_on_loss_swap_swaps_loss_flag(on_loss, expected, sim_type):
+    res = run_loss_policy_scenario(
+        SWAP_GATE[1], sim_type, attr="swap", on_loss=on_loss, prep="X(qs[1]);"
+    )
+    assert res == expected
 
 
 # ===========================================================================

@@ -377,6 +377,18 @@ fn set_1q_on_pair_unitary(shot_idx: u32, target_is_q2: bool,
     }
 }
 
+// Multiplies one row of the 4x4 pair unitary (in shot.unitary) by -i, in place.
+// Folding a diag(1, -i) = S-dagger factor on one qubit into a 2-qubit matrix
+// scales the rows whose target-qubit bit is 1 by -i. For a complex entry
+// (x + y i), (x + y i) * -i = y - x i.
+fn scale_pair_unitary_row_by_neg_i(shot_idx: u32, row: u32) {
+    let shot = &shots[shot_idx];
+    for (var c = 0u; c < 4u; c++) {
+        let e = shot.unitary[row * 4u + c];
+        shot.unitary[row * 4u + c] = vec2f(e.y, -e.x);
+    }
+}
+
 // Sets up the shot to execute a 2-qubit shot-buffer op on the gate's operands.
 fn finish_2q_shot_buffer(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) {
     let shot = &shots[shot_idx];
@@ -431,6 +443,7 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
     let is_1q = is_1q_op(op.id);
+    let is_2q = !is_1q;
     let policy = op.q3;
 
     // Loss policies only make sense for multi-qubit gates.
@@ -441,50 +454,75 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
         return true;
     }
 
+    let q1_lost = shot.qubit_state[q1].heat == -1.0;
+    let q2_lost = is_2q && (shot.qubit_state[q2].heat == -1.0);
+    let has_survivor = is_2q && !(q1_lost && q2_lost);
+    // The surviving operand (only meaningful when has_survivor is true).
+    let survivor = select(q1, q2, q1_lost);
+    let survivor_is_q2 = q1_lost;
+
     // SWAP is special: it physically relocates the two qubits, so their loss
     // state is always exchanged regardless of the policy (the policy only
     // governs whether the unitary runs). Handle it explicitly here.
     if (op.id == OPID_SWAP) {
-        // Exchange the per-qubit loss flag (heat) of the two operands.
-        let heat1 = shot.qubit_state[q1].heat;
-        shot.qubit_state[q1].heat = shot.qubit_state[q2].heat;
-        shot.qubit_state[q2].heat = heat1;
+        switch policy {
+            case LOSS_POLICY_PROPAGATE {
+                propagate_loss_to_qubit(shot_idx, op_idx, q1, q2, survivor);
+                return true;
+            }
+            case LOSS_POLICY_RESIDUAL_S_DAGGER {
+                // Match the CPU/stabilizer SWAP + residual S-dagger semantics:
+                //   1. Apply the full SWAP (shot.unitary already holds it).
+                //   2. Apply S-dagger = diag(1, -i) to the (originally) lost
+                //      operand's position, which after the SWAP holds the
+                //      survivor's amplitudes.
+                //   3. Exchange the per-qubit loss flag (heat) of the operands.
 
-        if (policy == LOSS_POLICY_APPLY_ANYWAY) {
-            // A lost qubit is in a definite |0> state, so its bit is set in
-            // qubit_is_0_mask. The 2-qubit execute path skips amplitudes for
-            // qubits known to be in a definite state, which would skip exactly
-            // the amplitudes SWAP needs to move. Clear those bits for both
-            // operands so the swap is actually applied.
-            shot.qubit_is_0_mask = shot.qubit_is_0_mask & ~((1u << q1) | (1u << q2));
-            shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~((1u << q1) | (1u << q2));
-            // shot.unitary already holds the SWAP matrix (set by the caller).
-            finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
-            return true;
+                // Fold the S-dagger into the SWAP matrix by scaling, by -i, the
+                // two rows of the |q1 q2> pair matrix whose lost-qubit bit is 1.
+                // q1 is the high bit (rows 2, 3); q2 is the low bit (rows 1, 3).
+                let lost_row = select(1u, 2u, q1_lost);
+                scale_pair_unitary_row_by_neg_i(shot_idx, lost_row);
+                scale_pair_unitary_row_by_neg_i(shot_idx, 3u);
+                // Exchange the per-qubit loss flag (heat) of the two operands.
+                let heat1 = shot.qubit_state[q1].heat;
+                shot.qubit_state[q1].heat = shot.qubit_state[q2].heat;
+                shot.qubit_state[q2].heat = heat1;
+                // The 2-qubit execute path skips amplitudes for qubits known to be
+                // in a definite state, which would skip the amplitudes SWAP needs to move.
+                // Clear those bits for both operands so the swap is actually applied.
+                shot.qubit_is_0_mask = shot.qubit_is_0_mask & ~((1u << q1) | (1u << q2));
+                shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~((1u << q1) | (1u << q2));
+                // shot.unitary now holds (S-dagger on lost) * SWAP.
+                finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
+                return true;
+            }
+            case LOSS_POLICY_APPLY_ANYWAY {
+                // Exchange the per-qubit loss flag (heat) of the two operands.
+                let heat1 = shot.qubit_state[q1].heat;
+                shot.qubit_state[q1].heat = shot.qubit_state[q2].heat;
+                shot.qubit_state[q2].heat = heat1;
+                // The 2-qubit execute path skips amplitudes for qubits known to be
+                // in a definite state, which would skip the amplitudes SWAP needs to move.
+                // Clear those bits for both operands so the swap is actually applied.
+                shot.qubit_is_0_mask = shot.qubit_is_0_mask & ~((1u << q1) | (1u << q2));
+                shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~((1u << q1) | (1u << q2));
+                // shot.unitary already holds the SWAP matrix (set by the caller).
+                finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
+                return true;
+            }
+            default {
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                return true;
+            }
         }
-
-        // SKIP / PROPAGATE / DEGRADE / RESIDUAL_S_DAGGER on a SWAP: the loss
-        // flags have been exchanged; skip the unitary.
-        shot.op_type = OPID_ID;
-        shot.op_idx = op_idx;
-        return true;
     }
 
     // APPLY_ANYWAY: run the gate as if nothing was lost.
     if (policy == LOSS_POLICY_APPLY_ANYWAY) {
         return false;
     }
-
-    // For the remaining policies that act on a survivor, identify the surviving
-    // operand of a two-qubit gate (if any). For single-qubit gates the only
-    // operand is lost, so there is no survivor and these collapse to SKIP.
-    let q1_lost = shot.qubit_state[q1].heat == -1.0;
-    let is_2q = !is_1q;
-    let q2_lost = is_2q && (shot.qubit_state[q2].heat == -1.0);
-    let has_survivor = is_2q && !(q1_lost && q2_lost);
-    // The surviving operand (only meaningful when has_survivor is true).
-    let survivor = select(q1, q2, q1_lost);
-    let survivor_is_q2 = q1_lost;
 
     if (policy == LOSS_POLICY_PROPAGATE && has_survivor) {
         propagate_loss_to_qubit(shot_idx, op_idx, q1, q2, survivor);
