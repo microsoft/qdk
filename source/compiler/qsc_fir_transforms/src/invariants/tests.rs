@@ -2,22 +2,25 @@
 // Licensed under the MIT License.
 
 use super::*;
+use crate::invariants::test_utils::find_package_with_callable;
 use crate::invariants::test_utils::{
     clear_external_body_exec_graph, clear_external_copy_update_field_range,
     compile_external_copy_update_to_exec_graph_rebuild, convert_last_body_expr_to_semi,
-    external_copy_update_spec_id, inject_arrow_param, inject_binding_type_mismatch,
-    inject_call_argument_shape_mismatch, inject_callable_input_tuple_pattern_arity_mismatch,
-    inject_callable_output_type, inject_closure_expr, inject_cross_spec_local_reference,
-    inject_dangling_stmt_expr_id, inject_dangling_stmt_id, inject_functor_param_arrow,
-    inject_initializer_self_reference, inject_local_tuple_pattern_arity_mismatch,
-    inject_nested_non_tuple_field_path_target, inject_nested_tuple_bound_arrow_local,
-    inject_nested_tuple_eq_in_if_branch, inject_non_copy_struct,
-    inject_non_tuple_field_path_target, inject_non_unit_assignment_expression_type,
-    inject_stale_local_var, inject_stale_local_var_in_callable, inject_tuple_arity_mismatch,
-    inject_ty_param, inject_udt_callable_output, inject_udt_expr_type,
-    inject_udt_expr_type_in_callable,
+    inject_arrow_param, inject_binding_type_mismatch, inject_call_argument_shape_mismatch,
+    inject_callable_input_tuple_pattern_arity_mismatch, inject_callable_output_type,
+    inject_closure_expr, inject_cross_spec_local_reference, inject_dangling_stmt_expr_id,
+    inject_dangling_stmt_id, inject_functor_param_arrow, inject_initializer_self_reference,
+    inject_local_tuple_pattern_arity_mismatch, inject_nested_non_tuple_field_path_target,
+    inject_nested_tuple_bound_arrow_local, inject_nested_tuple_eq_in_if_branch,
+    inject_non_copy_struct, inject_non_tuple_field_path_target,
+    inject_non_unit_assignment_expression_type, inject_stale_local_var,
+    inject_stale_local_var_in_callable, inject_tuple_arity_mismatch, inject_ty_param,
+    inject_udt_callable_output, inject_udt_expr_type, inject_udt_expr_type_in_callable,
 };
-use crate::test_utils::{PipelineStage, assert_panics_with, compile_and_run_pipeline_to};
+use crate::test_utils::{
+    PipelineStage, assert_panics_with, compile_and_run_pipeline_to,
+    compile_and_run_pipeline_to_with_library,
+};
 
 use qsc_fir::fir::LocalVarId;
 use qsc_fir::ty::Prim;
@@ -284,37 +287,111 @@ fn invariant_rejects_non_unit_assignment_expression() {
 }
 
 #[test]
-fn external_exec_graph_checker_rejects_empty_mutated_external_spec_graph() {
-    let (mut store, _pkg_id, external_callable) =
+fn reachable_exec_graph_checker_rejects_empty_mutated_external_spec_graph() {
+    // After `exec_graph_rebuild` rebuilds every reachable spec across the
+    // package closure, the `PostAll` walk validates each reachable spec's exec
+    // graph in its owning package. An emptied library-callable body graph is
+    // therefore caught even though the callable lives in a foreign package.
+    let (mut store, pkg_id, external_callable) =
         compile_external_copy_update_to_exec_graph_rebuild();
     clear_external_body_exec_graph(&mut store, external_callable);
 
     assert_panics_with(
-        "Exec graph for external MakeUpdated/body (no_debug) is empty",
+        "Exec graph for MakeUpdated/body (no_debug) is empty",
         || {
-            check_external_spec_exec_graphs(
-                &store,
-                &[external_copy_update_spec_id(external_callable)],
-            );
+            check(&store, pkg_id, InvariantLevel::PostAll);
         },
     );
 }
 
 #[test]
-fn external_exec_graph_checker_rejects_empty_mutated_external_expr_range() {
-    let (mut store, _pkg_id, external_callable) =
+fn reachable_exec_graph_checker_rejects_empty_mutated_external_expr_range() {
+    let (mut store, pkg_id, external_callable) =
         compile_external_copy_update_to_exec_graph_rebuild();
     clear_external_copy_update_field_range(&mut store, external_callable);
 
-    assert_panics_with(
-        "Exec graph range for external MakeUpdated/body Expr",
-        || {
-            check_external_spec_exec_graphs(
-                &store,
-                &[external_copy_update_spec_id(external_callable)],
-            );
-        },
+    assert_panics_with("Exec graph range for MakeUpdated/body Expr", || {
+        check(&store, pkg_id, InvariantLevel::PostAll);
+    });
+}
+
+/// Layer-4: `ExprId`s are package-relative, so two different packages can
+/// legitimately reuse the same `ExprId` value. With `check_expr_id_ownership`
+/// keyed on `(PackageId, ExprId)`, walking a reachable set that spans packages
+/// must not flag that shared value as a uniqueness violation.
+#[test]
+fn expr_id_ownership_keys_per_package_for_shared_expr_id_values() {
+    let lib = r#"
+        namespace TestLib {
+            function LibHelper(x : Int) : Int {
+                let a = x + 1;
+                let b = a + 2;
+                let c = b + 3;
+                let d = c + 4;
+                let e = d + 5;
+                let f = e + 6;
+                let g = f + 7;
+                a + b + c + d + e + f + g
+            }
+            export LibHelper;
+        }
+    "#;
+    let user = r#"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int { LibHelper(41) }
+    "#;
+    let (mut store, pkg_id) = crate::test_utils::compile_to_fir_with_library(lib, user);
+    let result =
+        crate::run_pipeline_to_with_diagnostics(&mut store, pkg_id, PipelineStage::Defunc, &[]);
+    assert!(
+        result.errors.is_empty(),
+        "pipeline to Defunc should succeed"
     );
+
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+
+    // Confirm the scenario actually exercises cross-package keying: two distinct
+    // packages contribute reachable callable-body ExprIds that overlap in value.
+    assert!(
+        shared_expr_id_value_across_packages(&store, &reachable),
+        "test requires a reachable ExprId value shared across two packages"
+    );
+
+    let entry_id = store.get(pkg_id).entry.expect("entry expression");
+
+    // Keyed per (PackageId, ExprId): must not panic on the shared values.
+    check_expr_id_ownership(&store, pkg_id, &reachable, entry_id);
+}
+
+/// Returns whether two distinct packages in `reachable` have callable bodies
+/// that share at least one `ExprId` value.
+fn shared_expr_id_value_across_packages(
+    store: &PackageStore,
+    reachable: &FxHashSet<StoreItemId>,
+) -> bool {
+    let mut per_package: FxHashMap<PackageId, FxHashSet<ExprId>> = FxHashMap::default();
+    for item_id in reachable {
+        let package = store.get(item_id.package);
+        let ItemKind::Callable(decl) = &package.get_item(item_id.item).kind else {
+            continue;
+        };
+        let CallableImpl::Spec(spec_impl) = &decl.implementation else {
+            continue;
+        };
+        let ids = per_package.entry(item_id.package).or_default();
+        collect_expr_ids_in_block(package, spec_impl.body.block, ids);
+    }
+
+    let sets: Vec<&FxHashSet<ExprId>> = per_package.values().collect();
+    for i in 0..sets.len() {
+        for j in (i + 1)..sets.len() {
+            if sets[i].iter().any(|e| sets[j].contains(e)) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[test]
@@ -401,6 +478,52 @@ fn post_udt_erase_catches_udt_in_callable_output() {
     let (mut store, pkg_id) =
         compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::UdtErase);
     inject_udt_callable_output(&mut store, pkg_id);
+    assert_panics_with("Ty::Udt after UDT erasure", || {
+        check(&store, pkg_id, InvariantLevel::PostUdtErase);
+    });
+}
+
+/// The reachable-item-scoped UDT-erase check must still validate foreign
+/// (library) callables that are reachable from the entry package. This plants a
+/// residual `Ty::Udt` in a reachable library callable's body (a package other
+/// than the entry package) and confirms the scoped check still panics — proving
+/// the scope reduction did not stop validating reachable foreign code.
+#[test]
+fn post_udt_erase_catches_udt_in_reachable_foreign_callable() {
+    // Seven sequential `let`s keep `LibHelper` a distinct reachable callable
+    // (rather than being inlined into `Main`), so it survives as a foreign
+    // package callable in the reachable closure.
+    let lib = r#"
+        namespace TestLib {
+            function LibHelper(x : Int) : Int {
+                let a = x + 1;
+                let b = a + 2;
+                let c = b + 3;
+                let d = c + 4;
+                let e = d + 5;
+                let f = e + 6;
+                let g = f + 7;
+                a + b + c + d + e + f + g
+            }
+            export LibHelper;
+        }
+    "#;
+    let user = r#"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int { LibHelper(41) }
+    "#;
+    let (mut store, pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib, user, PipelineStage::UdtErase);
+
+    // Locate the foreign (library) package and plant the violation there.
+    let lib_pkg_id = find_package_with_callable(&store, "LibHelper");
+    assert_ne!(
+        lib_pkg_id, pkg_id,
+        "LibHelper must live in a foreign package, not the entry package"
+    );
+    inject_udt_expr_type_in_callable(&mut store, lib_pkg_id, "LibHelper");
+
     assert_panics_with("Ty::Udt after UDT erasure", || {
         check(&store, pkg_id, InvariantLevel::PostUdtErase);
     });
@@ -605,6 +728,48 @@ fn post_all_catches_call_argument_shape_mismatch() {
     });
 }
 
+/// The reachable-item-scoped `PostAll` call-shape check must validate call sites
+/// in reachable foreign (library) callables, not just the entry package. After
+/// argument promotion flattens a library callee, a stale call site to it in
+/// another library callable must still be caught, proving the cross-package
+/// call invariant is not entry-only.
+#[test]
+fn post_all_catches_stale_call_site_in_reachable_foreign_callable() {
+    let lib = r#"
+        namespace TestLib {
+            struct Pair { Fst : Int, Snd : Int }
+            function Flatten(p : Pair) : Int {
+                p.Fst + p.Snd
+            }
+            function LibCaller() : Int {
+                let pair = new Pair { Fst = 1, Snd = 2 };
+                Flatten(pair)
+            }
+            export Flatten, LibCaller;
+        }
+    "#;
+    let user = r#"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int { LibCaller() }
+    "#;
+    let (mut store, pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib, user, PipelineStage::Full);
+
+    // The flattened callee `Flatten` and its caller `LibCaller` both live in the
+    // foreign library package; plant the stale call site there.
+    let lib_pkg_id = find_package_with_callable(&store, "LibCaller");
+    assert_ne!(
+        lib_pkg_id, pkg_id,
+        "LibCaller must live in a foreign package, not the entry package"
+    );
+    inject_call_argument_shape_mismatch(&mut store, lib_pkg_id, "LibCaller");
+
+    assert_panics_with("PostArgPromote/PostAll call invariant violation", || {
+        check(&store, pkg_id, InvariantLevel::PostAll);
+    });
+}
+
 #[test]
 fn post_defunc_catches_tuple_arity_mismatch() {
     let source = r#"
@@ -702,7 +867,7 @@ const NAMED_PARAM_CALLABLE: &str = r#"
     }
 "#;
 
-// INCLUDE side: the sub-pipeline runs `return_unify`, so `PostSignaturePreserving`
+// Include side: the sub-pipeline runs `return_unify`, so `PostSignaturePreserving`
 // must still reject a residual dynamic `ExprKind::Return`. Removing
 // `PostSignaturePreserving` from `is_post_return_unify_or_later` would silently
 // weaken the sub-pipeline check and stop this test from panicking.
@@ -714,8 +879,8 @@ fn post_signature_preserving_guard_rejects_residual_return() {
     });
 }
 
-// EXCLUDE side: the sub-pipeline preserves arrow-typed parameters, so
-// `PostSignaturePreserving` must NOT fire on an injected arrow param. Adding
+// Exclude side: the sub-pipeline preserves arrow-typed parameters, so
+// `PostSignaturePreserving` must not fire on an injected arrow param. Adding
 // `PostSignaturePreserving` to `is_post_defunc_or_later` would make this panic.
 #[test]
 fn post_signature_preserving_guard_allows_arrow_param() {
@@ -725,7 +890,7 @@ fn post_signature_preserving_guard_allows_arrow_param() {
     check(&store, pkg_id, InvariantLevel::PostSignaturePreserving);
 }
 
-// Cross-level confirmation on the SAME fragment: `PostDefunc` still rejects the
+// Cross-level confirmation on the same fragment: `PostDefunc` still rejects the
 // arrow residue that `PostSignaturePreserving` allows.
 #[test]
 fn post_signature_preserving_guard_arrow_param_still_rejected_post_defunc() {
@@ -737,7 +902,7 @@ fn post_signature_preserving_guard_arrow_param_still_rejected_post_defunc() {
     });
 }
 
-// EXCLUDE side: the sub-pipeline preserves `ExprKind::Closure`.
+// Exclude side: the sub-pipeline preserves `ExprKind::Closure`.
 #[test]
 fn post_signature_preserving_guard_allows_closure() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::Defunc);
@@ -745,7 +910,7 @@ fn post_signature_preserving_guard_allows_closure() {
     check(&store, pkg_id, InvariantLevel::PostSignaturePreserving);
 }
 
-// Cross-level confirmation on the SAME fragment: `PostDefunc` still rejects the
+// Cross-level confirmation on the same fragment: `PostDefunc` still rejects the
 // closure residue that `PostSignaturePreserving` allows.
 #[test]
 fn post_signature_preserving_guard_closure_still_rejected_post_defunc() {
@@ -756,7 +921,7 @@ fn post_signature_preserving_guard_closure_still_rejected_post_defunc() {
     });
 }
 
-// EXCLUDE side: the sub-pipeline preserves `Ty::Udt`.
+// Exclude side: the sub-pipeline preserves `Ty::Udt`.
 #[test]
 fn post_signature_preserving_guard_allows_udt_type() {
     let (mut store, pkg_id) =
@@ -765,7 +930,7 @@ fn post_signature_preserving_guard_allows_udt_type() {
     check(&store, pkg_id, InvariantLevel::PostSignaturePreserving);
 }
 
-// Cross-level confirmation on the SAME fragment: `PostUdtErase` still rejects the
+// Cross-level confirmation on the same fragment: `PostUdtErase` still rejects the
 // UDT residue that `PostSignaturePreserving` allows.
 #[test]
 fn post_signature_preserving_guard_udt_still_rejected_post_udt_erase() {
@@ -775,4 +940,50 @@ fn post_signature_preserving_guard_udt_still_rejected_post_udt_erase() {
     assert_panics_with("Ty::Udt after UDT erasure", || {
         check(&store, pkg_id, InvariantLevel::PostUdtErase);
     });
+}
+
+// ----------------------------------------------------------------------------
+// Lockstep scope predicate: a structural check runs across the whole reachable
+// package closure only once its producing pass is cross-packaged. This is the
+// single widening point, so the predicate directly encodes the lockstep
+// decision per stage.
+// ----------------------------------------------------------------------------
+
+/// The argument-promotion call-shape check is cross-packaged: a
+/// foreign (library) callable is admitted, so its call shapes are validated even
+/// though it does not live in the entry package.
+#[test]
+fn arg_promote_check_admits_foreign_package_in_lockstep() {
+    let entry = qsc_fir::fir::PackageId::CORE;
+    let foreign = entry.successor();
+    assert!(structural_check_in_scope(
+        StageCheck::ArgPromote,
+        foreign,
+        entry
+    ));
+    assert!(structural_check_in_scope(
+        StageCheck::ArgPromote,
+        entry,
+        entry
+    ));
+}
+
+/// At the end state every structural pass runs across the whole reachable
+/// package closure, so `Mono` and `Defunc` (the last stages cross-packaged)
+/// admit a foreign (library) package just like the earlier stages. The entry
+/// package is always admitted.
+#[test]
+fn mono_and_defunc_checks_admit_foreign_package_in_lockstep() {
+    let entry = qsc_fir::fir::PackageId::CORE;
+    let foreign = entry.successor();
+    for check in [StageCheck::Mono, StageCheck::Defunc] {
+        assert!(
+            structural_check_in_scope(check, foreign, entry),
+            "cross-packaged stage must admit a foreign package"
+        );
+        assert!(
+            structural_check_in_scope(check, entry, entry),
+            "the entry package is always in scope"
+        );
+    }
 }

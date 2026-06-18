@@ -28,7 +28,6 @@ fn hoist_multiple_operand_returns_in_one_binop_converges() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -95,7 +94,6 @@ fn hoist_nested_operand_returns_lift_innermost_first() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -153,7 +151,6 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Pick(xs : Int[], p : (Int, Int)) : Int[] {
                 xs
             }
@@ -241,7 +238,6 @@ fn hoist_mixed_block_and_if_construct_operand_returns_converges() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -304,12 +300,6 @@ fn hoist_mixed_block_and_if_construct_operand_returns_converges() {
                     }
                 }
 
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

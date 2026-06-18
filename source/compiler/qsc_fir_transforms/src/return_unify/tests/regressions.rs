@@ -61,7 +61,6 @@ fn triple_nested_if_return_with_else_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -186,7 +185,6 @@ fn if_both_return_release_suffix_before_after_qsharp() {
         "#},
         &expect![[r#"
             // before fir transforms
-            // namespace Test
             operation Foo(flag : Bool) : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let _generated_ident_65 : Unit = if flag {
@@ -212,7 +210,6 @@ fn if_both_return_release_suffix_before_after_qsharp() {
             Main()
 
             // post return_unify
-            // namespace Test
             operation Foo(flag : Bool) : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;

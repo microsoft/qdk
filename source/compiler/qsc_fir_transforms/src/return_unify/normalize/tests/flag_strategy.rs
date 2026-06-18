@@ -30,7 +30,6 @@ fn adjoint_spec_hoist_in_call_arg() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Inner(x : Int, q : Qubit) : Unit is Adj {
                 body ... {
                     X(q);
@@ -52,9 +51,6 @@ fn adjoint_spec_hoist_in_call_arg() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 Adjoint Outer(1, q);
                 __quantum__rt__qubit_release(q);
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -84,7 +80,6 @@ fn controlled_spec_hoist_in_call_arg() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Outer(n : Int, q : Qubit) : Unit is Ctl {
                 body ... {
                     H(q);
@@ -102,9 +97,6 @@ fn controlled_spec_hoist_in_call_arg() {
                 Controlled Outer([c], (1, q));
                 __quantum__rt__qubit_release(_generated_ident_55);
                 __quantum__rt__qubit_release(_generated_ident_53);
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -135,7 +127,6 @@ fn controlled_adjoint_spec_hoist_in_call_arg() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Outer(n : Int, q : Qubit) : Unit is Adj + Ctl {
                 body ... {
                     H(q);
@@ -159,9 +150,6 @@ fn controlled_adjoint_spec_hoist_in_call_arg() {
                 Controlled Adjoint Outer([c], (1, q));
                 __quantum__rt__qubit_release(_generated_ident_73);
                 __quantum__rt__qubit_release(_generated_ident_71);
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -191,7 +179,6 @@ fn while_body_with_call_arg_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }
@@ -246,7 +233,6 @@ fn local_init_retype_in_call_arg_fix() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Identity(x : Int) : Int {
                 x
             }
@@ -302,7 +288,6 @@ fn nested_block_middle_of_block_fix() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -370,7 +355,6 @@ fn flag_fallback_handles_arrow_return() {
     check_no_returns_q(
         source,
         &expect![[r#"
-            // namespace Test
             function MakeAdder(n : Int) : (Int -> Int) {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int -> Int) = __return_unify_fail_5;

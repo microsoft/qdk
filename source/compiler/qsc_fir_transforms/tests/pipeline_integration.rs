@@ -105,7 +105,7 @@ fn package_has_callable_named(
     let package = store.get(pkg_id);
     package.items.values().any(|item| match &item.kind {
         ItemKind::Callable(decl) => decl.name.name.as_ref() == callable_name,
-        _ => false,
+        ItemKind::Ty(..) => false,
     })
 }
 
@@ -939,7 +939,30 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
 
     run_pipeline_to_successfully(&mut fir_store, fir_pkg_id, PipelineStage::Full);
 
-    let package = fir_store.get(fir_pkg_id);
+    // Generic library callables are monomorphized in place into their owning
+    // (library) package, so the `MappedByIndex` specialization and its lifted
+    // lambda live alongside `Enumerated` in the standard library package rather
+    // than in the user package.
+    let reachable = reachability::collect_reachable_from_entry(&fir_store, fir_pkg_id);
+    let host_pkg_id = reachable
+        .iter()
+        .find(|store_id| {
+            matches!(
+                &fir_store.get(store_id.package).get_item(store_id.item).kind,
+                ItemKind::Callable(decl)
+                    if decl.name.name.as_ref().starts_with("MappedByIndex<Bool, (Int, Bool)>")
+            )
+        })
+        .map_or_else(
+            || {
+                panic!(
+                    "MappedByIndex specialization should exist\n{}",
+                    format_reachable_callable_summary(&fir_store, fir_pkg_id)
+                )
+            },
+            |store_id| store_id.package,
+        );
+    let package = fir_store.get(host_pkg_id);
     let mapper = package
         .items
         .values()
@@ -955,12 +978,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
             }
             _ => None,
         })
-        .unwrap_or_else(|| {
-            panic!(
-                "MappedByIndex specialization should exist\n{}",
-                format_reachable_callable_summary(&fir_store, fir_pkg_id)
-            )
-        });
+        .expect("MappedByIndex specialization should exist in its owning package");
 
     let lambda_names = package
         .items
@@ -977,7 +995,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
         .values()
         .find_map(|expr| match &expr.kind {
             ExprKind::Call(callee_id, args_id)
-                if expr_targets_callable(package, fir_pkg_id, *callee_id, "<lambda>") =>
+                if expr_targets_callable(package, host_pkg_id, *callee_id, "<lambda>") =>
             {
                 Some(*args_id)
             }
@@ -988,7 +1006,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
                 "specialized mapper body should call the lifted lambda directly\nmapper body:\n{}\nlambdas:\n{}",
                 format_callable_body_summary(
                     &fir_store,
-                    fir_pkg_id,
+                    host_pkg_id,
                     mapper.name.name.as_ref(),
                 ),
                 lambda_names.join("\n")

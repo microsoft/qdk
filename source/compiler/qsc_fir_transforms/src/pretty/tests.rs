@@ -30,7 +30,6 @@ fn simple_function_renders() {
             }
         "#},
         &expect![[r#"
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
                     a + b
@@ -66,7 +65,6 @@ fn operation_with_specializations_renders() {
             }
         "#},
         &expect![[r#"
-            // namespace Test
             operation Op(q : Qubit) : Unit is Adj + Ctl {
                 body {
                     X(q);
@@ -87,9 +85,6 @@ fn operation_with_specializations_renders() {
                     Op(q);
                     __quantum__rt__qubit_release(q);
                 }
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -113,7 +108,6 @@ fn nested_block_renders() {
             }
         "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 body {
                     let x : Int = {
@@ -150,7 +144,6 @@ fn common_expr_kinds_render() {
             }
         "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 body {
                     mutable arr : Int[] = [1, 2, 3];
@@ -186,7 +179,6 @@ fn udt_field_renders_by_name_when_available() {
             }
         "#},
         &expect![[r#"
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 body {

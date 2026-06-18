@@ -3,16 +3,18 @@
 
 use super::*;
 use crate::test_utils::{
-    PipelineStage, check_semantic_equivalence, compile_and_run_pipeline_to, compile_to_fir,
-    find_callable, format_pat, local_names,
+    PipelineStage, assert_panics_with, check_semantic_equivalence,
+    check_semantic_equivalence_with_library, compile_and_run_pipeline_to,
+    compile_and_run_pipeline_to_with_library, compile_to_fir, compile_to_fir_with_library,
+    find_callable, find_library_callable, format_pat, local_names,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, CallableImpl, ExprId, ExprKind, Field, FieldPath, Functor, ItemKind, LocalVarId,
-    Mutability, PackageLookup, PatKind, Res, StmtKind, UnOp,
+    Mutability, PackageLookup, PatKind, Res, StmtKind, StoreItemId, UnOp,
 };
+use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashMap;
 
 fn check(source: &str, expect: &Expect) {
@@ -83,7 +85,7 @@ fn item_name(package: &qsc_fir::fir::Package, item_id: &qsc_fir::fir::ItemId) ->
         .get(item_id.item)
         .and_then(|item| match &item.kind {
             ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
-            _ => None,
+            ItemKind::Ty(..) => None,
         })
         .unwrap_or_else(|| format!("{item_id:?}"))
 }
@@ -478,12 +480,11 @@ fn callable_input_binding_names(
 }
 
 fn closure_target_names(store: &PackageStore, pkg_id: PackageId) -> Vec<String> {
-    let package = store.get(pkg_id);
     let reachable = crate::reachability::collect_reachable_from_entry(store, pkg_id);
-    let mut names = super::collect_closure_targets(package, pkg_id, &reachable)
+    let mut names = super::collect_closure_targets(store, pkg_id, &reachable)
         .iter()
-        .map(|item_id| {
-            let item = package.get_item(*item_id);
+        .map(|store_id| {
+            let item = store.get(store_id.package).get_item(store_id.item);
             let ItemKind::Callable(decl) = &item.kind else {
                 panic!("closure target should be callable");
             };
@@ -509,7 +510,6 @@ fn param_field_access_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -521,7 +521,6 @@ fn param_field_access_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -554,7 +553,6 @@ fn call_site_rewritten_for_variable_arg() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -567,7 +565,6 @@ fn call_site_rewritten_for_variable_arg() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -605,7 +602,6 @@ fn whole_param_use_skips_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Identity(p : (Int, Int)) : (Int, Int) {
                 p
@@ -618,7 +614,6 @@ fn whole_param_use_skips_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Identity(p : (Int, Int)) : (Int, Int) {
                 p
@@ -648,7 +643,6 @@ fn triple_param_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Triple = (Int, Int, Int);
             function Sum(t : (Int, Int, Int)) : Int {
                 t::Item < 0 > + t::Item < 1 > + t::Item < 2 >
@@ -660,7 +654,6 @@ fn triple_param_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Triple = (Int, Int, Int);
             function Sum(t_0 : Int, t_1 : Int, t_2 : Int) : Int {
                 t_0 + t_1 + t_2
@@ -689,7 +682,6 @@ fn callable_with_empty_tuple_parameter() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(u : Unit) : Int {
                 42
             }
@@ -700,7 +692,6 @@ fn callable_with_empty_tuple_parameter() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(u : Unit) : Int {
                 42
             }
@@ -731,7 +722,6 @@ fn callable_with_single_field_param() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Wrapper = (Int, );
             function Foo(w : (Int, )) : Int {
                 w::Item < 0 >
@@ -743,7 +733,6 @@ fn callable_with_single_field_param() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Wrapper = (Int, );
             function Foo(w_0 : Int, ) : Int {
                 w_0
@@ -778,7 +767,6 @@ fn callable_with_nested_tuple_parameter() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Int);
             function Foo(o : ((Int, Int), Int)) : Int {
@@ -791,7 +779,6 @@ fn callable_with_nested_tuple_parameter() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Int);
             function Foo(o_0_0 : Int, o_0_1 : Int, o_1 : Int) : Int {
@@ -831,7 +818,6 @@ fn operation_with_adj_spec() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Foo(p : (Int, Int)) : Unit is Adj {
                 body ... {
@@ -848,7 +834,6 @@ fn operation_with_adj_spec() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Foo(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
@@ -897,7 +882,6 @@ fn recursive_callable_whole_value_self_use_is_promoted() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Loop(p : (Int, Int), n : Int) : Int {
                 if n <= 0 {
@@ -914,7 +898,6 @@ fn recursive_callable_whole_value_self_use_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Loop(p_0 : Int, p_1 : Int, n : Int) : Int {
                 if n <= 0 {
@@ -956,7 +939,6 @@ fn recursive_promoted_self_call_dissolves_to_clean_flat_form_through_pipeline() 
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Loop(p : (Int, Int), n : Int) : Int {
                 if n <= 0 {
@@ -973,7 +955,6 @@ fn recursive_promoted_self_call_dissolves_to_clean_flat_form_through_pipeline() 
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Loop(p_0 : Int, p_1 : Int, n : Int) : Int {
                 if n <= 0 {
@@ -1039,7 +1020,6 @@ fn mixed_field_and_whole_use_is_promoted() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Mixed(p : (Int, Int)) : (Int, Int) {
                 let _ : Int = p::Item < 0 >;
@@ -1053,7 +1033,6 @@ fn mixed_field_and_whole_use_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Mixed(p_0 : Int, p_1 : Int) : (Int, Int) {
                 let _ : Int = p_0;
@@ -1087,7 +1066,6 @@ fn return_whole_param_is_reconstructed() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Echo(p : (Int, Int)) : (Int, Int) {
                 let _ : Int = p::Item < 0 > + p::Item < 1 >;
@@ -1101,7 +1079,6 @@ fn return_whole_param_is_reconstructed() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Echo(p_0 : Int, p_1 : Int) : (Int, Int) {
                 let _ : Int = p_0 + p_1;
@@ -1135,7 +1112,6 @@ fn tuple_element_whole_value_use_is_reconstructed() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Pack(p : (Int, Int), x : Int) : ((Int, Int), Int) {
                 let _ : Int = p::Item < 0 >;
@@ -1149,7 +1125,6 @@ fn tuple_element_whole_value_use_is_reconstructed() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Pack(p_0 : Int, p_1 : Int, x : Int) : ((Int, Int), Int) {
                 let _ : Int = p_0;
@@ -1191,7 +1166,6 @@ fn whole_value_call_arg_is_reconstructed() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Consume(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -1207,7 +1181,6 @@ fn whole_value_call_arg_is_reconstructed() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Consume(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -1245,8 +1218,8 @@ fn arg_promote_is_idempotent_for_reconstructed_body() {
             }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(
         first, second,
@@ -1277,8 +1250,8 @@ fn promoted_whole_value_reads_leave_no_dangling_param_var() {
         find_pat_binding_id_by_name(package, loop_callable.input, "p")
             .expect("Loop should bind a parameter named p before promotion")
     };
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let loop_callable = find_callable(package, "Loop");
@@ -1329,7 +1302,7 @@ fn entry_point_mixed_use_input_is_not_flattened() {
 #[test]
 fn callable_with_promoted_args_full_pipeline() {
     // Full pipeline integration: tuple-decompose + arg_promote both run.
-    // Verifies the combined effect: locals decomposed AND params promoted.
+    // Verifies the combined effect: locals decomposed and params promoted.
     let source = "struct Pair { X : Int, Y : Int }
             function Add(p : Pair) : Int { p.X + p.Y }
             function Main() : Int {
@@ -1349,7 +1322,6 @@ fn callable_with_promoted_args_full_pipeline() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Add(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -1363,7 +1335,6 @@ fn callable_with_promoted_args_full_pipeline() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Add(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -1405,7 +1376,6 @@ fn functor_applied_callee_not_first_class() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Op(p : (Int, Int)) : Unit is Adj {
                 body ... {
@@ -1422,7 +1392,6 @@ fn functor_applied_callee_not_first_class() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Op(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
@@ -1463,7 +1432,6 @@ fn multiple_tuple_params_promotion_behavior() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a : (Int, Int), b : (Int, Int)) : Int {
@@ -1476,7 +1444,6 @@ fn multiple_tuple_params_promotion_behavior() {
             Main()
 
             AFTER:
-            // namespace test
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a_0 : Int, a_1 : Int, b_0 : Int, b_1 : Int) : Int {
@@ -1517,7 +1484,6 @@ fn unused_first_class_callable_ref_does_not_block_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Sum(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -1530,7 +1496,6 @@ fn unused_first_class_callable_ref_does_not_block_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Sum(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -1572,7 +1537,6 @@ fn unreachable_partial_application_does_not_block_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation UsePair(p : (Int, Int), q : Qubit) : Unit {
                 let _ : Int = p::Item < 0 > + p::Item < 1 >;
@@ -1593,7 +1557,6 @@ fn unreachable_partial_application_does_not_block_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation UsePair(p_0 : Int, p_1 : Int, q : Qubit) : Unit {
                 let _ : Int = p_0 + p_1;
@@ -1642,7 +1605,6 @@ fn unreachable_first_class_reference_does_not_block_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation UsePair(p : (Int, Int), q : Qubit) : Unit {
                 let _ : Int = p::Item < 0 > + p::Item < 1 >;
@@ -1657,7 +1619,6 @@ fn unreachable_first_class_reference_does_not_block_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation UsePair(p_0 : Int, p_1 : Int, q : Qubit) : Unit {
                 let _ : Int = p_0 + p_1;
@@ -1706,7 +1667,6 @@ fn controlled_specialization_params_promoted() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Foo(p : (Int, Int)) : Unit is Adj + Ctl {
                 body ... {
@@ -1731,7 +1691,6 @@ fn controlled_specialization_params_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Foo(p_0 : Int, p_1 : Int) : Unit is Adj + Ctl {
                 body ... {
@@ -1789,7 +1748,6 @@ fn controlled_callable_whole_value_use_reconstructs_at_controlled_call_site() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Helper(p : (Int, Int)) : Unit is Ctl {
                 body ... {
@@ -1818,7 +1776,6 @@ fn controlled_callable_whole_value_use_reconstructs_at_controlled_call_site() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Helper(p_0 : Int, p_1 : Int) : Unit is Ctl {
                 body ... {
@@ -1875,7 +1832,6 @@ fn adjoint_specialization_whole_value_use_reconstructs_like_body() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Sink(p : (Int, Int)) : Unit is Adj {
                 body ... {
@@ -1902,7 +1858,6 @@ fn adjoint_specialization_whole_value_use_reconstructs_like_body() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Sink(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
@@ -1968,8 +1923,8 @@ fn controlled_adjoint_specializations_promote_without_dangling_param_var() {
         find_pat_binding_id_by_name(package, foo_callable.input, "p")
             .expect("Foo should bind a parameter named p before promotion")
     };
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let foo_callable = find_callable(package, "Foo");
@@ -2132,7 +2087,6 @@ fn direct_callable_alias_does_not_block_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function UsePair(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -2144,7 +2098,6 @@ fn direct_callable_alias_does_not_block_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function UsePair(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -2240,8 +2193,8 @@ fn simulatable_intrinsic_tuple_parameter_is_not_promoted() {
 
     let (mut store, pkg_id) = compile_to_fir(source);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     // Signature unchanged: parameter stays a single whole binding.
@@ -2267,8 +2220,8 @@ fn regular_intrinsic_tuple_parameter_is_not_promoted() {
 
     let (mut store, pkg_id) = compile_to_fir(source);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     // Parameter stays a single whole binding; the tuple was not decomposed.
@@ -2292,8 +2245,8 @@ fn intrinsic_nested_tuple_parameter_is_not_promoted() {
     fn assert_nested_tuple_param_untouched(source: &str, callable: &str, expected_call: &str) {
         let (mut store, pkg_id) = compile_to_fir(source);
 
-        let mut assigner = Assigner::from_package(store.get(pkg_id));
-        arg_promote(&mut store, pkg_id, &mut assigner);
+        let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+        arg_promote(&mut store, pkg_id, &mut assigners);
 
         let package = store.get(pkg_id);
         // Signature unchanged: the parameter stays a single whole binding, not
@@ -2383,8 +2336,8 @@ fn shared_nested_field_aliases_are_rewritten_with_fresh_inner_nodes() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     force_shared_nested_field_inner_expr(&mut store, pkg_id, "Sum", "o");
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let result = extract_field_access_shapes(&store, pkg_id, "Sum");
     assert!(
@@ -2408,8 +2361,8 @@ fn closure_targets_are_excluded_from_promotion() {
     let (mut store, pkg_id) = compile_to_fir(source);
     assert_eq!(closure_target_names(&store, pkg_id), vec!["<lambda>"]);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     assert_eq!(
@@ -2425,8 +2378,8 @@ fn arg_promote_is_idempotent() {
             function Main() : Int { Foo(new Pair { X = 1, Y = 2 }) }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "arg_promote should be idempotent");
 }
@@ -2447,8 +2400,8 @@ fn arg_promote_preserves_invariants() {
 fn render_before_after_arg_promote(source: &str) -> (String, String) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
@@ -2458,7 +2411,7 @@ fn check_before_after(source: &str, expect: &Expect) {
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
 }
 
-/// Like [`check_before_after`], but renders AFTER at an arbitrary pipeline
+/// Like [`check_before_after`], but renders the after snapshot at an arbitrary pipeline
 /// `stage` (e.g. [`PipelineStage::TupleDecompose2`]) so tests can show the effect of
 /// passes that run after `arg_promote`, such as the second tuple-decompose pass that
 /// scalar-replaces caller-side tuple locals.
@@ -2499,7 +2452,6 @@ fn before_after_non_parameter_local_destructure_is_normalized_and_scalar_replace
         }",
         PipelineStage::TupleDecompose2,
         &expect![[r#"
-            // namespace test
             function Main() : Int {
                 let a : Int = 10;
                 let b : Int = 20;
@@ -2537,7 +2489,6 @@ fn pretty_print_after_arg_promote_flattens_callable_param() {
     // with `body { ... }` spec syntax. This snapshot fails if the pass produced
     // parseable-but-unpromoted output.
     expect![[r#"
-        // namespace Test
         function Add(pair.0 : Int, pair.1 : Int) : Int {
             body {
                 let a : Int = pair.0;
@@ -2597,7 +2548,6 @@ fn reachable_caller_call_site_promoted_dead_caller_unobserved() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             operation Main() : Int {
                 Foo(1, 2)
             }
@@ -2613,7 +2563,6 @@ fn reachable_caller_call_site_promoted_dead_caller_unobserved() {
             Main()
 
             AFTER:
-            // namespace Test
             operation Main() : Int {
                 Foo(1, 2)
             }
@@ -2644,7 +2593,6 @@ fn non_udt_tuple_destructure_is_promoted() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, Int)) : Int {
                 let a : Int = x::Item < 0 >;
                 let b : Int = x::Item < 1 >;
@@ -2658,7 +2606,6 @@ fn non_udt_tuple_destructure_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let a : Int = x_0;
                 let b : Int = x_1;
@@ -2685,7 +2632,6 @@ fn non_udt_tuple_destructure_with_discard_is_promoted() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, Int)) : Int {
                 let a : Int = x::Item < 0 >;
                 a + 1
@@ -2698,7 +2644,6 @@ fn non_udt_tuple_destructure_with_discard_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let a : Int = x_0;
                 a + 1
@@ -2725,7 +2670,6 @@ fn non_udt_tuple_destructure_name_shadowing() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, Int)) : Int {
                 let x : Int = x::Item < 0 >;
                 x + 1
@@ -2738,7 +2682,6 @@ fn non_udt_tuple_destructure_name_shadowing() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let x : Int = x_0;
                 x + 1
@@ -2764,7 +2707,6 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : ((Int, Int), Int)) : Int {
                 let a : Int = x::Item < 0 >::Item < 0 >;
                 let b : Int = x::Item < 0 >::Item < 1 >;
@@ -2779,7 +2721,6 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0_0 : Int, x_0_1 : Int, x_1 : Int) : Int {
                 let a : Int = x_0_0;
                 let b : Int = x_0_1;
@@ -2808,7 +2749,6 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, (Int, (Int, Int)))) : Int {
                 let a : Int = x::Item < 0 >;
                 let b : Int = x::Item < 1 >::Item < 0 >;
@@ -2824,7 +2764,6 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1_0 : Int, x_1_1_0 : Int, x_1_1_1 : Int) : Int {
                 let a : Int = x_0;
                 let b : Int = x_1_0;
@@ -2853,7 +2792,6 @@ fn flat_abi_mixed_discard_nested_param() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, (Int, Int))) : Int {
                 let a : Int = x::Item < 0 >;
                 let c : Int = x::Item < 1 >::Item < 1 >;
@@ -2867,7 +2805,6 @@ fn flat_abi_mixed_discard_nested_param() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1_0 : Int, x_1_1 : Int) : Int {
                 let a : Int = x_0;
                 let c : Int = x_1_1;
@@ -2970,7 +2907,6 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(a : (Int, (Int, Int)), b : ((Int, Int), Int)) : Int {
                 let a0 : Int = a::Item < 0 >;
                 let a1 : Int = a::Item < 1 >::Item < 0 >;
@@ -2987,7 +2923,6 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(a_0 : Int, a_1_0 : Int, a_1_1 : Int, b_0_0 : Int, b_0_1 : Int, b_1 : Int) : Int {
                 let a0 : Int = a_0;
                 let a1 : Int = a_1_0;
@@ -3035,8 +2970,8 @@ fn flat_abi_is_idempotent_on_already_flattened_callable() {
             function Main() : Int { Foo((1, (2, (3, 4)))) }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(
         first, second,
@@ -3110,7 +3045,6 @@ fn whole_tuple_copy_assignment_is_decomposed() {
         "function Main() : Unit { mutable x = (1, 2); let y = (3, 4); x = y; }",
         PipelineStage::TupleDecompose2,
         &expect![[r#"
-            // namespace test
             function Main() : Unit {
                 mutable (x_0 : Int, x_1 : Int) = (1, 2);
                 let (y_0 : Int, y_1 : Int) = (3, 4);
@@ -3181,7 +3115,6 @@ fn nested_whole_tuple_copy_assignment_preserves_values() {
         "function Main() : Unit { mutable x = (0, (0, 0)); let y = (7, (8, 9)); x = y; }",
         PipelineStage::TupleDecompose2,
         &expect![[r#"
-            // namespace test
             function Main() : Unit {
                 mutable (x_0 : Int, (x_1_0 : Int, x_1_1 : Int)) = (0, (0, 0));
                 let (y_0 : Int, (y_1_0 : Int, y_1_1 : Int)) = (7, (8, 9));
@@ -3210,4 +3143,502 @@ fn nested_whole_tuple_copy_assignment_preserves_evaluated_values() {
                 a * 100 + b * 10 + c
             }",
     );
+}
+
+// ----------------------------------------------------------------------------
+// Cross-package argument promotion: a tuple-parameter callable declared in a
+// library package is flattened in lockstep with every call site in every
+// reachable package (user + library), projection temps are minted into the
+// caller's package, and the cross-package call-shape invariant validates the
+// rewrite end-to-end.
+// ----------------------------------------------------------------------------
+
+/// Returns the display string of a reachable callable's input pattern type.
+fn callable_input_ty_string(store: &PackageStore, sid: StoreItemId) -> String {
+    let package = store.get(sid.package);
+    let ItemKind::Callable(decl) = &package.get_item(sid.item).kind else {
+        panic!("expected callable");
+    };
+    package.get_pat(decl.input).ty.to_string()
+}
+
+/// Collects the display strings of the argument types of every direct call to
+/// `callee` found in `caller_pkg` (entry expression and all callable bodies).
+fn call_arg_type_strings_to(
+    store: &PackageStore,
+    caller_pkg: PackageId,
+    callee: StoreItemId,
+) -> Vec<String> {
+    let package = store.get(caller_pkg);
+    let mut arg_tys = Vec::new();
+    let mut visit = |_expr_id, expr: &qsc_fir::fir::Expr| {
+        if let ExprKind::Call(callee_id, arg_id) = expr.kind
+            && let Some(resolved) = resolve_direct_item_callee(package, callee_id)
+            && resolved.item_id == callee
+        {
+            arg_tys.push(package.get_expr(arg_id).ty.to_string());
+        }
+    };
+    if let Some(entry) = package.entry {
+        crate::walk_utils::for_each_expr(package, entry, &mut visit);
+    }
+    for item in package.items.values() {
+        if let ItemKind::Callable(decl) = &item.kind {
+            crate::walk_utils::for_each_expr_in_callable_impl(
+                package,
+                &decl.implementation,
+                &mut visit,
+            );
+        }
+    }
+    arg_tys
+}
+
+/// Returns `true` if `pkg` contains any synthesized argument-promotion
+/// projection temporary in its pattern arena.
+fn package_has_arg_promote_temp(store: &PackageStore, pkg: PackageId) -> bool {
+    store.get(pkg).pats.values().any(|pat| {
+        matches!(&pat.kind, PatKind::Bind(ident) if ident.name.starts_with(ARG_PROMOTE_TMP_NAME))
+    })
+}
+
+/// A library callable whose nested-tuple input is flattened, called from both
+/// the user package and another library callable. Every call site is rewritten
+/// to the flat argument shape, no call site retains the original nested tuple,
+/// and behavior is unchanged end-to-end.
+#[test]
+fn cross_package_library_callee_flattened_and_all_call_sites_rewritten() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function Op(p : (Int, (Int, Int))) : Int {
+                let (a, (b, c)) = p;
+                a + b + c
+            }
+            function CallOpInLib(x : Int) : Int {
+                Op((x, (x + 1, x + 2)))
+            }
+            export Op, CallOpInLib;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int { Op((3, (4, 5))) + CallOpInLib(10) }
+    "};
+
+    let (store, pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib_source, user_source, PipelineStage::Full);
+
+    let op = find_library_callable(&store, pkg_id, "Op");
+    let lib_pkg = op.package;
+
+    // The library callee's nested input tuple is dissolved into flat scalars.
+    assert_eq!(
+        callable_input_ty_string(&store, op),
+        "(Int, Int, Int)",
+        "library callee input should be flattened across the package boundary"
+    );
+
+    // Every call site — the one in the user entry package and the one in the
+    // sibling library callable — is rewritten to the flat argument shape, so no
+    // call retains the original nested `(Int, (Int, Int))` tuple.
+    let user_args = call_arg_type_strings_to(&store, pkg_id, op);
+    let lib_args = call_arg_type_strings_to(&store, lib_pkg, op);
+    assert_eq!(user_args, vec!["(Int, Int, Int)".to_string()]);
+    assert_eq!(lib_args, vec!["(Int, Int, Int)".to_string()]);
+
+    // The pipeline runs the cross-package PostArgPromote call-shape invariant as
+    // part of `PipelineStage::Full`; reaching this point means it passed for the
+    // library call site too. Assert it again explicitly for clarity.
+    crate::invariants::check(
+        &store,
+        pkg_id,
+        crate::invariants::InvariantLevel::PostArgPromote,
+    );
+
+    check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+/// A library callable whose only call site is inside the library (the user
+/// entry never calls it directly) is still promoted across the package boundary,
+/// and its in-library call site is rewritten. Promotion does not require an
+/// entry-package call site.
+#[test]
+fn cross_package_foreign_only_candidate_is_promoted_and_library_call_site_rewritten() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function Op(t : (Int, (Int, Int))) : Int {
+                let (a, (b, c)) = t;
+                a + b + c
+            }
+            function CallOpInLib(x : Int) : Int {
+                Op((x, (x + 1, x + 2)))
+            }
+            export CallOpInLib;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int { CallOpInLib(10) }
+    "};
+
+    let (store, pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib_source, user_source, PipelineStage::Full);
+
+    let op = find_library_callable(&store, pkg_id, "Op");
+    let lib_pkg = op.package;
+    assert_ne!(lib_pkg, pkg_id, "Op must live in a foreign package");
+
+    // The foreign-only callee's nested input tuple is dissolved into flat scalars.
+    assert_eq!(
+        callable_input_ty_string(&store, op),
+        "(Int, Int, Int)",
+        "foreign-only candidate input should be flattened across the package boundary"
+    );
+
+    // Its only call site (inside the library) is rewritten to the flat shape,
+    // and the user package never calls it directly.
+    let lib_args = call_arg_type_strings_to(&store, lib_pkg, op);
+    assert_eq!(lib_args, vec!["(Int, Int, Int)".to_string()]);
+    let user_args = call_arg_type_strings_to(&store, pkg_id, op);
+    assert!(
+        user_args.is_empty(),
+        "user package should not call Op directly"
+    );
+
+    check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+/// Argument promotion flattens a nested tuple parameter defined in a leaf
+/// library (libB) reached through an intermediate library (libA), proving the
+/// cross-package transform propagates across an entry → libA → libB chain of
+/// distinct packages.
+#[test]
+fn cross_package_three_package_chain_flattens_leaf_library_callee() {
+    let lib_b = indoc! {"
+        namespace LibB {
+            function Sum(t : (Int, (Int, Int))) : Int {
+                let (a, (b, c)) = t;
+                a + b + c
+            }
+            export Sum;
+        }
+    "};
+    let lib_a = indoc! {"
+        namespace LibA {
+            import LibB.*;
+            function UseSum(x : Int) : Int { Sum((x, (x + 1, x + 2))) }
+            export UseSum;
+        }
+    "};
+    let user = indoc! {"
+        import LibA.*;
+        @EntryPoint()
+        function Main() : Int { UseSum(10) }
+    "};
+
+    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to_with_two_libraries(
+        lib_b,
+        lib_a,
+        user,
+        PipelineStage::Full,
+    );
+
+    let sum = find_library_callable(&store, pkg_id, "Sum");
+    let use_sum = find_library_callable(&store, pkg_id, "UseSum");
+    assert_ne!(sum.package, pkg_id, "Sum (libB) must be a foreign package");
+    assert_ne!(
+        use_sum.package, pkg_id,
+        "UseSum (libA) must be a foreign package"
+    );
+    assert_ne!(
+        sum.package, use_sum.package,
+        "Sum (libB) and UseSum (libA) must live in distinct packages"
+    );
+
+    // The leaf-library callee's nested tuple parameter is flattened across two
+    // package hops.
+    assert_eq!(
+        callable_input_ty_string(&store, sum),
+        "(Int, Int, Int)",
+        "leaf-library callee input should be flattened through the chain"
+    );
+
+    // libA's call site to libB's `Sum` is rewritten to the flat argument shape.
+    let lib_a_args = call_arg_type_strings_to(&store, use_sum.package, sum);
+    assert_eq!(lib_a_args, vec!["(Int, Int, Int)".to_string()]);
+}
+
+/// A controlled cross-package call site projects the promoted payload to its
+/// flattened leaves while preserving the control layer.
+#[test]
+fn cross_package_controlled_call_payload_projected_controls_preserved() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            operation Op(p : (Qubit, (Qubit, Qubit))) : Unit is Ctl {
+                let (a, (b, c)) = p;
+                CNOT(a, b);
+                CNOT(b, c);
+            }
+            export Op;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+        import Std.Measurement.*;
+        @EntryPoint()
+        operation Main() : Result {
+            use ctl = Qubit();
+            use (q0, q1, q2) = (Qubit(), Qubit(), Qubit());
+            Controlled Op([ctl], (q0, (q1, q2)));
+            let r = MResetZ(q0);
+            Reset(ctl);
+            Reset(q1);
+            Reset(q2);
+            r
+        }
+    "};
+
+    let (store, pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib_source, user_source, PipelineStage::Full);
+
+    let op = find_library_callable(&store, pkg_id, "Op");
+    assert_eq!(
+        callable_input_ty_string(&store, op),
+        "(Qubit, Qubit, Qubit)",
+        "controlled library callee payload should be flattened"
+    );
+
+    // Locate the `Controlled Op(...)` call in the user entry package and confirm
+    // its argument is still a `(controls, payload)` tuple whose controls layer
+    // is preserved and whose payload now carries the flat leaf shape.
+    let user_package = store.get(pkg_id);
+    let controlled_arg_id = find_cross_package_functor_call_arg(user_package, "Main", op, 1);
+    let ExprKind::Tuple(items) = &user_package.get_expr(controlled_arg_id).kind else {
+        panic!("controlled argument should remain a controls/payload tuple");
+    };
+    let [controls_id, payload_id] = items.as_slice() else {
+        panic!("controlled argument should have controls and payload elements");
+    };
+    assert!(
+        matches!(user_package.get_expr(*controls_id).ty, Ty::Array(_)),
+        "controls layer should be preserved in the first tuple position"
+    );
+    assert_eq!(
+        user_package.get_expr(*payload_id).ty.to_string(),
+        "(Qubit, Qubit, Qubit)",
+        "controlled payload should be projected to the promoted callee's flat input"
+    );
+
+    crate::invariants::check(
+        &store,
+        pkg_id,
+        crate::invariants::InvariantLevel::PostArgPromote,
+    );
+
+    check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+/// Finds the argument expression of a direct call to `callee` (resolved across
+/// package boundaries) with the given controlled depth, inside `caller_name`.
+fn find_cross_package_functor_call_arg(
+    package: &qsc_fir::fir::Package,
+    caller_name: &str,
+    callee: StoreItemId,
+    controlled_depth: usize,
+) -> ExprId {
+    let callable = find_callable(package, caller_name);
+    let mut found = None;
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &callable.implementation,
+        &mut |_expr_id, expr| {
+            if found.is_some() {
+                return;
+            }
+            if let ExprKind::Call(callee_id, arg_id) = expr.kind
+                && let Some(resolved) = resolve_direct_item_callee(package, callee_id)
+                && resolved.item_id == callee
+                && resolved.controlled_depth == controlled_depth
+            {
+                found = Some(arg_id);
+            }
+        },
+    );
+    found.unwrap_or_else(|| panic!("controlled call to callee not found in '{caller_name}'"))
+}
+
+/// A call site whose argument is not safe to project repeatedly (here, the
+/// result of a foreign call) mints its projection temporary into the *caller's*
+/// package — not the callee's owning package.
+#[test]
+fn cross_package_projection_temp_minted_into_caller_package() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function Op(p : (Int, (Int, Int))) : Int {
+                let (a, (b, c)) = p;
+                a + b + c
+            }
+            function MakeNested(x : Int) : (Int, (Int, Int)) {
+                (x, (x + 1, x + 2))
+            }
+            export Op, MakeNested;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int { Op(MakeNested(3)) }
+    "};
+
+    let (store, pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib_source, user_source, PipelineStage::Full);
+
+    let op = find_library_callable(&store, pkg_id, "Op");
+    let lib_pkg = op.package;
+    assert_eq!(callable_input_ty_string(&store, op), "(Int, Int, Int)");
+
+    // The user call `Op(MakeNested(3))` materializes the foreign call result into
+    // a projection temporary so it is projected exactly once. That temporary is
+    // minted from the caller (user) package's assigner, landing in the user
+    // package's arena, never the library callee's package.
+    assert!(
+        package_has_arg_promote_temp(&store, pkg_id),
+        "projection temporary should be minted into the caller (user) package"
+    );
+    assert!(
+        !package_has_arg_promote_temp(&store, lib_pkg),
+        "library package should not receive the caller's projection temporary"
+    );
+
+    check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+/// A library callable used as a first-class value in the user package is
+/// recorded by the cross-package safety filter (keyed by its own
+/// `StoreItemId`) and is therefore excluded from flattening, while a sibling
+/// callable used only via direct calls is not excluded.
+#[test]
+fn cross_package_first_class_library_callable_excluded_by_union_filter() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function FirstClass(p : (Int, Int)) : Int {
+                let (a, b) = p;
+                a + b
+            }
+            function DirectOnly(p : (Int, Int)) : Int {
+                let (a, b) = p;
+                a * b
+            }
+            export FirstClass, DirectOnly;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int {
+            let f = FirstClass;
+            f((3, 4)) + DirectOnly((5, 6))
+        }
+    "};
+
+    // Use the untransformed FIR so the first-class `let f = FirstClass;` arrow
+    // reference is still present when the safety filter scans the closure.
+    let (store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+
+    let first_class = collect_first_class_callables(&store, pkg_id, &reachable);
+    let first_class_sid = find_library_callable(&store, pkg_id, "FirstClass");
+    let direct_only_sid = find_library_callable(&store, pkg_id, "DirectOnly");
+
+    assert!(
+        first_class.contains(&first_class_sid),
+        "a library callable used first-class in the user package must be unioned \
+         into the safety filter by its own StoreItemId"
+    );
+    assert!(
+        !first_class.contains(&direct_only_sid),
+        "a library callable used only via direct calls must not be treated as first-class"
+    );
+}
+
+/// Deliberately corrupts a *library* call site so its argument no longer matches
+/// the promoted callee's input, then confirms the cross-package
+/// `check_call_shape_matches_callee` invariant catches it. With the
+/// argument-promotion stage check still entry-only this library call site would
+/// be silently skipped; the lockstep flip to cross-package scope is what makes
+/// the mismatch observable.
+#[test]
+fn cross_package_stale_library_call_site_caught_by_call_shape_check() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function Op(p : (Int, (Int, Int))) : Int {
+                let (a, (b, c)) = p;
+                a + b + c
+            }
+            function CallOpInLib(x : Int) : Int {
+                Op((x, (x + 1, x + 2)))
+            }
+            export Op, CallOpInLib;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int { Op((3, (4, 5))) + CallOpInLib(10) }
+    "};
+
+    let (mut store, pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib_source, user_source, PipelineStage::Full);
+
+    let op = find_library_callable(&store, pkg_id, "Op");
+    let lib_pkg = op.package;
+
+    // Corrupt the `Op(...)` argument inside the *library* callable `CallOpInLib`
+    // so it no longer matches the flattened callee input.
+    let arg_id = call_arg_expr_id_to(&store, lib_pkg, "CallOpInLib", op);
+    store
+        .get_mut(lib_pkg)
+        .exprs
+        .get_mut(arg_id)
+        .expect("library call argument should exist")
+        .ty = Ty::Prim(Prim::Int);
+
+    assert_panics_with("PostArgPromote/PostAll call invariant violation", || {
+        crate::invariants::check(
+            &store,
+            pkg_id,
+            crate::invariants::InvariantLevel::PostArgPromote,
+        );
+    });
+}
+
+/// Returns the argument `ExprId` of the first direct call to `callee` found in
+/// the named callable of `caller_pkg`.
+fn call_arg_expr_id_to(
+    store: &PackageStore,
+    caller_pkg: PackageId,
+    caller_name: &str,
+    callee: StoreItemId,
+) -> ExprId {
+    let package = store.get(caller_pkg);
+    let callable = find_callable(package, caller_name);
+    let mut found = None;
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &callable.implementation,
+        &mut |_expr_id, expr| {
+            if found.is_some() {
+                return;
+            }
+            if let ExprKind::Call(callee_id, arg_id) = expr.kind
+                && let Some(resolved) = resolve_direct_item_callee(package, callee_id)
+                && resolved.item_id == callee
+            {
+                found = Some(arg_id);
+            }
+        },
+    );
+    found.unwrap_or_else(|| panic!("call to callee not found in '{caller_name}'"))
 }

@@ -17,7 +17,8 @@ use thiserror::Error;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
-    ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageLookup, PatId, UnOp,
+    ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
+    PatId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::Ty;
 
@@ -25,7 +26,7 @@ use qsc_fir::ty::Ty;
 #[derive(Clone, Debug)]
 pub struct CallableParam {
     /// The HOF containing this parameter.
-    pub callable_id: LocalItemId,
+    pub callable_id: StoreItemId,
     /// The pattern node for the parameter.
     pub param_pat_id: PatId,
     /// The outer input-parameter slot selected before any nested tuple
@@ -37,17 +38,23 @@ pub struct CallableParam {
     pub param_var: LocalVarId,
     /// The Arrow type of the parameter.
     pub param_ty: Ty,
+    /// Whether the owning HOF's input pattern is a tuple. Precomputed during
+    /// analysis (which has `PackageStore` access) so later passes can derive
+    /// the call-argument input path without re-reading the HOF's owning
+    /// package, which may differ from the package currently being rewritten.
+    pub hof_input_is_tuple: bool,
 }
 
 impl CallableParam {
     #[must_use]
     pub fn new(
-        callable_id: LocalItemId,
+        callable_id: StoreItemId,
         param_pat_id: PatId,
         top_level_param: usize,
         field_path: Vec<usize>,
         param_var: LocalVarId,
         param_ty: Ty,
+        hof_input_is_tuple: bool,
     ) -> Self {
         Self {
             callable_id,
@@ -56,6 +63,7 @@ impl CallableParam {
             field_path,
             param_var,
             param_ty,
+            hof_input_is_tuple,
         }
     }
 }
@@ -65,6 +73,11 @@ impl CallableParam {
 pub struct CallSite {
     /// The Call expression.
     pub call_expr_id: ExprId,
+    /// The package owning the body that contains this call expression. The
+    /// specialized callable is allocated into this package and the call is
+    /// rewritten within it, which may differ from the entry package when the
+    /// call site lives in a foreign body walked by analysis.
+    pub call_pkg_id: PackageId,
     /// The HOF being called.
     pub hof_item_id: ItemId,
     /// Resolved callable argument.
@@ -82,6 +95,8 @@ pub struct CallSite {
 pub struct DirectCallSite {
     /// The Call expression.
     pub call_expr_id: ExprId,
+    /// The package owning the body that contains this call expression.
+    pub call_pkg_id: PackageId,
     /// Resolved concrete callee.
     pub callable: ConcreteCallable,
     /// Branch-split guard list: a left-associated conjunction stored
@@ -102,6 +117,10 @@ pub enum ConcreteCallable {
     },
     /// A closure with captured variables and accumulated functor application.
     Closure {
+        /// The closure body, local to the package that produced this closure
+        /// value. This value target must not be threaded across packages; the
+        /// dispatch *key* is package-qualified separately via `StoreItemId`
+        /// (see [`ConcreteCallableKey::Closure::target`]).
         target: LocalItemId,
         captures: Vec<CapturedVar>,
         functor: FunctorApp,
@@ -272,7 +291,7 @@ impl CalleeLattice {
                     Self::Multi(s1)
                 } else {
                     // Prepend `condition` onto every `s1` guard list; keep `s2`
-                    // guards as-is. Concatenated WITHOUT dedup by callable: the
+                    // guards as-is. Concatenated without dedup by callable: the
                     // same callable under `condition` (s1) and `!condition` (s2)
                     // names two distinct arms, and dropping the `s2` arm would
                     // reroute its path to the trailing default instead.
@@ -314,7 +333,7 @@ impl CalleeLattice {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SpecKey {
     /// The HOF being specialized.
-    pub hof_id: LocalItemId,
+    pub hof_id: StoreItemId,
     /// Hashable representations of the concrete callable arguments.
     pub concrete_args: Vec<ConcreteCallableKey>,
 }
@@ -335,8 +354,11 @@ pub enum ConcreteCallableKey {
     /// with identical targets and functors share a specialization; the
     /// captured values are threaded as ordinary arguments at the call site
     /// rather than being part of the dispatch identity.
+    ///
+    /// The target is package-qualified (`StoreItemId`) so that closures with
+    /// the same package-local id in different packages do not collide.
     Closure {
-        target: LocalItemId,
+        target: StoreItemId,
         functor: FunctorApp,
     },
 }

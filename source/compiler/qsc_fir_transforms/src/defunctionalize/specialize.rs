@@ -30,6 +30,7 @@ use super::types::{
 use crate::EMPTY_EXEC_RANGE;
 use crate::cloner::FirCloner;
 use crate::fir_builder::functored_specs;
+use crate::package_assigners::PackageAssigners;
 use crate::walk_utils::for_each_expr_in_callable_impl;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
@@ -37,7 +38,7 @@ use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident, Item,
     ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageStore,
-    Pat, PatId, PatKind, Res, UnOp, Visibility,
+    Pat, PatId, PatKind, Res, StoreItemId, UnOp, Visibility,
 };
 use qsc_fir::ty::{Arrow, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -88,23 +89,22 @@ fn resolve_callable_arg_label(store: &PackageStore, arg: &ConcreteCallable) -> S
 /// Specializes higher-order functions for each concrete callable argument
 /// discovered during analysis.
 ///
-/// Returns a map from `SpecKey` to the `LocalItemId` of the newly created
-/// specialized callable in the target package.
+/// Returns a map from `SpecKey` to the `StoreItemId` of each newly created
+/// specialized callable.
 pub(super) fn specialize(
     store: &mut PackageStore,
-    package_id: PackageId,
     analysis: &AnalysisResult,
-    assigner: &mut Assigner,
-) -> (FxHashMap<SpecKey, LocalItemId>, Vec<Error>) {
-    let mut dedup: FxHashMap<SpecKey, LocalItemId> = FxHashMap::default();
+    assigners: &mut PackageAssigners,
+) -> (FxHashMap<SpecKey, StoreItemId>, Vec<Error>) {
+    let mut dedup: FxHashMap<SpecKey, StoreItemId> = FxHashMap::default();
     let mut errors: Vec<Error> = Vec::new();
     let mut recursion_guard: FxHashSet<SpecKey> = FxHashSet::default();
 
-    // Build a lookup from LocalItemId → CallableParam for quick access.
-    // Use entry().or_insert() to keep the first (lowest-index) param per
-    // callable, ensuring deterministic behavior when a callable has multiple
-    // arrow params.
-    let mut param_lookup: FxHashMap<LocalItemId, &CallableParam> = FxHashMap::default();
+    // Build a lookup from each HOF's StoreItemId → CallableParam for quick
+    // access. Use entry().or_insert() to keep the first (lowest-index) param
+    // per callable, ensuring deterministic behavior when a callable has
+    // multiple arrow params.
+    let mut param_lookup: FxHashMap<StoreItemId, &CallableParam> = FxHashMap::default();
     for p in &analysis.callable_params {
         param_lookup.entry(p.callable_id).or_insert(p);
     }
@@ -121,42 +121,52 @@ pub(super) fn specialize(
         // call-site span so the user gets an actionable diagnostic instead of
         // the generic `FixpointNotReached` convergence error.
         if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
-            let package = store.get(package_id);
+            let package = store.get(call_site.call_pkg_id);
             let span = package.get_expr(call_site.call_expr_id).span;
             errors.push(Error::DynamicCallable(span));
             continue;
         }
 
-        // Skip cross-package HOFs that were NOT cloned into the user
-        // package by monomorphization. Cross-package HOFs that WERE cloned
-        // (e.g. generic std lib callables monomorphized with concrete types)
-        // now exist in the user package's items map and should be processed.
-        if call_site.hof_item_id.package != package_id {
-            let pkg = store.get(package_id);
-            if !pkg.items.contains_key(call_site.hof_item_id.item) {
-                continue;
-            }
+        // The HOF may live in a foreign package (e.g. a generic std lib
+        // callable monomorphized in place into its owning package). Confirm the
+        // HOF item actually exists in its declared package before proceeding.
+        let hof_store_id =
+            StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item));
+        if !store
+            .get(hof_store_id.package)
+            .items
+            .contains_key(hof_store_id.item)
+        {
+            continue;
         }
 
         // Recursive specialization guard.
         if recursion_guard.contains(&spec_key) {
-            let package = store.get(package_id);
+            let package = store.get(call_site.call_pkg_id);
             let span = package.get_expr(call_site.call_expr_id).span;
             errors.push(Error::RecursiveSpecialization(span));
             continue;
         }
         recursion_guard.insert(spec_key.clone());
 
-        let hof_local_item = call_site.hof_item_id.item;
-
         // Look up the callable parameter for this HOF.
-        let Some(param) = param_lookup.get(&hof_local_item).copied() else {
+        let Some(param) = param_lookup.get(&hof_store_id).copied() else {
             recursion_guard.remove(&spec_key);
             continue;
         };
 
-        // Clone the HOF and produce a specialized callable.
-        let new_item_id = specialize_one(store, package_id, call_site, param, assigner);
+        // Clone the HOF and produce a specialized callable. The spec is
+        // allocated into the call site's owning package via that package's own
+        // assigner (mirroring monomorphize's specialize-in-place). When the
+        // HOF lives in a different package, the cloned body references that
+        // package's nodes directly; closures threaded as arguments are local
+        // to the call site's package and so remain locally resolvable.
+        let target_pkg_id = call_site.call_pkg_id;
+        let new_item_id = assigners.with_package(store, target_pkg_id, |store, assigner| {
+            let mut assigner = assigner;
+            let result = specialize_one(store, target_pkg_id, call_site, param, &mut assigner);
+            (assigner, result)
+        });
 
         if let Some(id) = new_item_id {
             dedup.insert(spec_key.clone(), id);
@@ -168,14 +178,14 @@ pub(super) fn specialize(
     // Count specializations per HOF and emit a warning when the threshold
     // is exceeded. Group dedup entries by the HOF callable_id embedded in
     // each SpecKey.
-    let mut specs_per_hof: FxHashMap<LocalItemId, usize> = FxHashMap::default();
+    let mut specs_per_hof: FxHashMap<StoreItemId, usize> = FxHashMap::default();
     for key in dedup.keys() {
         *specs_per_hof.entry(key.hof_id).or_default() += 1;
     }
     for (hof_id, count) in &specs_per_hof {
         if *count > EXCESSIVE_SPECIALIZATION_THRESHOLD {
-            let package = store.get(package_id);
-            let item = package.get_item(*hof_id);
+            let package = store.get(hof_id.package);
+            let item = package.get_item(hof_id.item);
             let (name, span) = if let ItemKind::Callable(decl) = &item.kind {
                 (decl.name.name.to_string(), decl.name.span)
             } else {
@@ -375,7 +385,9 @@ fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
 
 /// Clones a HOF callable, transforms its body to replace the callable
 /// parameter with the concrete callee, and inserts the specialized callable
-/// into the package. Returns the `LocalItemId` of the new item.
+/// into the target (`package_id`) package. The HOF body is read from
+/// `call_site.hof_item_id.package`, which may differ from the target package.
+/// Returns the `StoreItemId` of the new item.
 #[allow(clippy::too_many_lines)]
 fn specialize_one(
     store: &mut PackageStore,
@@ -383,7 +395,7 @@ fn specialize_one(
     call_site: &CallSite,
     param: &CallableParam,
     assigner: &mut Assigner,
-) -> Option<LocalItemId> {
+) -> Option<StoreItemId> {
     // Extract needed data from the source package.
     // The HOF may live in a different package (e.g. the standard library),
     // so use hof_item_id.package rather than the target package_id.
@@ -409,7 +421,7 @@ fn specialize_one(
     let mut cloner = FirCloner::from_assigner(owned_assigner);
     cloner.reset_maps();
 
-    // Clone input BEFORE impl so that `local_map` contains input parameter
+    // Clone the input before the impl so `local_map` holds the input parameter
     // mappings when the callable body is walked.
     let cloned_input = cloner.clone_pat(&body_pkg, decl_snapshot.input, target);
     let cloned_impl = cloner.clone_callable_impl(&body_pkg, &decl_snapshot.implementation, target);
@@ -430,6 +442,7 @@ fn specialize_one(
         param.field_path.clone(),
         remapped_param_var,
         param.param_ty.clone(),
+        param.hof_input_is_tuple,
     );
 
     let hof_name: Rc<str> = Rc::from(format!("{}{{{arg_label}}}", decl_snapshot.name.name));
@@ -449,7 +462,7 @@ fn specialize_one(
         attrs: decl_snapshot.attrs.clone(),
     };
 
-    // Thread closure captures BEFORE recovering the assigner, since
+    // Thread closure captures before recovering the assigner, since
     // thread_closure_captures uses the cloner for pat/local allocation.
     let closure_info = if let ConcreteCallable::Closure {
         ref captures,
@@ -511,7 +524,10 @@ fn specialize_one(
     };
     target.items.insert(new_item_id, new_item);
 
-    Some(new_item_id)
+    Some(StoreItemId {
+        package: package_id,
+        item: new_item_id,
+    })
 }
 
 /// Transforms all specialization bodies in a callable implementation,
@@ -526,6 +542,12 @@ fn transform_callable_body(
     assigner: &mut Assigner,
 ) {
     let mut alias_set = AliasSet::default();
+    // A callable's functored specs share one lifted lambda item. When a closure
+    // captures the param being specialized, the shared lambda must be
+    // specialized only once, or sibling specs would corrupt it; each spec's
+    // closure still drops its own capture independently. Track which lambda
+    // targets are already specialized to enforce this.
+    let mut specialized_capture_targets: FxHashSet<LocalItemId> = FxHashSet::default();
     match callable_impl {
         CallableImpl::Intrinsic => {}
         CallableImpl::Spec(spec_impl) => {
@@ -536,6 +558,7 @@ fn transform_callable_body(
                 param,
                 concrete,
                 &mut alias_set,
+                &mut specialized_capture_targets,
                 assigner,
             );
             if let Some(ref adj) = spec_impl.adj {
@@ -546,6 +569,7 @@ fn transform_callable_body(
                     param,
                     concrete,
                     &mut alias_set,
+                    &mut specialized_capture_targets,
                     assigner,
                 );
             }
@@ -557,6 +581,7 @@ fn transform_callable_body(
                     param,
                     concrete,
                     &mut alias_set,
+                    &mut specialized_capture_targets,
                     assigner,
                 );
             }
@@ -568,6 +593,7 @@ fn transform_callable_body(
                     param,
                     concrete,
                     &mut alias_set,
+                    &mut specialized_capture_targets,
                     assigner,
                 );
             }
@@ -580,6 +606,7 @@ fn transform_callable_body(
                 param,
                 concrete,
                 &mut alias_set,
+                &mut specialized_capture_targets,
                 assigner,
             );
         }
@@ -588,6 +615,7 @@ fn transform_callable_body(
 
 /// Recursively walks a block, transforming call expressions that invoke the
 /// callable parameter.
+#[allow(clippy::too_many_arguments)]
 fn transform_block(
     package: &mut Package,
     package_id: PackageId,
@@ -595,6 +623,7 @@ fn transform_block(
     param: &CallableParam,
     concrete: &ConcreteCallable,
     alias_set: &mut AliasSet,
+    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
     assigner: &mut Assigner,
 ) {
     let block = package
@@ -604,7 +633,14 @@ fn transform_block(
         .clone();
     for &stmt_id in &block.stmts {
         transform_stmt(
-            package, package_id, stmt_id, param, concrete, alias_set, assigner,
+            package,
+            package_id,
+            stmt_id,
+            param,
+            concrete,
+            alias_set,
+            specialized_capture_targets,
+            assigner,
         );
     }
 }
@@ -639,6 +675,7 @@ fn find_bind_local_at_field_path(
 /// parameter behind tuple-field aliases. After, any newly introduced aliases are
 /// recorded in `alias_set` and all child expressions in the statement have been
 /// visited for direct-call rewriting.
+#[allow(clippy::too_many_arguments)]
 fn transform_stmt(
     package: &mut Package,
     package_id: PackageId,
@@ -646,13 +683,21 @@ fn transform_stmt(
     param: &CallableParam,
     concrete: &ConcreteCallable,
     alias_set: &mut AliasSet,
+    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
     assigner: &mut Assigner,
 ) {
     let stmt = package.stmts.get(stmt_id).expect("stmt not found").clone();
     match &stmt.kind {
         qsc_fir::fir::StmtKind::Expr(expr_id) | qsc_fir::fir::StmtKind::Semi(expr_id) => {
             transform_expr(
-                package, package_id, *expr_id, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *expr_id,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         qsc_fir::fir::StmtKind::Local(_, pat_id, expr_id) => {
@@ -676,7 +721,14 @@ fn transform_stmt(
                 }
             }
             transform_expr(
-                package, package_id, *expr_id, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *expr_id,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         qsc_fir::fir::StmtKind::Item(_) => {}
@@ -699,6 +751,7 @@ fn transform_expr(
     param: &CallableParam,
     concrete: &ConcreteCallable,
     alias_set: &mut AliasSet,
+    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
     assigner: &mut Assigner,
 ) {
     let expr = package.exprs.get(expr_id).expect("expr not found").clone();
@@ -768,44 +821,109 @@ fn transform_expr(
 
             if !replaced {
                 transform_expr(
-                    package, package_id, callee_id, param, concrete, alias_set, assigner,
+                    package,
+                    package_id,
+                    callee_id,
+                    param,
+                    concrete,
+                    alias_set,
+                    specialized_capture_targets,
+                    assigner,
                 );
             }
 
             // Recurse into the arguments.
             transform_expr(
-                package, package_id, args_id, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                args_id,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         ExprKind::Block(block_id) => {
             transform_block(
-                package, package_id, *block_id, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *block_id,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         ExprKind::If(cond, body, els) => {
             transform_expr(
-                package, package_id, *cond, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *cond,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
             transform_expr(
-                package, package_id, *body, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *body,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
             if let Some(els_id) = els {
                 transform_expr(
-                    package, package_id, *els_id, param, concrete, alias_set, assigner,
+                    package,
+                    package_id,
+                    *els_id,
+                    param,
+                    concrete,
+                    alias_set,
+                    specialized_capture_targets,
+                    assigner,
                 );
             }
         }
         ExprKind::While(cond, block_id) => {
             transform_expr(
-                package, package_id, *cond, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *cond,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
             transform_block(
-                package, package_id, *block_id, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *block_id,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         ExprKind::Tuple(exprs) | ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) => {
             for &e in exprs {
-                transform_expr(package, package_id, e, param, concrete, alias_set, assigner);
+                transform_expr(
+                    package,
+                    package_id,
+                    e,
+                    param,
+                    concrete,
+                    alias_set,
+                    specialized_capture_targets,
+                    assigner,
+                );
             }
         }
         ExprKind::Assign(lhs, rhs)
@@ -814,34 +932,90 @@ fn transform_expr(
         | ExprKind::ArrayRepeat(lhs, rhs)
         | ExprKind::Index(lhs, rhs) => {
             transform_expr(
-                package, package_id, *lhs, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *lhs,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
             transform_expr(
-                package, package_id, *rhs, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *rhs,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         ExprKind::AssignField(a, _, b) | ExprKind::UpdateField(a, _, b) => {
             transform_expr(
-                package, package_id, *a, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *a,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
             transform_expr(
-                package, package_id, *b, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *b,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
             transform_expr(
-                package, package_id, *a, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *a,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
             transform_expr(
-                package, package_id, *b, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *b,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
             transform_expr(
-                package, package_id, *c, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *c,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         ExprKind::UnOp(_, inner) | ExprKind::Return(inner) | ExprKind::Fail(inner) => {
             transform_expr(
-                package, package_id, *inner, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *inner,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         ExprKind::Field(inner_id, _) => {
@@ -866,23 +1040,51 @@ fn transform_expr(
                 return;
             }
             transform_expr(
-                package, package_id, *inner_id, param, concrete, alias_set, assigner,
+                package,
+                package_id,
+                *inner_id,
+                param,
+                concrete,
+                alias_set,
+                specialized_capture_targets,
+                assigner,
             );
         }
         ExprKind::Range(a, b, c) => {
             if let Some(a) = a {
                 transform_expr(
-                    package, package_id, *a, param, concrete, alias_set, assigner,
+                    package,
+                    package_id,
+                    *a,
+                    param,
+                    concrete,
+                    alias_set,
+                    specialized_capture_targets,
+                    assigner,
                 );
             }
             if let Some(b) = b {
                 transform_expr(
-                    package, package_id, *b, param, concrete, alias_set, assigner,
+                    package,
+                    package_id,
+                    *b,
+                    param,
+                    concrete,
+                    alias_set,
+                    specialized_capture_targets,
+                    assigner,
                 );
             }
             if let Some(c) = c {
                 transform_expr(
-                    package, package_id, *c, param, concrete, alias_set, assigner,
+                    package,
+                    package_id,
+                    *c,
+                    param,
+                    concrete,
+                    alias_set,
+                    specialized_capture_targets,
+                    assigner,
                 );
             }
         }
@@ -890,7 +1092,14 @@ fn transform_expr(
             for comp in components {
                 if let qsc_fir::fir::StringComponent::Expr(e) = comp {
                     transform_expr(
-                        package, package_id, *e, param, concrete, alias_set, assigner,
+                        package,
+                        package_id,
+                        *e,
+                        param,
+                        concrete,
+                        alias_set,
+                        specialized_capture_targets,
+                        assigner,
                     );
                 }
             }
@@ -898,12 +1107,26 @@ fn transform_expr(
         ExprKind::Struct(_, copy, fields) => {
             if let Some(c) = copy {
                 transform_expr(
-                    package, package_id, *c, param, concrete, alias_set, assigner,
+                    package,
+                    package_id,
+                    *c,
+                    param,
+                    concrete,
+                    alias_set,
+                    specialized_capture_targets,
+                    assigner,
                 );
             }
             for f in fields {
                 transform_expr(
-                    package, package_id, f.value, param, concrete, alias_set, assigner,
+                    package,
+                    package_id,
+                    f.value,
+                    param,
+                    concrete,
+                    alias_set,
+                    specialized_capture_targets,
+                    assigner,
                 );
             }
         }
@@ -940,6 +1163,7 @@ fn transform_expr(
                     capture_idx,
                     param,
                     concrete,
+                    specialized_capture_targets,
                     assigner,
                 );
             }
@@ -1198,6 +1422,47 @@ fn transform_closure_param_capture(
     capture_idx: usize,
     param: &CallableParam,
     concrete: &ConcreteCallable,
+    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
+    assigner: &mut Assigner,
+) {
+    // The lambda item is shared across the enclosing callable's functored specs.
+    // Only the first referring closure specializes it; sibling closures must not
+    // re-run that mutation against the already-rewritten lambda. Each closure
+    // still drops the capture from its own capture list independently.
+    if specialized_capture_targets.insert(closure_target) {
+        specialize_closure_target_for_captured_param(
+            package,
+            package_id,
+            closure_target,
+            capture_idx,
+            param,
+            concrete,
+            assigner,
+        );
+    }
+
+    // Remove the capture from this Closure expression.
+    let closure_expr = package
+        .exprs
+        .get_mut(closure_expr_id)
+        .expect("closure expr not found");
+    if let ExprKind::Closure(ref mut captures, _) = closure_expr.kind
+        && capture_idx < captures.len()
+    {
+        captures.remove(capture_idx);
+    }
+}
+
+/// Specializes the shared closure-target lambda once: replaces uses of the
+/// captured callable parameter inside the lambda body with the concrete callee
+/// and removes the capture from the lambda's input pattern.
+fn specialize_closure_target_for_captured_param(
+    package: &mut Package,
+    package_id: PackageId,
+    closure_target: LocalItemId,
+    capture_idx: usize,
+    param: &CallableParam,
+    concrete: &ConcreteCallable,
     assigner: &mut Assigner,
 ) {
     // Step 1: Find the corresponding binding in the closure target's input pattern.
@@ -1235,12 +1500,13 @@ fn transform_closure_param_capture(
 
     // Step 2: Create a synthetic CallableParam for the closure target's captured param.
     let closure_param = CallableParam::new(
-        closure_target,
+        StoreItemId::from((package_id, closure_target)),
         target_decl.input,
         capture_idx,
         Vec::new(),
         capture_param_var,
         param.param_ty.clone(),
+        matches!(package.get_pat(target_decl.input).kind, PatKind::Tuple(_)),
     );
 
     // Step 3: Transform the target callable's body to replace uses of the
@@ -1256,17 +1522,6 @@ fn transform_closure_param_capture(
 
     // Step 4: Remove the capture binding from the target callable's input.
     remove_capture_from_closure_target(package, closure_target, capture_idx);
-
-    // Step 5: Remove the capture from the Closure expression.
-    let closure_expr = package
-        .exprs
-        .get_mut(closure_expr_id)
-        .expect("closure expr not found");
-    if let ExprKind::Closure(ref mut captures, _) = closure_expr.kind
-        && capture_idx < captures.len()
-    {
-        captures.remove(capture_idx);
-    }
 }
 
 /// Removes the capture at `capture_idx` from the closure target callable's
@@ -2497,17 +2752,12 @@ fn extract_stmt(source: &Package, stmt_id: qsc_fir::fir::StmtId, target: &mut Pa
 /// Recursively copies an expression and its transitive references into the
 /// extraction target.
 ///
-/// NOTE: This is intentionally a separate implementation from the nearly
-/// identical `extract_expr` in `monomorphize.rs`. The key difference is the
-/// `ExprKind::Closure` arm: defunctionalize treats it as a leaf because
-/// lambda-lifted items already live at package level and the
-/// [`FirCloner`] resolves them via its fallback
-/// path, keeping the original `LocalItemId` in the target package.
-/// Defunctionalize does not perform type substitution on cloned bodies, so
-/// duplicating the lambda item would be wasteful.
-///
-/// `StmtKind::Item` named nested functions declared inside the HOF body MUST
-/// still be followed here.
+/// The `ExprKind::Closure` arm extracts the closure's lambda-lifted target item
+/// so the cloner relocates the lambda into the specialization target package
+/// with a fresh id. This is required for cross-package specialization: a closure
+/// carries a bare `LocalItemId` with no package qualifier, so the lambda it
+/// references must live in the same package as the closure expression. Named
+/// nested functions in `StmtKind::Item` are followed for the same reason.
 fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
     if target.exprs.contains_key(expr_id) {
         return;
@@ -2571,7 +2821,10 @@ fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
             extract_expr(source, *cond, target);
             extract_block(source, *block, target);
         }
-        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
+        ExprKind::Closure(_, target_item) => {
+            extract_item(source, *target_item, target);
+        }
+        ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
 

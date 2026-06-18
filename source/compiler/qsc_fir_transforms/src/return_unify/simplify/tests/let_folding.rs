@@ -586,7 +586,6 @@ mod q_driven {
             let_folding::apply,
             &expect![[r#"
                 // before let_folding (fired=true)
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -612,7 +611,6 @@ mod q_driven {
                 Main()
 
                 // after let_folding
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -664,7 +662,6 @@ mod q_driven {
             let_folding::apply,
             &expect![[r#"
                 // before let_folding (fired=false)
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -690,7 +687,6 @@ mod q_driven {
                 Main()
 
                 // after let_folding
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -737,7 +733,6 @@ mod q_driven {
             let_folding::apply,
             &expect![[r#"
                 // before let_folding (fired=false)
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -755,7 +750,6 @@ mod q_driven {
                 Main()
 
                 // after let_folding
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;

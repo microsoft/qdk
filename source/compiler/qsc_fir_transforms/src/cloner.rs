@@ -52,6 +52,11 @@ pub struct FirCloner {
 impl FirCloner {
     /// Creates a new cloner whose counters start above the maximum existing IDs
     /// in `package`.
+    ///
+    /// Production code seeds cloners through the per-package assigner pool via
+    /// [`FirCloner::from_assigner`]; this constructor is retained for tests that
+    /// build a cloner directly from a package.
+    #[cfg(test)]
     #[must_use]
     pub fn new(package: &Package) -> Self {
         let assigner = Assigner::from_package(package);
@@ -186,7 +191,7 @@ impl FirCloner {
         spec: &SpecDecl,
         target: &mut Package,
     ) -> SpecDecl {
-        // Clone input BEFORE block so that `local_map` contains input
+        // Clone the input before the block so `local_map` holds the input
         // parameter mappings when body expressions are walked.
         let new_input = spec
             .input
@@ -329,9 +334,7 @@ impl FirCloner {
                     attrs: decl.attrs.clone(),
                 }))
             }
-            ItemKind::Namespace(ident, items) => ItemKind::Namespace(ident.clone(), items.clone()),
             ItemKind::Ty(ident, udt) => ItemKind::Ty(ident.clone(), udt.clone()),
-            ItemKind::Export(ident, res) => ItemKind::Export(ident.clone(), *res),
         };
 
         let new_item = Item {

@@ -23,7 +23,6 @@
 use crate::EMPTY_EXEC_RANGE;
 use crate::fir_builder::alloc_local_var_expr;
 use crate::fir_builder::reachable_local_callables;
-use crate::reachability::collect_reachable_with_seeds;
 use crate::tuple_decompose::collect_all_block_ids_in_callable;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
@@ -33,6 +32,7 @@ use qsc_fir::fir::{
     StmtKind, StoreItemId,
 };
 use qsc_fir::ty::Ty;
+use rustc_hash::FxHashSet;
 
 /// A pending rewrite of a tuple-destructuring `let` into positional
 /// field projections, collected under a shared borrow before mutation.
@@ -101,12 +101,11 @@ pub(crate) fn normalize_tuple_destructuring(
     store: &mut PackageStore,
     package_id: PackageId,
     assigner: &mut Assigner,
-    seeds: &[StoreItemId],
+    reachable: &FxHashSet<StoreItemId>,
 ) -> bool {
-    let reachable = collect_reachable_with_seeds(store, package_id, seeds);
     let package = store.get(package_id);
     let local_item_ids: Vec<LocalItemId> =
-        reachable_local_callables(package, package_id, &reachable)
+        reachable_local_callables(package, package_id, reachable)
             .map(|(id, _)| id)
             .collect();
 
@@ -214,12 +213,11 @@ pub(crate) fn normalize_tuple_copy_assignment(
     store: &mut PackageStore,
     package_id: PackageId,
     assigner: &mut Assigner,
-    seeds: &[StoreItemId],
+    reachable: &FxHashSet<StoreItemId>,
 ) -> bool {
-    let reachable = collect_reachable_with_seeds(store, package_id, seeds);
     let package = store.get(package_id);
     let local_item_ids: Vec<LocalItemId> =
-        reachable_local_callables(package, package_id, &reachable)
+        reachable_local_callables(package, package_id, reachable)
             .map(|(id, _)| id)
             .collect();
 

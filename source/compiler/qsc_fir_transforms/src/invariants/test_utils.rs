@@ -380,6 +380,27 @@ pub(super) fn inject_udt_expr_type_in_callable(
     expr.ty = Ty::Udt(Res::Item(fake_item_id));
 }
 
+/// Returns the id of the package that defines a callable named `callable_name`.
+///
+/// Used by cross-package tests to locate a reachable foreign (library) callable
+/// so an invariant violation can be planted in a package other than the entry
+/// package.
+pub(super) fn find_package_with_callable(
+    store: &PackageStore,
+    callable_name: &str,
+) -> qsc_fir::fir::PackageId {
+    for (pkg_id, pkg) in store {
+        for item in pkg.items.values() {
+            if let ItemKind::Callable(decl) = &item.kind
+                && decl.name.name.as_ref() == callable_name
+            {
+                return pkg_id;
+            }
+        }
+    }
+    panic!("no package defines a callable named '{callable_name}'");
+}
+
 pub(super) fn inject_local_tuple_pattern_arity_mismatch(
     store: &mut PackageStore,
     pkg_id: qsc_fir::fir::PackageId,
@@ -486,12 +507,6 @@ pub(super) fn inject_callable_output_type(
     panic!("callable '{callable_name}' not found");
 }
 
-pub(super) fn external_copy_update_spec_id(
-    external_callable: StoreItemId,
-) -> crate::CallableSpecId {
-    crate::CallableSpecId::new(external_callable, crate::CallableSpecKind::Body)
-}
-
 pub(super) fn compile_external_copy_update_to_exec_graph_rebuild()
 -> (PackageStore, qsc_fir::fir::PackageId, StoreItemId) {
     let lib_source = r#"
@@ -548,18 +563,33 @@ pub(super) fn clear_external_copy_update_field_range(
     store: &mut PackageStore,
     external_callable: StoreItemId,
 ) {
+    // The external library body is fully transformed cross-package (UDT erasure
+    // followed by tuple-decompose), so the original `.1` field-path read is
+    // scalar-replaced and no longer live. Corrupt the range of a live body
+    // expression instead, so the reachable-spec exec-graph range checker has a
+    // genuine staleness to reject in this foreign (library) package.
+    let package = store.get(external_callable.package);
+    let item = package.get_item(external_callable.item);
+    let ItemKind::Callable(decl) = &item.kind else {
+        panic!("external item should be callable");
+    };
+    let CallableImpl::Spec(spec_impl) = &decl.implementation else {
+        panic!("external callable should have a body spec");
+    };
+    let mut target: Option<ExprId> = None;
+    crate::walk_utils::for_each_expr_in_block(package, spec_impl.body.block, &mut |expr_id, _| {
+        if target.is_none() {
+            target = Some(expr_id);
+        }
+    });
+    let target = target.expect("external body should contain at least one expression");
+
     let package = store.get_mut(external_callable.package);
-    let field_expr = package
+    package
         .exprs
-        .values_mut()
-        .find(|expr| {
-            matches!(
-                &expr.kind,
-                ExprKind::Field(_, Field::Path(path)) if path.indices.as_slice() == [1]
-            )
-        })
-        .expect("external UDT copy-update should synthesize a field read");
-    field_expr.exec_graph_range = crate::EMPTY_EXEC_RANGE;
+        .get_mut(target)
+        .expect("target expr should exist")
+        .exec_graph_range = crate::EMPTY_EXEC_RANGE;
 }
 
 pub(super) fn call_input_ty(

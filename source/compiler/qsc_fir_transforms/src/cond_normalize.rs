@@ -76,16 +76,18 @@ mod tests;
 
 use crate::fir_builder::{
     alloc_assign_expr, alloc_block, alloc_block_expr, alloc_bool_lit, alloc_expr_stmt,
-    alloc_local_var, alloc_local_var_expr, alloc_semi_stmt,
+    alloc_local_var, alloc_local_var_expr, alloc_semi_stmt, reachable_local_callables,
 };
+use crate::package_assigners::PackageAssigners;
+use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
 use crate::walk_utils::expr_is_side_effect_free;
 use crate::walk_utils::{DirectChild, for_each_direct_child};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BlockId, CallableImpl, ExprId, ExprKind, ItemKind, Mutability, Package, PackageId,
-    PackageLookup, PackageStore, SpecImpl, StmtId, StmtKind,
+    BlockId, CallableImpl, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup,
+    PackageStore, SpecImpl, StmtId, StmtKind, StoreItemId,
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Base name for the condition temporaries minted by this pass; a per-root-
 /// block counter is appended. The in-memory `Ident.name` carries a `.`
@@ -109,26 +111,49 @@ fn next_cond_temp_name(counter: &mut u32) -> String {
 type ConditionTarget = (BlockId, BlockId, usize, ExprId);
 
 /// Normalizes side-effecting, statement-position `if` conditions across every
-/// callable in `package_id` by hoisting each into a single-evaluation `let`
-/// binding spliced immediately before its statement.
+/// reachable callable in every reachable package by hoisting each into a
+/// single-evaluation `let` binding spliced immediately before its statement.
 ///
 /// Runs once, after return unification and before defunctionalization, so that
 /// defunctionalization's guard reuse references only pure `Var` reads bound in
 /// a scope that dominates the dispatch site.
+///
+/// Reachability is rooted once at the entry package; the resulting closure
+/// spans the user, std, and core packages. Each reachable package is processed
+/// against its own arena and assigner so foreign-package id spaces stay
+/// collision-free. The pass is body-only and signature-preserving (it
+/// introduces no `Return`).
 pub(crate) fn normalize_conditions(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) {
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let pkg_ids: Vec<PackageId> = collect_reachable_package_closure(package_id, &reachable)
+        .into_iter()
+        .collect();
+    for pkg in pkg_ids {
+        normalize_conditions_in_package(store, pkg, assigners, &reachable);
+    }
+}
+
+/// Normalizes the statement-position `if` conditions of every reachable
+/// callable that lives in `package_id`, minting condition temporaries into
+/// that package's assigner.
+fn normalize_conditions_in_package(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+    reachable: &FxHashSet<StoreItemId>,
+) {
+    let assigner = assigners.get_mut(store, package_id);
     let package = store.get(package_id);
 
     // Collect the statement-position `if`s whose conditions need hoisting under
-    // a shared borrow, then apply the splice-and-rewrite below.
+    // a shared borrow, then apply the splice-and-rewrite below. Only reachable
+    // callables in this package are considered.
     let mut targets: Vec<ConditionTarget> = Vec::new();
-    for (_item_id, item) in &package.items {
-        let ItemKind::Callable(decl) = &item.kind else {
-            continue;
-        };
+    for (_item_id, decl) in reachable_local_callables(package, package_id, reachable) {
         collect_targets_in_callable_impl(package, &decl.implementation, &mut targets);
     }
 

@@ -16,7 +16,6 @@ fn no_op_function_without_returns() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 let x : Int = 1;
                 x + 2
@@ -39,7 +38,6 @@ fn single_trailing_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 42
             }
@@ -64,7 +62,6 @@ fn guard_clause_pattern() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 if true {
                     1
@@ -100,7 +97,6 @@ fn multiple_guard_clauses() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -162,7 +158,6 @@ fn both_branches_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 if true {
                     1
@@ -197,7 +192,6 @@ fn both_branches_return_with_qubit_scope() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Bool {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Bool = false;
@@ -228,12 +222,6 @@ fn both_branches_return_with_qubit_scope() {
                 };
                 __ret_val
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -257,7 +245,6 @@ fn return_in_nested_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -301,7 +288,6 @@ fn unit_returning_with_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Unit {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Unit = ();
@@ -437,7 +423,6 @@ fn already_normalized_idempotency() {
     check_no_returns_q(
         source,
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 if true {
                     1
@@ -468,7 +453,6 @@ fn return_value_is_complex_expression() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }
@@ -501,7 +485,6 @@ fn return_in_else_branch_only() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 if true {
                     1
@@ -532,7 +515,6 @@ fn return_bool_in_dynamic_branch() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Bool {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Bool = false;
@@ -565,12 +547,6 @@ fn return_bool_in_dynamic_branch() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -598,7 +574,6 @@ fn multiple_returns_in_helper_function() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Classify(x : Int) : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -655,7 +630,6 @@ fn return_unit_after_side_effects() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Unit {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Unit = ();
@@ -685,12 +659,6 @@ fn return_unit_after_side_effects() {
                     ()
                 }
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -714,7 +682,6 @@ fn bare_return_with_dead_code() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -752,9 +719,6 @@ fn bare_return_with_dead_code() {
                 }
 
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -780,7 +744,6 @@ fn nested_if_with_returns_at_different_levels() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -833,7 +796,6 @@ fn return_tuple_value() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : (Int, Bool) {
                 if true {
                     (1, true)
@@ -850,7 +812,7 @@ fn return_tuple_value() {
 
 #[test]
 fn guard_clause_with_existing_else_and_remaining() {
-    // if-return with an existing else body AND remaining statements after
+    // if-return with an existing else body and remaining statements after
     // the if — exercises guard-clause lowering with an else continuation.
     check_no_returns_q(
         indoc! {r#"
@@ -866,7 +828,6 @@ fn guard_clause_with_existing_else_and_remaining() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -915,7 +876,6 @@ fn deeply_nested_block_with_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -967,7 +927,6 @@ fn return_after_dynamic_branch_with_dead_code() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Unit {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Unit = ();
@@ -999,12 +958,6 @@ fn return_after_dynamic_branch_with_dead_code() {
                     ()
                 }
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -1030,7 +983,6 @@ fn for_loop_with_early_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -1226,7 +1178,6 @@ fn recursive_function_with_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Factorial(n : Int) : Int {
                 if n <= 1 {
                     1
@@ -1260,7 +1211,6 @@ fn fail_and_return_in_same_control_flow() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -1302,7 +1252,6 @@ fn arrow_typed_return_simplifies_to_if() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Choose(flag : Bool) : (Int -> Int) {
                 if flag {
                     / * closure item = 3 captures = [] * / _lambda_
@@ -1348,7 +1297,6 @@ fn simple_if_expr_init_with_return_recovers_structured_branch() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;

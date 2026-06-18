@@ -213,7 +213,6 @@ fn canonical_literal_bare_return_collapses() {
         bare_return::apply,
         &expect![[r#"
             // before bare_return (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -231,7 +230,6 @@ fn canonical_literal_bare_return_collapses() {
             Main()
 
             // after bare_return
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -263,7 +261,6 @@ fn bare_return_with_call_value_collapses() {
         bare_return::apply,
         &expect![[r#"
             // before bare_return (fired=true)
-            // namespace Test
             function Helper() : Int {
                 0
             }
@@ -284,7 +281,6 @@ fn bare_return_with_call_value_collapses() {
             Main()
 
             // after bare_return
-            // namespace Test
             function Helper() : Int {
                 0
             }
@@ -580,7 +576,6 @@ fn given_single_return_body_bare_return_collapses_to_value() {
         bare_return::apply,
         &expect![[r#"
             // before bare_return (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -598,7 +593,6 @@ fn given_single_return_body_bare_return_collapses_to_value() {
             Main()
 
             // after bare_return
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -630,7 +624,6 @@ fn given_single_return_body_with_user_prefix_bare_return_collapses() {
         bare_return::apply,
         &expect![[r#"
             // before bare_return (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -649,7 +642,6 @@ fn given_single_return_body_with_user_prefix_bare_return_collapses() {
             Main()
 
             // after bare_return
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;

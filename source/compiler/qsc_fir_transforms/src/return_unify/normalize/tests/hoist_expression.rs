@@ -239,7 +239,6 @@ fn hoist_return_in_call_argument() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }
@@ -266,7 +265,6 @@ fn hoist_return_in_tuple_middle() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 let _ : Int = 1;
                 let (a : Int, _ : Unit, _ : Int) = (0, (), 0);
@@ -291,7 +289,6 @@ fn hoist_return_in_array_first() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 1
             }
@@ -315,7 +312,6 @@ fn hoist_return_in_array_repeat() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 let _ : Int = 0;
                 3
@@ -340,7 +336,6 @@ fn hoist_return_in_binop_rhs_arithmetic() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 let a : Int = 1;
                 let _ : Int = a;
@@ -364,7 +359,6 @@ fn hoist_return_in_short_circuit_and_rhs() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Bool {
                 if true {
                     true
@@ -390,7 +384,6 @@ fn hoist_return_in_short_circuit_or_rhs() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Bool {
                 true
             }
@@ -413,7 +406,6 @@ fn hoist_return_in_unop() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 1
             }
@@ -437,7 +429,6 @@ fn hoist_return_in_index_expr() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 0
             }
@@ -461,7 +452,6 @@ fn hoist_return_in_update_index_value() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int[] {
                 let arr : Int[] = [0, 0, 0];
                 let _ : Int[] = arr;
@@ -488,7 +478,6 @@ fn hoist_return_in_struct_field() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 1
@@ -517,7 +506,6 @@ fn hoist_return_in_range_endpoint() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -624,7 +612,6 @@ fn hoist_return_in_local_init_preserves_binding() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Identity(x : Int) : Int {
                 x
             }
@@ -708,7 +695,6 @@ fn hoist_return_in_fail_payload() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : String {
                 $"done"
             }
@@ -731,7 +717,6 @@ fn hoist_return_in_string_interp() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : String {
                 $"early"
             }
@@ -759,7 +744,6 @@ fn hoist_return_in_if_condition() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -799,7 +783,6 @@ fn hoist_return_in_while_condition() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 9
             }
@@ -834,7 +817,6 @@ fn hoist_return_in_while_condition_nested_if_unconditional_path() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 13
             }
@@ -862,7 +844,6 @@ fn hoist_return_in_while_condition_short_circuit_and_or_unconditional_path() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 17
             }
@@ -924,7 +905,6 @@ fn hoist_return_return_x() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 1
             }
@@ -951,7 +931,6 @@ fn hoist_return_chained() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }

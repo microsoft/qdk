@@ -197,6 +197,15 @@ impl Lowerer {
         let items: IndexMap<LocalItemId, fir::Item> = package
             .items
             .values()
+            // Namespace and export items are inert metadata that no FIR consumer
+            // reads, so skip them. Item ids stay identity-mapped; the gaps left
+            // at the skipped ids are tolerated by the item map.
+            .filter(|i| {
+                !matches!(
+                    i.kind,
+                    hir::ItemKind::Namespace(..) | hir::ItemKind::Export(..)
+                )
+            })
             .map(|i| self.lower_item(i))
             .map(|i| (i.id, i))
             .collect();
@@ -239,6 +248,15 @@ impl Lowerer {
         let items: IndexMap<LocalItemId, fir::Item> = hir_package
             .items
             .values()
+            // Namespace and export items are inert metadata that no FIR consumer
+            // reads, so skip them. Item ids stay identity-mapped; the gaps left
+            // at the skipped ids are tolerated by the item map.
+            .filter(|i| {
+                !matches!(
+                    i.kind,
+                    hir::ItemKind::Namespace(..) | hir::ItemKind::Export(..)
+                )
+            })
             .map(|i| self.lower_item(i))
             .map(|i| (i.id, i))
             .collect();
@@ -301,19 +319,10 @@ impl Lowerer {
 
     fn lower_item(&mut self, item: &hir::Item) -> fir::Item {
         let kind = match &item.kind {
-            hir::ItemKind::Namespace(name, items) => {
-                let name = fir::Ident {
-                    id: self.lower_local_id(
-                        name.0
-                            .last()
-                            .expect("should have at least one ident in name")
-                            .id,
-                    ),
-                    span: name.span(),
-                    name: name.name(),
-                };
-                let items = items.iter().map(|i| lower_local_item_id(*i)).collect();
-                fir::ItemKind::Namespace(name, items)
+            // Namespace and export items are filtered out before reaching
+            // `lower_item`, so they are never lowered into FIR.
+            hir::ItemKind::Namespace(..) | hir::ItemKind::Export(..) => {
+                unreachable!("Namespace/Export items should be filtered out before lowering")
             }
             hir::ItemKind::Callable(callable) => {
                 let callable = self.lower_callable_decl(callable, &item.attrs);
@@ -325,11 +334,6 @@ impl Lowerer {
                 let udt = self.lower_udt(udt);
 
                 fir::ItemKind::Ty(name, udt)
-            }
-            hir::ItemKind::Export(name, res) => {
-                let name = self.lower_ident(name);
-                let res = self.lower_res(res);
-                fir::ItemKind::Export(name, res)
             }
         };
         let attrs = lower_attrs(&item.attrs);

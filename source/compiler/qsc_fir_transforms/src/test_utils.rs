@@ -338,6 +338,96 @@ pub fn compile_to_fir_with_library_and_capabilities(
     (fir_store, fir_pkg_id)
 }
 
+/// Compiles a two-library dependency chain plus a user package through
+/// core+std → HIR passes → FIR lowering. `lib_a_source` depends on
+/// `lib_b_source`, and `user_source` depends on `lib_a_source`, forming an
+/// entry → libA → libB chain across distinct packages.
+///
+/// Returns a FIR store with six packages (core, std, libB, libA, user) and the
+/// user package ID.
+#[cfg(test)]
+#[allow(dead_code, clippy::similar_names)]
+pub(crate) fn compile_to_fir_with_two_libraries(
+    lib_b_source: &str,
+    lib_a_source: &str,
+    user_source: &str,
+) -> (fir::PackageStore, fir::PackageId) {
+    let capabilities = TargetCapabilityFlags::empty();
+    let mut store = package_store_with_stdlib(capabilities);
+    let std_id = PackageId::CORE.successor();
+
+    // Library B depends on core + std only.
+    let lib_b_sources = SourceMap::new(vec![("lib_b.qs".into(), lib_b_source.into())], None);
+    let mut lib_b_unit = frontend_compile::compile(
+        &store,
+        &[(PackageId::CORE, None), (std_id, None)],
+        lib_b_sources,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert_no_compile_errors("library B code", &lib_b_unit.errors);
+    let lib_b_errors = run_default_passes(store.core(), &mut lib_b_unit, PackageType::Lib);
+    assert!(
+        lib_b_errors.is_empty(),
+        "library B code has compilation errors"
+    );
+    let lib_b_id = store.insert(lib_b_unit);
+
+    // Library A depends on core + std + library B.
+    let lib_a_sources = SourceMap::new(vec![("lib_a.qs".into(), lib_a_source.into())], None);
+    let mut lib_a_unit = frontend_compile::compile(
+        &store,
+        &[(PackageId::CORE, None), (std_id, None), (lib_b_id, None)],
+        lib_a_sources,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert_no_compile_errors("library A code", &lib_a_unit.errors);
+    let lib_a_errors = run_default_passes(store.core(), &mut lib_a_unit, PackageType::Lib);
+    assert!(
+        lib_a_errors.is_empty(),
+        "library A code has compilation errors"
+    );
+    let lib_a_id = store.insert(lib_a_unit);
+
+    // User depends on core + std + library A (which transitively uses library B).
+    let user_sources = SourceMap::new(vec![("test.qs".into(), user_source.into())], None);
+    let mut user_unit = frontend_compile::compile(
+        &store,
+        &[(PackageId::CORE, None), (std_id, None), (lib_a_id, None)],
+        user_sources,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert_no_compile_errors("user code", &user_unit.errors);
+    let user_errors = run_default_passes(store.core(), &mut user_unit, PackageType::Exe);
+    assert!(user_errors.is_empty(), "user code has compilation errors");
+    let user_hir_id = store.insert(user_unit);
+
+    let (fir_store, fir_pkg_id, _) = lower_hir_to_fir(&store, user_hir_id);
+    (fir_store, fir_pkg_id)
+}
+
+/// Compiles a libB → libA → user dependency chain and runs the FIR pipeline up
+/// to `stage`, asserting no pipeline errors.
+#[cfg(test)]
+#[allow(dead_code, clippy::similar_names)]
+pub(crate) fn compile_and_run_pipeline_to_with_two_libraries(
+    lib_b_source: &str,
+    lib_a_source: &str,
+    user_source: &str,
+    stage: PipelineStage,
+) -> (fir::PackageStore, fir::PackageId) {
+    let (mut store, pkg_id) =
+        compile_to_fir_with_two_libraries(lib_b_source, lib_a_source, user_source);
+    let result = crate::run_pipeline_to_with_diagnostics(&mut store, pkg_id, stage, &[]);
+    assert_no_pipeline_errors(
+        "compile_and_run_pipeline_to_with_two_libraries",
+        &result.errors,
+    );
+    (store, pkg_id)
+}
+
 /// Compiles Q# source through core+std → HIR passes → FIR lowering →
 /// monomorphization.
 ///
@@ -359,8 +449,8 @@ pub fn compile_to_monomorphized_fir_with_capabilities(
     capabilities: TargetCapabilityFlags,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir_with_capabilities(source, capabilities);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
     (store, pkg_id)
 }
 
@@ -451,7 +541,7 @@ fn callable_ref_short(package: &Package, pkg_id: fir::PackageId, expr_id: ExprId
         ExprKind::Var(Res::Item(item_id), _) if item_id.package == pkg_id => {
             match &package.get_item(item_id.item).kind {
                 ItemKind::Callable(decl) => decl.name.name.to_string(),
-                _ => format!("Item({item_id})"),
+                ItemKind::Ty(..) => format!("Item({item_id})"),
             }
         }
         ExprKind::Var(Res::Item(item_id), _) => format!("Item({item_id})"),
@@ -619,7 +709,7 @@ pub fn assert_callable_body_terminal_expr_matches_block_type(
         .values()
         .find(|item| match &item.kind {
             ItemKind::Callable(decl) => decl.name.name.as_ref() == callable_name,
-            _ => false,
+            ItemKind::Ty(..) => false,
         })
         .expect("callable should exist");
 

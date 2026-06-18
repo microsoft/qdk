@@ -53,11 +53,11 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::reachable_local_callables;
-use crate::reachability::collect_reachable_from_entry;
+use crate::package_assigners::PackageAssigners;
+use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
 use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     ExprId, ExprKind, ItemKind, LocalItemId, Package, PackageId, PackageLookup, PackageStore, Res,
     StoreItemId,
@@ -104,10 +104,10 @@ const MAX_ITERATIONS: usize = 20;
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
-pub fn defunctionalize(
+pub(crate) fn defunctionalize(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) -> Vec<Error> {
     let mut errors: Vec<Error> = Vec::new();
     let mut warnings: Vec<Error> = Vec::new();
@@ -116,8 +116,8 @@ pub fn defunctionalize(
     // how many callable values actually need resolving.
     let mut max_iterations = MIN_ITERATIONS;
     let mut iteration_count = 0;
-    let mut specialized_closure_targets: FxHashSet<LocalItemId> = FxHashSet::default();
-    let mut specialized_items: FxHashSet<LocalItemId> = FxHashSet::default();
+    let mut specialized_closure_targets: FxHashSet<StoreItemId> = FxHashSet::default();
+    let mut specialized_items: FxHashSet<StoreItemId> = FxHashSet::default();
 
     // Direct call sites whose `Var(Res::Local)` callee resolved to `Dynamic` on
     // the most recent iteration. Refreshed every pass; surfaced as diagnostics
@@ -143,8 +143,7 @@ pub fn defunctionalize(
 
         let reachable = collect_reachable_from_entry(store, package_id);
 
-        let (local_item_ids, reachable_expr_ids) =
-            collect_reachable_scope(store, package_id, &reachable);
+        let (_, reachable_expr_ids) = collect_reachable_scope(store, package_id, &reachable);
 
         // Simplify defunctionalization analysis by eliminating callable
         // indirection patterns and exposing direct call sites.
@@ -152,24 +151,19 @@ pub fn defunctionalize(
 
         let analysis = analysis::analyze(store, package_id, &reachable, &collapsed_spans);
 
-        // Record (do NOT yet emit) direct calls whose callee resolved to
+        // Record (do not yet emit) direct calls whose callee resolved to
         // `Dynamic`; emission is deferred to `emit_fixpoint_error` so calls
         // that are only transiently `Dynamic` never produce spurious errors.
         unresolved_direct_call_sites.clone_from(&analysis.unresolved_direct_call_sites);
 
-        let spec_map = run_specialization(
-            store,
-            package_id,
-            &analysis,
-            assigner,
-            &mut errors,
-            &mut warnings,
-        );
+        let spec_map = run_specialization(store, &analysis, assigners, &mut errors, &mut warnings);
 
         // Rewrite call sites and run dead callable-local cleanup even on
-        // iterations where no new specializations were discovered.
-        let package = store.get_mut(package_id);
-        rewrite::rewrite(package, package_id, &analysis, &spec_map, assigner);
+        // iterations where no new specializations were discovered. Call sites
+        // can live in foreign bodies (e.g. generic HOFs relocated into their
+        // owning package by monomorphization), so rewrite runs once per package
+        // that owns call sites, each with that package's own assigner.
+        rewrite_call_sites(store, package_id, &analysis, &spec_map, assigners);
 
         track_specialized_closures(
             &analysis,
@@ -177,12 +171,15 @@ pub fn defunctionalize(
             &mut specialized_closure_targets,
             &mut specialized_items,
         );
-        cleanup_consumed_closures(
-            package,
+        // Closures consumed by specialization can live in foreign bodies (a
+        // closure passed to a HOF inside a relocated generic body), so cleanup
+        // runs once per package that owns a consumed closure.
+        cleanup_consumed_closures_per_package(
+            store,
             package_id,
+            &reachable,
             &specialized_closure_targets,
             &specialized_items,
-            &local_item_ids,
         );
 
         let converged = check_convergence(
@@ -230,16 +227,15 @@ fn collect_reachable_scope(
 /// errors. Returns the specialization map.
 fn run_specialization(
     store: &mut PackageStore,
-    package_id: PackageId,
     analysis: &AnalysisResult,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
     errors: &mut Vec<Error>,
     warnings: &mut Vec<Error>,
-) -> FxHashMap<SpecKey, LocalItemId> {
+) -> FxHashMap<SpecKey, StoreItemId> {
     let (spec_map, mut spec_errors) = if analysis.call_sites.is_empty() {
         (Default::default(), Vec::new())
     } else {
-        specialize::specialize(store, package_id, analysis, assigner)
+        specialize::specialize(store, analysis, assigners)
     };
     // Separate warnings from errors so the `retain` at the top of each
     // iteration does not discard them.
@@ -253,25 +249,57 @@ fn run_specialization(
     spec_map
 }
 
+/// Rewrites call sites in every package that owns one. Call sites can live in
+/// foreign bodies (e.g. generic HOFs relocated into their owning package by
+/// monomorphization), so rewrite is driven once per owning package using that
+/// package's own assigner. The entry package is always rewritten so that
+/// iterations with only direct-call cleanup still run.
+fn rewrite_call_sites(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    analysis: &AnalysisResult,
+    spec_map: &FxHashMap<SpecKey, StoreItemId>,
+    assigners: &mut PackageAssigners,
+) {
+    let mut packages: Vec<PackageId> = vec![package_id];
+    for cs in &analysis.call_sites {
+        if !packages.contains(&cs.call_pkg_id) {
+            packages.push(cs.call_pkg_id);
+        }
+    }
+    for dcs in &analysis.direct_call_sites {
+        if !packages.contains(&dcs.call_pkg_id) {
+            packages.push(dcs.call_pkg_id);
+        }
+    }
+
+    for pkg_id in packages {
+        let assigner = assigners.get_mut(store, pkg_id);
+        let package = store.get_mut(pkg_id);
+        rewrite::rewrite(package, pkg_id, analysis, spec_map, assigner);
+    }
+}
+
 /// Records which closure targets were consumed by specialization or direct-call
 /// rewrite in this iteration.
 fn track_specialized_closures(
     analysis: &AnalysisResult,
-    spec_map: &FxHashMap<SpecKey, LocalItemId>,
-    specialized_closure_targets: &mut FxHashSet<LocalItemId>,
-    specialized_items: &mut FxHashSet<LocalItemId>,
+    spec_map: &FxHashMap<SpecKey, StoreItemId>,
+    specialized_closure_targets: &mut FxHashSet<StoreItemId>,
+    specialized_items: &mut FxHashSet<StoreItemId>,
 ) {
     for cs in &analysis.call_sites {
         let spec_key = build_spec_key(cs);
         if spec_map.contains_key(&spec_key)
             && let ConcreteCallable::Closure { target, .. } = &cs.callable_arg
         {
-            specialized_closure_targets.insert(*target);
+            specialized_closure_targets.insert(StoreItemId::from((cs.call_pkg_id, *target)));
         }
     }
     for direct_call_site in &analysis.direct_call_sites {
         if let ConcreteCallable::Closure { target, .. } = &direct_call_site.callable {
-            specialized_closure_targets.insert(*target);
+            specialized_closure_targets
+                .insert(StoreItemId::from((direct_call_site.call_pkg_id, *target)));
         }
     }
     specialized_items.extend(spec_map.values().copied());
@@ -344,6 +372,53 @@ fn emit_fixpoint_error(
     }
 }
 
+/// Runs [`cleanup_consumed_closures`] over every package in the entry-reachable
+/// closure that owns a consumed closure. Consumed closures can live in foreign
+/// bodies (a closure passed to a HOF inside a relocated generic body), so the
+/// cross-package `specialized_targets` / `skip_items` sets are projected to each
+/// package's local item ids before running the single-package cleanup there.
+fn cleanup_consumed_closures_per_package(
+    store: &mut PackageStore,
+    entry_pkg_id: PackageId,
+    reachable: &FxHashSet<StoreItemId>,
+    specialized_targets: &FxHashSet<StoreItemId>,
+    skip_items: &FxHashSet<StoreItemId>,
+) {
+    if specialized_targets.is_empty() {
+        return;
+    }
+
+    for pkg_id in collect_reachable_package_closure(entry_pkg_id, reachable) {
+        let targets_local: FxHashSet<LocalItemId> = specialized_targets
+            .iter()
+            .filter(|s| s.package == pkg_id)
+            .map(|s| s.item)
+            .collect();
+        if targets_local.is_empty() {
+            continue;
+        }
+        let skip_local: FxHashSet<LocalItemId> = skip_items
+            .iter()
+            .filter(|s| s.package == pkg_id)
+            .map(|s| s.item)
+            .collect();
+        let local_item_ids: Vec<LocalItemId> = {
+            let package = store.get(pkg_id);
+            reachable_local_callables(package, pkg_id, reachable)
+                .map(|(id, _)| id)
+                .collect()
+        };
+        let package = store.get_mut(pkg_id);
+        cleanup_consumed_closures(
+            package,
+            pkg_id,
+            &targets_local,
+            &skip_local,
+            &local_item_ids,
+        );
+    }
+}
+
 /// Replaces all remaining closure expressions whose target callable was
 /// consumed by specialization with Unit values, clearing references so
 /// subsequent iterations do not count them as work remaining.
@@ -354,7 +429,7 @@ fn emit_fixpoint_error(
 /// `remaining_callable_value_info` would still count it as work remaining,
 /// causing false convergence failure.
 ///
-/// Only closures that are NOT direct children of a `Call` argument subtree
+/// Only closures that are not direct children of a `Call` argument subtree
 /// are eligible for cleanup. Closures that are still live as arguments to a
 /// call expression (e.g., in a multi-param HOF where only one param has been
 /// specialized so far) must survive to the next iteration.
@@ -417,7 +492,7 @@ fn cleanup_consumed_closures(
         });
     }
 
-    // Second pass: collect consumed closures that are NOT in call argument
+    // Second pass: collect consumed closures that are not in call argument
     // positions.
     let mut to_replace: Vec<ExprId> = Vec::new();
     for &item_id in reachable_item_ids {
@@ -483,7 +558,7 @@ fn collect_all_expr_ids(package: &Package, expr_id: ExprId, ids: &mut FxHashSet<
     });
 }
 
-/// Checks whether any reachable target-package callable value still requires
+/// Checks whether any reachable callable value still requires
 /// defunctionalization work.
 ///
 /// Returns `(has_remaining, count, first_span)` in a single reachability scan.
@@ -492,7 +567,6 @@ fn remaining_callable_value_info(
     package_id: PackageId,
 ) -> (bool, usize, Span) {
     let reachable = collect_reachable_from_entry(store, package_id);
-    let package = store.get(package_id);
     let mut count = 0;
     let mut first_span = Span::default();
 
@@ -503,10 +577,18 @@ fn remaining_callable_value_info(
         count += 1;
     };
 
+    // Walk every reachable callable in its owning package. Defunctionalization
+    // specializes higher-order functions in place, including generic standard
+    // library HOFs relocated into their owning package by monomorphization, so
+    // a foreign callable that still carries an arrow-typed parameter, a
+    // closure, or an indirect call through an arrow-typed local is genuine
+    // pending work: the loop must keep running until the concrete-argument call
+    // site rewrites the caller to a specialized clone and the un-specialized
+    // HOF drops out of the reachable closure. Restricting this scan to the
+    // entry package falsely reports convergence while foreign HOFs are still
+    // pending, leaving their concrete call sites unresolved.
     for store_id in &reachable {
-        if store_id.package != package_id {
-            continue;
-        }
+        let package = store.get(store_id.package);
         let item = package.get_item(store_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
             let input_pat = package.get_pat(decl.input);
@@ -544,6 +626,7 @@ fn remaining_callable_value_info(
         }
     }
 
+    let package = store.get(package_id);
     if let Some(entry_id) = package.entry {
         crate::walk_utils::for_each_expr(package, entry_id, &mut |_expr_id, expr| {
             if matches!(expr.kind, ExprKind::Closure(_, _)) {
@@ -567,7 +650,7 @@ fn remaining_callable_value_info(
 
 /// Checks whether a type contains an arrow type anywhere within its structure.
 ///
-/// This intentionally does NOT recurse into `Ty::Udt` or `Ty::Array`:
+/// This intentionally does not recurse into `Ty::Udt` or `Ty::Array`:
 ///
 /// - **`Ty::Udt`**: Defunc runs before UDT erasure, so UDT wrappers are still
 ///   opaque here. Callable values inside UDTs are handled at the *expression*
@@ -629,7 +712,7 @@ pub(crate) fn build_spec_key(call_site: &CallSite) -> SpecKey {
         ConcreteCallable::Closure {
             target, functor, ..
         } => ConcreteCallableKey::Closure {
-            target: *target,
+            target: StoreItemId::from((call_site.call_pkg_id, *target)),
             functor: *functor,
         },
         ConcreteCallable::Dynamic => {
@@ -642,7 +725,7 @@ pub(crate) fn build_spec_key(call_site: &CallSite) -> SpecKey {
         }
     };
     SpecKey {
-        hof_id: call_site.hof_item_id.item,
+        hof_id: StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item)),
         concrete_args: vec![concrete_key],
     }
 }

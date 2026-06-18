@@ -272,7 +272,7 @@ fn simulatable_intrinsic_callable_reachable() {
 
 #[test]
 fn item_referenced_only_from_simulatable_intrinsic_body_is_not_reachable() {
-    // A helper referenced ONLY from a @SimulatableIntrinsic body must NOT be
+    // A helper referenced only from a @SimulatableIntrinsic body must not be
     // kept reachable: for QIR codegen the simulatable intrinsic behaves like
     // an intrinsic, so reachability does not descend its simulation body.
     // `SimHelper` is reached only through `SimOp`'s body, so it is excluded;

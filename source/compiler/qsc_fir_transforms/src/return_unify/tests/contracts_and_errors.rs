@@ -431,7 +431,7 @@ fn test_reachable_only_transformation() {
         "Reachable Process callable should have no Return nodes after return_unify (reachable-only contract)"
     );
 
-    // Assert: Verify unreachable callable (UnusedHelper) was NOT transformed
+    // Assert: Verify unreachable callable (UnusedHelper) was not transformed
     // and still has returns (documenting the reachable-only semantics)
     let mut unused_has_return = false;
     {
@@ -552,7 +552,7 @@ fn mixed_qubit_arrow_return_type_succeeds_via_array_backed() {
     );
 }
 
-// NOTE: `UnsupportedHoistContext` fires when a `return` is in a compound-
+// `UnsupportedHoistContext` fires when a `return` is in a compound-
 // position sub-expression (e.g. an if-condition or local init) whose
 // enclosing type is non-defaultable. The Q# frontend does not produce FIR
 // with `return` as a sub-expression inside another expression — `return`
@@ -618,7 +618,7 @@ fn recursive_udt_early_return_fails_before_return_unify() {
     // The program should either fail at the frontend (cyclic UDT) or
     // succeed if the frontend resolves it. Either way, it should not
     // panic in return_unify.
-    // If errors exist, they should NOT be return_unify panics.
+    // If errors exist, they should not be return_unify panics.
     for err in &result.errors {
         if let crate::PipelineError::ReturnUnify(ru_err) = err {
             // Any return_unify error is acceptable (diagnostic, not panic).

@@ -26,7 +26,7 @@
 #[cfg(test)]
 mod tests;
 
-use qsc_fir::fir::{ItemKind, LocalItemId, Package, PackageId, StoreItemId};
+use qsc_fir::fir::{ItemKind, LocalItemId, Package, PackageId, PackageStore, StoreItemId};
 use rustc_hash::FxHashSet;
 
 /// Eliminates unreachable items from the package's item map.
@@ -38,7 +38,9 @@ use rustc_hash::FxHashSet;
 /// Only items local to this package are considered; cross-package items in the
 /// reachable set are ignored.
 ///
-/// Type items are unconditionally removed (dead after `udt_erase`).
+/// Type items are unconditionally removed: `udt_erase` (which must precede this
+/// pass) has already inlined every UDT reference, so no surviving callable can
+/// reference one.
 ///
 /// Returns the number of items removed.
 #[allow(clippy::implicit_hasher)]
@@ -56,13 +58,116 @@ pub fn eliminate_dead_items(
     let mut removed = 0;
     package.items.retain(|id, item| {
         let keep = match &item.kind {
-            // Callable items: keep only if reachable from entry or an export target.
+            // Callable items: keep only if reachable from entry.
             ItemKind::Callable(_) => local_reachable.contains(&id),
-            // Type items: unconditionally dead after `udt_erase`.
-            #[allow(clippy::match_same_arms)]
+            // Type items: dead because `udt_erase` (which must precede this
+            // pass) already inlined every UDT reference.
             ItemKind::Ty(..) => false,
-            // Namespace and export items: never preserved.
-            ItemKind::Namespace(..) | ItemKind::Export(..) => false,
+        };
+        if !keep {
+            removed += 1;
+        }
+        keep
+    });
+    removed
+}
+
+/// Eliminates entry-unreachable items from every **foreign** (non-entry)
+/// package reached by the entry closure.
+///
+/// Whole-closure structural passes transform only the entry-reachable callables
+/// inside each foreign package, leaving each package internally inconsistent:
+/// the unreachable callables still reference erased UDTs and pre-promotion
+/// callable signatures. Because RCA and codegen analyze every item in every
+/// package, those stale unreachable callables would be analyzed out of step with
+/// the transformed reachable callables they call, producing arity/type-skew
+/// panics. Removing them is correctness-required, not an optimization.
+///
+/// Unlike [`eliminate_dead_items`], this does **not** root on a foreign
+/// package's own exports — a library package's public surface is not an entry
+/// point for a closed codegen compilation, so an exported-but-entry-unreachable
+/// callable is dead here. Pinned **callable** items (and their
+/// transitive dependencies, already present in `reachable`) are kept in
+/// whichever package they live in: `local_reachable` only retains the
+/// `Callable` arm, so pinning a non-callable item (for example a `Ty`) is a
+/// contract violation that [`eliminate_foreign_items_in_package`] rejects. The
+/// FIR store the pipeline mutates is a throwaway codegen clone, so trimming a
+/// library package's unreachable surface cannot affect any other compilation.
+///
+/// Returns the total number of items removed across all foreign packages.
+#[allow(clippy::implicit_hasher)]
+pub fn eliminate_unreachable_foreign_items(
+    store: &mut PackageStore,
+    entry_package_id: PackageId,
+    reachable: &FxHashSet<StoreItemId>,
+    pinned_items: &[StoreItemId],
+) -> usize {
+    let foreign_packages: Vec<PackageId> =
+        crate::reachability::collect_reachable_package_closure(entry_package_id, reachable)
+            .into_iter()
+            .filter(|package_id| *package_id != entry_package_id)
+            .collect();
+
+    let mut removed = 0;
+    for foreign_id in foreign_packages {
+        removed += eliminate_foreign_items_in_package(
+            foreign_id,
+            store.get_mut(foreign_id),
+            reachable,
+            pinned_items,
+        );
+    }
+    removed
+}
+
+/// Removes entry-unreachable items from a single foreign package.
+///
+/// See [`eliminate_unreachable_foreign_items`] for the rooting rationale.
+fn eliminate_foreign_items_in_package(
+    package_id: PackageId,
+    package: &mut Package,
+    reachable: &FxHashSet<StoreItemId>,
+    pinned_items: &[StoreItemId],
+) -> usize {
+    let mut local_reachable: FxHashSet<LocalItemId> = reachable
+        .iter()
+        .filter(|id| id.package == package_id)
+        .map(|id| id.item)
+        .collect();
+
+    // Pinned items must survive DCE in whatever package they live in. Their
+    // transitive callees are already part of `reachable` (seeded reachability),
+    // so unioning the pins themselves is sufficient.
+    //
+    // Only **callable** items may be pinned. The `Ty` arm of the
+    // retain below drops every type item unconditionally — sound only because
+    // `udt_erase` (which must precede this pass) already inlined every UDT
+    // reference. A pinned `Ty` would therefore be dropped despite its pin, so
+    // reject that contract violation deterministically rather than silently
+    // miscompiling.
+    for pin in pinned_items {
+        if pin.package == package_id {
+            assert!(
+                !matches!(
+                    package.items.get(pin.item).map(|item| &item.kind),
+                    Some(ItemKind::Ty(..))
+                ),
+                "item DCE: pinned foreign item {:?} is a `Ty`; only callable items may be pinned",
+                pin.item
+            );
+            local_reachable.insert(pin.item);
+        }
+    }
+
+    let mut removed = 0;
+    package.items.retain(|id, item| {
+        let keep = match &item.kind {
+            // Callable items: keep only if entry-reachable (no export rooting).
+            ItemKind::Callable(_) => local_reachable.contains(&id),
+            // Type items: dead because `udt_erase` (which must precede this
+            // pass) already inlined every UDT reference; the pin loop above
+            // already rejected any pinned `Ty`.
+            ItemKind::Ty(..) => false,
         };
         if !keep {
             removed += 1;

@@ -4,7 +4,7 @@
 use super::*;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::fir;
-use qsc_fir::fir::{ExprId, ItemId, LocalItemId, PackageId};
+use qsc_fir::fir::{ExprId, ItemId, LocalItemId, PackageId, StoreItemId};
 
 fn global(id: usize) -> ConcreteCallable {
     ConcreteCallable::Global {
@@ -164,7 +164,7 @@ fn join_with_condition_multi_multi_same_set_stays_unchanged() {
 fn join_with_condition_multi_multi_shared_callable_keeps_both_arms() {
     // `if cOuter { if a {W} else {X} } else { if b {W} else {Z} }`: `W`
     // reaches the local from both branches under different guards. The merge
-    // must keep BOTH `W` arms — collapsing them by callable identity would
+    // must keep both `W` arms — collapsing them by callable identity would
     // drop the `!cOuter && b` arm and reroute that path to the trailing
     // default `Z`.
     let inner_a = ExprId::from(10u32);
@@ -184,7 +184,7 @@ fn join_with_condition_multi_multi_shared_callable_keeps_both_arms() {
             assert_eq!(entries[0], (cc_w.clone(), vec![cond(), inner_a]));
             assert_eq!(entries[1], (cc_x, vec![cond()]));
             // The shared `W` from the false branch keeps its own guard and is
-            // NOT deduplicated against the true-branch `W`.
+            // not deduplicated against the true-branch `W`.
             assert_eq!(entries[2], (cc_w, vec![inner_b]));
             assert_eq!(entries[3], (cc_z, vec![]));
         }
@@ -278,7 +278,7 @@ fn compose_functors_adj_and_ctl() {
 #[test]
 fn spec_key_equality() {
     let key1 = SpecKey {
-        hof_id: LocalItemId::from(5usize),
+        hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -288,7 +288,7 @@ fn spec_key_equality() {
         }],
     };
     let key2 = SpecKey {
-        hof_id: LocalItemId::from(5usize),
+        hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -303,7 +303,7 @@ fn spec_key_equality() {
 #[test]
 fn spec_key_different() {
     let key1 = SpecKey {
-        hof_id: LocalItemId::from(5usize),
+        hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),
@@ -313,7 +313,7 @@ fn spec_key_different() {
         }],
     };
     let key2 = SpecKey {
-        hof_id: LocalItemId::from(5usize),
+        hof_id: StoreItemId::from((PackageId::from(1usize), LocalItemId::from(5usize))),
         concrete_args: vec![ConcreteCallableKey::Global {
             item_id: ItemId {
                 package: fir::PackageId::from(1usize),

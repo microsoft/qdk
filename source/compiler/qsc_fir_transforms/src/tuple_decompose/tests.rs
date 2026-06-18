@@ -7,7 +7,6 @@ use crate::test_utils::{
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BinOp, CallableImpl, ExprKind, ItemKind, Mutability, PackageLookup, Res, StmtKind,
 };
@@ -15,8 +14,8 @@ use rustc_hash::FxHashMap;
 
 fn check(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    tuple_decompose(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    tuple_decompose(&mut store, pkg_id, &mut assigners);
     let result = extract_result(&store, pkg_id);
     expect.assert_eq(&result);
 }
@@ -103,8 +102,8 @@ fn assert_assignment_exprs_are_unit_after_tuple_decompose(
     expected_assignments: usize,
 ) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    tuple_decompose(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    tuple_decompose(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
@@ -194,8 +193,8 @@ fn collect_assignment_targets_and_stale_assign_fields_after_tuple_decompose(
     source: &str,
 ) -> (Vec<String>, Vec<String>) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    tuple_decompose(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    tuple_decompose(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let names = local_names(package);
@@ -258,7 +257,6 @@ fn struct_fields_decompose() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let p : (Int, Int) = (1, 2);
@@ -268,7 +266,6 @@ fn struct_fields_decompose() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let (p_0 : Int, p_1 : Int) = (1, 2);
@@ -286,7 +283,6 @@ fn struct_fields_decompose() {
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
     expect![[r#"
-        // namespace test
         newtype Pair = (Int, Int);
         function Main() : Int {
             body {
@@ -325,7 +321,6 @@ fn mutable_struct_fields_decompose() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable p : (Int, Int) = (1, 2);
@@ -337,7 +332,6 @@ fn mutable_struct_fields_decompose() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable (p_0 : Int, p_1 : Int) = (1, 2);
@@ -370,7 +364,6 @@ fn whole_value_use_skips_decomposition() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p : (Int, Int)) : Int {
                 p::Item < 0 >
@@ -383,7 +376,6 @@ fn whole_value_use_skips_decomposition() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p : (Int, Int)) : Int {
                 p::Item < 0 >
@@ -415,7 +407,6 @@ fn triple_struct_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 let t : (Int, Int, Int) = (1, 2, 3);
@@ -425,7 +416,6 @@ fn triple_struct_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 let (t_0 : Int, t_1 : Int, t_2 : Int) = (1, 2, 3);
@@ -461,7 +451,6 @@ fn nested_struct_field_access() {
             }",
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Int);
             function Main() : Int {
@@ -472,7 +461,6 @@ fn nested_struct_field_access() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Int);
             function Main() : Int {
@@ -487,8 +475,8 @@ fn nested_struct_field_access() {
 
 #[test]
 fn tuple_used_in_both_field_and_whole_context() {
-    // When a struct is used both via field access AND as a whole value
-    // (e.g. returned), it must NOT be decomposed.
+    // When a struct is used both via field access and as a whole value
+    // (e.g. returned), it must not be decomposed.
     let source = "struct Pair { X : Int, Y : Int }
             function Main() : Pair {
                 let p = new Pair { X = 1, Y = 2 };
@@ -506,7 +494,6 @@ fn tuple_used_in_both_field_and_whole_context() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : (Int, Int) {
                 let p : (Int, Int) = (1, 2);
@@ -517,7 +504,6 @@ fn tuple_used_in_both_field_and_whole_context() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : (Int, Int) {
                 let p : (Int, Int) = (1, 2);
@@ -553,7 +539,6 @@ fn nested_tuple_depth_two() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, __UDT_Item_1__Package_2_);
             function Main() : Int {
@@ -564,7 +549,6 @@ fn nested_tuple_depth_two() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, __UDT_Item_1__Package_2_);
             function Main() : Int {
@@ -593,7 +577,6 @@ fn empty_tuple_local() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Main() : Unit {
                 let u : Unit = ();
             }
@@ -601,7 +584,6 @@ fn empty_tuple_local() {
             Main()
 
             AFTER:
-            // namespace test
             function Main() : Unit {
                 let u : Unit = ();
             }
@@ -630,7 +612,6 @@ fn single_field_struct_field_access() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Wrapper = (Int, );
             function Main() : Int {
                 let w : (Int, ) = (42, );
@@ -640,7 +621,6 @@ fn single_field_struct_field_access() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Wrapper = (Int, );
             function Main() : Int {
                 let (w_0 : Int, ) = (42, );
@@ -673,7 +653,6 @@ fn mutable_tuple_partial_field_modification() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 mutable t : (Int, Int, Int) = (1, 2, 3);
@@ -684,7 +663,6 @@ fn mutable_tuple_partial_field_modification() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 mutable (t_0 : Int, t_1 : Int, t_2 : Int) = (1, 2, 3);
@@ -702,7 +680,7 @@ fn mutable_tuple_partial_field_modification() {
 #[test]
 fn tuple_passed_to_function_as_arg() {
     // When a struct is passed as a whole argument to another function,
-    // it should NOT be decomposed (whole-value use).
+    // it should not be decomposed (whole-value use).
     let source = "struct Pair { X : Int, Y : Int }
             function Sum(p : Pair) : Int { p.X + p.Y }
             function Main() : Int {
@@ -720,7 +698,6 @@ fn tuple_passed_to_function_as_arg() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Sum(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -733,7 +710,6 @@ fn tuple_passed_to_function_as_arg() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Sum(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -774,7 +750,6 @@ fn tuple_decompose_candidate_in_while_loop_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable sum : Int = 0;
@@ -791,7 +766,6 @@ fn tuple_decompose_candidate_in_while_loop_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable sum : Int = 0;
@@ -810,8 +784,8 @@ fn tuple_decompose_candidate_in_while_loop_decomposes() {
     );
 
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    tuple_decompose(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    tuple_decompose(&mut store, pkg_id, &mut assigners);
     let local_patterns = collect_local_patterns_recursive(store.get(pkg_id));
     assert!(
         local_patterns
@@ -841,40 +815,38 @@ fn tuple_decompose_candidate_in_binop_operand_block_decomposes() {
     check_before_after_tuple_decompose(
         source,
         &expect![[r#"
-        BEFORE:
-        // namespace test
-        newtype Pair = (Int, Int);
-        function Main() : Int {
-            let top : (Int, Int) = (10, 20);
-            let z : Int = {
-                let t : (Int, Int) = (1, 2);
-                t::Item < 0 >
-            } + {
-                let u : (Int, Int) = (3, 4);
-                u::Item < 1 >
-            };
-            top::Item < 0 > + top::Item < 1 > + z
-        }
-        // entry
-        Main()
+            BEFORE:
+            newtype Pair = (Int, Int);
+            function Main() : Int {
+                let top : (Int, Int) = (10, 20);
+                let z : Int = {
+                    let t : (Int, Int) = (1, 2);
+                    t::Item < 0 >
+                } + {
+                    let u : (Int, Int) = (3, 4);
+                    u::Item < 1 >
+                };
+                top::Item < 0 > + top::Item < 1 > + z
+            }
+            // entry
+            Main()
 
-        AFTER:
-        // namespace test
-        newtype Pair = (Int, Int);
-        function Main() : Int {
-            let (top_0 : Int, top_1 : Int) = (10, 20);
-            let z : Int = {
-                let (t_0 : Int, t_1 : Int) = (1, 2);
-                t_0
-            } + {
-                let (u_0 : Int, u_1 : Int) = (3, 4);
-                u_1
-            };
-            top_0 + top_1 + z
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            newtype Pair = (Int, Int);
+            function Main() : Int {
+                let (top_0 : Int, top_1 : Int) = (10, 20);
+                let z : Int = {
+                    let (t_0 : Int, t_1 : Int) = (1, 2);
+                    t_0
+                } + {
+                    let (u_0 : Int, u_1 : Int) = (3, 4);
+                    u_1
+                };
+                top_0 + top_1 + z
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -892,40 +864,38 @@ fn tuple_decompose_candidate_in_call_arg_block_decomposes() {
     check_before_after_tuple_decompose(
         source,
         &expect![[r#"
-        BEFORE:
-        // namespace test
-        newtype Pair = (Int, Int);
-        function Sum(x : Int) : Int {
-            x
-        }
-        function Main() : Int {
-            let top : (Int, Int) = (10, 20);
-            let z : Int = Sum({
-                let c : (Int, Int) = (5, 6);
-                c::Item < 0 > + c::Item < 1 >
-            });
-            top::Item < 0 > + top::Item < 1 > + z
-        }
-        // entry
-        Main()
+            BEFORE:
+            newtype Pair = (Int, Int);
+            function Sum(x : Int) : Int {
+                x
+            }
+            function Main() : Int {
+                let top : (Int, Int) = (10, 20);
+                let z : Int = Sum({
+                    let c : (Int, Int) = (5, 6);
+                    c::Item < 0 > + c::Item < 1 >
+                });
+                top::Item < 0 > + top::Item < 1 > + z
+            }
+            // entry
+            Main()
 
-        AFTER:
-        // namespace test
-        newtype Pair = (Int, Int);
-        function Sum(x : Int) : Int {
-            x
-        }
-        function Main() : Int {
-            let (top_0 : Int, top_1 : Int) = (10, 20);
-            let z : Int = Sum({
-                let (c_0 : Int, c_1 : Int) = (5, 6);
-                c_0 + c_1
-            });
-            top_0 + top_1 + z
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            newtype Pair = (Int, Int);
+            function Sum(x : Int) : Int {
+                x
+            }
+            function Main() : Int {
+                let (top_0 : Int, top_1 : Int) = (10, 20);
+                let z : Int = Sum({
+                    let (c_0 : Int, c_1 : Int) = (5, 6);
+                    c_0 + c_1
+                });
+                top_0 + top_1 + z
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -946,7 +916,6 @@ fn tuple_decompose_candidate_in_condition_block_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let top : (Int, Int) = (10, 20);
@@ -965,7 +934,6 @@ fn tuple_decompose_candidate_in_condition_block_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let (top_0 : Int, top_1 : Int) = (10, 20);
@@ -1191,7 +1159,6 @@ fn tuple_decompose_nested_struct_outer_decomposed_inner_field_access() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function Main() : Int {
@@ -1202,7 +1169,6 @@ fn tuple_decompose_nested_struct_outer_decomposed_inner_field_access() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function Main() : Int {
@@ -1240,7 +1206,6 @@ fn nested_tuple_decomposes_to_nested_scalar_binds() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function Main() : Int {
@@ -1251,7 +1216,6 @@ fn nested_tuple_decomposes_to_nested_scalar_binds() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function Main() : Int {
@@ -1285,7 +1249,6 @@ fn mutable_tuple_literal_reassignment_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable x : (Int, Int) = (1, 2);
@@ -1296,7 +1259,6 @@ fn mutable_tuple_literal_reassignment_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable (x_0 : Int, x_1 : Int) = (1, 2);
@@ -1336,7 +1298,6 @@ fn mutable_tuple_var_reassignment_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let other : (Int, Int) = (5, 6);
@@ -1348,7 +1309,6 @@ fn mutable_tuple_var_reassignment_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let (other_0 : Int, other_1 : Int) = (5, 6);
@@ -1473,7 +1433,6 @@ fn higher_order_tuple_field_projection_still_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Apply(f : ((Int, Int) -> Int), x : Int, y : Int) : Int {
                 f(x, y)
@@ -1492,7 +1451,6 @@ fn higher_order_tuple_field_projection_still_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Apply(f : ((Int, Int) -> Int), x : Int, y : Int) : Int {
                 f(x, y)
@@ -1537,7 +1495,6 @@ fn nested_tuple_depth_three_fully_flattened() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Mid = (__UDT_Item_1__Package_2_, Int);
             newtype Deep = (__UDT_Item_2__Package_2_, Int);
@@ -1549,7 +1506,6 @@ fn nested_tuple_depth_three_fully_flattened() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Mid = (__UDT_Item_1__Package_2_, Int);
             newtype Deep = (__UDT_Item_2__Package_2_, Int);
@@ -1579,8 +1535,8 @@ fn struct_fields_decompose_in_adj_and_ctl_specs() {
             Controlled Foo([ctrl], q);
         }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    tuple_decompose(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    tuple_decompose(&mut store, pkg_id, &mut assigners);
     let result = extract_result_all_specs(&store, pkg_id);
     expect![[r#"
         Callable Foo: input=Bind(q: Qubit)
@@ -1663,8 +1619,8 @@ fn tuple_decompose_is_idempotent() {
             }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    tuple_decompose(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    tuple_decompose(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "tuple_decompose should be idempotent");
 }
@@ -1672,8 +1628,8 @@ fn tuple_decompose_is_idempotent() {
 fn render_before_after_tuple_decompose(source: &str) -> (String, String) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    tuple_decompose(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    tuple_decompose(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
@@ -1796,9 +1752,9 @@ fn nested_non_parameter_local_destructure_decomposes_to_scalar_leaves() {
 #[test]
 fn tuple_copy_alias_fully_flattens() {
     // Tuple-copy-alias case: `let pair = (a, b); let t = pair; let (x, y) = t;`.
-    // This is the BIDIRECTIONAL case that proves an outer loop (not a single
+    // This is the bidirectional case that proves an outer loop (not a single
     // second tuple-decompose pass) is required. arg_promote normalizes the `let (x, y) = t`
-    // destructure, then tuple-decompose decomposing `let t = pair;` RE-EXPOSES `pair` as a
+    // destructure, then tuple-decompose decomposing `let t = pair;` re-exposes `pair` as a
     // fresh normalize candidate. Only by looping back to arg_promote and tuple-decompose
     // again do both `pair` and `t` get fully eliminated to scalar bindings —
     // neither survives as a `(Int, Int)`-typed `Bind`.
@@ -1977,7 +1933,6 @@ fn cross_package_tuple_pipeline_completes() {
     // unexpected (e.g. un-resolved or whole-tuple) shape.
     let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
     expect![[r#"
-        // namespace test
         operation Main() : Int {
             body {
                 let (x : Int, y : Int) = MakePair(3, 4);
@@ -1988,4 +1943,94 @@ fn cross_package_tuple_pipeline_completes() {
         Main()
     "#]]
     .assert_eq(&rendered);
+}
+
+/// Cross-package: a library callable with a tuple-typed local `let`, reachable
+/// from a user entry, is decomposed in place. The rebuilt library body holds no
+/// whole-tuple construction, and end-to-end behavior is unchanged.
+#[test]
+fn cross_package_library_tuple_local_decomposed() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function TupleLocal(a : Int, b : Int) : Int {
+                let p = (a, b);
+                let (x, y) = p;
+                x + y
+            }
+            export TupleLocal;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int { TupleLocal(3, 4) }
+    "};
+
+    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        PipelineStage::Full,
+    );
+    let lib_pkg = crate::test_utils::find_library_callable(&store, pkg_id, "TupleLocal").package;
+    let rendered = crate::pretty::write_package_qsharp(&store, lib_pkg);
+
+    // tuple-decompose scalar-replaces the tuple-typed local `p`: the original
+    // whole-tuple binding is gone, replaced by per-leaf scalar bindings the
+    // field reads now reference. These leaf bindings exist only because the
+    // pass ran on the library body.
+    assert!(
+        rendered.contains("p.0") && rendered.contains("p.1"),
+        "library tuple-typed local should be decomposed into per-leaf scalar bindings:\n{rendered}"
+    );
+
+    crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+/// Cross-package controlled call: a controlled library operation whose body has
+/// a struct-typed local used only via field access is decomposed in place, and
+/// the controlled call from the user package stays behavior-equivalent.
+#[test]
+fn cross_package_controlled_library_struct_local_decomposed() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            struct Pair { Fst : Int, Snd : Int }
+            operation CtlOp(q : Qubit) : Unit is Ctl {
+                let p = new Pair { Fst = 1, Snd = 1 };
+                if p.Fst + p.Snd == 2 {
+                    X(q);
+                }
+            }
+            export CtlOp;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        operation Main() : Result {
+            use ctl = Qubit();
+            use q = Qubit();
+            X(ctl);
+            Controlled CtlOp([ctl], q);
+            Reset(ctl);
+            MResetZ(q)
+        }
+    "};
+
+    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        PipelineStage::Full,
+    );
+    let lib_pkg = crate::test_utils::find_library_callable(&store, pkg_id, "CtlOp").package;
+    let rendered = crate::pretty::write_package_qsharp(&store, lib_pkg);
+
+    // The struct-typed local `p` is scalar-replaced: its per-leaf field reads
+    // (`p.0`/`p.1`) survive while no whole-tuple binding for `p` remains, proving
+    // tuple-decompose ran on the controlled library body.
+    assert!(
+        rendered.contains("p.0") && rendered.contains("p.1"),
+        "controlled library struct local should be decomposed into per-leaf scalar reads:\n{rendered}"
+    );
+
+    crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
 }

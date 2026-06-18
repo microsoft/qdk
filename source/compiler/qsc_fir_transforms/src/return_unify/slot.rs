@@ -583,6 +583,7 @@ fn create_default_value_kind(
             let item_id = arrow_default_cache.get_or_insert(
                 package,
                 assigner,
+                package_id,
                 arrow.kind,
                 &arrow.input,
                 &arrow.output,
@@ -641,28 +642,43 @@ pub(super) fn is_type_defaultable(package: &Package, package_id: PackageId, ty: 
 }
 
 type ArrowDefaultKey = (
+    qsc_fir::fir::PackageId,
     qsc_fir::fir::CallableKind,
     String,
     qsc_fir::ty::FunctorSetValue,
 );
 
 /// Caches fail-bodied callables synthesized for arrow-typed default values.
+///
+/// Invariant: each entry is keyed by the [`PackageId`] of the package whose
+/// items it was synthesized into. A synthesized fail-callable is referenced via
+/// a package-local [`LocalItemId`] and is only valid within that package, so the
+/// cache must never return an entry created for one package when defaulting an
+/// arrow type in another. The leading `PackageId` in [`ArrowDefaultKey`]
+/// enforces this.
 #[derive(Default)]
 pub(super) struct ArrowDefaultCache {
     items: FxHashMap<ArrowDefaultKey, LocalItemId>,
 }
 
 impl ArrowDefaultCache {
+    #[allow(clippy::too_many_arguments)]
     fn get_or_insert(
         &mut self,
         package: &mut Package,
         assigner: &mut Assigner,
+        package_id: PackageId,
         kind: qsc_fir::fir::CallableKind,
         input_ty: &Ty,
         output_ty: &Ty,
         functors: qsc_fir::ty::FunctorSetValue,
     ) -> LocalItemId {
-        let key = (kind, format!("{input_ty} -> {output_ty}"), functors);
+        let key = (
+            package_id,
+            kind,
+            format!("{input_ty} -> {output_ty}"),
+            functors,
+        );
         if let Some(&id) = self.items.get(&key) {
             return id;
         }

@@ -36,7 +36,6 @@ fn three_level_block_block_if_returns_at_each_level() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -105,12 +104,6 @@ fn three_level_block_block_if_returns_at_each_level() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -143,7 +136,6 @@ fn three_level_qubit_scopes_with_deep_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -196,12 +188,6 @@ fn three_level_qubit_scopes_with_deep_return() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -237,7 +223,6 @@ fn three_level_nested_returns_at_every_level() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -302,12 +287,6 @@ fn three_level_nested_returns_at_every_level() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -341,7 +320,6 @@ fn three_level_hoist_return_in_call_arg_deep() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }
@@ -425,7 +403,6 @@ fn three_level_outer_return_wraps_three_deep_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -466,12 +443,6 @@ fn three_level_outer_return_wraps_three_deep_block() {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

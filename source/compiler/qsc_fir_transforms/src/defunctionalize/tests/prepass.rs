@@ -243,7 +243,7 @@ mod single_use_callable_local_promotion {
         );
     }
 
-    /// Single-use callable local with non-callable type should NOT be promoted.
+    /// Single-use callable local with non-callable type should not be promoted.
     #[test]
     fn no_promote_non_callable_type() {
         check(
@@ -360,7 +360,7 @@ mod identity_closure_peephole_optimization {
         );
     }
 
-    /// Non-identity closure should NOT be optimized (argument reordering).
+    /// A closure that reorders its arguments should not be optimized.
     #[test]
     fn no_optimize_reordered_args() {
         check(
@@ -381,7 +381,7 @@ mod identity_closure_peephole_optimization {
         );
     }
 
-    /// Non-identity closure with capture in args should NOT be optimized.
+    /// Non-identity closure with a capture in its arguments should not be optimized.
     #[test]
     fn no_optimize_capture_in_args() {
         check(
@@ -402,7 +402,7 @@ mod identity_closure_peephole_optimization {
         );
     }
 
-    /// Closure that does not forward its parameter should NOT be optimized.
+    /// Closure that does not forward its parameter should not be optimized.
     #[test]
     fn no_optimize_non_forwarded_param() {
         check(
@@ -423,7 +423,7 @@ mod identity_closure_peephole_optimization {
         );
     }
 
-    /// Closure with multiple statements should NOT be optimized (not identity).
+    /// A multi-statement closure is not an identity and should not be optimized.
     #[test]
     fn no_optimize_multiple_statements() {
         check(
@@ -443,7 +443,7 @@ mod identity_closure_peephole_optimization {
         );
     }
 
-    /// Closure body that's not a call should NOT be optimized.
+    /// Closure body that's not a call should not be optimized.
     #[test]
     fn no_optimize_non_call_body() {
         check(
@@ -659,7 +659,7 @@ mod edge_cases_and_complex_scenarios {
         );
     }
 
-    /// Callable local with discard pattern should NOT be promoted.
+    /// Callable local with discard pattern should not be promoted.
     #[test]
     fn no_promote_discard_pattern() {
         check(

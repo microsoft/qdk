@@ -17,6 +17,15 @@
 //!   of these recurse into closure bodies — [`ExprKind::Closure`] is treated
 //!   as a leaf, so callables reached only through a closure capture are not
 //!   visited transitively.
+//! - **Structural per-callable walker.** [`for_each_node_in_callable`] yields
+//!   every structural node — [`CallableNode::Block`], [`CallableNode::Stmt`],
+//!   [`CallableNode::Expr`], and [`CallableNode::Pat`] — of one callable: the
+//!   callable input pattern, each present specialization's input pattern, and
+//!   every block, statement, expression, and pattern of every specialization
+//!   body. [`for_each_node_from_expr_root`] drives the same expression/block
+//!   recursion from a bare root [`ExprId`] (for example, a package entry
+//!   expression). Both share the single [`for_each_direct_child`] enumeration,
+//!   so they descend nested blocks without a parallel `ExprKind` match.
 //! - **Local-variable use classification.** [`for_each_use_event`] emits a
 //!   [`UseEvent`] for every occurrence of a [`LocalVarId`], classifying each
 //!   as either a *field-only* use or a *whole-value* use.
@@ -56,8 +65,9 @@ mod tests;
 
 use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
-    BinOp, BlockId, CallableImpl, Expr, ExprId, ExprKind, Field, ItemKind, LocalItemId, LocalVarId,
-    Package, PackageLookup, Res, SpecDecl, SpecImpl, StmtKind, StringComponent, UnOp,
+    BinOp, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, ItemKind,
+    LocalItemId, LocalVarId, Package, PackageLookup, PatId, PatKind, Res, SpecDecl, SpecImpl,
+    StmtId, StmtKind, StringComponent, UnOp,
 };
 use rustc_hash::FxHashSet;
 
@@ -224,6 +234,154 @@ pub(crate) fn for_each_direct_child<F: FnMut(DirectChild)>(kind: &ExprKind, mut 
         ExprKind::While(cond, block) => {
             visit(DirectChild::Expr(*cond));
             visit(DirectChild::Block(*block));
+        }
+    }
+}
+
+/// A structural node of a callable, as yielded by
+/// [`for_each_node_in_callable`] and [`for_each_node_from_expr_root`].
+///
+/// Unlike the expr-only walkers, the structural walker visits every node
+/// kind that carries a `.ty` — blocks, statements, expressions, and
+/// patterns — so a checker can assert a whole-tree invariant from a single
+/// traversal.
+pub enum CallableNode {
+    /// A reachable block: a specialization body or a nested
+    /// [`ExprKind::Block`] / [`ExprKind::While`] body.
+    Block(BlockId),
+    /// A statement within a reachable block.
+    Stmt(StmtId),
+    /// An expression reachable from a specialization body or expr root.
+    Expr(ExprId),
+    /// A pattern: a callable or specialization input, a
+    /// [`StmtKind::Local`] binding, or a nested tuple element of either.
+    Pat(PatId),
+}
+
+/// Walks every structural node of `decl`, invoking `visit` for each
+/// [`CallableNode`].
+///
+/// Coverage is complete for the callable's reachable tree:
+/// - **Patterns.** The callable input ([`CallableDecl::input`]), each present
+///   specialization input ([`SpecDecl::input`], including the control-register
+///   inputs carried by the `ctl` / `ctl_adj` specs and the single
+///   [`CallableImpl::SimulatableIntrinsic`] spec), and every
+///   [`StmtKind::Local`] binding — each walked recursively through
+///   [`PatKind::Tuple`] elements.
+/// - **Blocks / statements / expressions.** Every specialization body block,
+///   every nested block, every statement, and every expression of every
+///   specialization, via the shared [`for_each_direct_child`] descent.
+///
+/// Does not recurse into closure bodies; see [`for_each_expr`]. The yield
+/// order is pre-order within each subtree but is otherwise unspecified;
+/// callers must not depend on the relative order of nodes from different
+/// specializations.
+pub fn for_each_node_in_callable<F>(pkg: &Package, decl: &CallableDecl, visit: &mut F)
+where
+    F: FnMut(CallableNode),
+{
+    for_each_node_in_pat(pkg, decl.input, visit);
+    for_each_node_in_callable_impl(pkg, &decl.implementation, visit);
+}
+
+/// Walks every structural node reachable from a bare root expression,
+/// invoking `visit` for each [`CallableNode`].
+///
+/// Drives the same expression/block recursion as
+/// [`for_each_node_in_callable`], so a nested [`ExprKind::Block`] or
+/// [`ExprKind::While`] body contributes its blocks, statements, expressions,
+/// and [`StmtKind::Local`] patterns. Use this for roots that are not anchored
+/// to a callable, such as a package entry expression.
+///
+/// Does not recurse into closure bodies; see [`for_each_expr`].
+pub fn for_each_node_from_expr_root<F>(pkg: &Package, expr_id: ExprId, visit: &mut F)
+where
+    F: FnMut(CallableNode),
+{
+    for_each_node_in_expr(pkg, expr_id, visit);
+}
+
+fn for_each_node_in_callable_impl<F>(pkg: &Package, callable_impl: &CallableImpl, visit: &mut F)
+where
+    F: FnMut(CallableNode),
+{
+    match callable_impl {
+        CallableImpl::Intrinsic => {}
+        CallableImpl::Spec(spec_impl) => {
+            for_each_node_in_spec_impl(pkg, spec_impl, visit);
+        }
+        CallableImpl::SimulatableIntrinsic(spec_decl) => {
+            for_each_node_in_spec_decl(pkg, spec_decl, visit);
+        }
+    }
+}
+
+fn for_each_node_in_spec_impl<F>(pkg: &Package, spec_impl: &SpecImpl, visit: &mut F)
+where
+    F: FnMut(CallableNode),
+{
+    for_each_node_in_spec_decl(pkg, &spec_impl.body, visit);
+    for spec in functored_specs(spec_impl) {
+        for_each_node_in_spec_decl(pkg, spec, visit);
+    }
+}
+
+fn for_each_node_in_spec_decl<F>(pkg: &Package, spec_decl: &SpecDecl, visit: &mut F)
+where
+    F: FnMut(CallableNode),
+{
+    if let Some(input) = spec_decl.input {
+        for_each_node_in_pat(pkg, input, visit);
+    }
+    for_each_node_in_block(pkg, spec_decl.block, visit);
+}
+
+fn for_each_node_in_block<F>(pkg: &Package, block_id: BlockId, visit: &mut F)
+where
+    F: FnMut(CallableNode),
+{
+    visit(CallableNode::Block(block_id));
+    let block = pkg.get_block(block_id);
+    for &stmt_id in &block.stmts {
+        visit(CallableNode::Stmt(stmt_id));
+        let stmt = pkg.get_stmt(stmt_id);
+        match &stmt.kind {
+            StmtKind::Expr(e) | StmtKind::Semi(e) => {
+                for_each_node_in_expr(pkg, *e, visit);
+            }
+            StmtKind::Local(_, pat, e) => {
+                for_each_node_in_pat(pkg, *pat, visit);
+                for_each_node_in_expr(pkg, *e, visit);
+            }
+            StmtKind::Item(_) => {}
+        }
+    }
+}
+
+fn for_each_node_in_expr<F>(pkg: &Package, expr_id: ExprId, visit: &mut F)
+where
+    F: FnMut(CallableNode),
+{
+    visit(CallableNode::Expr(expr_id));
+    let expr = pkg.get_expr(expr_id);
+    for_each_direct_child(&expr.kind, |child| match child {
+        DirectChild::Expr(e) => for_each_node_in_expr(pkg, e, visit),
+        DirectChild::Block(block_id) => for_each_node_in_block(pkg, block_id, visit),
+    });
+}
+
+fn for_each_node_in_pat<F>(pkg: &Package, pat_id: PatId, visit: &mut F)
+where
+    F: FnMut(CallableNode),
+{
+    visit(CallableNode::Pat(pat_id));
+    let pat = pkg.get_pat(pat_id);
+    match &pat.kind {
+        PatKind::Bind(_) | PatKind::Discard => {}
+        PatKind::Tuple(pats) => {
+            for &p in pats {
+                for_each_node_in_pat(pkg, p, visit);
+            }
         }
     }
 }
