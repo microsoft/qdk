@@ -794,28 +794,26 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 }
 
 /* Media-player-style transport bar below the trace title. The row
-   spans the full pane width so its background and border line up with
-   the rest of the pane, but the buttons inside sit at a fixed size on
-   the left and don't stretch when the pane grows wider to accommodate
-   long LaTeX trace rows. Background uses the pane-accent token
-   rather than the menu-fill token so the themed buttons (which are
-   filled with menu-fill) stand out against the row instead of
-   blending in. */
+   spans the full pane width and uses the host-background token so the
+   playback cluster reads as a distinct band, set apart from the
+   trace step rows (which sit on the pane-accent background). The
+   buttons inside stretch to fill the row so the transport controls
+   span its full width. */
 .qs-bloch-media-controls {
   display: flex;
   gap: 4px;
-  padding: 4px 8px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--qdk-widget-outline);
-  background: var(--qdk-background-accent);
+  background: var(--qdk-host-background);
 }
 .qs-bloch-media-controls button {
-  /* Square-ish, font-size scaled up so the unicode media glyphs
+  /* Stretch to fill the row so the cluster spans the full pane width.
+     Height + font-size scaled up so the unicode media glyphs
      (U+23E9 .. U+23EF range) render at a legible size. The default
      button font often hands those glyphs to a fallback face that
-     renders them tiny. Fixed width (no flex stretch) keeps the
-     cluster compact when the pane is wider than the buttons need. */
-  width: 36px;
-  height: 24px;
+     renders them tiny. */
+  flex: 1;
+  height: 32px;
   padding: 0;
   font-size: 1.1em;
   line-height: 1;
@@ -827,22 +825,22 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 }
 
 /* Speed slider row immediately below the transport controls. Same
-   background as the transport bar so the two controls read as a
-   single playback cluster. The row spans the full pane width so its
-   background lines up with the rest of the pane, but the slider
-   inside stays at a fixed width and doesn't stretch when the pane
-   grows wider. */
+   host-background as the transport bar so the two controls read as a
+   single playback band that's visually distinct from the trace step
+   rows. The row spans the full pane width and the slider stretches to
+   fill the remaining space so the control spans its row. */
 .qs-bloch-speed-control {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--qdk-widget-outline);
-  background: var(--qdk-background-accent);
+  background: var(--qdk-host-background);
   font-size: 0.95em;
 }
 .qs-bloch-speed-control input[type="range"] {
-  width: 120px;
+  flex: 1;
+  min-width: 0;
 }
 .qs-bloch-speed-readout {
   /* Fixed width so the layout doesn't jitter as the readout cycles
