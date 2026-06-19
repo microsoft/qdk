@@ -6,8 +6,6 @@
 // Run with: cargo run --bin gpu-runner [--release]
 // Build with: cargo build --bin gpu-runner [--release]
 
-#![allow(dead_code)]
-
 use core::panic;
 use qdk_simulators::gpu_context::{GpuContext, RunResults};
 use qdk_simulators::noise_config::{NoiseConfig, encode_pauli};
