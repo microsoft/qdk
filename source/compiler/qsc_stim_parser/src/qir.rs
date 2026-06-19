@@ -813,6 +813,8 @@ impl<'noise> Compiler<'noise> {
 
         let mut pauli_strings = Vec::with_capacity(group.rows.len());
         let mut probabilities = Vec::with_capacity(group.rows.len());
+        // Stim's correlated error chain is sequential: a row only fires if no earlier row did
+        let mut remaining_probability = 1.0;
         for row in &group.rows {
             // Build the fault string over the group columns; untouched qubits are `I`.
             let mut chars = vec!['I'; columns.len()];
@@ -822,7 +824,9 @@ impl<'noise> Compiler<'noise> {
             }
             let pauli: String = chars.into_iter().collect();
             pauli_strings.push(encode_pauli(&pauli));
-            probabilities.push(row.probability);
+            let output_probability = remaining_probability * row.probability;
+            probabilities.push(output_probability);
+            remaining_probability *= 1.0 - row.probability;
         }
 
         let table = NoiseTable {
