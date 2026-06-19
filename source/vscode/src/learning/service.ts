@@ -207,9 +207,6 @@ export class LearningService {
     const ws = this.requireWorkspace();
     const currentPos = ws.progressData.position;
     const nextPos = this.nextActivity(currentPos);
-    if (!nextPos) {
-      return { moved: false };
-    }
 
     // Auto-mark lesson activities complete when moving forward
     const oldKata = this.findUnit(currentPos.unitId);
@@ -220,11 +217,17 @@ export class LearningService {
       this.markComplete(currentPos);
     }
 
-    ws.progressData.position = nextPos;
+    const hasNext = !!nextPos;
+
+    if (hasNext) {
+      ws.progressData.position = nextPos;
+    }
+
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     this.sendActivityActionTelemetry("navigate", source);
-    return { moved: true };
+
+    return { moved: hasNext };
   }
 
   async previous(source: TelemetrySource): Promise<NavigationResult> {
@@ -370,12 +373,12 @@ export class LearningService {
     };
   }
 
-  getFullSolution(source?: TelemetrySource): string {
+  getAllSolutions(source?: TelemetrySource): string[] {
     const exercise = this.resolveExercise();
     if (source) {
       this.sendActivityActionTelemetry("solution", source);
     }
-    return exercise.solutionCode;
+    return exercise.solutionCodes;
   }
 
   getExerciseFileUri(): vscode.Uri {
@@ -852,6 +855,7 @@ export class LearningService {
         description: activity.description,
         filePath: fileUri.toString(),
         isComplete: this.isComplete(location),
+        hasMultipleSolutions: activity.solutionCodes.length > 1,
       } satisfies ExerciseContent;
     }
 

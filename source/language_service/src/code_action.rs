@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod auto_import;
+mod wrap_in_array;
 mod wrapper_refactor;
 
 use miette::Diagnostic;
@@ -25,9 +27,22 @@ pub(crate) fn get_code_actions(
     // Compute quick fixes (lint-based) and refactor actions and merge.
     let span = compilation.source_range_to_package_span(source_name, range, position_encoding);
     let mut actions = quick_fixes(compilation, source_name, span, position_encoding);
+    // Add auto-import quick fixes for unresolved names (e.g. `DumpMachine` -> `import Std.Diagnostics.DumpMachine;`).
+    actions.extend(auto_import::auto_import_fixes(
+        compilation,
+        source_name,
+        span,
+        position_encoding,
+    ));
     // Add operation refactor actions (wrapper generation, etc.). Additional refactor providers
     // should be added here, each returning their own Vec<CodeAction>.
     actions.extend(wrapper_refactor::operation_refactors(
+        compilation,
+        source_name,
+        span,
+        position_encoding,
+    ));
+    actions.extend(wrap_in_array::wrap_in_array_fixes(
         compilation,
         source_name,
         span,

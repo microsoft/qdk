@@ -5,7 +5,6 @@ import os
 
 import pytest
 
-cirq = pytest.importorskip("cirq")
 
 from qdk.estimator import LogicalCounts
 from qdk.qre import (

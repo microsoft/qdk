@@ -70,7 +70,7 @@ fn exp_fail() {
             #25 101-106 "a ^ b" : Param<"'T": 0>
             #26 101-102 "a" : Param<"'T": 0>
             #29 105-106 "b" : Bool
-            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 101, hi: 106 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 101, hi: 106 }))))
         "##]],
     );
 }
@@ -108,9 +108,9 @@ fn extra_arg_to_exp() {
             Error(Type(Error(IncorrectNumberOfConstraintParameters { expected: 1, found: 0, span: Span { lo: 162, hi: 165 } })))
             Error(Type(Error(IncorrectNumberOfConstraintParameters { expected: 1, found: 0, span: Span { lo: 162, hi: 165 } })))
             Error(Type(Error(MissingClassExp("'E", Span { lo: 108, hi: 113 }))))
-            Error(Type(Error(TyMismatch("'T", "'E", Span { lo: 108, hi: 113 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Param, display: "'T" }, TyInfo { kind: Param, display: "'E" }, Span { lo: 108, hi: 113 }))))
             Error(Type(Error(MissingClassExp("'E", Span { lo: 205, hi: 210 }))))
-            Error(Type(Error(TyMismatch("'T", "'E", Span { lo: 205, hi: 210 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Param, display: "'T" }, TyInfo { kind: Param, display: "'E" }, Span { lo: 205, hi: 210 }))))
         "##]],
     );
 }
@@ -135,7 +135,7 @@ fn example_should_fail() {
             #24 175-181 "a == b" : Bool
             #25 175-176 "a" : Param<"'T": 0>
             #28 180-181 "b" : Param<"'O": 1>
-            Error(Type(Error(TyMismatch("'T", "'O", Span { lo: 180, hi: 181 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Param, display: "'T" }, TyInfo { kind: Param, display: "'O" }, Span { lo: 180, hi: 181 }))))
         "##]],
     );
 }
@@ -380,8 +380,8 @@ fn transitive_class_check_fail() {
             #80 516-519 "Foo" : (BigInt -> BigInt)
             #83 519-524 "(10L)" : BigInt
             #84 520-523 "10L" : BigInt
-            Error(Type(Error(MissingClassInteger("'F", Span { lo: 259, hi: 265 }))))
-            Error(Type(Error(MissingClassInteger("Double", Span { lo: 474, hi: 482 }))))
+            Error(Type(Error(MissingClassInteger("'F", Span { lo: 263, hi: 264 }))))
+            Error(Type(Error(MissingClassInteger("Double", Span { lo: 478, hi: 481 }))))
         "##]],
     );
 }
@@ -606,8 +606,8 @@ fn integral_fail() {
             #45 210-213 "Foo" : (Bool -> Bool)
             #48 213-219 "(true)" : Bool
             #49 214-218 "true" : Bool
-            Error(Type(Error(MissingClassInteger("Double", Span { lo: 176, hi: 184 }))))
-            Error(Type(Error(MissingClassInteger("Bool", Span { lo: 210, hi: 219 }))))
+            Error(Type(Error(MissingClassInteger("Double", Span { lo: 180, hi: 183 }))))
+            Error(Type(Error(MissingClassInteger("Bool", Span { lo: 214, hi: 218 }))))
         "##]],
     );
 }
@@ -736,8 +736,8 @@ fn show_and_eq_should_fail() {
             #69 344-352 "(1, \"2\")" : (Int, String)
             #70 345-346 "1" : Int
             #71 348-351 "\"2\"" : String
-            Error(Type(Error(TyMismatch("Int", "Bool", Span { lo: 303, hi: 315 }))))
-            Error(Type(Error(TyMismatch("Int", "String", Span { lo: 341, hi: 352 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Bool), display: "Bool" }, Span { lo: 310, hi: 314 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(String), display: "String" }, Span { lo: 348, hi: 351 }))))
         "##]],
     );
 }

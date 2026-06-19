@@ -16,7 +16,8 @@ mod core;
 mod cycle_detection;
 mod cyclic_callables;
 pub mod errors;
-mod overrider;
+#[cfg(debug_assertions)]
+mod invariants;
 mod scaffolding;
 
 use crate::common::set_indentation;
@@ -352,7 +353,15 @@ impl ApplicationGeneratorSet {
         &self,
         args_compute_kinds: &[ComputeKind],
     ) -> ComputeKind {
-        assert!(self.dynamic_param_applications.len() == args_compute_kinds.len());
+        // RCA generators record one `ParamApplication` per flattened input
+        // parameter of the owning callable. The runtime arg vector must match
+        // exactly; any skew indicates a bug in the analyzer's recording path.
+        assert!(
+            self.dynamic_param_applications.len() == args_compute_kinds.len(),
+            "application generator recorded {} parameter applications for {} runtime arguments",
+            self.dynamic_param_applications.len(),
+            args_compute_kinds.len()
+        );
         let mut compute_kind = self.inherent;
         for (arg_compute_kind, param_application) in args_compute_kinds
             .iter()
@@ -360,8 +369,15 @@ impl ApplicationGeneratorSet {
         {
             match param_application {
                 ParamApplication::Element(param_compute_kind) => {
-                    if arg_compute_kind.is_variable_value_kind() {
-                        compute_kind = compute_kind.aggregate(*param_compute_kind);
+                    if let ComputeKind::Dynamic { value_kind, .. } = arg_compute_kind {
+                        match value_kind {
+                            ValueKind::Variable => {
+                                compute_kind = compute_kind.aggregate(param_compute_kind.variable);
+                            }
+                            ValueKind::Constant => {
+                                compute_kind = compute_kind.aggregate(param_compute_kind.constant);
+                            }
+                        }
                     }
                 }
                 ParamApplication::Array(array_param_application) => {
@@ -383,7 +399,8 @@ impl ApplicationGeneratorSet {
                                     compute_kind.aggregate(array_param_application.static_size);
                             }
                             ValueKind::Constant => {
-                                // No aggregation needed for static arrays.
+                                compute_kind = compute_kind
+                                    .aggregate(array_param_application.constant_content);
                             }
                         }
                     }
@@ -396,7 +413,7 @@ impl ApplicationGeneratorSet {
 
 #[derive(Clone, Debug)]
 pub enum ParamApplication {
-    Element(ComputeKind),
+    Element(ElementParamApplication),
     Array(ArrayParamApplication),
 }
 
@@ -413,7 +430,25 @@ impl Display for ParamApplication {
 }
 
 #[derive(Clone, Debug)]
+pub struct ElementParamApplication {
+    pub constant: ComputeKind,
+    pub variable: ComputeKind,
+}
+
+impl Display for ElementParamApplication {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let mut indent = set_indentation(indented(f), 0);
+        write!(indent, "ElementParamApplication:")?;
+        indent = set_indentation(indent, 1);
+        write!(indent, "\nconstant: {}", self.constant)?;
+        write!(indent, "\nvariable: {}", self.variable)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ArrayParamApplication {
+    pub constant_content: ComputeKind,
     pub static_size: ComputeKind,
     pub dynamic_size: ComputeKind,
 }
@@ -423,6 +458,7 @@ impl Display for ArrayParamApplication {
         let mut indent = set_indentation(indented(f), 0);
         write!(indent, "ArrayParamApplication:")?;
         indent = set_indentation(indent, 1);
+        write!(indent, "\nconstant_content: {}", self.constant_content)?;
         write!(indent, "\nstatic_size: {}", self.static_size)?;
         write!(indent, "\ndynamic_size: {}", self.dynamic_size)?;
         Ok(())
@@ -601,7 +637,7 @@ bitflags! {
     /// Runtime features represent anything a program can do that is more complex than executing quantum operations on
     /// statically allocated qubits and using constant arguments.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct RuntimeFeatureFlags: u32 {
+    pub struct RuntimeFeatureFlags: u64 {
         /// Use of a dynamic `Bool`.
         const UseOfDynamicBool = 1 << 0;
         /// Use of a dynamic `Int`.
@@ -666,6 +702,8 @@ bitflags! {
         const CallToCustomReset = 1 << 30;
         /// Use of a dynamic generic parameter.
         const UseOfDynamicGeneric = 1 << 31;
+        /// A callable allocates qubits (directly or transitively).
+        const QubitAllocation = 1 << 32;
     }
 }
 

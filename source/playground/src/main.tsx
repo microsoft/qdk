@@ -20,6 +20,7 @@ import {
   loadWasmModule,
   log,
   samples,
+  openqasm_samples,
   getLanguageServiceWorker,
 } from "qsharp-lang";
 
@@ -28,6 +29,7 @@ import { Kata, getAllKatas } from "qsharp-lang/katas-md";
 
 import { Nav } from "./nav.js";
 import { Editor } from "./editor.js";
+import { registerOpenQasmLanguage } from "./openqasm-language.js";
 import { OutputTabs } from "./tabs.js";
 import { useEffect, useState } from "preact/hooks";
 import { Kata as Katas } from "./kata.js";
@@ -81,7 +83,11 @@ function createCompiler(onStateChange: (val: CompilerState) => void) {
   return compiler;
 }
 
-function App(props: { katas: Kata[]; linkedCode?: string }) {
+function App(props: {
+  katas: Kata[];
+  linkedCode?: string;
+  linkedLanguage?: "qsharp" | "openqasm";
+}) {
   const [compilerState, setCompilerState] = useState<CompilerState>("idle");
   const [compiler, setCompiler] = useState(() =>
     createCompiler(setCompilerState),
@@ -122,6 +128,7 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
 
   const kataTitles = props.katas.map((elem) => elem.title);
   const sampleTitles = samples.map((sample) => sample.title);
+  const openqasmSampleTitles = openqasm_samples.map((sample) => sample.title);
 
   const [documentation, setDocumentation] = useState<
     Map<string, string> | undefined
@@ -134,12 +141,27 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
     setDocumentation(processDocumentFiles(docFiles));
   }
 
-  const sampleCode =
-    samples.find((sample) => "sample-" + sample.title === currentNavItem)
-      ?.code || props.linkedCode;
+  // OpenQASM samples are namespaced with their own nav prefix because some
+  // sample titles (e.g. "Random Number Generator") exist in both languages.
+  const isOpenQasmSample = currentNavItem.startsWith("openqasm-sample-");
+  // For shared links the language comes from the URL (defaulting to Q#); for
+  // samples it's derived from which sample set the nav item belongs to.
+  const currentLanguage: "qsharp" | "openqasm" =
+    currentNavItem === "linked"
+      ? (props.linkedLanguage ?? "qsharp")
+      : isOpenQasmSample
+        ? "openqasm"
+        : "qsharp";
 
-  const defaultShots =
-    samples.find((sample) => sample.title === currentNavItem)?.shots || 100;
+  const selectedSample = isOpenQasmSample
+    ? openqasm_samples.find(
+        (sample) => "openqasm-sample-" + sample.title === currentNavItem,
+      )
+    : samples.find((sample) => "sample-" + sample.title === currentNavItem);
+
+  const sampleCode = selectedSample?.code || props.linkedCode;
+
+  const defaultShots = selectedSample?.shots || 100;
 
   const activeKata = kataTitles.includes(currentNavItem)
     ? props.katas.find((kata) => kata.title === currentNavItem)
@@ -151,6 +173,7 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
     if (newURL.searchParams.get("code")) {
       newURL.searchParams.delete("code");
       newURL.searchParams.delete("profile");
+      newURL.searchParams.delete("lang");
       window.history.pushState({}, "", newURL.toString());
       props.linkedCode = undefined;
     }
@@ -165,11 +188,14 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
         navSelected={onNavItemSelected}
         katas={kataTitles}
         samples={sampleTitles}
+        openqasmSamples={openqasmSampleTitles}
         namespaces={getNamespaces(documentation)}
       ></Nav>
       {sampleCode ? (
         <>
           <Editor
+            key={currentLanguage}
+            language={currentLanguage}
             code={sampleCode}
             compiler={compiler}
             compiler_worker_factory={compiler_worker_factory}
@@ -239,7 +265,8 @@ async function loaded() {
   // If URL is a sharing link, populate the editor with the code from the link.
   // Otherwise, populate with sample code.
   let linkedCode: string | undefined;
-  const paramCode = new URLSearchParams(window.location.search).get("code");
+  const params = new URLSearchParams(window.location.search);
+  const paramCode = params.get("code");
   if (paramCode) {
     try {
       const base64code = decodeURIComponent(paramCode);
@@ -248,14 +275,31 @@ async function loaded() {
       linkedCode = "// Unable to decode the code in the URL\n";
     }
   }
+  // Language of a shared link, defaulting to Q# so existing links keep working.
+  const linkedLanguage =
+    params.get("lang") === "openqasm" ? "openqasm" : "qsharp";
 
-  render(<App katas={katas} linkedCode={linkedCode}></App>, document.body);
+  render(
+    <App
+      katas={katas}
+      linkedCode={linkedCode}
+      linkedLanguage={linkedLanguage}
+    ></App>,
+    document.body,
+  );
 }
+
+// Languages that share the language-service-backed providers below. OpenQASM
+// supports completions, go-to-definition, find-references and rename in the
+// language service, matching the set registered by the VS Code extension.
+const qdkLanguages = ["qsharp", "openqasm"];
 
 function registerMonacoLanguageServiceProviders(
   languageService: ILanguageService,
 ) {
-  monaco.languages.registerCompletionItemProvider("qsharp", {
+  registerOpenQasmLanguage();
+
+  monaco.languages.registerCompletionItemProvider(qdkLanguages, {
     // @ts-expect-error - Monaco's types expect range to be defined,
     // but it's actually optional and the default behavior is better
     provideCompletionItems: async (
@@ -341,7 +385,7 @@ function registerMonacoLanguageServiceProviders(
     },
   });
 
-  monaco.languages.registerDefinitionProvider("qsharp", {
+  monaco.languages.registerDefinitionProvider(qdkLanguages, {
     provideDefinition: async (
       model: monaco.editor.ITextModel,
       position: monaco.Position,
@@ -360,7 +404,7 @@ function registerMonacoLanguageServiceProviders(
     },
   });
 
-  monaco.languages.registerReferenceProvider("qsharp", {
+  monaco.languages.registerReferenceProvider(qdkLanguages, {
     provideReferences: async (
       model: monaco.editor.ITextModel,
       position: monaco.Position,
@@ -424,7 +468,7 @@ function registerMonacoLanguageServiceProviders(
     },
   });
 
-  monaco.languages.registerRenameProvider("qsharp", {
+  monaco.languages.registerRenameProvider(qdkLanguages, {
     provideRenameEdits: async (
       model: monaco.editor.ITextModel,
       position: monaco.Position,

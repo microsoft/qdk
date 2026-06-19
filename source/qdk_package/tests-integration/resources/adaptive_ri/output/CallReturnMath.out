@@ -1,0 +1,8 @@
+START
+METADATA	entry_point
+METADATA	output_labeling_schema
+METADATA	qir_profiles	adaptive_profile
+METADATA	required_num_qubits	2
+METADATA	required_num_results	2
+OUTPUT	INT	36	0_i
+END	0

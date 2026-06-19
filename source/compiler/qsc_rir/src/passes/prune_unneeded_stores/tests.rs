@@ -18,7 +18,7 @@ fn removes_store_without_use() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable::new_boolean(VariableId(0)),
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     )]);
 
@@ -49,7 +49,7 @@ fn propagates_literal_within_block() {
                 Operand::Variable(stored_var),
                 Variable::new_boolean(VariableId(1)),
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     )]);
 
@@ -89,7 +89,7 @@ fn keeps_store_for_cross_block_use() {
                     Operand::Variable(stored_var),
                     Variable::new_boolean(VariableId(1)),
                 ),
-                Instruction::Return,
+                Instruction::Return(None),
             ]),
         ),
     ]);
@@ -136,7 +136,7 @@ fn removes_overwritten_store_and_keeps_last_value() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     )]);
 
@@ -174,7 +174,7 @@ fn propagates_chained_stores() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     )]);
 
@@ -195,4 +195,49 @@ fn propagates_chained_stores() {
             Call id(1), args( Bool(true), )
             Return"#]]
     .assert_eq(&program.get_block(BlockId(0)).to_string());
+}
+
+#[test]
+fn keeps_store_for_value_return_operand() {
+    let stored_var = Variable::new_integer(VariableId(0));
+    let mut program = Program::with_blocks(vec![
+        (
+            BlockId(0),
+            Block(vec![
+                Instruction::Store(Operand::Literal(Literal::Integer(5)), stored_var),
+                Instruction::Jump(BlockId(1)),
+            ]),
+        ),
+        (
+            BlockId(1),
+            Block(vec![Instruction::Return(Some(Operand::Variable(
+                stored_var,
+            )))]),
+        ),
+    ]);
+
+    // Before
+    expect![[r#"
+        Block:
+            Variable(0, Integer) = Store Integer(5)
+            Jump(1)"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+    expect![[r#"
+        Block:
+            Return Variable(0, Integer)"#]]
+    .assert_eq(&program.get_block(BlockId(1)).to_string());
+
+    prune_unneeded_stores(&mut program);
+
+    // After: the store that defines the returned value must survive, and the
+    // return operand must still reference the defined variable.
+    expect![[r#"
+        Block:
+            Variable(0, Integer) = Store Integer(5)
+            Jump(1)"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+    expect![[r#"
+        Block:
+            Return Variable(0, Integer)"#]]
+    .assert_eq(&program.get_block(BlockId(1)).to_string());
 }

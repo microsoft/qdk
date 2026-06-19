@@ -22,7 +22,7 @@ use qsc_ast::ast::NodeId;
 use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     hir::{CallableKind, ItemId},
-    ty::{FunctorSet, GenericArg, Ty, Udt},
+    ty::{FunctorSet, GenericArg, InferTyId, Prim, Ty, Udt},
 };
 use rustc_hash::FxHashMap;
 use std::fmt::Debug;
@@ -47,11 +47,79 @@ pub struct Table {
 #[error(transparent)]
 pub(super) struct Error(ErrorKind);
 
+/// Simplified type info for error reporting. Same shape as `Ty`, but without `Rc`
+/// so it can be included in `ErrorKind` (which must be `Send + Sync`).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum TyInfoKind {
+    Array(Box<TyInfoKind>),
+    Arrow,
+    Infer(InferTyId),
+    Param,
+    Prim(Prim),
+    Tuple(Vec<TyInfoKind>),
+    Udt,
+    #[default]
+    Err,
+}
+
+/// Type info paired with a display string for error reporting.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TyInfo {
+    pub kind: TyInfoKind,
+    pub display: String,
+}
+
+impl std::fmt::Display for TyInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.display)
+    }
+}
+
+impl From<&Ty> for TyInfoKind {
+    fn from(ty: &Ty) -> Self {
+        match ty {
+            Ty::Array(item) => TyInfoKind::Array(Box::new(TyInfoKind::from(item.as_ref()))),
+            Ty::Arrow(_) => TyInfoKind::Arrow,
+            Ty::Infer(id) => TyInfoKind::Infer(*id),
+            Ty::Param { .. } => TyInfoKind::Param,
+            Ty::Prim(prim) => TyInfoKind::Prim(*prim),
+            Ty::Tuple(items) => TyInfoKind::Tuple(items.iter().map(TyInfoKind::from).collect()),
+            Ty::Udt(_, _) => TyInfoKind::Udt,
+            Ty::Err => TyInfoKind::Err,
+        }
+    }
+}
+
+impl From<Ty> for TyInfoKind {
+    fn from(ty: Ty) -> Self {
+        TyInfoKind::from(&ty)
+    }
+}
+
+impl From<&Ty> for TyInfo {
+    fn from(ty: &Ty) -> Self {
+        TyInfo {
+            kind: TyInfoKind::from(ty),
+            display: ty.display(),
+        }
+    }
+}
+
+impl From<Ty> for TyInfo {
+    fn from(ty: Ty) -> Self {
+        TyInfo::from(&ty)
+    }
+}
+
 #[derive(Clone, Debug, Diagnostic, Error)]
 enum ErrorKind {
     #[error("expected {0}, found {1}")]
     #[diagnostic(code("Qsc.TypeCk.TyMismatch"))]
-    TyMismatch(String, String, #[label] Span),
+    TyMismatch(
+        /*expected*/ TyInfo,
+        /*actual*/ TyInfo,
+        #[label] Span,
+    ),
     #[error("expected {0}, found {1}")]
     #[diagnostic(code("Qsc.TypeCk.CallableMismatch"))]
     CallableMismatch(CallableKind, CallableKind, #[label] Span),
@@ -192,6 +260,17 @@ enum ErrorKind {
     ))]
     #[diagnostic(code("Qsc.TypeCk.RecursiveTypeConstraint"))]
     RecursiveTypeConstraint(#[label] Span),
+}
+
+impl Error {
+    /// If this is a type-mismatch error, returns (expected, actual, span).
+    #[must_use]
+    pub fn ty_mismatch(&self) -> Option<(&TyInfo, &TyInfo, Span)> {
+        match &self.0 {
+            ErrorKind::TyMismatch(expected, actual, span) => Some((expected, actual, *span)),
+            _ => None,
+        }
+    }
 }
 
 impl From<TyConversionError> for Error {

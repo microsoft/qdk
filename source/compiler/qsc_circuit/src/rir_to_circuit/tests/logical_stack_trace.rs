@@ -150,11 +150,14 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         )
             .into(),
     };
+    let compute_properties =
+        qsc_passes::PassContext::run_fir_passes_on_fir(&fir_store, id, capabilities)
+            .expect("FIR passes should succeed");
 
     let (_, rir) = fir_to_rir(
         &fir_store,
         capabilities,
-        None,
+        &compute_properties,
         &entry,
         PartialEvalConfig {
             generate_debug_metadata: true,
@@ -193,6 +196,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         &structured_control_flow,
         &[],
         &ScopeStack::top(),
+        &(&store, &fir_store),
     ) {
         panic!("error building operation list: {err}");
     }

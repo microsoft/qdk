@@ -21,6 +21,10 @@ bitflags! {
         const BackwardsBranching = 0b0000_1000;
         /// Supports statically sized arrays (i.e. array literals and array indexing with non-constant indices).
         const StaticSizedArrays = 0b0001_0000;
+        /// Supports calls to operations and functions (i.e. callables are not fully inlined into the entry point).
+        const CallSupport = 0b0010_0000;
+        /// Supports dynamic (runtime) allocation of qubits.
+        const DynamicQubitAllocation = 0b0100_0000;
         /// Catch-all for high level language constructs not covered by other flags. New flags should be added above this one,
         /// such that this flag is reserved for the "all capabilities" targets that can run anything the language can express.
         const HigherLevelConstructs = 0b1000_0000;
@@ -38,6 +42,8 @@ impl std::str::FromStr for TargetCapabilityFlags {
             "FloatingPointComputations" => Ok(TargetCapabilityFlags::FloatingPointComputations),
             "BackwardsBranching" => Ok(TargetCapabilityFlags::BackwardsBranching),
             "StaticSizedArrays" => Ok(TargetCapabilityFlags::StaticSizedArrays),
+            "CallSupport" => Ok(TargetCapabilityFlags::CallSupport),
+            "DynamicQubitAllocation" => Ok(TargetCapabilityFlags::DynamicQubitAllocation),
             "HigherLevelConstructs" => Ok(TargetCapabilityFlags::HigherLevelConstructs),
             "Unrestricted" => Ok(TargetCapabilityFlags::all()),
             _ => Err(()),
@@ -65,8 +71,8 @@ pub enum Profile {
     AdaptiveRI,
     /// Corresponds to a target with support for forward branching, qubit reuse, integer computations, and floating point computations.
     AdaptiveRIF,
-    /// Corresponds to a target with support for forward branching, qubit reuse, integer computations, floating point computations, loops, and static sized arrays.
-    AdaptiveRIFLA,
+    /// Corresponds to a target with support for full adaptive profile, including any extensions.
+    Adaptive,
 }
 
 impl Profile {
@@ -77,7 +83,7 @@ impl Profile {
             Self::Base => "Base",
             Self::AdaptiveRI => "Adaptive_RI",
             Self::AdaptiveRIF => "Adaptive_RIF",
-            Self::AdaptiveRIFLA => "Adaptive_RIFLA",
+            Self::Adaptive => "Adaptive",
         }
     }
 }
@@ -91,12 +97,13 @@ impl From<Profile> for TargetCapabilityFlags {
             Profile::AdaptiveRIF => {
                 Self::Adaptive | Self::IntegerComputations | Self::FloatingPointComputations
             }
-            Profile::AdaptiveRIFLA => {
+            Profile::Adaptive => {
                 Self::Adaptive
                     | Self::IntegerComputations
                     | Self::FloatingPointComputations
                     | Self::BackwardsBranching
                     | Self::StaticSizedArrays
+                    | Self::CallSupport
             }
         }
     }
@@ -109,7 +116,7 @@ impl FromStr for Profile {
         match s.to_lowercase().as_str() {
             "adaptive_ri" => Ok(Self::AdaptiveRI),
             "adaptive_rif" => Ok(Self::AdaptiveRIF),
-            "adaptive_rifla" => Ok(Self::AdaptiveRIFLA),
+            "adaptive" => Ok(Self::Adaptive),
             "base" => Ok(Self::Base),
             "unrestricted" => Ok(Self::Unrestricted),
             _ => Err(()),

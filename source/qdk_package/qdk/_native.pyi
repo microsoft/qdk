@@ -117,11 +117,12 @@ class TargetProfile(Enum):
     extension defined by the QIR specification.
     """
 
-    Adaptive_RIFLA: TargetProfile
+    Adaptive: TargetProfile
     """
-    Target supports the Adaptive profile with integer & floating-point
-    computation extensions as well as loop extension and statically-sized
-    arrays extension.
+    Target supports the Adaptive profile with all supported extensions.
+
+    This profile includes all required Adaptive Profile features and
+    all the optional extensions defined by the QIR specification.
     """
 
     Unrestricted: TargetProfile
@@ -529,6 +530,29 @@ def physical_estimates(logical_resources: str, params: str) -> str:
 
     :return: The estimated resources.
     :rtype: str
+    """
+    ...
+
+def compile_visual_circuit_to_qsharp(
+    file_name: str,
+    contents: str,
+    index: int,
+    program_type: ProgramType,
+) -> Tuple[str, str]:
+    """
+    Converts a visual circuit file to Q# source.
+
+    .. note::
+        This call is not intended to be used directly by the user.
+        It is intended to be used by the Python wrapper which will handle
+        file loading and callable registration.
+
+    :param file_name: The base name to use for the generated operation.
+    :param contents: The visual circuit JSON contents.
+    :param index: The circuit index to import in file mode.
+    :param program_type: The type of Q# source to generate.
+    :return: The sanitized operation name and generated Q# source.
+    :rtype: Tuple[str, str]
     """
     ...
 

@@ -15,7 +15,7 @@ use crate::{
     interop::{
         circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
         create_filesystem_from_py, get_operation_name, get_output_semantics, get_program_type,
-        get_search_path, resource_estimate_qasm_program, run_qasm_program,
+        get_search_path, resource_estimate_qasm_program, run_qasm_program, sanitize_name,
     },
     interpreter::data_interop::{
         PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
@@ -45,7 +45,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
-    circuit::TracerConfig,
+    circuit::{TracerConfig, circuit_to_standalone_qsharp, circuits_to_qsharp},
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -154,6 +154,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_visual_circuit_to_qsharp, m)?)?;
     Ok(())
 }
 
@@ -184,10 +185,8 @@ pub(crate) enum TargetProfile {
     /// capabilities, as well as the optional floating-point computation
     /// extension defined by the QIR specification.
     Adaptive_RIF,
-    /// Target supports the Adaptive profile with integer & floating-point
-    /// computation extensions as well as loop extension and statically-sized
-    /// arrays extension.
-    Adaptive_RIFLA,
+    /// Target supports the Adaptive profile with all optional extensions.
+    Adaptive,
     /// Target supports the full set of capabilities required to run any Q# program.
     ///
     /// This option maps to the Full Profile as defined by the QIR specification.
@@ -216,7 +215,7 @@ impl TargetProfile {
             0 => Self::Base,
             1 => Self::Adaptive_RI,
             2 => Self::Adaptive_RIF,
-            3 => Self::Adaptive_RIFLA,
+            3 => Self::Adaptive,
             4 => Self::Unrestricted,
             _ => return Err(PyValueError::new_err("invalid state")),
         };
@@ -246,7 +245,7 @@ impl From<Profile> for TargetProfile {
             Profile::Base => TargetProfile::Base,
             Profile::AdaptiveRI => TargetProfile::Adaptive_RI,
             Profile::AdaptiveRIF => TargetProfile::Adaptive_RIF,
-            Profile::AdaptiveRIFLA => TargetProfile::Adaptive_RIFLA,
+            Profile::Adaptive => TargetProfile::Adaptive,
             Profile::Unrestricted => TargetProfile::Unrestricted,
         }
     }
@@ -258,7 +257,7 @@ impl From<TargetProfile> for Profile {
             TargetProfile::Base => Profile::Base,
             TargetProfile::Adaptive_RI => Profile::AdaptiveRI,
             TargetProfile::Adaptive_RIF => Profile::AdaptiveRIF,
-            TargetProfile::Adaptive_RIFLA => Profile::AdaptiveRIFLA,
+            TargetProfile::Adaptive => Profile::Adaptive,
             TargetProfile::Unrestricted => Profile::Unrestricted,
         }
     }
@@ -1129,6 +1128,28 @@ fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
         Err(PyException::new_err(
             "callable must be either a GlobalCallable or a Closure",
         ))
+    }
+}
+
+#[pyfunction]
+pub fn compile_visual_circuit_to_qsharp(
+    file_name: &str,
+    circuit_json: &str,
+    index: usize,
+    program_type: ProgramType,
+) -> PyResult<(String, String)> {
+    let operation_name = sanitize_name(file_name);
+    let source = match program_type {
+        ProgramType::File => circuit_to_standalone_qsharp(&operation_name, circuit_json, index),
+        ProgramType::Operation => circuits_to_qsharp(&operation_name, circuit_json),
+        ProgramType::Fragments => Err(
+            "Visual circuit import supports ProgramType.File and ProgramType.Operation only."
+                .to_string(),
+        ),
+    };
+    match source {
+        Ok(source) => Ok((operation_name, source)),
+        Err(error) => Err(QSharpError::new_err(error)),
     }
 }
 

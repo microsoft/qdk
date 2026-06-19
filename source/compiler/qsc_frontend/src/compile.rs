@@ -47,6 +47,7 @@ pub struct CompileUnit {
     pub sources: SourceMap,
     pub errors: Vec<Error>,
     pub dropped_names: Vec<TrackedName>,
+    pub dropped_spans: Vec<Span>,
 }
 
 impl CompileUnit {
@@ -59,6 +60,7 @@ impl CompileUnit {
             sources: Default::default(),
             errors: Default::default(),
             dropped_names: Default::default(),
+            dropped_spans: Default::default(),
         }
     }
 
@@ -89,6 +91,34 @@ pub type Dependencies = [(PackageId, Option<Arc<str>>)];
 #[diagnostic(transparent)]
 #[error(transparent)]
 pub struct Error(pub(super) ErrorKind);
+
+impl Error {
+    /// If this is an unresolved-name error (diagnostic code `Qsc.Resolve.NotFound`),
+    /// returns the unresolved name and the span where it appears, otherwise `None`.
+    ///
+    /// This covers both a name that genuinely doesn't exist and a name that exists
+    /// but isn't available for the current compilation configuration, since both
+    /// surface under the same diagnostic.
+    #[must_use]
+    pub fn unresolved_name(&self) -> Option<(&str, Span)> {
+        match &self.0 {
+            ErrorKind::Resolve(
+                resolve::Error::NotFound(name, span) | resolve::Error::NotAvailable(name, _, span),
+            ) => Some((name.as_str(), *span)),
+            _ => None,
+        }
+    }
+
+    /// If this is a type-mismatch error (diagnostic code `Qsc.TypeCk.TyMismatch`),
+    /// returns (expected, actual, span), otherwise `None`.
+    #[must_use]
+    pub fn ty_mismatch(&self) -> Option<(&typeck::TyInfo, &typeck::TyInfo, Span)> {
+        match &self.0 {
+            ErrorKind::Type(type_error) => type_error.ty_mismatch(),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Diagnostic, Error)]
 #[diagnostic(transparent)]
@@ -284,6 +314,7 @@ pub fn compile_ast(
 ) -> CompileUnit {
     let mut cond_compile = preprocess::Conditional::new(capabilities);
     cond_compile.visit_package(&mut ast_package);
+    let dropped_spans = cond_compile.take_dropped_spans();
     let dropped_names = cond_compile.into_names();
 
     let mut remove_spans = preprocess::RemoveCircuitSpans::new(&sources);
@@ -336,6 +367,7 @@ pub fn compile_ast(
         sources,
         errors,
         dropped_names,
+        dropped_spans,
     }
 }
 
