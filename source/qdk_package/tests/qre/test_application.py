@@ -1,9 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import pytest
-
-cirq = pytest.importorskip("cirq")
 
 from dataclasses import dataclass, field
 
@@ -225,3 +222,51 @@ def test_rotation_error_psspc():
         assert (
             transformed.base_error < 1.0
         ), f"Base error too high: {transformed.base_error} for {psspc.num_ts_per_rotation} T states per rotation"
+
+
+def test_trace_iter_simple():
+    """Test that iterating over a trace yields gates in execution order."""
+    trace = Trace(2)
+    trace.add_operation(1, [0])
+    trace.add_operation(2, [1])
+
+    gate_ids = [g.id for g in trace.flatten()]
+    assert gate_ids == [1, 2]
+
+
+def test_trace_iter_with_repeated_block():
+    """Test that iterating over a trace repeats gates for repeated blocks."""
+    trace = Trace(2)
+    trace.add_operation(1, [0])
+    block = trace.add_block(3)
+    block.add_operation(2, [1])
+    trace.add_operation(3, [0])
+
+    gate_ids = [g.id for g in trace.flatten()]
+    assert gate_ids == [1, 2, 2, 2, 3]
+
+
+def test_trace_iter_nested_blocks():
+    """Test that iterating over nested repeated blocks works correctly."""
+    trace = Trace(3)
+    trace.add_operation(1, [0])
+    block = trace.add_block(2)
+    block.add_operation(2, [1])
+    inner = block.add_block(3)
+    inner.add_operation(3, [2])
+    trace.add_operation(4, [0])
+
+    gate_ids = [g.id for g in trace.flatten()]
+    assert gate_ids == [1, 2, 3, 3, 3, 2, 3, 3, 3, 4]
+
+
+def test_trace_iter_gate_attributes():
+    """Test that gate attributes are correctly exposed."""
+    trace = Trace(1)
+    trace.add_operation(42, [0, 1], [3.14])
+
+    gates = list(trace.flatten())
+    assert len(gates) == 1
+    assert gates[0].id == 42
+    assert gates[0].qubits == [0, 1]
+    assert gates[0].params == [3.14]

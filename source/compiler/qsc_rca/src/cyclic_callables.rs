@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ParamApplication,
-    RuntimeFeatureFlags, ValueKind, common::LocalSpecId, cycle_detection::CycleDetector,
-    scaffolding::InternalPackageStoreComputeProperties,
+    ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, ElementParamApplication,
+    ParamApplication, RuntimeFeatureFlags, ValueKind, common::LocalSpecId,
+    cycle_detection::CycleDetector, scaffolding::InternalPackageStoreComputeProperties,
 };
 use qsc_fir::{
     extensions::InputParam,
@@ -155,10 +155,14 @@ impl<'a> Analyzer<'a> {
             // Create a parameter application depending on the parameter type.
             let param_application = match &param.ty {
                 Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
+                    constant_content: param_compute_kind,
                     static_size: param_compute_kind,
                     dynamic_size: param_compute_kind,
                 }),
-                _ => ParamApplication::Element(param_compute_kind),
+                _ => ParamApplication::Element(ElementParamApplication {
+                    constant: param_compute_kind,
+                    variable: param_compute_kind,
+                }),
             };
             dynamic_param_applications.push(param_application);
         }
@@ -289,10 +293,14 @@ fn create_operation_specialization_application_generator_set(
         // Create a parameter application depending on the parameter type.
         let param_application = match &param.ty {
             Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
+                constant_content: inherent_compute_kind,
                 static_size: inherent_compute_kind,
                 dynamic_size: inherent_compute_kind,
             }),
-            _ => ParamApplication::Element(inherent_compute_kind),
+            _ => ParamApplication::Element(ElementParamApplication {
+                constant: inherent_compute_kind,
+                variable: inherent_compute_kind,
+            }),
         };
         dynamic_param_applications.push(param_application);
     }

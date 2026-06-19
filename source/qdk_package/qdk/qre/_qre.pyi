@@ -1487,6 +1487,76 @@ class Trace:
         """
         ...
 
+    def flatten(self) -> Iterator[Gate]:
+        """
+        Iterate over gates as if executing the circuit.
+
+        Yield each gate in execution order. Gates inside repeated blocks
+        are yielded once per repetition.
+
+        Returns:
+            Iterator[Gate]: An iterator over the gates in the trace.
+        """
+        ...
+
+class Gate:
+    """
+    Represent a single gate operation in a trace.
+
+    Attributes:
+        id (int): The instruction ID of the gate.
+        qubits (list[int]): The qubits the gate acts on.
+        params (list[float]): The parameters of the gate.
+    """
+
+    @property
+    def id(self) -> int:
+        """
+        The instruction ID of the gate.
+
+        Returns:
+            int: The instruction ID.
+        """
+        ...
+
+    @property
+    def qubits(self) -> list[int]:
+        """
+        The qubits the gate acts on.
+
+        Returns:
+            list[int]: The qubit indices.
+        """
+        ...
+
+    @property
+    def params(self) -> list[float]:
+        """
+        The parameters of the gate.
+
+        Returns:
+            list[float]: The gate parameters.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Return a string representation of the gate.
+
+        Returns:
+            str: A string representation of the gate.
+        """
+        ...
+
+    def __repr__(self) -> str:
+        """
+        Return a detailed string representation of the gate.
+
+        Returns:
+            str: A detailed string representation of the gate.
+        """
+        ...
+
 class Block:
     """
     Represents a block of operations in a trace.

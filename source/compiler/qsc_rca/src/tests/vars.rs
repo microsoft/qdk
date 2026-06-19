@@ -68,7 +68,7 @@ fn check_rca_for_static_qubit_var() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -89,7 +89,7 @@ fn check_rca_for_dynamic_result_var() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

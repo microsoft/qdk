@@ -22,7 +22,8 @@ pub use trace::instruction_ids;
 pub use trace::instruction_ids::instruction_name;
 pub use trace::{
     Block, ComputeCapacity, DynamicMemoryCompute, EvictionStrategy, LatticeSurgery, PSSPC,
-    Property, Trace, TraceTransform, Unmemory, estimate_parallel, estimate_with_graph,
+    Property, Trace, TraceTransform, Unmemory, WalkIterator, estimate_parallel,
+    estimate_with_graph,
 };
 mod utils;
 pub use utils::{binom_ppf, float_from_bits, float_to_bits};

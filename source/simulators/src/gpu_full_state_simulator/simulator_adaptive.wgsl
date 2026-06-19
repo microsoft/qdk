@@ -562,7 +562,7 @@ fn prep_loss_commit(shot_idx: u32, qubit: u32) {
     let shot = &shots[shot_idx];
     let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
     shot.qubit_state[qubit].heat = -1.0;
-    write_measure_reset_instrument(shot_idx, qubit, result, true /* resets_to_zero */);
+    prep_measure_reset_instrument(shot_idx, qubit, result, true /* resets_to_zero */);
     shot.op_idx = qubit; // execute reads the lost qubit from op_idx
     shot.op_type = OPID_LOSS_NOISE;
 }

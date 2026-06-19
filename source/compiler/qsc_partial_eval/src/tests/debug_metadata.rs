@@ -30,7 +30,7 @@ fn no_gates() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -54,7 +54,7 @@ fn one_gate() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -86,10 +86,10 @@ fn one_measurement() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=9
                 Call id(4), args( Integer(1), Tag(0, 3), )
                 Call id(5), args( Result(0), Tag(1, 5), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -101,7 +101,7 @@ fn one_measurement() {
                 [2]: scope=1 location=(1-111297) inlined_at=1
                 [3]: scope=0 location=(2-126)
                 [4]: scope=2 location=(1-112976) inlined_at=3
-                [6]: scope=3 location=(1-114163) inlined_at=4"#]],
+                [9]: scope=3 location=(1-114163) inlined_at=4"#]],
     );
 }
 
@@ -131,7 +131,7 @@ fn calls_to_other_callables() {
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
                 Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=5
                 Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -183,7 +183,7 @@ fn classical_for_loop() {
                 Call id(3), args( Qubit(0), ) !dbg dbg_location=16
                 Variable(0, Integer) = Store Integer(3)
                 Call id(4), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -269,7 +269,7 @@ fn nested_classical_for_loop() {
                 Variable(4, Integer) = Store Integer(3)
                 Variable(1, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-40)
@@ -336,7 +336,7 @@ fn lambda() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-1)
@@ -373,17 +373,17 @@ fn result_comparison_to_literal() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
-                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=6
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=9
                 Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=3
                 Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=10
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=13
             Block 1:Block:
-                Call id(6), args( Qubit(0), ) !dbg dbg_location=12
+                Call id(6), args( Qubit(0), ) !dbg dbg_location=15
                 Call id(7), args( Integer(1), Tag(0, 3), )
                 Call id(8), args( Result(0), Tag(1, 5), )
-                Return
+                Return Integer(0)
             Block 2:Block:
-                Call id(5), args( Qubit(0), ) !dbg dbg_location=9
+                Call id(5), args( Qubit(0), ) !dbg dbg_location=12
                 Jump(1)
 
             dbg_scopes:
@@ -398,12 +398,12 @@ fn result_comparison_to_literal() {
                 [2]: scope=1 location=(1-111297) inlined_at=1
                 [3]: scope=0 location=(2-110)
                 [4]: scope=2 location=(1-112976) inlined_at=3
-                [6]: scope=3 location=(1-114163) inlined_at=4
-                [8]: scope=0 location=(2-154)
-                [9]: scope=4 location=(1-134095) inlined_at=8
-                [10]: scope=0 location=(2-125)
-                [11]: scope=0 location=(2-179)
-                [12]: scope=5 location=(1-117367) inlined_at=11"#]],
+                [9]: scope=3 location=(1-114163) inlined_at=4
+                [11]: scope=0 location=(2-154)
+                [12]: scope=4 location=(1-134095) inlined_at=11
+                [13]: scope=0 location=(2-125)
+                [14]: scope=0 location=(2-179)
+                [15]: scope=5 location=(1-117367) inlined_at=14"#]],
     );
 }
 
@@ -434,21 +434,21 @@ fn if_else() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
-                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=7
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=10
                 Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=4
                 Variable(1, Boolean) = Store Variable(0, Boolean)
-                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=13
+                Branch Variable(1, Boolean), 2, 3 !dbg dbg_location=16
             Block 1:Block:
-                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=17
+                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=23
                 Call id(7), args( Integer(2), Tag(0, 3), )
                 Call id(8), args( Result(0), Tag(1, 5), )
                 Call id(8), args( Result(1), Tag(2, 5), )
-                Return
+                Return Integer(0)
             Block 2:Block:
-                Call id(5), args( Qubit(1), ) !dbg dbg_location=10
+                Call id(5), args( Qubit(1), ) !dbg dbg_location=13
                 Jump(1)
             Block 3:Block:
-                Call id(6), args( Qubit(1), ) !dbg dbg_location=12
+                Call id(6), args( Qubit(1), ) !dbg dbg_location=15
                 Jump(1)
 
             dbg_scopes:
@@ -463,15 +463,15 @@ fn if_else() {
                 [3]: scope=1 location=(1-111297) inlined_at=2
                 [4]: scope=0 location=(2-135)
                 [5]: scope=2 location=(1-112976) inlined_at=4
-                [7]: scope=3 location=(1-114163) inlined_at=5
-                [9]: scope=0 location=(2-176)
-                [10]: scope=4 location=(1-134095) inlined_at=9
-                [11]: scope=0 location=(2-212)
-                [12]: scope=5 location=(1-135317) inlined_at=11
-                [13]: scope=0 location=(2-150)
-                [14]: scope=0 location=(2-246)
-                [15]: scope=2 location=(1-112976) inlined_at=14
-                [17]: scope=3 location=(1-114163) inlined_at=15"#]],
+                [10]: scope=3 location=(1-114163) inlined_at=5
+                [12]: scope=0 location=(2-176)
+                [13]: scope=4 location=(1-134095) inlined_at=12
+                [14]: scope=0 location=(2-212)
+                [15]: scope=5 location=(1-135317) inlined_at=14
+                [16]: scope=0 location=(2-150)
+                [17]: scope=0 location=(2-246)
+                [18]: scope=2 location=(1-112976) inlined_at=17
+                [23]: scope=3 location=(1-114163) inlined_at=18"#]],
     );
 }
 
@@ -495,18 +495,18 @@ fn branch_due_to_binop_short_circuit() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
                 Call id(2), args( Qubit(1), ) !dbg dbg_location=5
-                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=9
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=12
                 Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=6
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Bool(false)
-                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=16
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=22
             Block 1:Block:
                 Variable(5, Boolean) = Store Variable(2, Boolean)
                 Call id(5), args( Integer(0), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
-                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=14
-                Variable(3, Boolean) = Call id(4), args( Result(1), ) !dbg dbg_location=11
+                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=20
+                Variable(3, Boolean) = Call id(4), args( Result(1), ) !dbg dbg_location=14
                 Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
@@ -523,10 +523,10 @@ fn branch_due_to_binop_short_circuit() {
                 [5]: scope=1 location=(1-111297) inlined_at=4
                 [6]: scope=0 location=(2-107)
                 [7]: scope=2 location=(1-112976) inlined_at=6
-                [9]: scope=3 location=(1-114163) inlined_at=7
-                [11]: scope=0 location=(2-129)
-                [12]: scope=2 location=(1-112976) inlined_at=11
-                [14]: scope=3 location=(1-114163) inlined_at=12
-                [16]: scope=0 location=(2-127)"#]],
+                [12]: scope=3 location=(1-114163) inlined_at=7
+                [14]: scope=0 location=(2-129)
+                [15]: scope=2 location=(1-112976) inlined_at=14
+                [20]: scope=3 location=(1-114163) inlined_at=15
+                [22]: scope=0 location=(2-127)"#]],
     );
 }

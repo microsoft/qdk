@@ -31,7 +31,7 @@ pub fn check_unreachable_instrs(program: &Program) {
         match block.0.iter().position(|i| {
             matches!(
                 i,
-                Instruction::Return | Instruction::Jump(..) | Instruction::Branch(..)
+                Instruction::Return(..) | Instruction::Jump(..) | Instruction::Branch(..)
             )
         }) {
             Some(idx) => {

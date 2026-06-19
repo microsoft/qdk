@@ -9,6 +9,7 @@ use qsc_partial_eval::{
 use qsc_rca::PackageStoreComputeProperties;
 use qsc_rir::{passes::check_and_transform, rir};
 
+pub mod name;
 pub mod v1;
 pub mod v2;
 

@@ -195,7 +195,7 @@ fn gates_on_lost_qubits() {
     ];
     let start = Instant::now();
     let results =
-        run_shots_sync(3, 3, &ops, &None, 1000, DEFAULT_SEED, 0).expect("GPU shots failed");
+        run_shots_sync(3, 3, &ops, &None, 10_000, DEFAULT_SEED, 0).expect("GPU shots failed");
     let elapsed = start.elapsed();
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
     check_success(&results);
@@ -736,15 +736,15 @@ fn repeated_noise() {
     // Add bit-flip and loss noise to X gates of 0.1%
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
     noise.x.pauli_strings.push(encode_pauli("X"));
-    noise.x.probabilities.push(0.001);
+    noise.x.probabilities.push(0.001 * (1.0 - 0.001));
 
     noise.x.pauli_strings.push(encode_pauli("L"));
     noise.x.probabilities.push(0.001);
 
     let start = Instant::now();
     // Run for 20,000 shots
-    let results =
-        run_shots_sync(5, 5, &ops, &Some(noise), 20000, DEFAULT_SEED, 0).expect("GPU shots failed");
+    let results = run_shots_sync(5, 5, &ops, &Some(noise), 30_000, DEFAULT_SEED, 0)
+        .expect("GPU shots failed");
     let elapsed = start.elapsed();
     check_success(&results);
 
@@ -760,15 +760,15 @@ fn repeated_noise() {
     --001: 160 (0.80%)
     1-001: 145 (0.72%)
         */
-    assert_ratio(&results.shot_results, &[0, 0, 0, 0, 1], 0.675, 0.01);
-    assert_ratio(&results.shot_results, &[0, 2, 0, 0, 1], 0.078, 0.003);
-    assert_ratio(&results.shot_results, &[0, 1, 0, 0, 1], 0.071, 0.003);
+    assert_ratio(&results.shot_results, &[0, 0, 0, 0, 1], 0.675, 0.002);
+    assert_ratio(&results.shot_results, &[0, 2, 0, 0, 1], 0.078, 0.002);
+    assert_ratio(&results.shot_results, &[0, 1, 0, 0, 1], 0.071, 0.002);
     assert_ratio(&results.shot_results, &[2, 0, 0, 0, 1], 0.045, 0.002);
     assert_ratio(&results.shot_results, &[2, 1, 0, 0, 1], 0.043, 0.002);
     assert_ratio(&results.shot_results, &[1, 1, 0, 0, 1], 0.037, 0.002);
     assert_ratio(&results.shot_results, &[1, 0, 0, 0, 1], 0.036, 0.002);
-    assert_ratio(&results.shot_results, &[2, 2, 0, 0, 1], 0.008, 0.001);
-    assert_ratio(&results.shot_results, &[1, 2, 0, 0, 1], 0.007, 0.001);
+    assert_ratio(&results.shot_results, &[2, 2, 0, 0, 1], 0.008, 0.002);
+    assert_ratio(&results.shot_results, &[1, 2, 0, 0, 1], 0.007, 0.002);
     assert_ratio(&results.shot_results, &[1, 2, 0, 0, 0], 0.0, 0.0);
 
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
@@ -833,7 +833,7 @@ fn scaled_grover() {
 fn noise_config() {
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
     noise.x.pauli_strings.push(encode_pauli("X"));
-    noise.x.probabilities.push(0.5);
+    noise.x.probabilities.push(0.333_333);
 
     noise.x.pauli_strings.push(encode_pauli("L"));
     noise.x.probabilities.push(0.333_333);

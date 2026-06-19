@@ -62,13 +62,17 @@ block_6:
   %var_35 = load double, ptr %var_2
   %var_8 = fadd double %var_35, 1.0
   store double %var_8, ptr %var_2
-  %var_9 = fmul double %var_35, 1.0
+  %var_37 = load double, ptr %var_2
+  %var_9 = fmul double %var_37, 1.0
   store double %var_9, ptr %var_2
-  %var_10 = fsub double %var_35, 1.0
+  %var_39 = load double, ptr %var_2
+  %var_10 = fsub double %var_39, 1.0
   store double %var_10, ptr %var_2
-  %var_11 = fdiv double %var_35, 1.0
+  %var_41 = load double, ptr %var_2
+  %var_11 = fdiv double %var_41, 1.0
   store double %var_11, ptr %var_2
-  %var_12 = fadd double %var_35, 1.0
+  %var_43 = load double, ptr %var_2
+  %var_12 = fadd double %var_43, 1.0
   store double %var_12, ptr %var_2
   br label %block_7
 block_7:
@@ -101,7 +105,7 @@ attributes #1 = { "irreversible" }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -111,3 +115,4 @@ attributes #1 = { "irreversible" }
 !5 = !{i32 5, !"float_computations", !{!"double"}}
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
+!8 = !{i32 1, !"ir_functions", i1 true}
