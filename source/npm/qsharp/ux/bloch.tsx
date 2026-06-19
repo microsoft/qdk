@@ -108,7 +108,7 @@ const gateInfo: Record<
     display: string;
     /** The 2x2 matrix in the computational basis. */
     matrix: typeof PauliX;
-    /** Pre-rendered LaTeX for the matrix used in the history pane. */
+    /** Pre-rendered LaTeX for the matrix used in the trace pane. */
     latex: string;
     /** Which renderer rotation primitive to invoke. */
     rotateAxis: RotationAxis;
@@ -269,8 +269,8 @@ function createLabels(isDark: boolean): Sprite[] {
 // ~3.3x.
 const DEFAULT_ROTATION_TIME_MS = 333;
 
-// Markdown for the initial |0> state shown as the first history row. Kept
-// as a module constant so the history list and the hidden width-probe
+// Markdown for the initial |0> state shown as the first trace row. Kept
+// as a module constant so the trace list and the hidden width-probe
 // (see `widthProbe`) render exactly the same source.
 const INITIAL_KET_MARKDOWN =
   "$$ | \\psi \\rangle_0 = \\begin{bmatrix} 1 \\\\ 0 \\end{bmatrix} $$";
@@ -307,7 +307,7 @@ class BlochRenderer {
   // (snapTo) and every animation frame (queueGate) used to allocate a fresh
   // SphereGeometry + MeshBasicMaterial per path point -- ~3.2k geometries and
   // ~6.4k materials per click for a 50-gate sequence -- which is what was
-  // freezing the UI on history-row clicks.
+  // freezing the UI on trace-row clicks.
   private trailDotGeometry!: SphereGeometry;
   // Pre-built palette of fade colors. Trail-dot age maps to an index via
   // `getTrailDotMaterial`; lookups replace per-dot `new MeshBasicMaterial`.
@@ -677,7 +677,7 @@ class BlochRenderer {
    * reconstructed from the same interpolation points the animated path
    * (`queueGate`) uses, so the visible result is identical to what the
    * user would see if they had clicked the gates one at a time and
-   * waited for each animation to finish. Used by the "inspect history"
+   * waited for each animation to finish. Used by the "inspect trace"
    * UI and undo/redo paths where the user wants to see a specific past
    * state without sitting through replay animations.
    */
@@ -696,7 +696,7 @@ class BlochRenderer {
 
     // Reset the underlying rotation model, then apply each step. We keep
     // the AppliedGate returned by each call so we can rebuild the trail
-    // from its interpolation path -- otherwise navigating history would
+    // from its interpolation path -- otherwise navigating the trace would
     // erase the dotted trace the user was following.
     this.rotations.reset();
     this.qubit.quaternion.identity();
@@ -891,19 +891,19 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // layout size rather than the size three.js just wrote to the canvas.
   const stageRef = useRef<HTMLDivElement>(null);
   const renderer = useRef<BlochRenderer | null>(null);
-  // Scrollable container holding the history rows. We keep a ref so we
+  // Scrollable container holding the trace rows. We keep a ref so we
   // can pull the currently-active row into view whenever the cursor
   // moves (e.g. during playback). Doing it manually instead of via
-  // `Element.scrollIntoView` so we only ever move the history pane and
+  // `Element.scrollIntoView` so we only ever move the trace pane and
   // never accidentally scroll the page.
-  const historyScrollRef = useRef<HTMLDivElement>(null);
+  const traceScrollRef = useRef<HTMLDivElement>(null);
 
-  // The widget's interaction model is a time-travel history:
+  // The widget's interaction model is a time-travel trace:
   //
   //   * `gates` is the canonical list of single-character gate codes that
   //     have been applied to |0\u27e9, in order. It is the only durable state;
   //     everything else (sphere position, displayed state vectors,
-  //     history rows) is derived from it.
+  //     trace rows) is derived from it.
   //   * `cursor` is the current viewing position, in [0, gates.length].
   //     0 means "at the initial |0\u27e9 state", gates.length means "at the
   //     end of the applied sequence". Values in between put the widget
@@ -928,7 +928,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // (read from inside animation-completion callbacks, which capture
   // their value at call time so plain state would go stale).
   //
-  // `animatingToIndexRef` tracks the history index the in-flight
+  // `animatingToIndexRef` tracks the trace index the in-flight
   // animation is heading toward, so that Pause can snap there cleanly
   // instead of leaving the sphere mid-rotation. Null when nothing is
   // animating.
@@ -970,16 +970,16 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // Commit (Enter or Run button): sanitize the draft, replace `gates`
   // wholesale, snap the sphere to start, and play through to the end
   // -- treating the textbox as "this is the program, please run it".
-  // The redo stack is cleared, since editing invalidates undone history
+  // The redo stack is cleared, since editing invalidates undone trace
   // the same way applying a new gate does.
   const [draft, setDraft] = useState<string | null>(null);
   const displayValue = draft ?? gates.join("");
 
-  // Measured natural width (px) of the widest piece of history content,
-  // used to size the history pane so it grows horizontally to fit the
+  // Measured natural width (px) of the widest piece of trace content,
+  // used to size the trace pane so it grows horizontally to fit the
   // wide `gate . |psi> = result` equations instead of clipping them or
   // showing a horizontal scrollbar. Null until first measurement.
-  const [historyContentWidth, setHistoryContentWidth] = useState<number | null>(
+  const [traceContentWidth, setTraceContentWidth] = useState<number | null>(
     null,
   );
   const hasUnsavedDraft = draft !== null && draft !== gates.join("");
@@ -1021,7 +1021,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     // the widget opens on |0⟩ in inspect mode -- the user can then
     // press Play (or step-forward) to watch the supplied program
     // execute, rather than being shown only the final state. The
-    // history pane and transport controls let them scrub freely.
+    // trace pane and transport controls let them scrub freely.
     if (props.initialGates) {
       const { gates: cleaned, modified } = sanitizeGateSequence(
         props.initialGates,
@@ -1073,11 +1073,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     };
   }, []);
 
-  // Derived: per-step history entries (LaTeX strings) for the whole
+  // Derived: per-step trace entries (LaTeX strings) for the whole
   // `gates` sequence, walking the matrix product forward from |0\u27e9.
   // Computed in one pass instead of being mirrored in state, so the
-  // history rows can never disagree with the underlying gate list.
-  const historyEntries = useMemo(() => {
+  // trace rows can never disagree with the underlying gate list.
+  const traceEntries = useMemo(() => {
     let prior: Vec2 = Ket0;
     return gates.map((code, i) => {
       const info = gateInfo[code];
@@ -1092,14 +1092,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     });
   }, [gates]);
 
-  // Measure the natural width of the history content and drive the pane
+  // Measure the natural width of the trace content and drive the pane
   // width from it. The visible content lives in an absolutely-positioned
-  // inner layer (so a long history can't grow the grid's rows -- see
-  // `.qs-bloch-history` in the CSS), which means it no longer contributes
+  // inner layer (so a long trace can't grow the grid's rows -- see
+  // `.qs-bloch-trace` in the CSS), which means it no longer contributes
   // its width to the `auto` grid column either; the column would collapse
   // to the pane's `min-width`. So we measure the widest rendered row here
   // and feed it back as an explicit column width (via the
-  // `--qs-history-width` custom property), letting the pane grow
+  // `--qs-trace-width` custom property), letting the pane grow
   // horizontally in both hosts without a horizontal scrollbar.
   //
   // The equation rows live inside the scroll container, which clips its
@@ -1113,7 +1113,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // up and only update on a real change to avoid sub-pixel thrashing.
   const PANE_MIN_WIDTH = 300;
   useEffect(() => {
-    const list = historyScrollRef.current;
+    const list = traceScrollRef.current;
     if (!list) return;
     const measure = () => {
       let widestRow = 0;
@@ -1121,14 +1121,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         widestRow = Math.max(widestRow, (row as HTMLElement).scrollWidth);
       }
       // Width consumed by the (possibly absent) vertical scrollbar, so a
-      // long history doesn't clip the right edge of the widest row.
+      // long trace doesn't clip the right edge of the widest row.
       const scrollbar = list.offsetWidth - list.clientWidth;
       // +2 for the pane's 1px left/right border.
       const next = Math.max(
         PANE_MIN_WIDTH,
         Math.ceil(widestRow + scrollbar + 2),
       );
-      setHistoryContentWidth((prev) =>
+      setTraceContentWidth((prev) =>
         prev !== null && Math.abs(prev - next) <= 1 ? prev : next,
       );
     };
@@ -1139,34 +1139,34 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     ro.observe(list);
     for (const row of Array.from(list.children)) ro.observe(row);
     return () => ro.disconnect();
-  }, [historyEntries]);
+  }, [traceEntries]);
 
-  // Keep the currently-active history row in view as `cursor` advances
-  // (most visibly during playback). We scroll the history container
+  // Keep the currently-active trace row in view as `cursor` advances
+  // (most visibly during playback). We scroll the trace container
   // directly via `scrollTo` instead of `Element.scrollIntoView` --
   // `scrollIntoView` walks up the ancestor chain and will scroll the
-  // page itself once the history pane has bottomed out (e.g. when the
+  // page itself once the trace pane has bottomed out (e.g. when the
   // active row is near the end of a long sequence). Driving
   // `container.scrollTop` keeps the scrolling strictly local to the
-  // history pane.
+  // trace pane.
   //
   // The bottom of the visible band is partially covered by the sticky
-  // `.qs-bloch-history-item-latest` row (the pinned final step), so we
+  // `.qs-bloch-trace-item-latest` row (the pinned final step), so we
   // subtract its height -- otherwise the active row could slip behind
   // the sticky row and look stuck. When we do scroll, we aim to center
   // the active row in the (visible band minus the sticky overlap) so
   // long sequences keep the active step in the middle of the pane.
   useEffect(() => {
-    const container = historyScrollRef.current;
+    const container = traceScrollRef.current;
     if (!container) return;
     const active = container.querySelector<HTMLElement>(
-      ".qs-bloch-history-item-current",
+      ".qs-bloch-trace-item-current",
     );
     if (!active) return;
     // The sticky latest row only overlaps when the active row isn't
     // *also* the latest one -- otherwise it's the same element.
     const sticky = container.querySelector<HTMLElement>(
-      ".qs-bloch-history-item-latest",
+      ".qs-bloch-trace-item-latest",
     );
     const stickyOverlap = sticky && sticky !== active ? sticky.offsetHeight : 0;
     const visibleHeight = container.clientHeight - stickyOverlap;
@@ -1192,7 +1192,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // the gate list through a throwaway `Rotations` instance so the overlay
   // can never drift out of sync with the renderer. We don't follow the
   // inter-step animation here on purpose: the overlay shows the discrete
-  // post-step state, matching what the LaTeX history pane shows.
+  // post-step state, matching what the LaTeX trace pane shows.
   //
   // Three.js axes are not the Bloch axes the user sees on the diagram:
   //   axis label X is drawn at three.js (0, 0, 6.4)  -> Bloch x = three.js z
@@ -1229,7 +1229,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }, [gates, cursor]);
 
   // Current state-vector amplitudes at the cursor, as a column-vector
-  // ket. Walks the same matrix product as the history list but stops at
+  // ket. Walks the same matrix product as the trace list but stops at
   // the cursor, so the overlay always shows the state the sphere is
   // currently displaying. Rendered in the top-right corner of the stage.
   const currentStateLatex = useMemo(() => {
@@ -1254,7 +1254,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   /**
    * Cancel any in-flight playback animation and land cleanly on a
-   * history step. Called by Pause directly, and called as a guard by
+   * trace step. Called by Pause directly, and called as a guard by
    * every editing or seeking action so the user can never "edit while
    * playing" or end up with the cursor stuck mid-rotation. No-op when
    * already stopped, so it is always safe to call.
@@ -1432,14 +1432,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   /**
    * Move the cursor to an arbitrary position in the existing sequence
-   * without modifying it. Used by clicks on history rows and the
+   * without modifying it. Used by clicks on trace rows and the
    * "Jump to latest" button. Snaps the renderer instantly (no animation
    * noise) because the user is inspecting, not acting.
    */
   function navigateTo(pos: number) {
     if (!renderer.current) return;
     if (pos < 0 || pos > gates.length) return;
-    // Any deliberate seek (history-row click, jump button) implicitly
+    // Any deliberate seek (trace-row click, jump button) implicitly
     // pauses playback. We pass snapToTarget=false because we're about
     // to snap to `pos` ourselves a couple of lines down.
     stopPlayback(false);
@@ -1587,14 +1587,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     <div
       class="qs-bloch"
       style={
-        // Drive the history column's width from the measured content
-        // width (see the `historyContentWidth` effect). Exposed as a CSS
+        // Drive the trace column's width from the measured content
+        // width (see the `traceContentWidth` effect). Exposed as a CSS
         // custom property the grid template consumes, so the single-column
         // media query can simply ignore it. Unset until first measurement,
         // when the column falls back to its default floor.
-        historyContentWidth !== null
+        traceContentWidth !== null
           ? ({
-              "--qs-history-width": `${historyContentWidth}px`,
+              "--qs-trace-width": `${traceContentWidth}px`,
             } as Record<string, string>)
           : undefined
       }
@@ -1617,13 +1617,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           <Markdown markdown={currentStateLatex}></Markdown>
         </div>
       </div>
-      <div class="qs-bloch-history" style="font-size: 0.9em;">
-        <div class="qs-bloch-history-inner">
-          <div class="qs-bloch-history-title">
-            <span>History</span>
+      <div class="qs-bloch-trace" style="font-size: 0.9em;">
+        <div class="qs-bloch-trace-inner">
+          <div class="qs-bloch-trace-title">
+            <span>Trace</span>
             {gates.length > 0 && (
               <span
-                class="qs-bloch-history-step-counter"
+                class="qs-bloch-trace-step-counter"
                 aria-live="polite"
                 title={
                   inInspectMode
@@ -1731,34 +1731,32 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
           </div>
           <div
-            ref={historyScrollRef}
+            ref={traceScrollRef}
             style="overflow-y: auto; overflow-x: hidden; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;"
           >
             <div
               class={
-                "qs-bloch-history-item" +
-                (cursor === 0 ? " qs-bloch-history-item-current" : "") +
-                (historyEntries.length === 0
-                  ? " qs-bloch-history-item-latest"
-                  : "")
+                "qs-bloch-trace-item" +
+                (cursor === 0 ? " qs-bloch-trace-item-current" : "") +
+                (traceEntries.length === 0 ? " qs-bloch-trace-item-latest" : "")
               }
               title="Initial state |0⟩"
               onClick={() => navigateTo(0)}
             >
               <Markdown markdown={INITIAL_KET_MARKDOWN}></Markdown>
             </div>
-            {historyEntries.map((str, i) => {
+            {traceEntries.map((str, i) => {
               const stepIndex = i + 1;
-              const classes = ["qs-bloch-history-item"];
+              const classes = ["qs-bloch-trace-item"];
               if (stepIndex === cursor)
-                classes.push("qs-bloch-history-item-current");
+                classes.push("qs-bloch-trace-item-current");
               if (stepIndex > cursor)
-                classes.push("qs-bloch-history-item-future");
+                classes.push("qs-bloch-trace-item-future");
               // Pin the bottom-most row so the latest step stays visible
-              // when the rest of the history scrolls. See the CSS rule
-              // for `.qs-bloch-history-item-latest` for the mechanics.
-              if (i === historyEntries.length - 1)
-                classes.push("qs-bloch-history-item-latest");
+              // when the rest of the trace scrolls. See the CSS rule
+              // for `.qs-bloch-trace-item-latest` for the mechanics.
+              if (i === traceEntries.length - 1)
+                classes.push("qs-bloch-trace-item-latest");
               return (
                 <div
                   class={classes.join(" ")}
@@ -1864,7 +1862,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           type="button"
           onClick={reset}
           disabled={isPlaying}
-          title={isPlaying ? "Pause to reset" : "Clear the entire history"}
+          title={isPlaying ? "Pause to reset" : "Clear the entire trace"}
         >
           Reset
         </button>

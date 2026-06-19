@@ -553,7 +553,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    bare `button { ... }` so this stays a local override and never
    leaks into katas, circuits, or other widgets that style their own
    buttons. */
-.qs-bloch-history button,
+.qs-bloch-trace button,
 .qs-bloch-gate-editor button,
 .qs-gate-buttons button {
   background: var(--qdk-menu-fill);
@@ -563,18 +563,18 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-family: inherit;
   cursor: pointer;
 }
-.qs-bloch-history button:hover:not(:disabled),
+.qs-bloch-trace button:hover:not(:disabled),
 .qs-bloch-gate-editor button:hover:not(:disabled),
 .qs-gate-buttons button:hover:not(:disabled) {
   background: var(--qdk-menu-fill-hover);
 }
-.qs-bloch-history button:focus-visible,
+.qs-bloch-trace button:focus-visible,
 .qs-bloch-gate-editor button:focus-visible,
 .qs-gate-buttons button:focus-visible {
   outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
   outline-offset: 1px;
 }
-.qs-bloch-history button:disabled,
+.qs-bloch-trace button:disabled,
 .qs-bloch-gate-editor button:disabled,
 .qs-gate-buttons button:disabled {
   opacity: 0.5;
@@ -599,7 +599,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    knob for the thumb + track tint; both Chromium and Firefox honour
    it on <input type="range">. We use the menu-selected fill so the
    slider thumb stands out against the menu background of its row. */
-.qs-bloch-history input[type="range"],
+.qs-bloch-trace input[type="range"],
 .qs-bloch-gate-editor input[type="range"],
 .qs-bloch input[type="range"] {
   accent-color: var(--qdk-menu-fill-selected);
@@ -608,26 +608,26 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
 /* Bloch sphere widget root. A two-column grid: the 3D stage and the
    control rows (gate buttons, gate editor, Rz slider) stack in the
-   flexible left column, while the history pane spans the full height of
+   flexible left column, while the trace pane spans the full height of
    the fixed-width right column on the right edge of the host. The widget
    takes the full width available but keeps a bounded height so the
    sphere stays readable instead of stretching to fill tall hosts. */
 .qs-bloch {
   display: grid;
-  /* The history column's width is driven by JS: bloch.tsx measures the
-     widest history row and publishes it as `--qs-history-width` so the
+  /* The trace column's width is driven by JS: bloch.tsx measures the
+     widest trace row and publishes it as `--qs-trace-width` so the
      pane grows horizontally to fit the wide `gate . |psi> = result`
      equations. It falls back to a sensible floor before the first
-     measurement. The sphere column keeps a 280px floor so a wide history
+     measurement. The sphere column keeps a 280px floor so a wide trace
      can't crush it. (The single-column media query below ignores the
      custom property entirely.) */
-  grid-template-columns: minmax(280px, 1fr) var(--qs-history-width, 300px);
+  grid-template-columns: minmax(280px, 1fr) var(--qs-trace-width, 300px);
   /* First row is pinned to the bounded sphere height. Pinning the TRACK
-     (not just the stage element) is what keeps the history pane from
+     (not just the stage element) is what keeps the trace pane from
      growing: an `auto` track would stretch to fit the tallest item, so a
      long gate list would drag the pane taller. With a fixed-height track,
-     both the stage and the history pane are clamped to it and the
-     history list scrolls internally instead. */
+     both the stage and the trace pane are clamped to it and the
+     trace list scrolls internally instead. */
   grid-template-rows: min(60vh, 600px) auto auto auto;
   column-gap: 16px;
   width: 100%;
@@ -661,14 +661,14 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 }
 
 /* On narrow hosts (split editor, small Jupyter outputs) the two-column
-   layout gets cramped, so collapse to a single column with the history
+   layout gets cramped, so collapse to a single column with the trace
    pane below the sphere. */
 @media (max-width: 720px) {
   .qs-bloch {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto auto auto;
   }
-  .qs-bloch-history {
+  .qs-bloch-trace {
     grid-column: 1;
     grid-row: auto;
     /* The inner content is absolutely positioned, so the pane no longer
@@ -679,12 +679,12 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   }
 }
 
-/* Bloch sphere widget: the gate-history pane sitting to the right of the
+/* Bloch sphere widget: the gate-trace pane sitting to the right of the
    3D canvas. Uses the shared QDK theme tokens so the pane swaps colors
    along with VS Code / playground theme changes. The 3D canvas itself
    (sphere material, axis labels) is themed imperatively from bloch.tsx
    since it's drawn via WebGL. */
-.qs-bloch-history {
+.qs-bloch-trace {
   grid-column: 2;
   /* Span every row so the pane is flush with the bottom of the widget,
      level with the gate controls and Rz slider below the sphere. Row 1
@@ -692,11 +692,11 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 
      Crucially, the pane's *content* must not feed back into the size of
      the spanned auto rows. A grid item spanning auto tracks contributes
-     its intrinsic height to those tracks, so a long history list would
+     its intrinsic height to those tracks, so a long trace list would
      grow rows 2-4 -- and with no height cap on the host (VS Code mounts
      the widget straight into `document.body`, unlike the playground's
      bounded grid cell) it grows without bound. We break that feedback by
-     positioning the inner content absolutely (see `.qs-bloch-history-inner`):
+     positioning the inner content absolutely (see `.qs-bloch-trace-inner`):
      the only in-flow child then contributes zero height, so the pane is
      sized purely by the surrounding grid, and the inner list scrolls. */
   position: relative;
@@ -708,12 +708,12 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   border: 1px solid var(--qdk-widget-outline);
 }
 
-/* Absolutely-positioned content layer for the history pane. Filling the
+/* Absolutely-positioned content layer for the trace pane. Filling the
    pane via `inset: 0` makes it match the grid-resolved pane height while
    contributing nothing to the grid's own track sizing (see the note on
-   `.qs-bloch-history`). The flex column lays out the title, transport
+   `.qs-bloch-trace`). The flex column lays out the title, transport
    controls, speed slider, and the scrolling step list within it. */
-.qs-bloch-history-inner {
+.qs-bloch-trace-inner {
   position: absolute;
   inset: 0;
   display: flex;
@@ -768,12 +768,12 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   user-select: none;
 }
 
-/* Sticky title bar at the top of the history pane. Stays visible while
+/* Sticky title bar at the top of the trace pane. Stays visible while
    the user scrolls through a long sequence so they always know which
    pane they're in. The step counter sits on the right and only renders
-   once the user has applied at least one gate, so an empty history
-   just reads "History". */
-.qs-bloch-history-title {
+   once the user has applied at least one gate, so an empty trace
+   just reads "Trace". */
+.qs-bloch-trace-title {
   font-weight: bold;
   padding: 6px 8px;
   border-bottom: 1px solid var(--qdk-widget-outline);
@@ -784,20 +784,20 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   gap: 8px;
 }
 
-/* Step counter pinned to the right of the history title bar. Lighter
+/* Step counter pinned to the right of the trace title bar. Lighter
    weight than the title itself so it reads as a subordinate piece of
    metadata, not a competing heading. */
-.qs-bloch-history-step-counter {
+.qs-bloch-trace-step-counter {
   font-weight: normal;
   font-size: 0.9em;
   opacity: 0.75;
 }
 
-/* Media-player-style transport bar below the history title. The row
+/* Media-player-style transport bar below the trace title. The row
    spans the full pane width so its background and border line up with
    the rest of the pane, but the buttons inside sit at a fixed size on
    the left and don't stretch when the pane grows wider to accommodate
-   long LaTeX history rows. Background uses the pane-accent token
+   long LaTeX trace rows. Background uses the pane-accent token
    rather than the menu-fill token so the themed buttons (which are
    filled with menu-fill) stand out against the row instead of
    blending in. */
@@ -852,23 +852,23 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-variant-numeric: tabular-nums;
 }
 
-/* Each entry in the history list. Clickable to navigate; hover hints
+/* Each entry in the trace list. Clickable to navigate; hover hints
    at this affordance via the menu-hover token. */
-.qs-bloch-history-item {
+.qs-bloch-trace-item {
   padding: 4px 8px;
   cursor: pointer;
   border-bottom: 1px solid var(--qdk-widget-outline);
 }
-.qs-bloch-history-item:hover {
+.qs-bloch-trace-item:hover {
   background: var(--qdk-menu-fill-hover);
 }
 
 /* The row matching the current cursor position. Highlighted so the
    user can tell at a glance where the sphere is "stopped". */
-.qs-bloch-history-item-current {
+.qs-bloch-trace-item-current {
   background: var(--qdk-menu-fill-selected);
 }
-.qs-bloch-history-item-current:hover {
+.qs-bloch-trace-item-current:hover {
   /* Keep the selected highlight visible on hover instead of letting
      the hover background paint over it. */
   background: var(--qdk-menu-fill-selected);
@@ -881,14 +881,14 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    pinned "latest" row keeps its opaque background -- otherwise rows
    scrolling underneath bleed through when the cursor is upstream of
    the latest. */
-.qs-bloch-history-item-future {
+.qs-bloch-trace-item-future {
   font-style: italic;
 }
-.qs-bloch-history-item-future > * {
+.qs-bloch-trace-item-future > * {
   opacity: 0.5;
 }
 
-/* The bottom-most row in the history list -- pinned to the bottom of
+/* The bottom-most row in the trace list -- pinned to the bottom of
    the scroll viewport via `position: sticky` so the most recent state
    stays visible while older rows scroll above it. When the list is
    short enough to fit in the panel, sticky has no effect and the row
@@ -896,7 +896,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    background (matching the pane) so rows scrolling underneath are
    visually occluded, and a top border to separate the pinned row
    from whichever row last scrolled past it. */
-.qs-bloch-history-item-latest {
+.qs-bloch-trace-item-latest {
   position: sticky;
   bottom: 0;
   background: var(--qdk-background-accent);
@@ -907,7 +907,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    keep the selected highlight instead of the plain pane background.
    Class order in the JSX doesn't guarantee specificity order, so we
    call this out explicitly. */
-.qs-bloch-history-item-latest.qs-bloch-history-item-current {
+.qs-bloch-trace-item-latest.qs-bloch-trace-item-current {
   background: var(--qdk-menu-fill-selected);
 }
 
@@ -920,7 +920,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    smaller so it reads as a hint rather than a duplicate.
 
    Capped at the canvas width (600px) so the editor and its feedback
-   row don't run into the history panel on the right or stretch to the
+   row don't run into the trace panel on the right or stretch to the
    far edge of the page. */
 .qs-bloch-gate-editor {
   font-family: var(--qdk-font-family-monospace);
