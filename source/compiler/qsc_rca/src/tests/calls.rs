@@ -23,7 +23,9 @@ fn check_rca_for_call_to_cyclic_function_with_classical_argument() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Static
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -49,7 +51,7 @@ fn check_rca_for_call_to_cyclic_function_with_dynamic_argument() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | CallToCyclicFunctionWithDynamicArg | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -75,8 +77,8 @@ fn check_rca_for_call_to_cyclic_operation_with_classical_argument() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | CallToCyclicOperation)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -102,7 +104,7 @@ fn check_rca_for_call_to_cyclic_operation_with_dynamic_argument() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | CallToCyclicOperation | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

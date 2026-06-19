@@ -13,8 +13,6 @@ mod analyzer;
 mod applications;
 mod common;
 mod core;
-mod cycle_detection;
-mod cyclic_callables;
 pub mod errors;
 #[cfg(debug_assertions)]
 mod invariants;

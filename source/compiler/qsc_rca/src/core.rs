@@ -351,7 +351,7 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id, expr_type)
+            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
         };
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
@@ -486,7 +486,6 @@ impl<'a> Analyzer<'a> {
         &mut self,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
-        expr_type: &Ty,
     ) -> ComputeKind {
         // Try to resolve the callee.
         let package_id = self.get_current_package_id();
@@ -515,23 +514,18 @@ impl<'a> Analyzer<'a> {
         };
 
         if self.callee_in_active_contexts(&callee) {
-            assert_eq!(
-                expr_type,
-                &Ty::UNIT,
-                "output type for allowed recursive call should be Unit"
-            );
-
             // This is a recursive call, which we allow with some deferred capabilities checks at runtime.
-            // We treat the call as an unresolved callee, like above, such that partial evaluation will perform
-            // extra validation on the capabilities at runtime.
-            // This covers the corner case where a recursive call is made with a dynamic argument whose
+            // We treat the call as if it were an unresolved callee, like above, such that partial evaluation will perform
+            // extra validation on the capabilities at runtime. By adding the call expression to the list of unresolved callees,
+            // we ensure that the call is additionally validated at runtime regardless of any runtime flags.
+            // This runtime check covers the corner case where a recursive call is made with a dynamic argument whose
             // type is allowed to be dynamic but whose usage in later recursion could require additional
             // capabilities.
             self.get_current_application_instance_mut()
                 .unresolved_callee_exprs
                 .push(callee_expr_id);
             return ComputeKind::Dynamic {
-                runtime_features: RuntimeFeatureFlags::CallToUnresolvedCallee,
+                runtime_features: RuntimeFeatureFlags::empty(),
                 value_kind: ValueKind::Constant,
             };
         }
