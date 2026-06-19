@@ -480,26 +480,159 @@ impl<'noise> Compiler<'noise> {
             "CX" | "CNOT" | "ZCX" => self.broadcast_pair(instruction, |s, q0, q1| {
                 s.op_2("cx", q0, q1);
             }),
-            "CXSWAP" => self.unsupported(instruction),
+            "CXSWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): CX 1 0; CX 0 1
+                s.op_2("cx", q1, q0);
+                s.op_2("cx", q0, q1);
+            }),
             "CY" | "ZCY" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("cy", q0, q1)),
             "CZ" | "ZCZ" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("cz", q0, q1)),
-            "CZSWAP" | "SWAPCZ" => self.unsupported(instruction),
+            "CZSWAP" | "SWAPCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op_2("cx", q1, q0);
+                s.op("h", q1);
+            }),
             "II" => (),
-            "ISWAP" | "ISWAP_DAG" | "SQRT_XX" | "SQRT_XX_DAG" | "SQRT_YY" | "SQRT_YY_DAG"
-            | "SQRT_ZZ" | "SQRT_ZZ_DAG" => self.unsupported(instruction),
+            "ISWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1; S 1; S 0
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op_2("cx", q1, q0);
+                s.op("h", q1);
+                s.op("s", q1);
+                s.op("s", q0);
+            }),
+            "ISWAP_DAG" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 1; CX 1 0; CX 0 1; H 0
+                s.op_adj("s", q0);
+                s.op_adj("s", q1);
+                s.op("h", q1);
+                s.op_2("cx", q1, q0);
+                s.op_2("cx", q0, q1);
+                s.op("h", q0);
+            }),
+            "SQRT_XX" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op("h", q1);
+                s.op("s", q0);
+                s.op("s", q1);
+                s.op("h", q0);
+                s.op("h", q1);
+            }),
+            "SQRT_XX_DAG" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 1; S 0; S 0; S 0; S 1; S 1; S 1; H 0; H 1
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op("h", q1);
+                s.op_adj("s", q0);
+                s.op_adj("s", q1);
+                s.op("h", q0);
+                s.op("h", q1);
+            }),
+            "SQRT_YY" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1; S 0; S 1
+                s.op_adj("s", q0); // S 0; S 0; S 0
+                s.op_adj("s", q1); // S 1; S 1; S 1
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op("h", q1);
+                s.op("s", q0);
+                s.op("s", q1);
+                s.op("h", q0);
+                s.op("h", q1);
+                s.op("s", q0);
+                s.op("s", q1);
+            }),
+            "SQRT_YY_DAG" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; H 0; CX 0 1; H 1; S 0; S 1; H 0; H 1; S 0; S 1; S 1; S 1
+                s.op_adj("s", q0); // S 0; S 0; S 0
+                s.op("s", q1); // S 1
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op("h", q1);
+                s.op("s", q0);
+                s.op("s", q1);
+                s.op("h", q0);
+                s.op("h", q1);
+                s.op("s", q0);
+                s.op_adj("s", q1); // S 1; S 1; S 1
+            }),
+            "SQRT_ZZ" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): H 1; CX 0 1; H 1; S 0; S 1
+                s.op("h", q1);
+                s.op_2("cx", q0, q1);
+                s.op("h", q1);
+                s.op("s", q0);
+                s.op("s", q1);
+            }),
+            "SQRT_ZZ_DAG" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): H 1; CX 0 1; H 1; S 0; S 0; S 0; S 1; S 1; S 1
+                s.op("h", q1);
+                s.op_2("cx", q0, q1);
+                s.op("h", q1);
+                s.op_adj("s", q0);
+                s.op_adj("s", q1);
+            }),
             "SWAP" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("swap", q0, q1)),
-            "SWAPCX" | "XCX" | "XCY" | "XCZ" | "YCX" | "YCY" | "YCZ" => {
-                self.unsupported(instruction)
-            }
+            "SWAPCX" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): CX 0 1; CX 1 0
+                s.op_2("cx", q0, q1);
+                s.op_2("cx", q1, q0);
+            }),
+            "XCX" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; H 0
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op("h", q0);
+            }),
+            "XCY" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 1; S 1; S 1; CX 0 1; H 0; S 1
+                s.op("h", q0);
+                s.op_adj("s", q1);
+                s.op_2("cx", q0, q1);
+                s.op("h", q0);
+                s.op("s", q1);
+            }),
+            "XCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): CX 1 0
+                s.op_2("cx", q1, q0);
+            }),
+            "YCX" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 1; CX 1 0; S 0; H 1
+                s.op_adj("s", q0);
+                s.op("h", q1);
+                s.op_2("cx", q1, q0);
+                s.op("s", q0);
+                s.op("h", q1);
+            }),
+            "YCY" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; S 1; S 1; S 1; H 0; CX 0 1; H 0; S 0; S 1
+                s.op_adj("s", q0);
+                s.op_adj("s", q1);
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op("h", q0);
+                s.op("s", q0);
+                s.op("s", q1);
+            }),
+            "YCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; CX 1 0; S 0
+                s.op_adj("s", q0);
+                s.op_2("cx", q1, q0);
+                s.op("s", q0);
+            }),
 
             // Noise Channels
-            "CORRELATED_ERROR" | "ELSE_CORRELATED_ERROR" => {
+            "E" | "CORRELATED_ERROR" | "ELSE_CORRELATED_ERROR" => {
                 self.accumulate_correlated_error(instruction)
             }
             "DEPOLARIZE1" => self.compile_depolarize_1(instruction),
             "DEPOLARIZE2" => self.compile_depolarize_2(instruction),
-            "E"
-            | "HERALDED_ERASE"
+            "HERALDED_ERASE"
             | "HERALDED_PAULI_CHANNEL_1"
             | "II_ERROR"
             | "I_ERROR"
@@ -554,7 +687,33 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Pair Measurement Gates
-            "MXX" | "MYY" | "MZZ" => self.unsupported(instruction),
+            "MXX" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): CX 0 1; H 0; M 0; H 0; CX 0 1
+                s.op_2("cx", q0, q1);
+                s.op("h", q0);
+                s.op_measure("m", q0);
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+            }),
+            "MYY" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
+                s.op("s", q0);
+                s.op("s", q1);
+                s.op_2("cx", q0, q1);
+                s.op("h", q0);
+                s.op_measure("m", q0);
+                s.op("z", q1);
+                s.op("h", q0);
+                s.op_2("cx", q0, q1);
+                s.op("s", q0);
+                s.op("s", q1);
+            }),
+            "MZZ" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Stim decomposition (into H, S, CX, M, R): CX 0 1; M 1; CX 0 1
+                s.op_2("cx", q0, q1);
+                s.op_measure("m", q1);
+                s.op_2("cx", q0, q1);
+            }),
 
             // Generalized Pauli Product Gates
             "MPP" | "SPP" | "SPP_DAG" => self.unsupported(instruction),
