@@ -655,9 +655,145 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 .qs-bloch-gate-editor,
 .qs-bloch-rz {
   grid-column: 1;
+  /* Keep all the control rows contained to the left, aligned with the
+     gate editor (which already caps at 600px), instead of stretching
+     the full width of the flexible sphere column up to the trace pane.
+     `justify-self: start` stops the grid item from filling the track;
+     `max-width` + `width: 100%` lets it grow up to the cap but no
+     further. */
+  justify-self: start;
+  width: 100%;
+  max-width: 600px;
 }
 .qs-bloch-rz {
   margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Top row of the Rz control: the circular angle dial on the left and a
+   column of info on the right (numeric readout, the commit button, and
+   the live decomposition text). */
+.qs-bloch-rz-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Circular angle dial. An SVG knob the user drags around a track to set
+   the Rz angle; also focusable and keyboard-operable (role="slider").
+   `touch-action: none` keeps a drag from scrolling the page on touch
+   devices, and the pointer cursor hints at the drag affordance. */
+.qs-bloch-rz-dial {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+  touch-action: none;
+  cursor: pointer;
+  user-select: none;
+}
+.qs-bloch-rz-dial:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+.qs-bloch-rz-dial-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qs-bloch-rz-dial-track {
+  fill: var(--qdk-host-background);
+  stroke: var(--qdk-widget-outline);
+  stroke-width: 3;
+}
+.qs-bloch-rz-dial-tick {
+  stroke: var(--qdk-widget-outline);
+  stroke-width: 2;
+}
+.qs-bloch-rz-dial-needle {
+  stroke: var(--qdk-menu-fill-selected);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.qs-bloch-rz-dial-center {
+  fill: var(--qdk-host-foreground);
+}
+.qs-bloch-rz-dial-knob {
+  fill: var(--qdk-menu-fill-selected);
+  stroke: var(--qdk-host-background);
+  stroke-width: 2;
+}
+.qs-bloch-rz-dial:hover .qs-bloch-rz-dial-knob {
+  fill: var(--qdk-menu-fill-hover);
+}
+
+/* Right-hand info column next to the dial. */
+.qs-bloch-rz-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  align-items: flex-start;
+}
+.qs-bloch-rz-readout {
+  font-style: italic;
+  font-size: 1.2em;
+  white-space: nowrap;
+}
+.qs-bloch-rz-apply {
+  height: 25px;
+  padding: 0 12px;
+  white-space: nowrap;
+  background: var(--qdk-menu-fill);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.qs-bloch-rz-apply:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-rz-apply:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-rz-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Read-only display of the gate sequence the current Rz angle decomposes
+   into. Updates live as the dial moves. The container has a FIXED height
+   so the row's overall height never changes as the decomposition length
+   varies between angles -- otherwise the wrapped-line count (and thus the
+   layout) would jitter rapidly while dragging the dial. The gate string
+   itself scrolls within that fixed box. */
+.qs-bloch-rz-decomposition {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.9em;
+  color: var(--qdk-description-foreground, var(--qdk-foreground-muted));
+  width: 100%;
+}
+.qs-bloch-rz-decomposition-label {
+  font-style: italic;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.qs-bloch-rz-decomposition-gates {
+  font-family: var(--qdk-font-family-monospace);
+  letter-spacing: 0.04em;
+  word-break: break-all;
+  user-select: text;
+  /* Fixed height (about three wrapped lines) with internal scroll keeps
+     the control's height stable no matter how long the decomposition
+     string is. `flex: 1` lets it take the remaining row width. */
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 3.9em;
+  overflow-y: auto;
+  line-height: 1.3;
 }
 
 /* Collapsed gate-controls view. When the controls are hidden, the

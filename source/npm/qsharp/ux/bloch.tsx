@@ -1601,19 +1601,174 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setDraft(input.value);
   }
 
-  function sliderChange(e: Event) {
-    const slider = e.target as HTMLInputElement;
-    const angleIdx = Math.round(parseFloat(slider.value) * 200) % 1256;
-    // The slider performs an Rz *from the current state*: it appends the
-    // Rz decomposition to the committed gate sequence rather than
-    // replacing it. We rebuild the draft as `committed gates + Rz` from
-    // the committed `gates` on every change, so dragging the slider keeps
-    // swapping its own contribution in place instead of accumulating
-    // multiple Rz blocks. The user can still review/edit the result and
-    // press Run/Enter to commit and replay.
-    setDraft(gates.join("") + rzOps[angleIdx]);
-    setRzAngle(parseFloat(slider.value));
+  // The Rz angle is chosen with a circular dial (see the JSX below). The
+  // dial stores the angle snapped to the lookup-table resolution so the
+  // previewed decomposition matches exactly what gets committed. The
+  // table is indexed by angle*200, so one step is 1/200 rad and the full
+  // turn is rzOps.length steps (== 2*PI*200).
+  const dialRef = useRef<SVGSVGElement>(null);
+  // Holds the pending requestAnimationFrame id while dragging the dial,
+  // so pointermove can coalesce rapid moves into one update per frame.
+  const dialFrameRef = useRef<number | null>(null);
+  const RZ_STEP = 1 / 200;
+  const RZ_STEPS = rzOps.length;
+
+  // Snap an arbitrary angle (radians) onto the lookup-table grid and wrap
+  // it into [0, 2*PI). Keeping every angle on the grid means the dial,
+  // the readout, and the committed decomposition can never disagree.
+  function snapAngle(a: number): number {
+    let idx = Math.round(a * 200) % RZ_STEPS;
+    if (idx < 0) idx += RZ_STEPS;
+    return idx * RZ_STEP;
   }
+
+  // Convert a pointer position to an angle measured from the dial center.
+  // 0 rad points right (3 o'clock) and increases counterclockwise, the
+  // standard math convention; SVG's y-axis points down, so we negate the
+  // vertical delta to flip it back.
+  function angleFromPointer(clientX: number, clientY: number): number {
+    const svg = dialRef.current;
+    if (!svg) return rzAngle;
+    const rect = svg.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let a = Math.atan2(-(clientY - cy), clientX - cx);
+    if (a < 0) a += Math.PI * 2;
+    return snapAngle(a);
+  }
+
+  function dialPointerDown(e: PointerEvent) {
+    if (isPlaying) return;
+    const svg = e.currentTarget as SVGSVGElement;
+    svg.setPointerCapture(e.pointerId);
+    setRzAngle(angleFromPointer(e.clientX, e.clientY));
+  }
+
+  function dialPointerMove(e: PointerEvent) {
+    const svg = e.currentTarget as SVGSVGElement;
+    if (!svg.hasPointerCapture(e.pointerId)) return;
+    // Coalesce moves to one state update per animation frame. Pointer
+    // events can fire far more often than the display refreshes, and each
+    // setRzAngle triggers a re-render, so without this a fast drag queues
+    // up many redundant renders and feels sluggish.
+    const next = angleFromPointer(e.clientX, e.clientY);
+    if (dialFrameRef.current !== null) return;
+    dialFrameRef.current = requestAnimationFrame(() => {
+      dialFrameRef.current = null;
+      setRzAngle(next);
+    });
+  }
+
+  function dialPointerUp(e: PointerEvent) {
+    const svg = e.currentTarget as SVGSVGElement;
+    if (svg.hasPointerCapture(e.pointerId))
+      svg.releasePointerCapture(e.pointerId);
+    // Flush any frame queued by the last move so the final position isn't
+    // dropped, and clear the pending-frame guard for the next drag.
+    if (dialFrameRef.current !== null) {
+      cancelAnimationFrame(dialFrameRef.current);
+      dialFrameRef.current = null;
+    }
+    setRzAngle(angleFromPointer(e.clientX, e.clientY));
+  }
+
+  // Keyboard support for the dial (focusable, role="slider"). Arrow keys
+  // nudge by one grid step; Home/End jump to 0 / just under a full turn.
+  // The angle wraps, matching the circular control.
+  function dialKeyDown(e: KeyboardEvent) {
+    if (isPlaying) return;
+    let next: number;
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowUp":
+        next = rzAngle + RZ_STEP;
+        break;
+      case "ArrowLeft":
+      case "ArrowDown":
+        next = rzAngle - RZ_STEP;
+        break;
+      case "PageUp":
+        next = rzAngle + RZ_STEP * 10;
+        break;
+      case "PageDown":
+        next = rzAngle - RZ_STEP * 10;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = (RZ_STEPS - 1) * RZ_STEP;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    setRzAngle(snapAngle(next));
+  }
+
+  // Map the current Rz angle to its precomputed Clifford+T decomposition.
+  // The table is indexed by angle*200 (mod 1256 == 2*PI*200), matching the
+  // resolution the slider steps at. Empty string for angle 0 (identity).
+  const rzAngleIdx = Math.round(rzAngle * 200) % rzOps.length;
+  const rzDecomposition = rzOps[rzAngleIdx] ?? "";
+
+  // Append the current Rz decomposition to the gate sequence, mirroring
+  // the way the single-gate buttons commit a gate: truncate any future
+  // (inspected-past) steps, add the new gates, move the cursor to the end,
+  // and clear the redo stack. The renderer snaps straight to the final
+  // state rather than animating through all ~60 decomposition gates; the
+  // user can scrub the trace to watch the decomposition step by step.
+  function applyRzDecomposition() {
+    if (!renderer.current || rzDecomposition.length === 0) return;
+    stopPlayback(false);
+    let base = gates;
+    if (cursor < gates.length) {
+      base = gates.slice(0, cursor);
+    }
+    const next = [...base, ...rzDecomposition.split("")];
+    renderer.current.snapTo(gatesToSteps(next));
+    setGates(next);
+    setCursor(next.length);
+    setRedoStack([]);
+    // The committed sequence is now the source of truth; drop any draft.
+    // Leave the dial at its current angle so the user can add the same
+    // rotation again without re-dialing it.
+    setDraft(null);
+    props.onGatesChanged?.(next.join(""));
+  }
+
+  // Memoized trace row list. Rebuilding these vnodes on every render is
+  // what made the dial feel slower as the sequence grew: each dial move
+  // calls setRzAngle, re-rendering the whole component, and preact then
+  // has to re-create and diff one vnode (plus a Markdown child) per gate.
+  // Keying the list on the values it actually depends on -- the rendered
+  // entries and the cursor position -- lets preact reuse the exact same
+  // vnodes when only the Rz angle changed, so the trace cost drops out of
+  // the drag entirely. `navigateTo` reads `gates` via closure, which only
+  // changes when `traceEntries` does, so the captured closure stays
+  // correct between rebuilds.
+  const traceRows = useMemo(() => {
+    return traceEntries.map((str, i) => {
+      const stepIndex = i + 1;
+      const classes = ["qs-bloch-trace-item"];
+      if (stepIndex === cursor) classes.push("qs-bloch-trace-item-current");
+      if (stepIndex > cursor) classes.push("qs-bloch-trace-item-future");
+      // Pin the bottom-most row so the latest step stays visible
+      // when the rest of the trace scrolls. See the CSS rule
+      // for `.qs-bloch-trace-item-latest` for the mechanics.
+      if (i === traceEntries.length - 1)
+        classes.push("qs-bloch-trace-item-latest");
+      return (
+        <div
+          class={classes.join(" ")}
+          title={`Go to step ${stepIndex}`}
+          onClick={() => navigateTo(stepIndex)}
+        >
+          <Markdown markdown={str}></Markdown>
+        </div>
+      );
+    });
+  }, [traceEntries, cursor]);
 
   return (
     <div
@@ -1796,28 +1951,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             >
               <Markdown markdown={INITIAL_KET_MARKDOWN}></Markdown>
             </div>
-            {traceEntries.map((str, i) => {
-              const stepIndex = i + 1;
-              const classes = ["qs-bloch-trace-item"];
-              if (stepIndex === cursor)
-                classes.push("qs-bloch-trace-item-current");
-              if (stepIndex > cursor)
-                classes.push("qs-bloch-trace-item-future");
-              // Pin the bottom-most row so the latest step stays visible
-              // when the rest of the trace scrolls. See the CSS rule
-              // for `.qs-bloch-trace-item-latest` for the mechanics.
-              if (i === traceEntries.length - 1)
-                classes.push("qs-bloch-trace-item-latest");
-              return (
-                <div
-                  class={classes.join(" ")}
-                  title={`Go to step ${stepIndex}`}
-                  onClick={() => navigateTo(stepIndex)}
-                >
-                  <Markdown markdown={str}></Markdown>
-                </div>
-              );
-            })}
+            {traceRows}
           </div>
         </div>
       </div>
@@ -2041,18 +2175,97 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         </div>
       </div>
       <div class="qs-bloch-rz">
-        <input
-          aria-label="Rz"
-          type="range"
-          min="0"
-          max="6.28"
-          step="0.005"
-          value={rzAngle}
-          onInput={sliderChange}
-        />
-        <span style="margin: 0 12px; font-style: italic; font-size: 1.2em;">
-          Rz({rzAngle.toFixed(2)} rad)
-        </span>
+        <div class="qs-bloch-rz-row">
+          {(() => {
+            // Knob sits on the track at the current angle. 0 rad is at
+            // 3 o'clock, increasing counterclockwise; SVG y points down
+            // so the vertical term is negated.
+            const trackR = 46;
+            const knobX = 60 + trackR * Math.cos(rzAngle);
+            const knobY = 60 - trackR * Math.sin(rzAngle);
+            return (
+              <svg
+                ref={dialRef}
+                class={
+                  "qs-bloch-rz-dial" +
+                  (isPlaying ? " qs-bloch-rz-dial-disabled" : "")
+                }
+                viewBox="0 0 120 120"
+                role="slider"
+                tabIndex={isPlaying ? -1 : 0}
+                aria-label="Rz angle in radians"
+                aria-valuemin={0}
+                aria-valuemax={(RZ_STEPS - 1) * RZ_STEP}
+                aria-valuenow={rzAngle}
+                aria-valuetext={`${rzAngle.toFixed(2)} radians`}
+                onPointerDown={dialPointerDown}
+                onPointerMove={dialPointerMove}
+                onPointerUp={dialPointerUp}
+                onKeyDown={dialKeyDown}
+              >
+                <circle
+                  class="qs-bloch-rz-dial-track"
+                  cx="60"
+                  cy="60"
+                  r={trackR}
+                />
+                {/* Tick marks at 0, π/2, π, 3π/2 for orientation. */}
+                {[0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((a) => (
+                  <line
+                    key={a}
+                    class="qs-bloch-rz-dial-tick"
+                    x1={60 + (trackR - 5) * Math.cos(a)}
+                    y1={60 - (trackR - 5) * Math.sin(a)}
+                    x2={60 + (trackR + 5) * Math.cos(a)}
+                    y2={60 - (trackR + 5) * Math.sin(a)}
+                  />
+                ))}
+                <line
+                  class="qs-bloch-rz-dial-needle"
+                  x1="60"
+                  y1="60"
+                  x2={knobX}
+                  y2={knobY}
+                />
+                <circle class="qs-bloch-rz-dial-center" cx="60" cy="60" r="3" />
+                <circle
+                  class="qs-bloch-rz-dial-knob"
+                  cx={knobX}
+                  cy={knobY}
+                  r="8"
+                />
+              </svg>
+            );
+          })()}
+          <div class="qs-bloch-rz-info">
+            <span class="qs-bloch-rz-readout">
+              Rz({rzAngle.toFixed(2)} rad)
+            </span>
+            <button
+              type="button"
+              class="qs-bloch-rz-apply"
+              onClick={applyRzDecomposition}
+              disabled={isPlaying || rzDecomposition.length === 0}
+              title={
+                rzDecomposition.length === 0
+                  ? "Set a non-zero angle to add an Rz rotation"
+                  : "Append this Rz decomposition to the gate sequence"
+              }
+            >
+              Add to sequence
+            </button>
+            <div class="qs-bloch-rz-decomposition" aria-live="polite">
+              <span class="qs-bloch-rz-decomposition-label">
+                Decomposition:
+              </span>
+              <span class="qs-bloch-rz-decomposition-gates">
+                {rzDecomposition.length > 0
+                  ? rzDecomposition
+                  : "identity (no gates)"}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
