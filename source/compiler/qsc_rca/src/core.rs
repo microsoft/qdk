@@ -468,17 +468,6 @@ impl<'a> Analyzer<'a> {
             compute_kind.aggregate_value_kind(value_kind);
         }
 
-        // To distinguish between a cyclic operation and a call to a cyclic operation, replace the cyclic operation
-        // runtime feature (if any) by a call to a cyclic operation.
-        if let ComputeKind::Dynamic {
-            runtime_features, ..
-        } = &mut compute_kind
-            && runtime_features.contains(RuntimeFeatureFlags::CyclicOperationSpec)
-        {
-            runtime_features.remove(RuntimeFeatureFlags::CyclicOperationSpec);
-            runtime_features.insert(RuntimeFeatureFlags::CallToCyclicOperation);
-        }
-
         compute_kind
     }
 

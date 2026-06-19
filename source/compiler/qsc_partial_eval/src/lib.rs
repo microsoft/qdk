@@ -2126,18 +2126,13 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // Recursive callables, callables whose bodies contain calls that RCA could not
+        // Callables whose bodies contain calls that RCA could not
         // statically resolve, and callables that transitively allocate qubits (unless dynamic qubit
         // allocation is enabled) must be inlined. These are surfaced as inherent runtime features of
-        // the specialization by RCA. Recursion appears as `CyclicOperationSpec`/
-        // `CallToCyclicOperation`, while unresolved-callee paths surface as
+        // the specialization by RCA. Unresolved-callee paths surface as
         // `CallToUnresolvedCallee`; in all such cases the specialization is inlined.
         let inherent_features = self.spec_inherent_runtime_features(store_item_id, functor_app);
-        if inherent_features.intersects(
-            RuntimeFeatureFlags::CyclicOperationSpec
-                | RuntimeFeatureFlags::CallToCyclicOperation
-                | RuntimeFeatureFlags::CallToUnresolvedCallee,
-        ) {
+        if inherent_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee) {
             return false;
         }
         if inherent_features.contains(RuntimeFeatureFlags::QubitAllocation)
