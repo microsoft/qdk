@@ -541,6 +541,67 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   height: 25px;
 }
 
+/* The gate-button toolbar is a row of segmented control groups: the gate
+   palette (X..T†), the undo/redo pair, and reset. Each group is a single
+   continuous "toolbelt" bar -- one rounded, bordered surface -- and the
+   individual gates are transparent segments inside it divided by thin
+   internal rules, so a group reads as one cohesive control rather than a
+   row of separate buttons. */
+.qs-gate-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.qs-bloch-gate-group {
+  display: inline-flex;
+  /* The bar surface: the border, rounding, and background live on the
+     group, not on its buttons. `overflow: hidden` clips the segments'
+     hover fill to the rounded outer corners. */
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 5px;
+  background: var(--qdk-menu-fill);
+  overflow: hidden;
+}
+/* Buttons become flat, borderless segments of the bar. We override the
+   shared themed-button rules (which give each button its own fill,
+   border, and rounding) so only the group surface shows through. A thin
+   left rule on every segment except the first draws the internal
+   dividers between gates. */
+.qs-gate-buttons .qs-bloch-gate-group button {
+  margin: 0;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  /* Divider between segments. We mix the foreground into the fill rather
+     than using --qdk-widget-outline: in the dark theme the outline token
+     (#444) is identical to --qdk-menu-fill, so an outline-coloured rule
+     would be invisible against the bar. A translucent foreground line
+     reads clearly on both the light and dark button fills. */
+  border-left: 1px solid
+    color-mix(in srgb, var(--qdk-host-foreground) 35%, transparent);
+}
+.qs-gate-buttons .qs-bloch-gate-group button:first-child {
+  border-left: none;
+}
+.qs-gate-buttons .qs-bloch-gate-group button:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+/* Keep the focus ring inside the bar so it isn't clipped by the group's
+   `overflow: hidden`, and lift it above neighbouring dividers. */
+.qs-gate-buttons .qs-bloch-gate-group button:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: -2px;
+  position: relative;
+  z-index: 1;
+}
+/* The gate palette segments share a fixed footprint so the set reads as
+   an even keypad. */
+.qs-gate-buttons .qs-bloch-gate-group-palette button {
+  width: 38px;
+}
+
 /* ---- Bloch widget: themed form controls ----
    Browser-default <button>, <input type="text">, and <input type="range">
    styling looks badly out of place on a dark theme (white inputs on a

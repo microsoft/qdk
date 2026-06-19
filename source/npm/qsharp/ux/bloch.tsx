@@ -1956,101 +1956,81 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         </div>
       </div>
       <div class="qs-gate-buttons">
-        <button
-          type="button"
-          onClick={() => applyGate("X")}
-          disabled={isPlaying}
+        {/* Gate palette: the single-qubit gates that can be applied to
+            the current state. Rendered as one segmented control so the
+            eight gates read as a single related set rather than a row of
+            disconnected buttons. */}
+        <div
+          class="qs-bloch-gate-group qs-bloch-gate-group-palette"
+          role="group"
+          aria-label="Apply gate"
         >
-          X
-        </button>
-        <button
-          type="button"
-          onClick={() => applyGate("Y")}
-          disabled={isPlaying}
-        >
-          Y
-        </button>
-        <button
-          type="button"
-          onClick={() => applyGate("Z")}
-          disabled={isPlaying}
-        >
-          Z
-        </button>
-        <button
-          type="button"
-          onClick={() => applyGate("H")}
-          disabled={isPlaying}
-        >
-          H
-        </button>
-        <button
-          type="button"
-          onClick={() => applyGate("S")}
-          disabled={isPlaying}
-        >
-          S
-        </button>
-        <button
-          type="button"
-          onClick={() => applyGate("s")}
-          disabled={isPlaying}
-        >
-          S†
-        </button>
-        <button
-          type="button"
-          onClick={() => applyGate("T")}
-          disabled={isPlaying}
-        >
-          T
-        </button>
-        <button
-          type="button"
-          onClick={() => applyGate("t")}
-          disabled={isPlaying}
-        >
-          T†
-        </button>
+          {(
+            [
+              ["X", "X"],
+              ["Y", "Y"],
+              ["Z", "Z"],
+              ["H", "H"],
+              ["S", "S"],
+              ["s", "S†"],
+              ["T", "T"],
+              ["t", "T†"],
+            ] as const
+          ).map(([code, label]) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => applyGate(code)}
+              disabled={isPlaying}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
-        <button
-          style="margin-left: 8px;"
-          type="button"
-          onClick={undo}
-          disabled={!canUndo}
-          title={
-            isPlaying
-              ? "Pause to edit the sequence"
-              : inInspectMode
-                ? "Jump to latest to edit the sequence"
-                : "Undo last gate"
-          }
-        >
-          Undo
-        </button>
-        <button
-          type="button"
-          onClick={redo}
-          disabled={!canRedo}
-          title={
-            isPlaying
-              ? "Pause to edit the sequence"
-              : inInspectMode
-                ? "Jump to latest to edit the sequence"
-                : "Redo last undone gate"
-          }
-        >
-          Redo
-        </button>
-        <button
-          style="margin-left: 8px;"
-          type="button"
-          onClick={reset}
-          disabled={isPlaying}
-          title={isPlaying ? "Pause to reset" : "Clear the entire trace"}
-        >
-          Reset
-        </button>
+        {/* Edit history: undo/redo of the gate sequence, grouped as a
+            second segmented control. */}
+        <div class="qs-bloch-gate-group" role="group" aria-label="Edit history">
+          <button
+            type="button"
+            onClick={undo}
+            disabled={!canUndo}
+            title={
+              isPlaying
+                ? "Pause to edit the sequence"
+                : inInspectMode
+                  ? "Jump to latest to edit the sequence"
+                  : "Undo last gate"
+            }
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={redo}
+            disabled={!canRedo}
+            title={
+              isPlaying
+                ? "Pause to edit the sequence"
+                : inInspectMode
+                  ? "Jump to latest to edit the sequence"
+                  : "Redo last undone gate"
+            }
+          >
+            Redo
+          </button>
+        </div>
+
+        <div class="qs-bloch-gate-group" role="group">
+          <button
+            type="button"
+            onClick={reset}
+            disabled={isPlaying}
+            title={isPlaying ? "Pause to reset" : "Clear the entire trace"}
+          >
+            Reset
+          </button>
+        </div>
       </div>
       <div class="qs-bloch-gate-editor">
         <div class="qs-bloch-gate-editor-row">
