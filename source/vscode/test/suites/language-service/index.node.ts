@@ -6,17 +6,20 @@ import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-import { setTestGithubEndpoint } from "../extensionUtils";
+import { setTestGithubEndpoint, TEST_TIMEOUT_MS } from "../extensionUtils";
 
 export async function run(): Promise<void> {
   const server = await startFakeGithubServer();
   try {
-    await runMochaTests(() => {
-      // We can't use any wildcards or dynamically discovered
-      // paths here since ESBuild needs these modules to be
-      // real paths on disk at bundling time.
-      require("./language-service.test"); // eslint-disable-line @typescript-eslint/no-require-imports
-    });
+    await runMochaTests(
+      () => {
+        // We can't use any wildcards or dynamically discovered
+        // paths here since ESBuild needs these modules to be
+        // real paths on disk at bundling time.
+        require("./language-service.test"); // eslint-disable-line @typescript-eslint/no-require-imports
+      },
+      { timeout: TEST_TIMEOUT_MS },
+    );
   } finally {
     server.close();
   }

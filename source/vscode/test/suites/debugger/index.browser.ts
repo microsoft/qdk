@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import { runMochaTests } from "../runBrowser";
+import { TEST_TIMEOUT_MS } from "../extensionUtils";
 
 export function run(): Promise<void> {
   return runMochaTests(
@@ -12,6 +13,6 @@ export function run(): Promise<void> {
       require("./qsharp.test"); // eslint-disable-line @typescript-eslint/no-require-imports
       require("./openqasm.test"); // eslint-disable-line @typescript-eslint/no-require-imports
     },
-    { timeout: 10_000 },
+    { timeout: TEST_TIMEOUT_MS },
   );
 }
