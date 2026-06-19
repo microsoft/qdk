@@ -302,6 +302,20 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("unsupported argument in instruction: {instruction}")]
+    #[diagnostic(code("Stim.UnsupportedArgument"))]
+    UnsupportedArgument {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("unsupported target in instruction: {instruction}")]
+    #[diagnostic(code("Stim.UnsupportedTarget"))]
+    UnsupportedTarget {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
 }
 
 struct Compiler<'noise> {
@@ -558,18 +572,22 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn emit_single(&mut self, instruction: &Instruction, intrinsic: &str) {
+        self.unsupported_args(instruction); // Temporary error
+
         for target in &instruction.targets {
-            let TargetKind::Qubit { value, .. } = target.kind else {
+            let Some(value) = self.expect_qubit(instruction, target) else {
                 continue;
             };
+
             self.writer
                 .write_qis_call(intrinsic, &[Operand::Qubit(value)]);
         }
     }
 
     fn emit_single_adj(&mut self, instruction: &Instruction, intrinsic: &str) {
+        self.unsupported_args(instruction); // Temporary error
         for target in &instruction.targets {
-            let TargetKind::Qubit { value, .. } = target.kind else {
+            let Some(value) = self.expect_qubit(instruction, target) else {
                 continue;
             };
             self.writer
@@ -578,12 +596,13 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn emit_pair(&mut self, instruction: &Instruction, intrinsic: &str) {
+        self.unsupported_args(instruction); // Temporary error
         let targets = &instruction.targets;
         for pair in targets.chunks(2) {
-            let TargetKind::Qubit { value: v0, .. } = pair[0].kind else {
+            let Some(v0) = self.expect_qubit(instruction, &pair[0]) else {
                 continue;
             };
-            let TargetKind::Qubit { value: v1, .. } = pair[1].kind else {
+            let Some(v1) = self.expect_qubit(instruction, &pair[1]) else {
                 continue;
             };
             self.writer
@@ -601,7 +620,7 @@ impl<'noise> Compiler<'noise> {
         };
         let probability = instruction.args[0];
         for target in &instruction.targets {
-            let TargetKind::Qubit { value, .. } = target.kind else {
+            let Some(value) = self.expect_qubit(instruction, target) else {
                 continue;
             };
             self.current_correlated_group
@@ -618,7 +637,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_depolarize_1(&mut self, instruction: &Instruction) {
         let each = instruction.args[0] / 3.0;
         for target in &instruction.targets {
-            let TargetKind::Qubit { value, .. } = target.kind else {
+            let Some(value) = self.expect_qubit(instruction, target) else {
                 continue;
             };
             {
@@ -639,10 +658,10 @@ impl<'noise> Compiler<'noise> {
     fn compile_depolarize_2(&mut self, instruction: &Instruction) {
         let each = instruction.args[0] / 15.0;
         for pair in instruction.targets.chunks(2) {
-            let TargetKind::Qubit { value: q0, .. } = pair[0].kind else {
+            let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
                 continue;
             };
-            let TargetKind::Qubit { value: q1, .. } = pair[1].kind else {
+            let Some(q1) = self.expect_qubit(instruction, &pair[1]) else {
                 continue;
             };
             {
@@ -680,8 +699,9 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn emit_measure(&mut self, instruction: &Instruction, intrinsic: &str) {
+        self.unsupported_args(instruction); // Temporary error
         for target in &instruction.targets {
-            let TargetKind::Qubit { value, .. } = target.kind else {
+            let Some(value) = self.expect_qubit(instruction, target) else {
                 continue;
             };
             self.writer
@@ -701,22 +721,17 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_preselect_expect(&mut self, instruction: &Instruction) {
+        self.unsupported_args(instruction); // Temporary error
         let id = self.last_preselect_begin.unwrap();
         let reg = format!("preselect_r{}", self.num_preselect_expects);
         self.num_preselect_expects += 1;
 
         // First target: which result to read
-        let TargetKind::Qubit {
-            value: result_id, ..
-        } = instruction.targets[0].kind
-        else {
+        let Some(result_id) = self.expect_qubit(instruction, &instruction.targets[0]) else {
             return;
         };
         // Second target: expected value (0 or 1)
-        let TargetKind::Qubit {
-            value: expected, ..
-        } = instruction.targets[1].kind
-        else {
+        let Some(expected) = self.expect_qubit(instruction, &instruction.targets[1]) else {
             return;
         };
 
@@ -818,6 +833,21 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_noise_intrinsic(&name, &columns);
     }
 
+    fn expect_qubit(&mut self, instruction: &Instruction, target: &Target) -> Option<u32> {
+        let TargetKind::Qubit {
+            value,
+            negated: false,
+        } = target.kind
+        else {
+            self.emit_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: target.span,
+            });
+            return None;
+        };
+        Some(value)
+    }
+
     fn unsupported(&mut self, instruction: &Instruction) {
         self.errors.push(Error::UnsupportedInstruction {
             name: instruction.name.clone(),
@@ -825,11 +855,24 @@ impl<'noise> Compiler<'noise> {
         });
     }
 
+    fn unsupported_args(&mut self, instruction: &Instruction) {
+        if !instruction.args.is_empty() {
+            self.errors.push(Error::UnsupportedArgument {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+        }
+    }
+
     fn unknown(&mut self, instruction: &Instruction) {
         self.errors.push(Error::UnknownInstruction {
             name: instruction.name.clone(),
             span: instruction.span,
         });
+    }
+
+    fn emit_error(&mut self, error: Error) {
+        self.errors.push(error);
     }
 
     fn into_qir(mut self, circuit: &Circuit) -> Result<String, Vec<Error>> {
