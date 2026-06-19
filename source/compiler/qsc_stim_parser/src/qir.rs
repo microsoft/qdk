@@ -37,6 +37,12 @@ impl QirWriter {
         }
     }
 
+    fn write_fmt(&mut self, args: std::fmt::Arguments) {
+        self.output
+            .write_fmt(args)
+            .expect("writing to a String should be infallible");
+    }
+
     /// `__quantum__qis__{intrinsic}__body`
     fn write_qis_call(&mut self, intrinsic: &str, operands: &[Operand]) {
         self.write_raw_call(&format!("__quantum__qis__{intrinsic}__body"), operands);
@@ -50,14 +56,14 @@ impl QirWriter {
     // Writes: `  call void @{intrinsic}(ptr inttoptr (i64 N to ptr), ...)`
     // Resolves qubit indices via the qubit map and allocates result IDs internally.
     fn write_raw_call(&mut self, intrinsic: &str, operands: &[Operand]) {
-        write!(self.output, "  call void @{intrinsic}(").unwrap();
+        write!(self, "  call void @{intrinsic}(");
         for (i, &operand) in operands.iter().enumerate() {
             if i > 0 {
-                write!(self.output, ", ").unwrap();
+                write!(self, ", ");
             }
             self.write_operand(operand);
         }
-        writeln!(self.output, ")").unwrap();
+        writeln!(self, ")");
         let params = (0..operands.len())
             .map(|_| "ptr")
             .collect::<Vec<_>>()
@@ -68,17 +74,17 @@ impl QirWriter {
     }
 
     fn write_noise_intrinsic(&mut self, name: &str, qubits: &[u32]) {
-        write!(self.output, "  call void @{name}(").unwrap();
+        write!(self, "  call void @{name}(");
         for (i, &qubit) in qubits.iter().enumerate() {
             if i > 0 {
-                write!(self.output, ", ").unwrap();
+                write!(self, ", ");
             }
             // Register the qubit so it is reflected in `required_num_qubits`, but emit
             // the raw Stim index as the operand.
             let id = self.map_qubit(qubit);
-            write!(self.output, "ptr inttoptr (i64 {id} to ptr)").unwrap();
+            write!(self, "ptr inttoptr (i64 {id} to ptr)");
         }
-        writeln!(self.output, ")").unwrap();
+        writeln!(self, ")");
         let params = (0..qubits.len())
             .map(|_| "ptr")
             .collect::<Vec<_>>()
@@ -95,49 +101,40 @@ impl QirWriter {
             Operand::Qubit(stim_index) => self.map_qubit(stim_index),
             Operand::Result => self.next_result(),
         };
-        write!(self.output, "ptr inttoptr (i64 {id} to ptr)").unwrap();
+        write!(self, "ptr inttoptr (i64 {id} to ptr)");
     }
 
     // Writes a label: `{name}:`
     fn write_label(&mut self, name: &str) {
-        writeln!(self.output, "{name}:").unwrap();
+        writeln!(self, "{name}:");
     }
 
     // Writes: `  br i1 %{cond}, label %{true_label}, label %{false_label}`
     fn write_branch(&mut self, cond: &str, true_label: &str, false_label: &str) {
         writeln!(
-            self.output,
+            self,
             "  br i1 %{cond}, label %{true_label}, label %{false_label}"
-        )
-        .unwrap();
+        );
     }
 
     // Writes: `  br label %{label}`
     fn write_jump(&mut self, label: &str) {
-        writeln!(self.output, "  br label %{label}").unwrap();
+        writeln!(self, "  br label %{label}");
     }
 
     // Writes: `  %{dest} = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 N to ptr))`
     fn write_read_result(&mut self, dest: &str, operand: Operand) {
-        write!(
-            self.output,
-            "  %{dest} = call i1 @__quantum__rt__read_result("
-        )
-        .unwrap();
+        write!(self, "  %{dest} = call i1 @__quantum__rt__read_result(");
         self.write_operand(operand);
-        writeln!(self.output, ")").unwrap();
+        writeln!(self, ")");
         self.used_intrinsics
             .entry("__quantum__rt__read_result".to_string())
             .or_insert_with(|| "declare i1 @__quantum__rt__read_result(ptr)".to_string());
     }
 
     fn write_header(&mut self) {
-        writeln!(self.output, "define i64 @ENTRYPOINT__main() #0 {{").unwrap();
-        writeln!(
-            self.output,
-            "  call void @__quantum__rt__initialize(ptr null)"
-        )
-        .unwrap();
+        writeln!(self, "define i64 @ENTRYPOINT__main() #0 {{");
+        writeln!(self, "  call void @__quantum__rt__initialize(ptr null)");
         self.used_intrinsics
             .entry("__quantum__rt__initialize".to_string())
             .or_insert_with(|| "declare void @__quantum__rt__initialize(ptr)".to_string());
@@ -146,10 +143,9 @@ impl QirWriter {
     fn write_record_output(&mut self) {
         let num_results = self.num_results;
         writeln!(
-            self.output,
+            self,
             "  call void @__quantum__rt__array_record_output(i64 {num_results}, ptr null)"
-        )
-        .unwrap();
+        );
         self.used_intrinsics
             .entry("__quantum__rt__array_record_output".to_string())
             .or_insert_with(|| {
@@ -157,10 +153,9 @@ impl QirWriter {
             });
         for i in 0..num_results {
             writeln!(
-                self.output,
+                self,
                 "  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 {i} to ptr), ptr null)"
-            )
-            .unwrap();
+            );
         }
         self.used_intrinsics
             .entry("__quantum__rt__result_record_output".to_string())
@@ -170,75 +165,47 @@ impl QirWriter {
     }
 
     fn write_declarations(&mut self) {
-        writeln!(self.output).unwrap();
-        for decl in self.used_intrinsics.values() {
-            writeln!(self.output, "{decl}").unwrap();
+        writeln!(self);
+        let decls: Vec<String> = self.used_intrinsics.values().cloned().collect();
+        for decl in decls {
+            writeln!(self, "{decl}");
         }
     }
 
     fn write_footer(&mut self) {
         self.write_record_output();
-        writeln!(self.output, "  ret i64 0").unwrap();
-        writeln!(self.output, "}}").unwrap();
+        writeln!(self, "  ret i64 0");
+        writeln!(self, "}}");
         self.write_declarations();
 
         let num_qubits = self.qubit_map.len();
         let num_results = self.num_results;
-        writeln!(self.output).unwrap();
+        writeln!(self);
         writeln!(
-            self.output,
+            self,
             "attributes #0 = {{ \"entry_point\" \"output_labeling_schema\" \"qir_profiles\"=\"adaptive_profile\" \"required_num_qubits\"=\"{num_qubits}\" \"required_num_results\"=\"{num_results}\" }}"
-        ).unwrap();
-        writeln!(self.output, "attributes #1 = {{ \"irreversible\" }}").unwrap();
-        writeln!(self.output).unwrap();
-        writeln!(self.output, "; module flags").unwrap();
-        writeln!(self.output).unwrap();
+        );
+        writeln!(self, "attributes #1 = {{ \"irreversible\" }}");
+        writeln!(self);
+        writeln!(self, "; module flags");
+        writeln!(self);
         if self.has_noise_intrinsic {
-            writeln!(self.output, "attributes #2 = {{ \"qdk_noise\" }}").unwrap();
-            writeln!(self.output).unwrap();
+            writeln!(self, "attributes #2 = {{ \"qdk_noise\" }}");
+            writeln!(self);
         }
+        writeln!(self, "!llvm.module.flags = !{{!0, !1, !2, !3, !4, !5, !6, !7}}");
+        writeln!(self);
+        writeln!(self, "!0 = !{{i32 1, !\"qir_major_version\", i32 2}}");
+        writeln!(self, "!1 = !{{i32 7, !\"qir_minor_version\", i32 1}}");
+        writeln!(self, "!2 = !{{i32 1, !\"dynamic_qubit_management\", i1 false}}");
+        writeln!(self, "!3 = !{{i32 1, !\"dynamic_result_management\", i1 false}}");
+        writeln!(self, "!4 = !{{i32 5, !\"int_computations\", !{{!\"i64\"}}}}");
         writeln!(
-            self.output,
-            "!llvm.module.flags = !{{!0, !1, !2, !3, !4, !5, !6, !7}}"
-        )
-        .unwrap();
-        writeln!(self.output).unwrap();
-        writeln!(
-            self.output,
-            "!0 = !{{i32 1, !\"qir_major_version\", i32 2}}"
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "!1 = !{{i32 7, !\"qir_minor_version\", i32 1}}"
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "!2 = !{{i32 1, !\"dynamic_qubit_management\", i1 false}}"
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "!3 = !{{i32 1, !\"dynamic_result_management\", i1 false}}"
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "!4 = !{{i32 5, !\"int_computations\", !{{!\"i64\"}}}}"
-        )
-        .unwrap();
-        writeln!(
-            self.output,
+            self,
             "!5 = !{{i32 5, !\"float_computations\", !{{!\"double\"}}}}"
-        )
-        .unwrap();
-        writeln!(
-            self.output,
-            "!6 = !{{i32 7, !\"backwards_branching\", i2 3}}"
-        )
-        .unwrap();
-        writeln!(self.output, "!7 = !{{i32 1, !\"arrays\", i1 true}}").unwrap();
+        );
+        writeln!(self, "!6 = !{{i32 7, !\"backwards_branching\", i2 3}}");
+        writeln!(self, "!7 = !{{i32 1, !\"arrays\", i1 true}}");
     }
 
     // Maps a Stim qubit index to a 0-based QIR qubit ID.
