@@ -7,7 +7,7 @@ pub mod lex;
 pub mod parser;
 pub mod qir;
 
-pub fn compile(src: &str, noise: &mut NoiseConfig<f64, f64>) -> String {
+pub fn compile(src: &str, noise: &mut NoiseConfig<f64, f64>) -> Result<String, Vec<qir::Error>> {
     let circuit = parser::parse(src);
     qir::compile_to_qir(&circuit, noise)
 }

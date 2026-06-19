@@ -15,7 +15,8 @@ use crate::{
     interop::{
         circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
         compile_stim_to_qir, create_filesystem_from_py, get_operation_name, get_output_semantics,
-        get_program_type, get_search_path, resource_estimate_qasm_program, run_qasm_program, sanitize_name,
+        get_program_type, get_search_path, resource_estimate_qasm_program, run_qasm_program,
+        sanitize_name,
     },
     interpreter::data_interop::{
         PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
@@ -147,6 +148,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     register_qre_submodule(m)?;
     // QASM interop
     m.add("QasmError", py.get_type::<QasmError>())?;
+    m.add("StimError", py.get_type::<StimError>())?;
     m.add_function(wrap_pyfunction!(resource_estimate_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(run_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
@@ -1172,6 +1174,13 @@ create_exception!(
     QasmError,
     pyo3::exceptions::PyException,
     "An error returned from the OpenQASM parser."
+);
+
+create_exception!(
+    module,
+    StimError,
+    pyo3::exceptions::PyException,
+    "An error returned from the Stim compiler."
 );
 
 pub(crate) fn format_errors(errors: Vec<interpret::Error>) -> String {

@@ -15,7 +15,7 @@ use crate::fs::file_system;
 use crate::interpreter::data_interop::value_to_pyobj;
 use crate::interpreter::{
     CircuitConfig, OptionalCallbackReceiver, OutputSemantics, ProgramType, QSharpError, QasmError,
-    TargetProfile, format_error, format_errors,
+    StimError, TargetProfile, format_error, format_errors,
 };
 use crate::qir_simulation::{NoiseConfig, bind_noise_config, unbind_noise_config};
 use pyo3::IntoPyObjectExt;
@@ -476,7 +476,15 @@ pub(crate) fn compile_stim_to_qir(
         |noise_config| unbind_noise_config(py, noise_config),
     );
 
-    let qir = qsc_stim_parser::compile(source, &mut noise_config);
+    let qir = qsc_stim_parser::compile(source, &mut noise_config).map_err(|errors| {
+        StimError::new_err(
+            errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    })?;
     Ok((qir, bind_noise_config(py, &noise_config)?))
 }
 

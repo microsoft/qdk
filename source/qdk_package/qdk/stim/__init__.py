@@ -1,5 +1,5 @@
 from ..simulation import run_qir
-from .._native import NoiseConfig, compile_stim_to_qir
+from .._native import NoiseConfig, StimError, compile_stim_to_qir
 from typing import List, Literal, Optional, Tuple
 
 

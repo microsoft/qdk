@@ -2542,9 +2542,11 @@ name = "qsc_stim_parser"
 version = "0.0.0"
 dependencies = [
  "enum-iterator",
+ "miette",
  "qdk_simulators",
  "qsc_data_structures",
  "rustc-hash",
+ "thiserror",
 ]
 
 [[package]]

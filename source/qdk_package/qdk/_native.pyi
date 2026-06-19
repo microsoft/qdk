@@ -521,6 +521,13 @@ class QasmError(BaseException):
 
     ...
 
+class StimError(BaseException):
+    """
+    An error returned from the Stim compiler.
+    """
+
+    ...
+
 def physical_estimates(logical_resources: str, params: str) -> str:
     """
     Estimates physical resources from pre-calculated logical resources.
@@ -663,6 +670,7 @@ def compile_stim_to_qir(
     :param noise: The noise configuration to use.
     :return: The converted QIR code as a string and the noise configuration.
     :rtype: Tuple[str, NoiseConfig]
+    :raises StimError: If there is an error compiling the Stim program.
     """
     ...
 

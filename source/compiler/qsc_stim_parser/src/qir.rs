@@ -4,8 +4,11 @@
 use qdk_simulators::noise_config::{NoiseConfig, NoiseTable, encode_pauli};
 
 use crate::parser::*;
+use miette::Diagnostic;
+use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
+use thiserror::Error;
 
 #[derive(Clone, Copy)]
 enum Operand {
@@ -283,6 +286,24 @@ struct CorrelatedGroup {
     rows: Vec<CorrelatedRow>,
 }
 
+#[derive(Clone, Debug, Error, Diagnostic)]
+pub enum Error {
+    #[error("unsupported instruction: {name}")]
+    #[diagnostic(code("Stim.UnsupportedInstruction"))]
+    UnsupportedInstruction {
+        name: String,
+        #[label]
+        span: Span,
+    },
+    #[error("unknown instruction: {name}")]
+    #[diagnostic(code("Stim.UnknownInstruction"))]
+    UnknownInstruction {
+        name: String,
+        #[label]
+        span: Span,
+    },
+}
+
 struct Compiler<'noise> {
     writer: QirWriter,
     last_preselect_begin: Option<u32>,
@@ -290,6 +311,7 @@ struct Compiler<'noise> {
     noise: &'noise mut NoiseConfig<f64, f64>,
     current_correlated_group: Option<CorrelatedGroup>,
     num_noise_intrinsics: u32,
+    errors: Vec<Error>,
 }
 
 impl<'noise> Compiler<'noise> {
@@ -301,6 +323,7 @@ impl<'noise> Compiler<'noise> {
             noise,
             current_correlated_group: None,
             num_noise_intrinsics: 0,
+            errors: Vec::new(),
         }
     }
 
@@ -346,96 +369,191 @@ impl<'noise> Compiler<'noise> {
             "X" | "Y" | "Z" => self.emit_single(instruction, &instruction.name.to_lowercase()),
 
             // Single Qubit Clifford Gates
-            "H" => self.emit_single(instruction, &instruction.name.to_lowercase()),
+            "C_NXYZ" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; S 0; S 0
+                self.emit_single_adj(instruction, "s");
+                self.emit_single(instruction, "h");
+                self.emit_single(instruction, "z");
+            }
+            "C_NZYX" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0; S 0
+                self.emit_single(instruction, "z");
+                self.emit_single(instruction, "h");
+                self.emit_single_adj(instruction, "s");
+            }
+            "C_XNYZ" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; H 0
+                self.emit_single(instruction, "s");
+                self.emit_single(instruction, "h");
+            }
+            "C_XYNZ" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0
+                self.emit_single(instruction, "s");
+                self.emit_single(instruction, "h");
+                self.emit_single(instruction, "z");
+            }
+            "C_XYZ" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0
+                self.emit_single_adj(instruction, "s");
+                self.emit_single(instruction, "h");
+            }
+            "C_ZNYX" => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; S 0
+                self.emit_single(instruction, "h");
+                self.emit_single_adj(instruction, "s");
+            }
+            "C_ZYNX" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0
+                self.emit_single(instruction, "z");
+                self.emit_single(instruction, "h");
+                self.emit_single(instruction, "s");
+            }
+            "C_ZYX" => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0
+                self.emit_single(instruction, "h");
+                self.emit_single(instruction, "s");
+            }
+            "H" | "H_XZ" => self.emit_single(instruction, "h"),
+            "H_NXY" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0; H 0
+                self.emit_single(instruction, "s");
+                self.emit_single(instruction, "x");
+            }
+            "H_NXZ" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0
+                self.emit_single(instruction, "z");
+                self.emit_single(instruction, "h");
+                self.emit_single(instruction, "z");
+            }
+            "H_NYZ" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; H 0
+                self.emit_single(instruction, "z");
+                self.emit_single(instruction, "sx");
+            }
+            "H_XY" => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; H 0; S 0
+                self.emit_single(instruction, "x");
+                self.emit_single(instruction, "s");
+            }
+            "H_YZ" => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; H 0; S 0; S 0
+                self.emit_single(instruction, "sx");
+                self.emit_single(instruction, "z");
+            }
             "S" | "SQRT_Z" => self.emit_single(instruction, "s"),
-            "S_DAG" | "SQRT_Z_DAG" => self.emit_single_adj(instruction, "s"),
             "SQRT_X" => self.emit_single(instruction, "sx"),
             "SQRT_X_DAG" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0
                 self.emit_single(instruction, "s");
                 self.emit_single(instruction, "h");
                 self.emit_single(instruction, "s");
             }
             "SQRT_Y" => {
-                self.emit_single(instruction, "s");
-                self.emit_single(instruction, "s");
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0
+                self.emit_single(instruction, "z");
                 self.emit_single(instruction, "h");
             }
             "SQRT_Y_DAG" => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0
                 self.emit_single(instruction, "h");
-                self.emit_single(instruction, "s");
-                self.emit_single(instruction, "s");
+                self.emit_single(instruction, "z");
             }
+            "S_DAG" | "SQRT_Z_DAG" => self.emit_single_adj(instruction, "s"),
 
             // Two Qubit Clifford Gates
+            "CX" | "CNOT" | "ZCX" => self.emit_pair(instruction, "cx"),
+            "CXSWAP" => self.unsupported(instruction),
+            "CY" | "ZCY" => self.emit_pair(instruction, "cy"),
+            "CZ" | "ZCZ" => self.emit_pair(instruction, "cz"),
+            "CZSWAP" | "SWAPCZ" => self.unsupported(instruction),
             "II" => (),
-            "CX" | "CY" | "CZ" | "SWAP" => {
-                self.emit_pair(instruction, &instruction.name.to_lowercase())
+            "ISWAP" | "ISWAP_DAG" | "SQRT_XX" | "SQRT_XX_DAG" | "SQRT_YY" | "SQRT_YY_DAG"
+            | "SQRT_ZZ" | "SQRT_ZZ_DAG" => self.unsupported(instruction),
+            "SWAP" => self.emit_pair(instruction, &instruction.name.to_lowercase()),
+            "SWAPCX" | "XCX" | "XCY" | "XCZ" | "YCX" | "YCY" | "YCZ" => {
+                self.unsupported(instruction)
             }
 
             // Noise Channels
             "CORRELATED_ERROR" | "ELSE_CORRELATED_ERROR" => {
                 self.accumulate_correlated_error(instruction)
             }
-
+            "DEPOLARIZE1" => self.compile_depolarize_1(instruction),
+            "DEPOLARIZE2" => self.compile_depolarize_2(instruction),
+            "E"
+            | "HERALDED_ERASE"
+            | "HERALDED_PAULI_CHANNEL_1"
+            | "II_ERROR"
+            | "I_ERROR"
+            | "PAULI_CHANNEL_1"
+            | "PAULI_CHANNEL_2" => self.unsupported(instruction),
             "X_ERROR" | "Y_ERROR" | "Z_ERROR" | "LOSS_ERROR" => {
                 self.compile_fault_error(instruction)
             }
 
-            "DEPOLARIZE1" => self.compile_depolarize_1(instruction),
-            "DEPOLARIZE2" => self.compile_depolarize_2(instruction),
-
             // Collapsing Gates
-            "R" | "RZ" => self.emit_single(instruction, "reset"),
-            "RX" => {
-                self.emit_single(instruction, "reset"); // RZ
-                self.emit_single(instruction, "h"); // Z -> X
-            }
-            "RY" => {
-                self.emit_single(instruction, "reset"); // RZ
-                self.emit_single(instruction, "h"); // Z -> X
-                self.emit_single(instruction, "s"); // X -> Y
-            }
             "M" | "MZ" => self.emit_measure(instruction, "m"),
-            "MX" => {
-                self.emit_single(instruction, "h"); // X -> Z
-                self.emit_measure(instruction, "m"); // MZ
-                self.emit_single(instruction, "h"); // Z -> X
-            }
-            "MY" => {
-                self.emit_single_adj(instruction, "s"); // Y -> X
-                self.emit_single(instruction, "h"); // X -> Z
-                self.emit_measure(instruction, "m"); // MZ
-                self.emit_single(instruction, "h"); // Z -> X
-                self.emit_single(instruction, "s"); // X -> Y
-            }
             "MR" | "MRZ" => self.emit_measure(instruction, "mresetz"),
             "MRX" => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; M 0; R 0; H 0
                 self.emit_single(instruction, "h"); // X -> Z
                 self.emit_measure(instruction, "mresetz"); // MRZ
                 self.emit_single(instruction, "h"); // Z -> X
             }
             "MRY" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; R 0; H 0; S 0
                 self.emit_single_adj(instruction, "s"); // Y -> X
                 self.emit_single(instruction, "h"); // X -> Z
                 self.emit_measure(instruction, "mresetz"); // MRZ
                 self.emit_single(instruction, "h"); // Z -> X
                 self.emit_single(instruction, "s"); // X -> Y
             }
+            "MX" => {
+                // Stim decomposition (into H, S, CX, M, R): H 0; M 0; H 0
+                self.emit_single(instruction, "h"); // X -> Z
+                self.emit_measure(instruction, "m"); // MZ
+                self.emit_single(instruction, "h"); // Z -> X
+            }
+            "MY" => {
+                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; H 0; S 0
+                self.emit_single_adj(instruction, "s"); // Y -> X
+                self.emit_single(instruction, "h"); // X -> Z
+                self.emit_measure(instruction, "m"); // MZ
+                self.emit_single(instruction, "h"); // Z -> X
+                self.emit_single(instruction, "s"); // X -> Y
+            }
+            "R" | "RZ" => self.emit_single(instruction, "reset"),
+            "RX" => {
+                // Stim decomposition (into H, S, CX, M, R): R 0; H 0
+                self.emit_single(instruction, "reset"); // RZ
+                self.emit_single(instruction, "h"); // Z -> X
+            }
+            "RY" => {
+                // Stim decomposition (into H, S, CX, M, R): R 0; H 0; S 0
+                self.emit_single(instruction, "reset"); // RZ
+                self.emit_single(instruction, "h"); // Z -> X
+                self.emit_single(instruction, "s"); // X -> Y
+            }
 
             // Pair Measurement Gates
+            "MXX" | "MYY" | "MZZ" => self.unsupported(instruction),
 
             // Generalized Pauli Product Gates
+            "MPP" | "SPP" | "SPP_DAG" => self.unsupported(instruction),
 
             // Control Flow
+            "REPEAT" => self.unsupported(instruction),
 
             // Annotations
+            "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
+            | "TICK" => (),
 
             // Custom Instructions
             "!rhai" => (),
             "#!preselect_begin" => self.compile_preselect_begin(),
             "#!preselect_expect" => self.compile_preselect_expect(instruction),
 
-            _ => self.unsupported(instruction),
+            _ => self.unknown(instruction),
         }
     }
 
@@ -701,19 +819,35 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn unsupported(&mut self, instruction: &Instruction) {
-        // TODO: IMPROVE ERROR HANDLING
-        panic!("Unsupported instruction: {}", instruction.name);
+        self.errors.push(Error::UnsupportedInstruction {
+            name: instruction.name.clone(),
+            span: instruction.span,
+        });
     }
 
-    fn into_qir(mut self, circuit: &Circuit) -> String {
+    fn unknown(&mut self, instruction: &Instruction) {
+        self.errors.push(Error::UnknownInstruction {
+            name: instruction.name.clone(),
+            span: instruction.span,
+        });
+    }
+
+    fn into_qir(mut self, circuit: &Circuit) -> Result<String, Vec<Error>> {
         self.writer.write_header();
         self.compile_circuit(circuit);
         self.finish_correlated_group();
         self.writer.write_footer();
-        self.writer.output
+        if self.errors.is_empty() {
+            Ok(self.writer.output)
+        } else {
+            Err(self.errors)
+        }
     }
 }
 
-pub fn compile_to_qir(circuit: &Circuit, noise: &mut NoiseConfig<f64, f64>) -> String {
+pub fn compile_to_qir(
+    circuit: &Circuit,
+    noise: &mut NoiseConfig<f64, f64>,
+) -> Result<String, Vec<Error>> {
     Compiler::new(noise).into_qir(circuit)
 }

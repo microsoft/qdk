@@ -8,5 +8,7 @@ enum-iterator.workspace = true
 qdk_simulators = { path = "../../simulators" }
 qsc_data_structures = { path = "../qsc_data_structures" }
 rustc-hash = { workspace = true }
+miette = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
