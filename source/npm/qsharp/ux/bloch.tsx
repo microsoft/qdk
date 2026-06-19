@@ -233,7 +233,15 @@ function makeLabelSprite(text: string, fillStyle: string): Sprite {
   ctx.fillText(text, size / 2, size / 2);
 
   const texture = new CanvasTexture(canvas);
-  const material = new SpriteMaterial({ map: texture, transparent: true });
+  // depthWrite off: the sprite is a mostly-transparent quad, and writing
+  // depth for the whole quad would punch a box-shaped hole in the grid
+  // circles drawn behind it (the transparent corners still occlude). The
+  // glyph itself still shows because the sprite renders after the lines.
+  const material = new SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+  });
   const sprite = new Sprite(material);
   // Scale chosen to roughly match the visual size of the previous 3D text
   // (size: 0.6 extrusion with bevel).
@@ -383,6 +391,14 @@ class BlochRenderer {
     });
     this.sphereMaterial = material;
     const sphere = new Mesh(sphereGeometry, material);
+    // Draw the (transparent, emissive) sphere before the grid lines. Both
+    // are transparent, so without an explicit order three.js sorts them by
+    // centroid distance and the sphere sometimes lands *after* the near-side
+    // line circles -- painting the emissive surface over them and washing a
+    // whole hemisphere of lines to white. The washed half flips as the
+    // camera rotates. Pinning the sphere to renderOrder 0 (and the lines to
+    // 1, below) makes the order deterministic.
+    sphere.renderOrder = 0;
     sphereFrame.add(sphere);
 
     // Add the 'spin' direction marker. This is the only part of the qubit
@@ -401,7 +417,11 @@ class BlochRenderer {
     const gridRadius = 5.1;
     const circleSegments = 128;
     const lineMaterial = new LineBasicMaterial({
+      // Test against the sphere's depth so far-side circles stay occluded,
+      // but don't write depth: the lines render after the sphere (renderOrder
+      // below) and shouldn't depth-fight one another.
       depthTest: true,
+      depthWrite: false,
       transparent: true,
       opacity: palette.sphereLinesOpacity,
     });
@@ -416,7 +436,11 @@ class BlochRenderer {
         points.push(pointAt((i / circleSegments) * Math.PI * 2));
       }
       const geometry = new BufferGeometry().setFromPoints(points);
-      sphereLines.add(new Line(geometry, lineMaterial));
+      const line = new Line(geometry, lineMaterial);
+      // Render after the sphere (renderOrder 0) so the sphere never paints
+      // over the lines. depthTest still occludes the far-side circles.
+      line.renderOrder = 1;
+      sphereLines.add(line);
     };
 
     // Latitude circles: evenly spaced rings of constant polar angle. We skip
