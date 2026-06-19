@@ -1143,7 +1143,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // into a row. Because row widths don't depend on the pane width, the
   // result is a stable fixed point with no layout feedback loop. We round
   // up and only update on a real change to avoid sub-pixel thrashing.
-  const PANE_MIN_WIDTH = 300;
+  const PANE_MIN_WIDTH = 480;
   useEffect(() => {
     const list = traceScrollRef.current;
     if (!list) return;

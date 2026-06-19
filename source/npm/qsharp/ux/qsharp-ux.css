@@ -682,7 +682,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
      measurement. The sphere column keeps a 280px floor so a wide trace
      can't crush it. (The single-column media query below ignores the
      custom property entirely.) */
-  grid-template-columns: minmax(280px, 1fr) var(--qs-trace-width, 300px);
+  grid-template-columns: minmax(280px, 1fr) var(--qs-trace-width, 480px);
   /* First row is pinned to the bounded sphere height. Pinning the TRACK
      (not just the stage element) is what keeps the trace pane from
      growing: an `auto` track would stretch to fit the tallest item, so a
