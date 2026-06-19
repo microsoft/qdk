@@ -1862,7 +1862,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               title="Jump to start"
               aria-label="Jump to start"
             >
-              ⏮
+              {"\u23EE\uFE0E"}
             </button>
             <button
               type="button"
@@ -1871,7 +1871,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               title="Step back"
               aria-label="Step back"
             >
-              ⏪
+              {"\u23EA\uFE0E"}
             </button>
             {isPlaying ? (
               <button
@@ -1880,7 +1880,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 title="Pause"
                 aria-label="Pause"
               >
-                ⏸
+                {"\u23F8\uFE0E"}
               </button>
             ) : (
               <button
@@ -1893,8 +1893,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 {/* Show the circular-arrow "replay" glyph when the cursor
                   is at the end of the sequence, so users see at a glance
                   that clicking will rewind first. Otherwise show the
-                  standard play triangle. */}
-                {atEnd ? "\u21BB" : "\u23F5"}
+                  standard play triangle. The trailing U+FE0E forces
+                  text-style (non-emoji) presentation so these match the
+                  step/jump glyphs. */}
+                {atEnd ? "\u21BB" : "\u23F5\uFE0E"}
               </button>
             )}
             <button
@@ -1904,7 +1906,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               title="Step forward"
               aria-label="Step forward"
             >
-              ⏩
+              {"\u23E9\uFE0E"}
             </button>
             <button
               type="button"
@@ -1913,7 +1915,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               title="Jump to end"
               aria-label="Jump to end"
             >
-              ⏭
+              {"\u23ED\uFE0E"}
             </button>
           </div>
           {/*
