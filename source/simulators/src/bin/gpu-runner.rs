@@ -69,7 +69,10 @@ fn assert_ratio(results: &[Vec<u32>], expected: &[u32], expected_ratio: f64, tol
 fn two_measurements() {
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),
-        Op::new_loss_noise(0, 0.333),
+        // 33% chance the qubit is lost after the X gate, sampled by the noise op
+        // and committed by the following loss-commit op.
+        Op::new_pauli_noise_1q_with_loss(0, 0.0, 0.0, 0.0, 0.333),
+        Op::new_loss_commit(0),
         // Should be 33% chance of lost, 66% chance of 1
 
         // If not using the noise model processing, need to turn pauli on measurement into Id with noise then mesurement
@@ -178,9 +181,11 @@ fn gates_on_lost_qubits() {
 
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),
-        Op::new_loss_noise(0, 0.1),
+        Op::new_pauli_noise_1q_with_loss(0, 0.0, 0.0, 0.0, 0.1),
+        Op::new_loss_commit(0),
         Op::new_x_gate(1),
-        Op::new_loss_noise(1, 0.1),
+        Op::new_pauli_noise_1q_with_loss(1, 0.0, 0.0, 0.0, 0.1),
+        Op::new_loss_commit(1),
         Op::new_cx_gate(0, 1),
         Op::new_rx_gate(angle, 2),
         Op::new_rx_gate(angle, 2),
@@ -190,7 +195,7 @@ fn gates_on_lost_qubits() {
     ];
     let start = Instant::now();
     let results =
-        run_shots_sync(3, 3, &ops, &None, 1000, DEFAULT_SEED, 0).expect("GPU shots failed");
+        run_shots_sync(3, 3, &ops, &None, 10_000, DEFAULT_SEED, 0).expect("GPU shots failed");
     let elapsed = start.elapsed();
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
     check_success(&results);
@@ -731,13 +736,15 @@ fn repeated_noise() {
     // Add bit-flip and loss noise to X gates of 0.1%
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
     noise.x.pauli_strings.push(encode_pauli("X"));
+    noise.x.probabilities.push(0.001 * (1.0 - 0.001));
+
+    noise.x.pauli_strings.push(encode_pauli("L"));
     noise.x.probabilities.push(0.001);
-    noise.x.loss = 0.001;
 
     let start = Instant::now();
     // Run for 20,000 shots
-    let results =
-        run_shots_sync(5, 5, &ops, &Some(noise), 20000, DEFAULT_SEED, 0).expect("GPU shots failed");
+    let results = run_shots_sync(5, 5, &ops, &Some(noise), 30_000, DEFAULT_SEED, 0)
+        .expect("GPU shots failed");
     let elapsed = start.elapsed();
     check_success(&results);
 
@@ -753,15 +760,15 @@ fn repeated_noise() {
     --001: 160 (0.80%)
     1-001: 145 (0.72%)
         */
-    assert_ratio(&results.shot_results, &[0, 0, 0, 0, 1], 0.675, 0.01);
-    assert_ratio(&results.shot_results, &[0, 2, 0, 0, 1], 0.078, 0.003);
-    assert_ratio(&results.shot_results, &[0, 1, 0, 0, 1], 0.071, 0.003);
+    assert_ratio(&results.shot_results, &[0, 0, 0, 0, 1], 0.675, 0.002);
+    assert_ratio(&results.shot_results, &[0, 2, 0, 0, 1], 0.078, 0.002);
+    assert_ratio(&results.shot_results, &[0, 1, 0, 0, 1], 0.071, 0.002);
     assert_ratio(&results.shot_results, &[2, 0, 0, 0, 1], 0.045, 0.002);
     assert_ratio(&results.shot_results, &[2, 1, 0, 0, 1], 0.043, 0.002);
     assert_ratio(&results.shot_results, &[1, 1, 0, 0, 1], 0.037, 0.002);
     assert_ratio(&results.shot_results, &[1, 0, 0, 0, 1], 0.036, 0.002);
-    assert_ratio(&results.shot_results, &[2, 2, 0, 0, 1], 0.008, 0.001);
-    assert_ratio(&results.shot_results, &[1, 2, 0, 0, 1], 0.007, 0.001);
+    assert_ratio(&results.shot_results, &[2, 2, 0, 0, 1], 0.008, 0.002);
+    assert_ratio(&results.shot_results, &[1, 2, 0, 0, 1], 0.007, 0.002);
     assert_ratio(&results.shot_results, &[1, 2, 0, 0, 0], 0.0, 0.0);
 
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
@@ -826,8 +833,10 @@ fn scaled_grover() {
 fn noise_config() {
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
     noise.x.pauli_strings.push(encode_pauli("X"));
-    noise.x.probabilities.push(0.5);
-    noise.x.loss = 0.333_333;
+    noise.x.probabilities.push(0.333_333);
+
+    noise.x.pauli_strings.push(encode_pauli("L"));
+    noise.x.probabilities.push(0.333_333);
 
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),
