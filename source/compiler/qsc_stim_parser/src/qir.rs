@@ -193,13 +193,25 @@ impl QirWriter {
             writeln!(self, "attributes #2 = {{ \"qdk_noise\" }}");
             writeln!(self);
         }
-        writeln!(self, "!llvm.module.flags = !{{!0, !1, !2, !3, !4, !5, !6, !7}}");
+        writeln!(
+            self,
+            "!llvm.module.flags = !{{!0, !1, !2, !3, !4, !5, !6, !7}}"
+        );
         writeln!(self);
         writeln!(self, "!0 = !{{i32 1, !\"qir_major_version\", i32 2}}");
         writeln!(self, "!1 = !{{i32 7, !\"qir_minor_version\", i32 1}}");
-        writeln!(self, "!2 = !{{i32 1, !\"dynamic_qubit_management\", i1 false}}");
-        writeln!(self, "!3 = !{{i32 1, !\"dynamic_result_management\", i1 false}}");
-        writeln!(self, "!4 = !{{i32 5, !\"int_computations\", !{{!\"i64\"}}}}");
+        writeln!(
+            self,
+            "!2 = !{{i32 1, !\"dynamic_qubit_management\", i1 false}}"
+        );
+        writeln!(
+            self,
+            "!3 = !{{i32 1, !\"dynamic_result_management\", i1 false}}"
+        );
+        writeln!(
+            self,
+            "!4 = !{{i32 5, !\"int_computations\", !{{!\"i64\"}}}}"
+        );
         writeln!(
             self,
             "!5 = !{{i32 5, !\"float_computations\", !{{!\"double\"}}}}"
@@ -842,7 +854,9 @@ impl<'noise> Compiler<'noise> {
             None => Some(0),
             Some(n) => Some(n + 1),
         };
-        let id = self.last_preselect_begin.unwrap();
+        let id = self
+            .last_preselect_begin
+            .expect("last_preselect_begin was just set to Some above");
         let label = format!("preselect_begin_{id}");
         self.writer.write_jump(&label); // terminate the previous block
         self.writer.write_label(&label); // start the new block
@@ -850,7 +864,9 @@ impl<'noise> Compiler<'noise> {
 
     fn compile_preselect_expect(&mut self, instruction: &Instruction) {
         self.unsupported_args(instruction); // Temporary error
-        let id = self.last_preselect_begin.unwrap();
+        let id = self
+            .last_preselect_begin
+            .expect("PRESELECT_EXPECT must be preceded by a PRESELECT_BEGIN");
         let reg = format!("preselect_r{}", self.num_preselect_expects);
         self.num_preselect_expects += 1;
 

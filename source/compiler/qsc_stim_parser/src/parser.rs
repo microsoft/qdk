@@ -337,7 +337,9 @@ impl<'a> Parser<'a> {
                         span,
                         kind: TargetKind::Pauli {
                             negated,
-                            pauli: head.parse::<Pauli>().unwrap(),
+                            pauli: head
+                                .parse::<Pauli>()
+                                .expect("lexer guarantees X/Y/Z prefix for Pauli targets"),
                             value,
                         },
                     }
@@ -376,11 +378,15 @@ impl<'a> Parser<'a> {
     }
 
     fn extract_uint(&mut self, token: Token, span: Option<Span>) -> u32 {
-        self.extract_string(token, span).parse().unwrap()
+        self.extract_string(token, span)
+            .parse()
+            .expect("lexer guarantees valid uint")
     }
 
     fn extract_double(&mut self, token: Token, span: Option<Span>) -> f64 {
-        self.extract_string(token, span).parse().unwrap()
+        self.extract_string(token, span)
+            .parse()
+            .expect("lexer guarantees valid double")
     }
 
     fn extract_string(&self, token: Token, span: Option<Span>) -> String {
