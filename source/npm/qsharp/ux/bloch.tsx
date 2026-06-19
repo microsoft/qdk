@@ -12,15 +12,16 @@ import { ComponentChildren } from "preact";
 
 import {
   BoxGeometry,
+  BufferGeometry,
   CanvasTexture,
   ConeGeometry,
   CylinderGeometry,
   DirectionalLight,
   Group,
-  LineSegments,
+  Line,
+  LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
-  MeshBasicMaterialParameters,
   MeshLambertMaterial,
   PerspectiveCamera,
   Scene,
@@ -29,7 +30,6 @@ import {
   SpriteMaterial,
   Vector3,
   WebGLRenderer,
-  WireframeGeometry,
 } from "three";
 
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -298,7 +298,7 @@ class BlochRenderer {
   // Stored so setTheme() can mutate the sphere material and swap out the
   // axis label sprites when light/dark changes after construction.
   sphereMaterial: MeshLambertMaterial;
-  sphereLineMaterial: MeshBasicMaterialParameters;
+  sphereLineMaterial: LineBasicMaterial;
   markerMaterial: MeshBasicMaterial;
   directionalLight: DirectionalLight;
   labelSprites: Sprite[] = [];
@@ -366,15 +366,15 @@ class BlochRenderer {
     // Create a group to hold the qubit
     const qubit = new Group();
 
-    // The sphere itself (and its wireframe) stay fixed in the scene: a
+    // The sphere itself (and its grid lines) stay fixed in the scene: a
     // gate rotates only the qubit's *state*, not the reference frame, so
     // the Bloch axes and sphere surface must not spin. Only the position
     // marker below lives in the rotating `qubit` group; the sphere and
-    // wireframe are parented to a separate, non-rotating group instead.
+    // grid lines are parented to a separate, non-rotating group instead.
     const sphereFrame = new Group();
 
-    // Add the main sphere
-    const sphereGeometry = new SphereGeometry(5, 32, 16);
+    // Add the main sphere.
+    const sphereGeometry = new SphereGeometry(5, 96, 64);
     const material = new MeshLambertMaterial({
       emissive: palette.sphereColor,
       emissiveIntensity: palette.sphereBrightness,
@@ -396,15 +396,59 @@ class BlochRenderer {
     marker.rotateX(Math.PI / 2);
     qubit.add(marker);
 
-    // Draw the wires on it
-    const sphereWireGeometry = new SphereGeometry(5.1, 16, 16);
-    const wireframe = new WireframeGeometry(sphereWireGeometry);
-    const sphereLines = new LineSegments(wireframe);
-    const materialProps = sphereLines.material as MeshBasicMaterialParameters;
-    materialProps.depthTest = true;
-    materialProps.opacity = palette.sphereLinesOpacity;
-    materialProps.transparent = true;
-    this.sphereLineMaterial = materialProps;
+    // Draw smooth latitude/longitude grid lines on the sphere. Each circle
+    // is a single high-segment line loop, which reads as a clean great-circle.
+    const gridRadius = 5.1;
+    const circleSegments = 128;
+    const lineMaterial = new LineBasicMaterial({
+      depthTest: true,
+      transparent: true,
+      opacity: palette.sphereLinesOpacity,
+    });
+    this.sphereLineMaterial = lineMaterial;
+    const sphereLines = new Group();
+
+    // Build a closed circle of `circleSegments` points from a function that
+    // maps an angle in [0, 2*PI) to a point on the sphere.
+    const addCircle = (pointAt: (angle: number) => Vector3) => {
+      const points: Vector3[] = [];
+      for (let i = 0; i <= circleSegments; i++) {
+        points.push(pointAt((i / circleSegments) * Math.PI * 2));
+      }
+      const geometry = new BufferGeometry().setFromPoints(points);
+      sphereLines.add(new Line(geometry, lineMaterial));
+    };
+
+    // Latitude circles: evenly spaced rings of constant polar angle. We skip
+    // the poles (the degenerate zero-radius rings) and draw the rest.
+    const latitudeCount = 18;
+    for (let i = 1; i < latitudeCount; i++) {
+      const theta = (i / latitudeCount) * Math.PI;
+      const y = gridRadius * Math.cos(theta);
+      const r = gridRadius * Math.sin(theta);
+      addCircle(
+        (angle) => new Vector3(r * Math.cos(angle), y, r * Math.sin(angle)),
+      );
+    }
+
+    // Longitude circles: great circles through both poles, evenly spaced in
+    // azimuth. Each half-meridian repeats on the far side, so stepping over
+    // half the circle covers the whole sphere.
+    const longitudeCount = 18;
+    for (let i = 0; i < longitudeCount; i++) {
+      const phi = (i / longitudeCount) * Math.PI;
+      const cosPhi = Math.cos(phi);
+      const sinPhi = Math.sin(phi);
+      addCircle(
+        (angle) =>
+          new Vector3(
+            gridRadius * Math.sin(angle) * cosPhi,
+            gridRadius * Math.cos(angle),
+            gridRadius * Math.sin(angle) * sinPhi,
+          ),
+      );
+    }
+
     sphereFrame.add(sphereLines);
     scene.add(sphereFrame);
     scene.add(qubit);
@@ -752,9 +796,8 @@ class BlochRenderer {
     this.markerMaterial.color.setHex(palette.markerColor);
     this.markerMaterial.needsUpdate = true;
 
-    if (this.sphereLineMaterial.opacity !== undefined) {
-      this.sphereLineMaterial.opacity = palette.sphereLinesOpacity;
-    }
+    this.sphereLineMaterial.opacity = palette.sphereLinesOpacity;
+    this.sphereLineMaterial.needsUpdate = true;
 
     this.directionalLight.intensity = palette.directionalLightBrightness;
 
