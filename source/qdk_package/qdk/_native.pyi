@@ -523,6 +523,8 @@ class QasmError(BaseException):
 
 class StimError(BaseException):
     """
+    EXPERIMENTAL:
+
     An error returned from the Stim compiler.
     """
 
@@ -664,6 +666,8 @@ def compile_stim_to_qir(
     source: str, noise: Optional[NoiseConfig]
 ) -> Tuple[str, NoiseConfig]:
     """
+    EXPERIMENTAL:
+
     Converts a Stim program to QIR.
 
     :param source: The Stim source code to convert.
