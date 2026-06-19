@@ -660,6 +660,74 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   margin-top: 8px;
 }
 
+/* Collapsed gate-controls view. When the controls are hidden, the
+   current gate program is shown as a plain-text overlay in the
+   bottom-left of the sphere stage, mirroring the theta/phi and
+   state-ket overlays in the top corners. Left padding clears the
+   toggle icon that shares the bottom-left corner. */
+.qs-bloch-gate-overlay {
+  position: absolute;
+  bottom: 12px;
+  left: 42px;
+  right: 12px;
+  pointer-events: none;
+  color: var(--qdk-host-foreground);
+  font-family: var(--qdk-font-family-monospace);
+  font-size: 1.05em;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+  text-align: left;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Subtle icon toggle in the bottom-left corner of the sphere stage
+   that shows/hides the gate controls. Sits near the controls it
+   governs (which stack below the sphere) rather than off in the
+   opposite corner. A small, low-contrast glyph that brightens on
+   hover so it stays out of the way until the user looks for it. */
+.qs-bloch-controls-toggle {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--qdk-host-foreground);
+  border: none;
+  border-radius: 4px;
+  font-size: 1.05em;
+  line-height: 1;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.qs-bloch-controls-toggle:hover {
+  opacity: 1;
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-controls-toggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+
+/* When the controls are collapsed, hide the gate buttons, gate editor,
+   and Rz slider with `visibility: hidden` rather than removing them.
+   This keeps their grid rows at full height so collapsing the controls
+   doesn't shrink the widget (and the trace pane that spans its full
+   height). */
+.qs-bloch-collapsed .qs-gate-buttons,
+.qs-bloch-collapsed .qs-bloch-gate-editor,
+.qs-bloch-collapsed .qs-bloch-rz {
+  visibility: hidden;
+}
+
 /* On narrow hosts (split editor, small Jupyter outputs) the two-column
    layout gets cramped, so collapse to a single column with the trace
    pane below the sphere. */

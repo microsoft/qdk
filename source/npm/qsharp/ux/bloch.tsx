@@ -947,6 +947,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [rzAngle, setRzAngle] = useState(0);
 
+  // Whether the gate controls (gate buttons, gate-string editor, Rz
+  // slider) are collapsed. When collapsed, the whole control stack is
+  // replaced by a compact read-only view of the current gate program
+  // plus a button to expand the controls again -- handy for users who
+  // just want to scrub the trace without the editing chrome taking up
+  // vertical space.
+  const [controlsCollapsed, setControlsCollapsed] = useState(false);
+
   // Playback state for the media-player-style controls. Stored both as
   // React state (drives button labels and disabled flags) and as a ref
   // (read from inside animation-completion callbacks, which capture
@@ -1609,7 +1617,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   return (
     <div
-      class="qs-bloch"
+      class={"qs-bloch" + (controlsCollapsed ? " qs-bloch-collapsed" : "")}
       style={
         // Drive the trace column's width from the measured content
         // width (see the `traceContentWidth` effect). Exposed as a CSS
@@ -1640,6 +1648,25 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         <div class="qs-bloch-state" aria-hidden="true">
           <Markdown markdown={currentStateLatex}></Markdown>
         </div>
+        {controlsCollapsed && (
+          <div class="qs-bloch-gate-overlay" aria-hidden="true">
+            {gates.length > 0 ? gates.join("") : "\u2014"}
+          </div>
+        )}
+        <button
+          type="button"
+          class="qs-bloch-controls-toggle"
+          onClick={() => setControlsCollapsed((c) => !c)}
+          title={
+            controlsCollapsed ? "Show gate controls" : "Hide gate controls"
+          }
+          aria-label={
+            controlsCollapsed ? "Show gate controls" : "Hide gate controls"
+          }
+          aria-expanded={!controlsCollapsed}
+        >
+          {controlsCollapsed ? "\u2699" : "\u2715"}
+        </button>
       </div>
       <div class="qs-bloch-trace" style="font-size: 0.9em;">
         <div class="qs-bloch-trace-inner">
