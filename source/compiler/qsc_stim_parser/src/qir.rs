@@ -380,110 +380,114 @@ impl<'noise> Compiler<'noise> {
         match instruction.name.as_str() {
             // Pauli Gates
             "I" => (),
-            "X" | "Y" | "Z" => self.emit_single(instruction, &instruction.name.to_lowercase()),
+            "X" | "Y" | "Z" => self.broadcast(instruction, |s, q| {
+                s.op(&instruction.name.to_lowercase(), q);
+            }),
 
             // Single Qubit Clifford Gates
-            "C_NXYZ" => {
+            "C_NXYZ" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; S 0; S 0
-                self.emit_single_adj(instruction, "s");
-                self.emit_single(instruction, "h");
-                self.emit_single(instruction, "z");
-            }
-            "C_NZYX" => {
+                s.op_adj("s", q);
+                s.op("h", q);
+                s.op("z", q);
+            }),
+            "C_NZYX" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0; S 0
-                self.emit_single(instruction, "z");
-                self.emit_single(instruction, "h");
-                self.emit_single_adj(instruction, "s");
-            }
-            "C_XNYZ" => {
+                s.op("z", q);
+                s.op("h", q);
+                s.op_adj("s", q);
+            }),
+            "C_XNYZ" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; H 0
-                self.emit_single(instruction, "s");
-                self.emit_single(instruction, "h");
-            }
-            "C_XYNZ" => {
+                s.op("s", q);
+                s.op("h", q);
+            }),
+            "C_XYNZ" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0
-                self.emit_single(instruction, "s");
-                self.emit_single(instruction, "h");
-                self.emit_single(instruction, "z");
-            }
-            "C_XYZ" => {
+                s.op("s", q);
+                s.op("h", q);
+                s.op("z", q);
+            }),
+            "C_XYZ" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0
-                self.emit_single_adj(instruction, "s");
-                self.emit_single(instruction, "h");
-            }
-            "C_ZNYX" => {
+                s.op_adj("s", q);
+                s.op("h", q);
+            }),
+            "C_ZNYX" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; S 0
-                self.emit_single(instruction, "h");
-                self.emit_single_adj(instruction, "s");
-            }
-            "C_ZYNX" => {
+                s.op("h", q);
+                s.op_adj("s", q);
+            }),
+            "C_ZYNX" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0
-                self.emit_single(instruction, "z");
-                self.emit_single(instruction, "h");
-                self.emit_single(instruction, "s");
-            }
-            "C_ZYX" => {
+                s.op("z", q);
+                s.op("h", q);
+                s.op("s", q);
+            }),
+            "C_ZYX" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0
-                self.emit_single(instruction, "h");
-                self.emit_single(instruction, "s");
-            }
-            "H" | "H_XZ" => self.emit_single(instruction, "h"),
-            "H_NXY" => {
+                s.op("h", q);
+                s.op("s", q);
+            }),
+            "H" | "H_XZ" => self.broadcast(instruction, |s, q| s.op("h", q)),
+            "H_NXY" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0; S 0; H 0
-                self.emit_single(instruction, "s");
-                self.emit_single(instruction, "x");
-            }
-            "H_NXZ" => {
+                s.op("s", q);
+                s.op("x", q);
+            }),
+            "H_NXZ" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; S 0
-                self.emit_single(instruction, "z");
-                self.emit_single(instruction, "h");
-                self.emit_single(instruction, "z");
-            }
-            "H_NYZ" => {
+                s.op("z", q);
+                s.op("h", q);
+                s.op("z", q);
+            }),
+            "H_NYZ" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0; S 0; H 0
-                self.emit_single(instruction, "z");
-                self.emit_single(instruction, "sx");
-            }
-            "H_XY" => {
+                s.op("z", q);
+                s.op("sx", q);
+            }),
+            "H_XY" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0; H 0; S 0
-                self.emit_single(instruction, "x");
-                self.emit_single(instruction, "s");
-            }
-            "H_YZ" => {
+                s.op("x", q);
+                s.op("s", q);
+            }),
+            "H_YZ" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0; H 0; S 0; S 0
-                self.emit_single(instruction, "sx");
-                self.emit_single(instruction, "z");
-            }
-            "S" | "SQRT_Z" => self.emit_single(instruction, "s"),
-            "SQRT_X" => self.emit_single(instruction, "sx"),
-            "SQRT_X_DAG" => {
+                s.op("sx", q);
+                s.op("z", q);
+            }),
+            "S" | "SQRT_Z" => self.broadcast(instruction, |s, q| s.op("s", q)),
+            "SQRT_X" => self.broadcast(instruction, |s, q| s.op("sx", q)),
+            "SQRT_X_DAG" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; H 0; S 0
-                self.emit_single(instruction, "s");
-                self.emit_single(instruction, "h");
-                self.emit_single(instruction, "s");
-            }
-            "SQRT_Y" => {
+                s.op("s", q);
+                s.op("h", q);
+                s.op("s", q);
+            }),
+            "SQRT_Y" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; H 0
-                self.emit_single(instruction, "z");
-                self.emit_single(instruction, "h");
-            }
-            "SQRT_Y_DAG" => {
+                s.op("z", q);
+                s.op("h", q);
+            }),
+            "SQRT_Y_DAG" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; S 0; S 0
-                self.emit_single(instruction, "h");
-                self.emit_single(instruction, "z");
-            }
-            "S_DAG" | "SQRT_Z_DAG" => self.emit_single_adj(instruction, "s"),
+                s.op("h", q);
+                s.op("z", q);
+            }),
+            "S_DAG" | "SQRT_Z_DAG" => self.broadcast(instruction, |s, q| s.op_adj("s", q)),
 
             // Two Qubit Clifford Gates
-            "CX" | "CNOT" | "ZCX" => self.emit_pair(instruction, "cx"),
+            "CX" | "CNOT" | "ZCX" => self.broadcast_pair(instruction, |s, q0, q1| {
+                s.op_2("cx", q0, q1);
+            }),
             "CXSWAP" => self.unsupported(instruction),
-            "CY" | "ZCY" => self.emit_pair(instruction, "cy"),
-            "CZ" | "ZCZ" => self.emit_pair(instruction, "cz"),
+            "CY" | "ZCY" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("cy", q0, q1)),
+            "CZ" | "ZCZ" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("cz", q0, q1)),
             "CZSWAP" | "SWAPCZ" => self.unsupported(instruction),
             "II" => (),
             "ISWAP" | "ISWAP_DAG" | "SQRT_XX" | "SQRT_XX_DAG" | "SQRT_YY" | "SQRT_YY_DAG"
             | "SQRT_ZZ" | "SQRT_ZZ_DAG" => self.unsupported(instruction),
-            "SWAP" => self.emit_pair(instruction, &instruction.name.to_lowercase()),
+            "SWAP" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("swap", q0, q1)),
             "SWAPCX" | "XCX" | "XCY" | "XCZ" | "YCX" | "YCY" | "YCZ" => {
                 self.unsupported(instruction)
             }
@@ -506,48 +510,48 @@ impl<'noise> Compiler<'noise> {
             }
 
             // Collapsing Gates
-            "M" | "MZ" => self.emit_measure(instruction, "m"),
-            "MR" | "MRZ" => self.emit_measure(instruction, "mresetz"),
-            "MRX" => {
+            "M" | "MZ" => self.broadcast(instruction, |s, q| s.op_measure("m", q)),
+            "MR" | "MRZ" => self.broadcast(instruction, |s, q| s.op_measure("mresetz", q)),
+            "MRX" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; M 0; R 0; H 0
-                self.emit_single(instruction, "h"); // X -> Z
-                self.emit_measure(instruction, "mresetz"); // MRZ
-                self.emit_single(instruction, "h"); // Z -> X
-            }
-            "MRY" => {
+                s.op("h", q); // X -> Z
+                s.op_measure("mresetz", q); // MRZ
+                s.op("h", q); // Z -> X
+            }),
+            "MRY" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; R 0; H 0; S 0
-                self.emit_single_adj(instruction, "s"); // Y -> X
-                self.emit_single(instruction, "h"); // X -> Z
-                self.emit_measure(instruction, "mresetz"); // MRZ
-                self.emit_single(instruction, "h"); // Z -> X
-                self.emit_single(instruction, "s"); // X -> Y
-            }
-            "MX" => {
+                s.op_adj("s", q); // Y -> X
+                s.op("h", q); // X -> Z
+                s.op_measure("mresetz", q); // MRZ
+                s.op("h", q); // Z -> X
+                s.op("s", q); // X -> Y
+            }),
+            "MX" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; M 0; H 0
-                self.emit_single(instruction, "h"); // X -> Z
-                self.emit_measure(instruction, "m"); // MZ
-                self.emit_single(instruction, "h"); // Z -> X
-            }
-            "MY" => {
+                s.op("h", q); // X -> Z
+                s.op_measure("m", q); // MZ
+                s.op("h", q); // Z -> X
+            }),
+            "MY" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; H 0; S 0
-                self.emit_single_adj(instruction, "s"); // Y -> X
-                self.emit_single(instruction, "h"); // X -> Z
-                self.emit_measure(instruction, "m"); // MZ
-                self.emit_single(instruction, "h"); // Z -> X
-                self.emit_single(instruction, "s"); // X -> Y
-            }
-            "R" | "RZ" => self.emit_single(instruction, "reset"),
-            "RX" => {
+                s.op_adj("s", q); // Y -> X
+                s.op("h", q); // X -> Z
+                s.op_measure("m", q); // MZ
+                s.op("h", q); // Z -> X
+                s.op("s", q); // X -> Y
+            }),
+            "R" | "RZ" => self.broadcast(instruction, |s, q| s.op("reset", q)),
+            "RX" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): R 0; H 0
-                self.emit_single(instruction, "reset"); // RZ
-                self.emit_single(instruction, "h"); // Z -> X
-            }
-            "RY" => {
+                s.op("reset", q); // RZ
+                s.op("h", q); // Z -> X
+            }),
+            "RY" => self.broadcast(instruction, |s, q| {
                 // Stim decomposition (into H, S, CX, M, R): R 0; H 0; S 0
-                self.emit_single(instruction, "reset"); // RZ
-                self.emit_single(instruction, "h"); // Z -> X
-                self.emit_single(instruction, "s"); // X -> Y
-            }
+                s.op("reset", q); // RZ
+                s.op("h", q); // Z -> X
+                s.op("s", q); // X -> Y
+            }),
 
             // Pair Measurement Gates
             "MXX" | "MYY" | "MZZ" => self.unsupported(instruction),
@@ -571,43 +575,52 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn emit_single(&mut self, instruction: &Instruction, intrinsic: &str) {
+    fn broadcast(&mut self, instruction: &Instruction, mut f: impl FnMut(&mut Self, u32)) {
         self.unsupported_args(instruction); // Temporary error
-
         for target in &instruction.targets {
-            let Some(value) = self.expect_qubit(instruction, target) else {
+            let Some(q) = self.expect_qubit(instruction, target) else {
                 continue;
             };
-
-            self.writer
-                .write_qis_call(intrinsic, &[Operand::Qubit(value)]);
+            f(self, q);
         }
     }
 
-    fn emit_single_adj(&mut self, instruction: &Instruction, intrinsic: &str) {
-        self.unsupported_args(instruction); // Temporary error
-        for target in &instruction.targets {
-            let Some(value) = self.expect_qubit(instruction, target) else {
-                continue;
-            };
-            self.writer
-                .write_qis_adj_call(intrinsic, &[Operand::Qubit(value)]);
-        }
-    }
-
-    fn emit_pair(&mut self, instruction: &Instruction, intrinsic: &str) {
+    fn broadcast_pair(
+        &mut self,
+        instruction: &Instruction,
+        mut f: impl FnMut(&mut Self, u32, u32),
+    ) {
         self.unsupported_args(instruction); // Temporary error
         let targets = &instruction.targets;
         for pair in targets.chunks(2) {
-            let Some(v0) = self.expect_qubit(instruction, &pair[0]) else {
+            let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
                 continue;
             };
-            let Some(v1) = self.expect_qubit(instruction, &pair[1]) else {
+            let Some(q1) = self.expect_qubit(instruction, &pair[1]) else {
                 continue;
             };
-            self.writer
-                .write_qis_call(intrinsic, &[Operand::Qubit(v0), Operand::Qubit(v1)]);
+            f(self, q0, q1);
         }
+    }
+
+    fn op(&mut self, intrinsic: &str, qubit: u32) {
+        self.writer
+            .write_qis_call(intrinsic, &[Operand::Qubit(qubit)]);
+    }
+
+    fn op_adj(&mut self, intrinsic: &str, qubit: u32) {
+        self.writer
+            .write_qis_adj_call(intrinsic, &[Operand::Qubit(qubit)]);
+    }
+
+    fn op_measure(&mut self, intrinsic: &str, qubit: u32) {
+        self.writer
+            .write_qis_call(intrinsic, &[Operand::Qubit(qubit), Operand::Result]);
+    }
+
+    fn op_2(&mut self, intrinsic: &str, q0: u32, q1: u32) {
+        self.writer
+            .write_qis_call(intrinsic, &[Operand::Qubit(q0), Operand::Qubit(q1)]);
     }
 
     fn compile_fault_error(&mut self, instruction: &Instruction) {
@@ -695,17 +708,6 @@ impl<'noise> Compiler<'noise> {
                 }
             }
             self.finish_correlated_group(); // one independent 2-qubit table per pair
-        }
-    }
-
-    fn emit_measure(&mut self, instruction: &Instruction, intrinsic: &str) {
-        self.unsupported_args(instruction); // Temporary error
-        for target in &instruction.targets {
-            let Some(value) = self.expect_qubit(instruction, target) else {
-                continue;
-            };
-            self.writer
-                .write_qis_call(intrinsic, &[Operand::Qubit(value), Operand::Result]);
         }
     }
 
