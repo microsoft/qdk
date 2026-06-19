@@ -431,7 +431,7 @@ fn process_variables(
                 "unsupported instruction in block: {instruction:?}"
             )));
         }
-        Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..) => {
+        Instruction::Return(..) | Instruction::Branch(..) | Instruction::Jump(..) => {
             // do nothing for terminators
         }
     }

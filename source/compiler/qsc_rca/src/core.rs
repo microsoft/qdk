@@ -2361,6 +2361,12 @@ fn derive_instrinsic_operation_application_generator_set(
     if callable_context.attrs.contains(&Attr::Reset) {
         inherent_runtime_features |= RuntimeFeatureFlags::CallToCustomReset;
     }
+    // The only intrinsic operations whose output is a qubit (or an array of qubits) are the qubit
+    // allocate/borrow intrinsics. Tag the allocate leaf so that qubit allocation is surfaced as an
+    // inherent runtime feature and propagated bottom-up to every transitive caller.
+    if is_qubit_allocation_output(&callable_context.output_type) {
+        inherent_runtime_features |= RuntimeFeatureFlags::QubitAllocation;
+    }
 
     // The compute kind of intrinsic operations is always dynamic.
     let inherent_compute_kind = ComputeKind::Dynamic {
@@ -2405,6 +2411,17 @@ fn derive_instrinsic_operation_application_generator_set(
     ApplicationGeneratorSet {
         inherent: inherent_compute_kind,
         dynamic_param_applications,
+    }
+}
+
+/// Returns true when the type is a qubit or an array (of any nesting) whose ultimate element type
+/// is a qubit. Used to identify the qubit allocate/borrow intrinsics, whose output is the only way
+/// an intrinsic operation can produce qubits.
+fn is_qubit_allocation_output(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(Prim::Qubit) => true,
+        Ty::Array(content_type) => is_qubit_allocation_output(content_type),
+        _ => false,
     }
 }
 

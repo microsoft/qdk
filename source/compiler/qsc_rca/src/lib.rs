@@ -637,7 +637,7 @@ bitflags! {
     /// Runtime features represent anything a program can do that is more complex than executing quantum operations on
     /// statically allocated qubits and using constant arguments.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct RuntimeFeatureFlags: u32 {
+    pub struct RuntimeFeatureFlags: u64 {
         /// Use of a dynamic `Bool`.
         const UseOfDynamicBool = 1 << 0;
         /// Use of a dynamic `Int`.
@@ -702,6 +702,8 @@ bitflags! {
         const CallToCustomReset = 1 << 30;
         /// Use of a dynamic generic parameter.
         const UseOfDynamicGeneric = 1 << 31;
+        /// A callable allocates qubits (directly or transitively).
+        const QubitAllocation = 1 << 32;
     }
 }
 

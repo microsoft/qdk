@@ -86,7 +86,7 @@ fn output_recording_for_tuple_of_different_types() {
                     Call id(4), args( Integer(2), Tag(0, 3), )
                     Call id(5), args( Result(0), Tag(1, 5), )
                     Call id(6), args( Variable(1, Boolean), Tag(2, 5), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 1
@@ -185,7 +185,7 @@ fn output_recording_for_nested_tuples() {
                     Call id(5), args( Result(0), Tag(4, 7), )
                     Call id(4), args( Integer(1), Tag(5, 5), )
                     Call id(6), args( Variable(3, Boolean), Tag(6, 7), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 1
@@ -296,7 +296,7 @@ fn output_recording_for_tuple_of_arrays() {
                     Call id(6), args( Integer(2), Tag(2, 5), )
                     Call id(7), args( Variable(1, Boolean), Tag(3, 7), )
                     Call id(7), args( Variable(3, Boolean), Tag(4, 7), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 1
@@ -405,7 +405,7 @@ fn output_recording_for_array_of_tuples() {
                     Call id(5), args( Integer(2), Tag(4, 5), )
                     Call id(6), args( Result(0), Tag(5, 7), )
                     Call id(7), args( Variable(3, Boolean), Tag(6, 7), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 1
@@ -464,7 +464,7 @@ fn output_recording_for_literal_bool() {
                 Block 0: Block:
                     Call id(1), args( Pointer, )
                     Call id(2), args( Bool(true), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 0
@@ -517,7 +517,7 @@ fn output_recording_for_literal_double() {
                 Block 0: Block:
                     Call id(1), args( Pointer, )
                     Call id(2), args( Double(42.1), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 0
@@ -570,7 +570,7 @@ fn output_recording_for_literal_int() {
                 Block 0: Block:
                     Call id(1), args( Pointer, )
                     Call id(2), args( Integer(42), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 0
@@ -652,7 +652,7 @@ fn output_recording_for_mix_of_literal_and_variable() {
                     Call id(3), args( Integer(2), Tag(0, 3), )
                     Call id(4), args( Result(0), Tag(1, 5), )
                     Call id(5), args( Bool(true), Tag(2, 5), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 1

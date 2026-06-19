@@ -5,3 +5,12 @@
 # _native extension).  Do NOT add the source tree to sys.path here – that
 # would shadow the installed package with the local source directory, which
 # does not contain the compiled extension module.
+
+import pytest
+from qdk import Context
+
+
+@pytest.fixture(scope="session")
+def context() -> Context:
+    """Shared qdk.Context object to be reused accross tests."""
+    return Context()

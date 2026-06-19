@@ -21,6 +21,10 @@ bitflags! {
         const BackwardsBranching = 0b0000_1000;
         /// Supports statically sized arrays (i.e. array literals and array indexing with non-constant indices).
         const StaticSizedArrays = 0b0001_0000;
+        /// Supports calls to operations and functions (i.e. callables are not fully inlined into the entry point).
+        const CallSupport = 0b0010_0000;
+        /// Supports dynamic (runtime) allocation of qubits.
+        const DynamicQubitAllocation = 0b0100_0000;
         /// Catch-all for high level language constructs not covered by other flags. New flags should be added above this one,
         /// such that this flag is reserved for the "all capabilities" targets that can run anything the language can express.
         const HigherLevelConstructs = 0b1000_0000;
@@ -38,6 +42,8 @@ impl std::str::FromStr for TargetCapabilityFlags {
             "FloatingPointComputations" => Ok(TargetCapabilityFlags::FloatingPointComputations),
             "BackwardsBranching" => Ok(TargetCapabilityFlags::BackwardsBranching),
             "StaticSizedArrays" => Ok(TargetCapabilityFlags::StaticSizedArrays),
+            "CallSupport" => Ok(TargetCapabilityFlags::CallSupport),
+            "DynamicQubitAllocation" => Ok(TargetCapabilityFlags::DynamicQubitAllocation),
             "HigherLevelConstructs" => Ok(TargetCapabilityFlags::HigherLevelConstructs),
             "Unrestricted" => Ok(TargetCapabilityFlags::all()),
             _ => Err(()),
@@ -97,6 +103,7 @@ impl From<Profile> for TargetCapabilityFlags {
                     | Self::FloatingPointComputations
                     | Self::BackwardsBranching
                     | Self::StaticSizedArrays
+                    | Self::CallSupport
             }
         }
     }
