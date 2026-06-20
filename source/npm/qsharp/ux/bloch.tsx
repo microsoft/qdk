@@ -933,9 +933,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   //     end of the applied sequence". Values in between put the widget
   //     into *inspect mode*: the sphere shows that intermediate state
   //     without truncating the future part of the sequence.
-  //   * `redoStack` holds gates discarded by Undo, in the order they would
-  //     be re-applied by Redo. It is cleared whenever a new gate is
-  //     applied (standard time-travel semantics).
+  //   * `past` / `future` are the undo/redo history, kept as whole
+  //     sequence snapshots (see below). They are *not* per-gate: each
+  //     user action records one snapshot, so undoing reverts an entire
+  //     action -- including a multi-gate "Add sequence" -- in one step.
   //
   // Inspect mode (cursor < gates.length) is signalled visually by a
   // persistent banner, dimmed/italicized future rows, and disabled
@@ -944,7 +945,12 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // browsers and most editors handle "navigate back, then act".
   const [gates, setGates] = useState<string[]>([]);
   const [cursor, setCursor] = useState(0);
-  const [redoStack, setRedoStack] = useState<string[]>([]);
+  // Undo/redo history as full-sequence snapshots. `past` holds the
+  // sequences that preceded the current one (oldest first, newest
+  // last); `future` holds sequences that were undone away (the next one
+  // to redo is first).
+  const [past, setPast] = useState<string[][]>([]);
+  const [future, setFuture] = useState<string[][]>([]);
   const [rzAngle, setRzAngle] = useState(0);
 
   // Whether the gate controls (gate buttons, gate-string editor, Rz
@@ -1273,8 +1279,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }, [gates, cursor]);
 
   const inInspectMode = cursor < gates.length;
-  const canUndo = !inInspectMode && cursor > 0 && !isPlaying;
-  const canRedo = !inInspectMode && redoStack.length > 0 && !isPlaying;
+  const canUndo = !inInspectMode && past.length > 0 && !isPlaying;
+  const canRedo = !inInspectMode && future.length > 0 && !isPlaying;
   // Playback affordance. These cover the media-control row; everything
   // is derived from `cursor` / `gates` / `isPlaying` so the buttons can
   // never disagree with what the sphere is actually doing.
@@ -1428,6 +1434,17 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
+   * Record the sequence as it was *before* the current action so Undo
+   * can return to it, and clear the redo `future` (a fresh action
+   * invalidates anything that was previously undone away). Call this
+   * once at the start of every action that changes `gates`.
+   */
+  function pushHistory(prev: string[]) {
+    setPast((p) => [...p, prev]);
+    setFuture([]);
+  }
+
+  /**
    * Apply a single new gate to the sequence. If the user is currently
    * inspecting an earlier step, the future part of the sequence is
    * truncated (matching browser back-button + new-navigation semantics),
@@ -1442,6 +1459,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     // cleared either way.
     stopPlayback(false);
 
+    // Record the pre-action sequence so Undo reverts this whole action
+    // (including any inspect-mode truncation) in a single step.
+    pushHistory(gates);
+
     // Truncate future steps if the user is mid-inspect, then snap the
     // renderer there silently before kicking off the animated rotation
     // for the newly-applied gate.
@@ -1454,7 +1475,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const next = [...base, code];
     setGates(next);
     setCursor(next.length);
-    setRedoStack([]);
     // Discard any uncommitted draft -- the gate button click is itself
     // an explicit edit, and leaving the draft in place would leave the
     // textbox showing a different program than the one now in `gates`.
@@ -1480,51 +1500,57 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Remove the most recently applied gate and push it onto the redo stack.
-   * Only valid when the cursor is at the end of the sequence; in inspect
-   * mode the button is disabled so the user has to commit (apply a gate)
-   * or leave inspect mode first.
+   * Step back one entry in the history, restoring the whole previous
+   * sequence snapshot. Because history records one snapshot per action,
+   * this reverts an entire action at once -- e.g. undoing "Add sequence"
+   * removes the whole Rz decomposition. Only valid at the
+   * end of the sequence; inspect mode disables the button.
    */
   function undo() {
     if (!canUndo || !renderer.current) return;
     stopPlayback(false);
-    const removed = gates[gates.length - 1];
-    const next = gates.slice(0, -1);
-    renderer.current.snapTo(gatesToSteps(next));
-    setGates(next);
-    setCursor(next.length);
-    setRedoStack([removed, ...redoStack]);
+    const prev = past[past.length - 1];
+    setPast(past.slice(0, -1));
+    // The sequence we're leaving becomes the next thing Redo restores.
+    setFuture([gates, ...future]);
+    renderer.current.snapTo(gatesToSteps(prev));
+    setGates(prev);
+    setCursor(prev.length);
     // Drop any pending draft so the textbox stays consistent with the
-    // sequence we just shortened.
+    // sequence we just restored.
     setDraft(null);
-    props.onGatesChanged?.(next.join(""));
+    props.onGatesChanged?.(prev.join(""));
   }
 
   /**
-   * Pop a gate from the redo stack and re-apply it. Snaps rather than
-   * animating to stay visually symmetric with undo.
+   * Step forward one entry in the history, restoring the snapshot that
+   * was most recently undone away. Snaps rather than animating to stay
+   * visually symmetric with undo.
    */
   function redo() {
     if (!canRedo || !renderer.current) return;
     stopPlayback(false);
-    const [restored, ...rest] = redoStack;
-    const next = [...gates, restored];
+    const next = future[0];
+    setFuture(future.slice(1));
+    // The sequence we're leaving goes back onto the undo history.
+    setPast([...past, gates]);
     renderer.current.snapTo(gatesToSteps(next));
     setGates(next);
     setCursor(next.length);
-    setRedoStack(rest);
     // Drop any pending draft so the textbox stays consistent with the
-    // sequence we just re-extended.
+    // sequence we just restored.
     setDraft(null);
     props.onGatesChanged?.(next.join(""));
   }
 
-  function reset() {
+  function clear() {
     stopPlayback(false);
+    // Clear is an editing action like any other: record the cleared-from
+    // sequence so an accidental Clear can be undone.
+    pushHistory(gates);
     setGates([]);
     setCursor(0);
-    setRedoStack([]);
-    // Reset means "go back to a blank program"; the draft should match.
+    // Clear means "go back to a blank program"; the draft should match.
     setDraft(null);
     // Also return the Rz slider to its zero position so the control
     // reflects the cleared state rather than a stale angle.
@@ -1545,8 +1571,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     stopPlayback(false);
     const cleaned = sanitizedDraft;
     const arr = cleaned.split("");
+    // Replacing the whole sequence is one undoable action; record the
+    // pre-commit sequence so Undo restores it in a single step.
+    pushHistory(gates);
     setGates(arr);
-    setRedoStack([]);
     setDraft(null);
     props.onGatesChanged?.(cleaned);
     // Snap to start, then chain the play loop manually -- we can't go
@@ -1721,6 +1749,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function applyRzDecomposition() {
     if (!renderer.current || rzDecomposition.length === 0) return;
     stopPlayback(false);
+    // The whole decomposition is appended as one undoable action.
+    pushHistory(gates);
     let base = gates;
     if (cursor < gates.length) {
       base = gates.slice(0, cursor);
@@ -1729,7 +1759,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     renderer.current.snapTo(gatesToSteps(next));
     setGates(next);
     setCursor(next.length);
-    setRedoStack([]);
     // The committed sequence is now the source of truth; drop any draft.
     // Leave the dial at its current angle so the user can add the same
     // rotation again without re-dialing it.
@@ -2026,11 +2055,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         <div class="qs-bloch-gate-group" role="group">
           <button
             type="button"
-            onClick={reset}
+            onClick={clear}
             disabled={isPlaying}
-            title={isPlaying ? "Pause to reset" : "Clear the entire trace"}
+            title={isPlaying ? "Pause to clear" : "Clear the entire trace"}
           >
-            Reset
+            Clear
           </button>
         </div>
       </div>
