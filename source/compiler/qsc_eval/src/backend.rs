@@ -298,35 +298,36 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         Ok(r)
     }
 
-    pub fn mxx(&mut self, q0: usize, q1: usize, _stack: &[Frame]) -> Result<val::Result, String> {
+    pub fn mxx(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<val::Result, String> {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.mxx(q0, q1)?,
             OptionalBackend::None(fallback) => fallback.result_allocate(),
         };
-        if let Some(_tracer) = &mut self.tracer {
-            return Err("Mxx not supported in tracer".to_string());
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Mxx", false, &[q0, q1], &[], None);
         }
         Ok(r)
     }
 
-    pub fn mxz(&mut self, q0: usize, q1: usize, _stack: &[Frame]) -> Result<val::Result, String> {
+    pub fn mxz(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<val::Result, String> {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.mxz(q0, q1)?,
             OptionalBackend::None(fallback) => fallback.result_allocate(),
         };
-        if let Some(_tracer) = &mut self.tracer {
-            return Err("Mxz not supported in tracer".to_string());
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(stack, "Mxz", false, &[q0, q1], &[], None);
         }
         Ok(r)
     }
 
-    pub fn mzz(&mut self, q0: usize, q1: usize, _stack: &[Frame]) -> Result<val::Result, String> {
+    pub fn mzz(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<val::Result, String> {
         let r = match &mut self.backend {
             OptionalBackend::Some(backend) => backend.mzz(q0, q1)?,
             OptionalBackend::None(fallback) => fallback.result_allocate(),
         };
-        if let Some(_tracer) = &mut self.tracer {
-            return Err("Mzz not supported in tracer".to_string());
+        if let Some(tracer) = &mut self.tracer {
+            // TODO: real support for joint measurements in tracer.
+            tracer.gate(stack, "Mzz", false, &[q0, q1], &[], None);
         }
         Ok(r)
     }
