@@ -284,6 +284,34 @@ pub(crate) fn call<B: Backend>(
             )
             .map_err(|e| Error::SimulationError(e, name_span))?,
         )),
+        "__quantum__qis__mx__body" => Ok(Value::Result(
+            sim.mx(
+                arg.unwrap_qubit()
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                    .0,
+                call_stack,
+            )
+            .map_err(|e| Error::SimulationError(e, name_span))?,
+        )),
+        "__quantum__qis__mxx__body" => two_qubit_measurement(
+            |q0, q1| sim.mxx(q0, q1, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
+        "__quantum__qis__mxz__body" => two_qubit_measurement(
+            |q0, q1| sim.mxz(q0, q1, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
+        "__quantum__qis__mzz__body" => two_qubit_measurement(
+            |q0, q1| sim.mzz(q0, q1, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
         "__quantum__rt__read_loss" => Ok(Value::Bool(arg == Value::Result(val::Result::Loss))),
         _ => {
             let qubits = arg.qubits();
@@ -426,6 +454,32 @@ fn two_qubit_rotation(
         )
         .map_err(|e| Error::SimulationError(e, name_span))?;
         Ok(Value::unit())
+    }
+}
+
+fn two_qubit_measurement(
+    mut measurement: impl FnMut(usize, usize) -> Result<val::Result, String>,
+    arg: Value,
+    name_span: PackageSpan,
+    arg_span: PackageSpan,
+) -> Result<Value, Error> {
+    let [x, y] = unwrap_tuple(arg);
+    if x == y {
+        Err(Error::QubitUniqueness(arg_span))
+    } else {
+        Ok(Value::Result(
+            measurement(
+                x.unwrap_qubit()
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                    .0,
+                y.unwrap_qubit()
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?
+                    .0,
+            )
+            .map_err(|e| Error::SimulationError(e, name_span))?,
+        ))
     }
 }
 

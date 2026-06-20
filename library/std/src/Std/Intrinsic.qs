@@ -304,6 +304,19 @@ operation Measure(bases : Pauli[], qubits : Qubit[]) : Result {
         } apply {
             __quantum__qis__m__body(qubits[0])
         }
+    } elif Length(bases) == 2 {
+        if bases[0] == PauliX and bases[1] == PauliX {
+            __quantum__qis__mxx__body(qubits[0], qubits[1])
+        } elif bases[0] == PauliX and bases[1] == PauliZ {
+            __quantum__qis__mxz__body(qubits[0], qubits[1])
+        } else {
+            within {
+                MapPauliAxis(PauliZ, bases[0], qubits[0]);
+                MapPauliAxis(PauliZ, bases[1], qubits[1]);
+            } apply {
+                __quantum__qis__mzz__body(qubits[0], qubits[1])
+            }
+        }
     } else {
         use aux = Qubit();
         within {

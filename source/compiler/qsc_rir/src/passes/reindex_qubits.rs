@@ -9,7 +9,7 @@ use std::ops::Sub;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
-    builder,
+    passes::utils::{add_cx, add_m, find_callable},
     rir::{Block, CallableId, CallableType, Instruction, Literal, Operand, Program},
 };
 
@@ -217,41 +217,4 @@ fn validate_assumptions(program: &Program) {
         1,
         "Reindexing qubits across multiple blocks is not supported"
     );
-}
-
-fn find_callable(program: &Program, name: &str) -> Option<CallableId> {
-    for (callable_id, callable) in program.callables.iter() {
-        if callable.name == name {
-            return Some(callable_id);
-        }
-    }
-    None
-}
-
-fn add_m(program: &mut Program) -> CallableId {
-    let m_id = CallableId(
-        program
-            .callables
-            .iter()
-            .map(|(id, _)| id.0)
-            .max()
-            .expect("should be at least one callable")
-            + 1,
-    );
-    program.callables.insert(m_id, builder::m_decl());
-    m_id
-}
-
-fn add_cx(program: &mut Program) -> CallableId {
-    let cx_id = CallableId(
-        program
-            .callables
-            .iter()
-            .map(|(id, _)| id.0)
-            .max()
-            .expect("should be at least one callable")
-            + 1,
-    );
-    program.callables.insert(cx_id, builder::cx_decl());
-    cx_id
 }

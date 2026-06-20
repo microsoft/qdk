@@ -51,6 +51,18 @@ pub trait Backend {
     fn reset(&mut self, _q: usize) -> Result<(), String> {
         Err("reset gate not implemented".to_string())
     }
+    fn mx(&mut self, _q: usize) -> Result<val::Result, String> {
+        Err("mx operation not implemented".to_string())
+    }
+    fn mxx(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        Err("mxx operation not implemented".to_string())
+    }
+    fn mxz(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        Err("mxz operation not implemented".to_string())
+    }
+    fn mzz(&mut self, _q0: usize, _q1: usize) -> Result<val::Result, String> {
+        Err("mzz operation not implemented".to_string())
+    }
     fn rx(&mut self, _theta: f64, _q: usize) -> Result<(), String> {
         Err("rx gate not implemented".to_string())
     }
@@ -273,6 +285,50 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
             backend.reset(q)?;
         }
         Ok(())
+    }
+
+    pub fn mx(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mx(q)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.measure(stack, "Mx", q, &r);
+        }
+        Ok(r)
+    }
+
+    pub fn mxx(&mut self, q0: usize, q1: usize, _stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mxx(q0, q1)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(_tracer) = &mut self.tracer {
+            return Err("Mxx not supported in tracer".to_string());
+        }
+        Ok(r)
+    }
+
+    pub fn mxz(&mut self, q0: usize, q1: usize, _stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mxz(q0, q1)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(_tracer) = &mut self.tracer {
+            return Err("Mxz not supported in tracer".to_string());
+        }
+        Ok(r)
+    }
+
+    pub fn mzz(&mut self, q0: usize, q1: usize, _stack: &[Frame]) -> Result<val::Result, String> {
+        let r = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.mzz(q0, q1)?,
+            OptionalBackend::None(fallback) => fallback.result_allocate(),
+        };
+        if let Some(_tracer) = &mut self.tracer {
+            return Err("Mzz not supported in tracer".to_string());
+        }
+        Ok(r)
     }
 
     pub fn rx(&mut self, theta: f64, q: usize, stack: &[Frame]) -> Result<(), String> {
@@ -798,6 +854,85 @@ impl Backend for SparseSim {
             self.sim.x(q);
         }
         Ok(val::Result::Val(res))
+    }
+
+    fn mx(&mut self, q: usize) -> Result<val::Result, String> {
+        // No noise yet...
+        // self.apply_faults(|noise| &noise.mx, &[q]);
+        if self.is_qubit_lost(q) {
+            // If the qubit is lost, we cannot measure it.
+            // Mark it as no longer lost so it becomes usable again, since
+            // measurement will "reload" the qubit.
+            self.lost_qubits.set_bit(q as u64, false);
+            return Ok(val::Result::Loss);
+        }
+        self.sim.h(q);
+        Ok(val::Result::Val(self.sim.measure(q)))
+    }
+
+    fn mxx(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        // No noise yet...
+        // self.apply_faults(|noise| &noise.mxx, &[q0, q1]);
+        if self.is_qubit_lost(q0) || self.is_qubit_lost(q1) {
+            // TODO: Is this the right loss behavior for joint measurement? Does returning loss even make sense here?
+            // If either qubit is lost, we cannot measure them.
+            // Mark them as no longer lost so they become usable again, since
+            // measurement will "reload" the qubits.
+            if self.is_qubit_lost(q0) {
+                self.lost_qubits.set_bit(q0 as u64, false);
+            }
+            if self.is_qubit_lost(q1) {
+                self.lost_qubits.set_bit(q1 as u64, false);
+            }
+            return Ok(val::Result::Loss);
+        }
+        self.sim.h(q0);
+        self.sim.h(q1);
+        let r = self.sim.joint_measure(&[q0, q1]);
+        self.sim.h(q0);
+        self.sim.h(q1);
+        Ok(val::Result::Val(r))
+    }
+
+    fn mxz(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        // No noise yet...
+        // self.apply_faults(|noise| &noise.mxz, &[q0, q1]);
+        if self.is_qubit_lost(q0) || self.is_qubit_lost(q1) {
+            // TODO: Is this the right loss behavior for joint measurement? Does returning loss even make sense here?
+            // If either qubit is lost, we cannot measure them.
+            // Mark them as no longer lost so they become usable again, since
+            // measurement will "reload" the qubits.
+            if self.is_qubit_lost(q0) {
+                self.lost_qubits.set_bit(q0 as u64, false);
+            }
+            if self.is_qubit_lost(q1) {
+                self.lost_qubits.set_bit(q1 as u64, false);
+            }
+            return Ok(val::Result::Loss);
+        }
+        self.sim.h(q0);
+        let r = self.sim.joint_measure(&[q0, q1]);
+        self.sim.h(q0);
+        Ok(val::Result::Val(r))
+    }
+
+    fn mzz(&mut self, q0: usize, q1: usize) -> Result<val::Result, String> {
+        // No noise yet...
+        // self.apply_faults(|noise| &noise.mzz, &[q0, q1]);
+        if self.is_qubit_lost(q0) || self.is_qubit_lost(q1) {
+            // TODO: Is this the right loss behavior for joint measurement? Does returning loss even make sense here?
+            // If either qubit is lost, we cannot measure them.
+            // Mark them as no longer lost so they become usable again, since
+            // measurement will "reload" the qubits.
+            if self.is_qubit_lost(q0) {
+                self.lost_qubits.set_bit(q0 as u64, false);
+            }
+            if self.is_qubit_lost(q1) {
+                self.lost_qubits.set_bit(q1 as u64, false);
+            }
+            return Ok(val::Result::Loss);
+        }
+        Ok(val::Result::Val(self.sim.joint_measure(&[q0, q1])))
     }
 
     fn reset(&mut self, q: usize) -> Result<(), String> {
