@@ -4,7 +4,7 @@ Compiles [OpenQASM 3](https://openqasm.com/) programs into Q# AST, part of the [
 
 ## Overview
 
-This crate transforms OpenQASM 3 semantic AST (produced by `qsc_openqasm_parser`) into a Q# AST (`Package`). After this transformation, the result is indistinguishable from native Q# source input, enabling the full Q# compilation pipeline—capability analysis, runtime targeting, partial evaluation, and QIR code generation—to be applied.
+This crate transforms OpenQASM 3 semantic AST (produced by `qdk_openqasm_parser`) into a Q# AST (`Package`). After this transformation, the result is indistinguishable from native Q# source input, enabling the full Q# compilation pipeline—capability analysis, runtime targeting, partial evaluation, and QIR code generation—to be applied.
 
 ## Compiler Configuration
 
@@ -38,10 +38,10 @@ OpenQASM output registers may have unpopulated measurement indexes. In QIR, `Res
 ## Relationship to Other Crates
 
 ```text
-OpenQASM source → qsc_openqasm_parser → Semantic AST → [qsc_openqasm_compiler] → Q# AST → qsc
+OpenQASM source → qdk_openqasm_parser → Semantic AST → [qsc_openqasm_compiler] → Q# AST → qsc
 ```
 
-This crate depends on `qsc_openqasm_parser` for input and is consumed by:
+This crate depends on `qdk_openqasm_parser` for input and is consumed by:
 
 - `qsc` — Core compiler facade
 

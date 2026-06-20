@@ -28,9 +28,9 @@ pub use functor_constraints::{FunctorConstraintSolver, FunctorConstraints};
 use std::{fmt::Write, sync::Arc};
 
 use miette::Diagnostic;
+use qdk_openqasm_parser::semantic::QasmSemanticParseResult;
 use qsc_ast::ast::Package;
 use qsc_data_structures::{error::WithSource, source::SourceMap, span::Span, target::Profile};
-use qsc_openqasm_parser::semantic::QasmSemanticParseResult;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Diagnostic, Eq, Error, PartialEq)]
@@ -74,11 +74,11 @@ pub enum ErrorKind {
     Compiler(#[from] crate::compiler::error::Error),
     #[error(transparent)]
     #[diagnostic(transparent)]
-    Parser(#[from] qsc_openqasm_parser::error::Error),
+    Parser(#[from] qdk_openqasm_parser::error::Error),
 }
 
-impl From<qsc_openqasm_parser::error::Error> for crate::Error {
-    fn from(error: qsc_openqasm_parser::error::Error) -> Self {
+impl From<qdk_openqasm_parser::error::Error> for crate::Error {
+    fn from(error: qdk_openqasm_parser::error::Error) -> Self {
         Self(ErrorKind::Parser(error))
     }
 }

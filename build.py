@@ -30,6 +30,11 @@ parser.add_argument(
 parser.add_argument("--pip", action="store_true", help="Build the pip wheel")
 parser.add_argument("--widgets", action="store_true", help="Build the Python widgets")
 parser.add_argument("--qdk", action="store_true", help="Build the qdk meta-package")
+parser.add_argument(
+    "--qdk-openqasm",
+    action="store_true",
+    help="Build the qdk_openqasm_parser package",
+)
 parser.add_argument("--wasm", action="store_true", help="Build the WebAssembly files")
 parser.add_argument("--npm", action="store_true", help="Build the npm package")
 parser.add_argument("--play", action="store_true", help="Build the web playground")
@@ -126,6 +131,7 @@ build_all = (
     and not args.pip
     and not args.widgets
     and not args.qdk
+    and not args.qdk_openqasm
     and not args.wasm
     and not args.npm
     and not args.play
@@ -137,6 +143,7 @@ build_cli = build_all or args.cli
 build_pip = build_all or args.pip
 build_widgets = build_all or args.widgets
 build_qdk = build_all or args.qdk
+build_qdk_openqasm = build_all or args.qdk_openqasm
 build_wasm = build_all or args.wasm
 build_npm = build_all or args.npm
 build_play = build_all or args.play
@@ -164,6 +171,7 @@ play_src = os.path.join(qdk_src_dir, "playground")
 pip_src = os.path.join(qdk_src_dir, "pip")
 widgets_src = os.path.join(qdk_src_dir, "widgets")
 qdk_python_src = os.path.join(qdk_src_dir, "qdk_package")
+qdk_openqasm_python_src = os.path.join(qdk_src_dir, "qdk_openqasm", "python")
 wheels_dir = os.path.join(root_dir, "target", "wheels")
 raw_wheels_dir = os.path.join(root_dir, "target", "raw_wheels")
 vscode_src = os.path.join(qdk_src_dir, "vscode")
@@ -512,6 +520,62 @@ if build_qdk:
             run_python_integration_tests(test_dir, python_bin)
 
             step_end()
+
+if build_qdk_openqasm:
+    step_start("Building the qdk_openqasm_parser python package")
+
+    # Reuse (or create) a python environment so the wheel can be
+    # built/installed consistently.
+    python_bin, pip_env = use_python_env(qdk_openqasm_python_src)
+
+    # Read the build dependencies out of the pyproject.toml and install them
+    # first so both the wheel build and editable install can use
+    # --no-build-isolation.
+    with open(os.path.join(qdk_openqasm_python_src, "pyproject.toml"), "rb") as f:
+        requires = tomllib.load(f)["build-system"]["requires"]
+    pip_install(python_bin, *requires, cwd=qdk_openqasm_python_src, env=pip_env)
+
+    if args.editable:
+        # Install in editable mode using the pre-installed build deps.
+        editable_install(
+            python_bin, qdk_openqasm_python_src, env=pip_env, no_build_isolation=True
+        )
+    else:
+        # Build the wheel with maturin (it owns the native extension).
+        build_wheel(python_bin, qdk_openqasm_python_src, env=pip_env, maturin=True)
+    step_end()
+
+    if args.check or run_tests:
+        # The API surface check and the test suite both import the freshly
+        # built package in-process, which requires the package (with its native
+        # extension) to be installed. In editable mode the editable install
+        # above already provides an importable package with the native
+        # extension built in-tree. For a wheel build we install the wheel here.
+        install_python_test_requirements(qdk_openqasm_python_src, python_bin)
+        if not args.editable:
+            install_from_wheels(
+                python_bin, "qdk_openqasm_parser", cwd=qdk_openqasm_python_src
+            )
+
+    if args.check:
+        step_start(
+            "Checking qdk_openqasm_parser public API surface for private type leakage"
+        )
+        run(
+            [
+                python_bin,
+                os.path.join(qdk_openqasm_python_src, "check_api_surface.py"),
+            ],
+            cwd=qdk_openqasm_python_src,
+        )
+        step_end()
+
+    if run_tests:
+        step_start("Running tests for the qdk_openqasm_parser python package")
+        run_python_tests(
+            os.path.join(qdk_openqasm_python_src, "tests"), python_bin, pip_env
+        )
+        step_end()
 
 if build_pip:
     step_start("Building the pip package")

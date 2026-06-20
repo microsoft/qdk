@@ -1,0 +1,31 @@
+[package]
+name = "qdk_openqasm_parser_python"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+# Vendored (default features) so the wheel carries no qsc_* path deps.
+qdk_openqasm_parser = { path = "../parser" }
+miette = { workspace = true }
+
+[target.'cfg(not(windows))'.dependencies]
+pyo3 = { workspace = true, features = ["abi3-py310", "extension-module"] }
+
+[target.'cfg(windows)'.dependencies]
+pyo3 = { workspace = true, features = [
+    "abi3-py310",
+    "extension-module",
+    "generate-import-lib",
+] }
+
+[package.metadata.maturin]
+name = "qdk_openqasm_parser._native"
+
+[lints]
+workspace = true

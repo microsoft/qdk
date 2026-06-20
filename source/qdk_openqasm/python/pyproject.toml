@@ -1,0 +1,15 @@
+[build-system]
+requires = ["maturin ~= 1.10.2"]
+build-backend = "maturin"
+
+[project]
+name = "qdk_openqasm_parser"
+version = "0.0.0"
+requires-python = ">=3.10"
+description = "OpenQASM 3 parser and semantic analyzer with idiomatic Python AST/visitor APIs."
+
+[tool.maturin]
+module-name = "qdk_openqasm_parser._native"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

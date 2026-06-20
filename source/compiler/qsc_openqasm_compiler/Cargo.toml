@@ -14,7 +14,7 @@ miette = { workspace = true }
 qsc_ast = { path = "../qsc_ast" }
 qsc_data_structures = { path = "../qsc_data_structures" }
 qsc_frontend = { path = "../qsc_frontend" }
-qsc_openqasm_parser = { path = "../qsc_openqasm_parser" }
+qdk_openqasm_parser = { path = "../../qdk_openqasm/parser", features = ["internal"] }
 qsc_hir = { path = "../qsc_hir" }
 rustc-hash = { workspace = true }
 thiserror = { workspace = true }
