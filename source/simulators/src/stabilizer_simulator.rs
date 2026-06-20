@@ -3,19 +3,17 @@
 
 //! This crate implements a stabilizer simulator for the QDK.
 
-pub mod noise;
 pub mod operation;
 
 use crate::{
     MeasurementResult, NearlyZero, QubitID, Simulator,
-    noise_config::{CumulativeNoiseConfig, IntrinsicID, LossPolicy},
+    noise_config::{CumulativeNoiseConfig, Fault, FaultTerm, IntrinsicID, LossPolicy},
 };
-pub use noise::Fault;
 use operation::Operation;
 use paulimer::{
     Simulation, UnitaryOp,
     outcome_specific_simulation::{OutcomeSpecificSimulation, apply_hadamard},
-    quantum_core,
+    quantum_core::{self, PauliObservable},
 };
 use rand::{SeedableRng as _, rngs::StdRng};
 use std::{
@@ -26,7 +24,7 @@ use std::{
 /// A stabilizer simulator with the ability to simulate atom loss.
 pub struct StabilizerSimulator {
     /// The noise configuration for the simulation.
-    noise_config: Arc<CumulativeNoiseConfig<Fault>>,
+    noise_config: Arc<CumulativeNoiseConfig>,
     /// Random number generator used to sample from [`Self::noise_config`].
     rng: StdRng,
     /// The current inverse state of the simulation.
@@ -46,18 +44,17 @@ pub struct StabilizerSimulator {
 ///   reference to `self` at the same time. So, the obvious way express
 ///   this,
 ///   ```ignore
-///   fn apply_loss(&mut self, noise_table: &CumulativeNoiseTable<Fault>, targets: &[QubitID]) {
+///   fn apply_noise(&mut self, noise_table: &CumulativeNoiseTable, targets: &[QubitID]) {
 ///       for target in targets {
-///           if matches!(noise_table.sample_loss(&mut self.rng), Fault::Loss) {
-///               self.mresetz_impl(*target);
-///               self.loss[*target] = true;
+///           if matches!(noise_table.sample_noise(&mut self.rng), Fault::Loss) {
+///               ...
 ///           }
 ///       }
 ///   }
 ///   ```
 ///   and then doing,
 ///   ```ignore
-///   self.apply_loss(&self.noise_config.rxx, targets)
+///   self.apply_noise(&self.noise_config.rxx, targets)
 ///   ```
 ///   is not valid rust.
 ///
@@ -66,7 +63,7 @@ pub struct StabilizerSimulator {
 ///   that way rust doesn't see the cloned Arc as attached to self anymore.
 ///   ```ignore
 ///   let noise_config = Arc::clone(&self.noise_config);
-///   self.apply_loss(&noise_config.rxx, targets);
+///   self.apply_noise(&noise_config.rxx, targets);
 ///   ```
 ///   However, this is not ideal. We don't want to be increasing and decreasing
 ///   the reference count of an Arc in the hot-loop of the simulation.
@@ -74,9 +71,9 @@ pub struct StabilizerSimulator {
 ///   The other alternative is creating a function that takes all the necessary
 ///   members of self as inputs independently,
 ///   ```ignore
-///   fn apply_loss(
+///   fn apply_noise(
 ///     state: &mut StateType,
-///     noise_table: &CumulativeNoiseTable<Fault>,
+///     noise_table: &CumulativeNoiseTable,
 ///     targets: &[QubitID],
 ///     rng: &mut Rng,
 ///     loss: &mut Vec<bool>
@@ -94,32 +91,12 @@ pub struct StabilizerSimulator {
 ///   However, this is not very elegant. We would even need to re-implement mresetz.
 ///
 ///   The remaining alternative is using a macro.
-macro_rules! apply_loss {
-    ($slf:expr, $noise_table:ident, $targets:expr) => {
-        for target in $targets {
-            if !$slf.loss[*target] {
-                let fault = $slf.noise_config.$noise_table.sample_loss(&mut $slf.rng);
-                if matches!(fault, Fault::Loss) {
-                    $slf.mresetz_impl(*target);
-                    $slf.loss[*target] = true;
-                }
-            }
-        }
-    };
-}
-
 macro_rules! apply_noise {
     ($slf:expr, $noise_table:ident, $targets:expr) => {{
         let fault = $slf.noise_config.$noise_table.sample_noise(&mut $slf.rng);
-        if let Fault::Pauli(pauli_observables) = fault {
-            let observable: Vec<_> = pauli_observables
-                .into_iter()
-                .zip($targets)
-                .filter(|(_, q)| !$slf.loss[**q]) // We don't apply faults on lost qubits.
-                .map(|(pauli, q)| (pauli, *q).into())
-                .collect();
-            $slf.state.pauli(&observable);
-        };
+        if let Some(fault) = fault {
+            $slf.apply_fault(&fault, $targets);
+        }
     }};
 }
 
@@ -179,36 +156,39 @@ impl StabilizerSimulator {
     fn apply_idle_noise(&mut self, target: QubitID) {
         let idle_time = self.time - self.last_operation_time[target];
         self.last_operation_time[target] = self.time;
-        let fault = self.noise_config.gen_idle_fault(&mut self.rng, idle_time);
-        if !self.loss[target] && matches!(fault, Fault::S) {
+        let idle_fault = self.noise_config.gen_idle_fault(&mut self.rng, idle_time);
+        if idle_fault && !self.loss[target] {
             self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
         }
     }
 
-    fn apply_fault(&mut self, fault: Fault, targets: &[QubitID]) {
-        match fault {
-            Fault::None => (),
-            Fault::Pauli(pauli_observables) => {
-                let observable: Vec<_> = pauli_observables
-                    .into_iter()
-                    .zip(targets)
-                    .filter(|(_, q)| !self.loss[**q]) // We don't apply faults on lost qubits.
-                    .map(|(pauli, q)| (pauli, *q).into())
-                    .collect();
-                self.state.pauli(&observable);
-            }
-            Fault::S => {
-                if !self.loss[targets[0]] {
-                    self.state.apply_unitary(UnitaryOp::SqrtZ, targets);
+    fn apply_fault(&mut self, fault: &Fault, targets: &[QubitID]) {
+        let observable: Vec<_> = fault
+            .0
+            .iter()
+            .zip(targets)
+            .filter(|(term, q)| {
+                if self.loss[**q] {
+                    return false;
                 }
-            }
-            Fault::Loss => {
-                for target in targets {
-                    self.mresetz_impl(*target);
-                    self.loss[*target] = true;
+                match term {
+                    FaultTerm::I => false,
+                    FaultTerm::X | FaultTerm::Y | FaultTerm::Z => true,
+                    FaultTerm::Loss => {
+                        self.mresetz_impl(**q);
+                        self.loss[**q] = true;
+                        false
+                    }
                 }
-            }
-        }
+            })
+            .map(|(term, q)| match term {
+                FaultTerm::X => (PauliObservable::PlusX, *q).into(),
+                FaultTerm::Y => (PauliObservable::PlusY, *q).into(),
+                FaultTerm::Z => (PauliObservable::PlusZ, *q).into(),
+                FaultTerm::I | FaultTerm::Loss => unreachable!("these terms were filtered"),
+            })
+            .collect();
+        self.state.pauli(&observable);
     }
 
     /// Applies an `S` adjoint to the given target
@@ -283,7 +263,7 @@ impl StabilizerSimulator {
 }
 
 impl Simulator for StabilizerSimulator {
-    type Noise = Arc<CumulativeNoiseConfig<Fault>>;
+    type Noise = Arc<CumulativeNoiseConfig>;
     type StateDumpData = paulimer::clifford::CliffordUnitary;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
@@ -302,7 +282,6 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::X, &[target]);
-            apply_loss!(self, x, &[target]);
             apply_noise!(self, x, &[target]);
         }
     }
@@ -311,7 +290,6 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::Y, &[target]);
-            apply_loss!(self, y, &[target]);
             apply_noise!(self, y, &[target]);
         }
     }
@@ -320,7 +298,6 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::Z, &[target]);
-            apply_loss!(self, z, &[target]);
             apply_noise!(self, z, &[target]);
         }
     }
@@ -329,7 +306,6 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             apply_hadamard(&mut self.state, target);
-            apply_loss!(self, h, &[target]);
             apply_noise!(self, h, &[target]);
         }
     }
@@ -338,7 +314,6 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
-            apply_loss!(self, s, &[target]);
             apply_noise!(self, s, &[target]);
         }
     }
@@ -347,7 +322,6 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
-            apply_loss!(self, s_adj, &[target]);
             apply_noise!(self, s_adj, &[target]);
         }
     }
@@ -356,7 +330,6 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::SqrtX, &[target]);
-            apply_loss!(self, sx, &[target]);
             apply_noise!(self, sx, &[target]);
         }
     }
@@ -365,7 +338,6 @@ impl Simulator for StabilizerSimulator {
         if !self.loss[target] {
             self.apply_idle_noise(target);
             self.state.apply_unitary(UnitaryOp::SqrtXInv, &[target]);
-            apply_loss!(self, sx_adj, &[target]);
             apply_noise!(self, sx_adj, &[target]);
         }
     }
@@ -393,7 +365,6 @@ impl Simulator for StabilizerSimulator {
             }
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cx, &[control, target]);
         apply_noise!(self, cx, &[control, target]);
     }
 
@@ -425,7 +396,6 @@ impl Simulator for StabilizerSimulator {
             }
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cy, &[control, target]);
         apply_noise!(self, cy, &[control, target]);
     }
 
@@ -452,7 +422,6 @@ impl Simulator for StabilizerSimulator {
             }
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cz, &[control, target]);
         apply_noise!(self, cz, &[control, target]);
     }
 
@@ -470,7 +439,6 @@ impl Simulator for StabilizerSimulator {
             );
             self.state.apply_unitary(unitary, &[target]);
 
-            apply_loss!(self, rx, &[target]);
             apply_noise!(self, rx, &[target]);
         }
     }
@@ -489,7 +457,6 @@ impl Simulator for StabilizerSimulator {
             );
             self.state.apply_unitary(unitary, &[target]);
 
-            apply_loss!(self, ry, &[target]);
             apply_noise!(self, ry, &[target]);
         }
     }
@@ -508,7 +475,6 @@ impl Simulator for StabilizerSimulator {
             );
             self.state.apply_unitary(unitary, &[target]);
 
-            apply_loss!(self, rz, &[target]);
             apply_noise!(self, rz, &[target]);
         }
     }
@@ -566,7 +532,6 @@ impl Simulator for StabilizerSimulator {
                 self.state.apply_unitary(UnitaryOp::Hadamard, &[q2]);
             }
         }
-        apply_loss!(self, rxx, &[q1, q2]);
         apply_noise!(self, rxx, &[q1, q2]);
     }
 
@@ -623,7 +588,6 @@ impl Simulator for StabilizerSimulator {
                 self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q2]);
             }
         }
-        apply_loss!(self, ryy, &[q1, q2]);
         apply_noise!(self, ryy, &[q1, q2]);
     }
 
@@ -670,7 +634,6 @@ impl Simulator for StabilizerSimulator {
                 self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
             }
         }
-        apply_loss!(self, rzz, &[q1, q2]);
         apply_noise!(self, rzz, &[q1, q2]);
     }
 
@@ -714,45 +677,42 @@ impl Simulator for StabilizerSimulator {
 
         // Is up to the user if swap is a virtual operation or not.
         // If they don't specify noise/loss probability for swap, then it is virtual.
-        apply_loss!(self, swap, &[q1, q2]);
         apply_noise!(self, swap, &[q1, q2]);
     }
 
     fn mz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_idle_noise(target);
         self.record_mz(target, result_id);
-        apply_loss!(self, mz, &[target]);
         apply_noise!(self, mz, &[target]);
     }
 
     fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_idle_noise(target);
         self.record_mresetz(target, result_id);
-        apply_loss!(self, mresetz, &[target]);
         apply_noise!(self, mresetz, &[target]);
     }
 
     fn resetz(&mut self, target: QubitID) {
         self.apply_idle_noise(target);
         self.mresetz_impl(target);
-        apply_loss!(self, mresetz, &[target]);
         apply_noise!(self, mresetz, &[target]);
     }
 
     fn mov(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            apply_loss!(self, mov, &[target]);
             apply_noise!(self, mov, &[target]);
         }
     }
 
     fn correlated_noise_intrinsic(&mut self, intrinsic_id: IntrinsicID, targets: &[usize]) {
         let fault = match self.noise_config.intrinsics.get(&intrinsic_id) {
-            Some(correlated_noise) => correlated_noise.sample(&mut self.rng),
+            Some(correlated_noise) => correlated_noise.sample(&mut self.rng).cloned(),
             None => return,
         };
-        self.apply_fault(fault, targets);
+        if let Some(fault) = fault {
+            self.apply_fault(&fault, targets);
+        }
     }
 
     fn measurements(&self) -> &[MeasurementResult] {

@@ -258,7 +258,6 @@ fn noise_config_with_single_qubit_fault(
         qubits: 1,
         pauli_strings: vec![encode_pauli(pauli)],
         probabilities: vec![1.0],
-        loss: 0.0,
         on_loss: LossPolicy::Skip,
     };
     set_gate(&mut config, table);
@@ -276,7 +275,6 @@ fn noise_config_with_two_qubit_fault(
         qubits: 2,
         pauli_strings: vec![encode_pauli(pauli)],
         probabilities: vec![1.0],
-        loss: 0.0,
         on_loss: LossPolicy::Skip,
     };
     set_gate(&mut config, table);
@@ -529,10 +527,9 @@ fn noise_config_mz_with_loss() {
     let mut config = NoiseConfig::NOISELESS;
     config.mz = NoiseTable {
         qubits: 1,
-        pauli_strings: vec![],
-        probabilities: vec![],
-        loss: 1.0,
         on_loss: LossPolicy::Skip,
+        pauli_strings: vec![encode_pauli("L")],
+        probabilities: vec![1.0],
     };
     let mut sim = SparseSim::new_with_noise_config(config.into());
     let q = sim.qubit_allocate().expect("sparse simulator is infinite");
@@ -551,10 +548,9 @@ fn noise_config_gate_loss_causes_measurement_loss() {
     let mut config = NoiseConfig::NOISELESS;
     config.x = NoiseTable {
         qubits: 1,
-        pauli_strings: vec![],
-        probabilities: vec![],
-        loss: 1.0,
         on_loss: LossPolicy::Skip,
+        pauli_strings: vec![encode_pauli("L")],
+        probabilities: vec![1.0],
     };
     let mut sim = SparseSim::new_with_noise_config(config.into());
     let q = sim.qubit_allocate().expect("sparse simulator is infinite");

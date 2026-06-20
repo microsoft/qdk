@@ -10,10 +10,11 @@ use ndarray::Array2;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use num_traits::Zero;
-use qdk_simulators::cpu_full_state_simulator::noise::{Fault, PauliFault};
-use qdk_simulators::noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable};
-use qdk_simulators::stabilizer_simulator::{self, StabilizerSimulator};
-use qdk_simulators::{MeasurementResult, NearlyZero, Simulator as _, SparseStateSim};
+use qdk_simulators::{
+    MeasurementResult, NearlyZero, Simulator as _, SparseStateSim,
+    noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
+    stabilizer_simulator::StabilizerSimulator,
+};
 use qsc_data_structures::index_map::IndexMap;
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
@@ -537,7 +538,7 @@ pub struct SparseSim {
     /// Noiseless Sparse simulator to be used by this instance.
     pub sim: SparseStateSim,
     /// Noise configuration for this simulator instance, which defines the probabilities of different faults occurring during simulation.
-    pub noise_config: Option<CumulativeNoiseConfig<Fault>>,
+    pub noise_config: Option<CumulativeNoiseConfig>,
     /// Pauli noise that is applied after a gate or before a measurement is executed.
     /// Service functions aren't subject to noise.
     /// Note: this is legacy functionality maintained for backward compatibility.
@@ -579,7 +580,7 @@ impl SparseSim {
     }
 
     #[must_use]
-    pub fn new_with_noise_config(noise_config: CumulativeNoiseConfig<Fault>) -> Self {
+    pub fn new_with_noise_config(noise_config: CumulativeNoiseConfig) -> Self {
         Self {
             sim: SparseStateSim::new(None),
             noise_config: Some(noise_config),
@@ -615,7 +616,7 @@ impl SparseSim {
 
     fn apply_faults(
         &mut self,
-        get_table: impl Fn(&CumulativeNoiseConfig<Fault>) -> &CumulativeNoiseTable<Fault>,
+        get_table: impl Fn(&CumulativeNoiseConfig) -> &CumulativeNoiseTable,
         qs: &[usize],
     ) {
         if self.rng.is_none() {
@@ -633,54 +634,36 @@ impl SparseSim {
             .noise_config
             .take()
             .expect("noise config should always be present");
-        let noise_table = get_table(&noise_config);
 
-        if noise_table.loss > 0.0 {
-            // Check each qubit for loss before applying other faults, since loss will prevent other faults from being applied and also prevent gates from executing.
-            for &q in qs {
+        let fault = get_table(&noise_config)
+            .sampler
+            .sample(self.rng.as_mut().expect("RNG should be present"));
+
+        if let Some(fault) = fault {
+            assert!(fault.0.len() == qs.len());
+            for (&q, term) in qs.iter().zip(fault.0.iter()) {
                 if self.is_qubit_lost(q) {
                     continue;
                 }
-                let p = self
-                    .rng
-                    .as_mut()
-                    .expect("RNG should be present")
-                    .random_range(0.0..1.0);
-                if p < noise_table.loss {
-                    // The qubit is lost, so we reset it.
-                    // It is not safe to release the qubit here, as that may
-                    // interfere with later operations (gates or measurements)
-                    // or even normal qubit release at end of scope.
-                    if self.sim.measure(q) {
-                        self.sim.x(q);
-                    }
-                    // Mark the qubit as lost.
-                    self.lost_qubits.set_bit(q as u64, true);
-                }
-            }
-        }
-
-        let fault = noise_table
-            .sampler
-            .sample(self.rng.as_mut().expect("RNG should be present"));
-        match fault {
-            Fault::None => {}
-            Fault::Pauli(paulis) => {
-                assert!(paulis.len() == qs.len());
-                for (&q, pauli) in qs.iter().zip(paulis.iter()) {
-                    if self.is_qubit_lost(q) {
-                        continue;
-                    }
-                    match pauli {
-                        PauliFault::I => {}
-                        PauliFault::X => self.sim.x(q),
-                        PauliFault::Y => self.sim.y(q),
-                        PauliFault::Z => self.sim.z(q),
+                match term {
+                    FaultTerm::I => {}
+                    FaultTerm::X => self.sim.x(q),
+                    FaultTerm::Y => self.sim.y(q),
+                    FaultTerm::Z => self.sim.z(q),
+                    FaultTerm::Loss => {
+                        if !self.is_qubit_lost(q) {
+                            // The qubit is lost, so we reset it.
+                            // It is not safe to release the qubit here, as that may
+                            // interfere with later operations (gates or measurements)
+                            // or even normal qubit release at end of scope.
+                            if self.sim.measure(q) {
+                                self.sim.x(q);
+                            }
+                            // Mark the qubit as lost.
+                            self.lost_qubits.set_bit(q as u64, true);
+                        }
                     }
                 }
-            }
-            Fault::S | Fault::Loss => {
-                panic!("Unexpected fault type from noise table sampler: {fault:?}");
             }
         }
 
@@ -1205,10 +1188,7 @@ impl CliffordSim {
     }
 
     #[must_use]
-    pub fn new_with_noise_config(
-        num_qubits: usize,
-        noise_config: CumulativeNoiseConfig<stabilizer_simulator::Fault>,
-    ) -> Self {
+    pub fn new_with_noise_config(num_qubits: usize, noise_config: CumulativeNoiseConfig) -> Self {
         let seed = rand::rng().next_u32();
         Self {
             sim: StabilizerSimulator::new(num_qubits, 1, seed, noise_config.into()),

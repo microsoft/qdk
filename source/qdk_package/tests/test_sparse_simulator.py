@@ -96,7 +96,7 @@ def test_sparse_mixed_noise():
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["0000010000000-00"]
+    assert result == ["0000000000-00011"]
 
 
 def test_sparse_isolated_loss():
@@ -322,8 +322,7 @@ def generate_op_sequence(
 @pytest.mark.parametrize("noisy_gate, noise_number", [(0, 2), (1, 1), (2, 2), (3, 2)])
 def test_sparse_permuted_rotations(noisy_gate: int, noise_number: int):
     qsharp.init(target_profile=TargetProfile.Base)
-
-    n_shots = 400
+    n_shots = 1000
     n_qubits = 11
     seed = 20
     p_loss = 0.1

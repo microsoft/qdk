@@ -490,6 +490,62 @@ def test_on_loss_swap_swaps_loss_flag(on_loss, expected, sim_type):
 
 
 # ===========================================================================
+# Correlated loss tests ('L' in a noise string)
+# ===========================================================================
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_correlated_loss_only_entry(sim_type):
+    # An "L"-only entry loses the qubit with the entry's probability, like the
+    # scalar loss field, but expressed inside a correlated string.
+    noise = NoiseConfig()
+    noise.x.L = 0.1
+    results = compile_and_run(
+        "{use q = Qubit(); X(q); MResetZ(q)}",
+        shots=1000,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    check_histogram(results, {"-": 0.1, "1": 0.9})
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_correlated_pauli_and_loss(sim_type):
+    # "XL" applies an X to the control qubit and loses the target qubit, both
+    # with probability 0.1, as a single correlated event. The X on the control
+    # cancels the gate's X, so the control reads 0 exactly when the target is lost.
+    noise = NoiseConfig()
+    noise.cx.XL = 0.1
+    results = compile_and_run(
+        "{use qs = Qubit[2]; X(qs[0]); CNOT(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=10_000,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    # Without noise: control=1, target=1 => "11".
+    # With the "XL" event (p=0.1): control flips to 0, target lost => "0-".
+    check_histogram(results, {"11": 0.9, "0-": 0.1}, tolerance=0.03)
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_correlated_multi_qubit_loss(sim_type):
+    # "LL" loses both qubits of the gate together with probability 0.1.
+    noise = NoiseConfig()
+    noise.cz.LL = 0.1
+    results = compile_and_run(
+        "{use qs = Qubit[2]; CZ(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=10_000,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )
+    # Either both qubits are lost together ("--", p=0.1) or neither ("00", p=0.9).
+    check_histogram(results, {"--": 0.1, "00": 0.9}, tolerance=0.03)
+
+
+# ===========================================================================
 # Two-qubit gate noise tests
 # ===========================================================================
 
