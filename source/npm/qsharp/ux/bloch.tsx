@@ -994,24 +994,32 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     }
   }
 
-  // Live-editor state for the gate-string textbox.
+  // Live-text editing of the gate sequence.
   //
-  //   * `draft === null` means the textbox is canonical -- it displays
-  //     whatever the current `gates.join("")` is and updates
-  //     automatically when gate buttons / undo / etc. change `gates`.
-  //   * `draft !== null` means the user has been typing and the textbox
-  //     value has diverged from `gates`. We hold the typed value here
-  //     verbatim (no sanitization) so the per-char validation marker
-  //     can show exactly what the user typed. Sanitization happens on
-  //     commit.
+  //   * `draftText === null` means the textbox simply mirrors the
+  //     committed sequence (`gates.join("")`); buttons, undo, etc. flow
+  //     straight through.
+  //   * `draftText !== null` means the user is actively typing. The
+  //     textbox shows their text *immediately* (so typing stays snappy),
+  //     but the expensive part -- recomputing every trace row and snapping
+  //     the sphere -- is deferred until they pause (`GATE_TEXT_DEBOUNCE_MS`
+  //     after the last keystroke). The math itself is sub-millisecond; the
+  //     debounce exists to avoid rebuilding the whole trace on every
+  //     keystroke, not because the state calc is slow.
   //
-  // Commit (Enter or Run button): sanitize the draft, replace `gates`
-  // wholesale, snap the sphere to start, and play through to the end
-  // -- treating the textbox as "this is the program, please run it".
-  // The redo stack is cleared, since editing invalidates undone trace
-  // the same way applying a new gate does.
-  const [draft, setDraft] = useState<string | null>(null);
-  const displayValue = draft ?? gates.join("");
+  // Input is sanitized as it's typed, so the textbox only ever contains
+  // valid gate codes -- there's no transient "invalid"/"unsaved" state to
+  // reconcile, and the sphere (once the debounce fires) always matches
+  // exactly what's shown.
+  const GATE_TEXT_DEBOUNCE_MS = 150;
+  const [draftText, setDraftText] = useState<string | null>(null);
+  const displayValue = draftText ?? gates.join("");
+  // Pending-commit timer id, the text waiting to be committed, and a
+  // snapshot of `gates` taken at the start of an editing burst (so the
+  // whole burst collapses into a single undoable step).
+  const draftTimerRef = useRef<number | null>(null);
+  const draftPendingRef = useRef<string | null>(null);
+  const draftBaseRef = useRef<string[]>([]);
 
   // Measured natural width (px) of the widest piece of trace content,
   // used to size the trace pane so it grows horizontally to fit the
@@ -1020,20 +1028,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const [traceContentWidth, setTraceContentWidth] = useState<number | null>(
     null,
   );
-  const hasUnsavedDraft = draft !== null && draft !== gates.join("");
-  // Sanitized draft drives what commit() would actually apply, and also
-  // what the char-count readout shows. Computed eagerly so the readout
-  // matches what's about to happen, not the raw text the user typed.
-  const sanitizedDraft = sanitizeGateSequence(displayValue).gates;
-  const draftHasInvalid = displayValue
-    .split("")
-    .some((c) => !VALID_GATE_CODES.includes(c));
-  // Either failure mode disables Run and paints the input red: the
-  // sanitizer would silently drop something the user typed, and we'd
-  // rather they fix it explicitly than press Run and wonder why their
-  // sequence got shorter.
-  const isDraftInvalid =
-    draftHasInvalid || displayValue.length > MAX_GATE_SEQUENCE_LENGTH;
 
   // Convert a gate-code sequence to the format `BlochRenderer.snapTo`
   // expects. Keeping this as a small helper keeps the model/view seam
@@ -1130,6 +1124,54 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     });
   }, [gates]);
 
+  // Progressive trace rendering. Each row runs a synchronous KaTeX
+  // conversion on mount, so committing a large batch at once would block
+  // the main thread long enough to stall the animation. Cap how many rows
+  // mount per render and fill the rest in during idle time.
+  const PROGRESSIVE_CHUNK = 6;
+  const prevTraceRef = useRef<string[]>([]);
+  const renderLimitRef = useRef(0);
+  const [, setRampTick] = useState(0);
+  if (traceEntries !== prevTraceRef.current) {
+    const prev = prevTraceRef.current;
+    const total = traceEntries.length;
+    // Unchanged leading rows are memoized by <Markdown>, so they're free.
+    let shared = 0;
+    const overlap = Math.min(prev.length, total);
+    while (shared < overlap && prev[shared] === traceEntries[shared]) shared++;
+    // Small changes mount fully now; a large batch mounts only its
+    // unchanged prefix and lets the ramp below add the rest.
+    renderLimitRef.current =
+      total - shared <= PROGRESSIVE_CHUNK ? total : shared;
+    prevTraceRef.current = traceEntries;
+  }
+  const renderLimit = renderLimitRef.current;
+
+  // Grow the render limit a chunk at a time during idle periods, yielding
+  // to the animation loop between chunks.
+  useEffect(() => {
+    const total = traceEntries.length;
+    if (renderLimit >= total) return;
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    const schedule = w.requestIdleCallback
+      ? w.requestIdleCallback.bind(w)
+      : (cb: () => void) => w.setTimeout(cb, 16);
+    const unschedule = w.cancelIdleCallback
+      ? w.cancelIdleCallback.bind(w)
+      : (id: number) => w.clearTimeout(id);
+    const id = schedule(() => {
+      renderLimitRef.current = Math.min(
+        total,
+        renderLimitRef.current + PROGRESSIVE_CHUNK,
+      );
+      setRampTick((n) => n + 1);
+    });
+    return () => unschedule(id);
+  }, [renderLimit, traceEntries]);
+
   // Measure the natural width of the trace content and drive the pane
   // width from it. The visible content lives in an absolutely-positioned
   // inner layer (so a long trace can't grow the grid's rows -- see
@@ -1177,7 +1219,15 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     ro.observe(list);
     for (const row of Array.from(list.children)) ro.observe(row);
     return () => ro.disconnect();
-  }, [traceEntries]);
+  }, [traceEntries, renderLimit]);
+
+  // Clear any pending gate-text debounce timer on unmount so it can't
+  // fire a state update after the component is gone.
+  useEffect(() => {
+    return () => {
+      if (draftTimerRef.current !== null) clearTimeout(draftTimerRef.current);
+    };
+  }, []);
 
   // Keep the currently-active trace row in view as `cursor` advances
   // (most visibly during playback). We scroll the trace container
@@ -1459,6 +1509,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     // cleared either way.
     stopPlayback(false);
 
+    // Drop any pending text edit so its debounced commit can't fire
+    // after this gate and overwrite it.
+    cancelDraft();
+
     // Record the pre-action sequence so Undo reverts this whole action
     // (including any inspect-mode truncation) in a single step.
     pushHistory(gates);
@@ -1475,10 +1529,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const next = [...base, code];
     setGates(next);
     setCursor(next.length);
-    // Discard any uncommitted draft -- the gate button click is itself
-    // an explicit edit, and leaving the draft in place would leave the
-    // textbox showing a different program than the one now in `gates`.
-    setDraft(null);
     props.onGatesChanged?.(next.join(""));
   }
 
@@ -1509,6 +1559,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function undo() {
     if (!canUndo || !renderer.current) return;
     stopPlayback(false);
+    cancelDraft();
     const prev = past[past.length - 1];
     setPast(past.slice(0, -1));
     // The sequence we're leaving becomes the next thing Redo restores.
@@ -1516,9 +1567,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     renderer.current.snapTo(gatesToSteps(prev));
     setGates(prev);
     setCursor(prev.length);
-    // Drop any pending draft so the textbox stays consistent with the
-    // sequence we just restored.
-    setDraft(null);
     props.onGatesChanged?.(prev.join(""));
   }
 
@@ -1530,6 +1578,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function redo() {
     if (!canRedo || !renderer.current) return;
     stopPlayback(false);
+    cancelDraft();
     const next = future[0];
     setFuture(future.slice(1));
     // The sequence we're leaving goes back onto the undo history.
@@ -1537,21 +1586,19 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     renderer.current.snapTo(gatesToSteps(next));
     setGates(next);
     setCursor(next.length);
-    // Drop any pending draft so the textbox stays consistent with the
-    // sequence we just restored.
-    setDraft(null);
     props.onGatesChanged?.(next.join(""));
   }
 
   function clear() {
     stopPlayback(false);
+    // A pending text edit would otherwise fire after the clear and
+    // resurrect the old sequence; drop it first.
+    cancelDraft();
     // Clear is an editing action like any other: record the cleared-from
     // sequence so an accidental Clear can be undone.
     pushHistory(gates);
     setGates([]);
     setCursor(0);
-    // Clear means "go back to a blank program"; the draft should match.
-    setDraft(null);
     // Also return the Rz slider to its zero position so the control
     // reflects the cleared state rather than a stale angle.
     setRzAngle(0);
@@ -1559,39 +1606,73 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     props.onGatesChanged?.("");
   }
 
-  function applyGatesFromTextbox() {
-    // The Run button (and the Enter key on the textbox) commit the
-    // current displayed value. Treat this as "the textbox is a
-    // program, please run it": replace gates wholesale, clear redo,
-    // snap to the start, and play through to the end. The user
-    // explicitly asked for replay semantics here -- even if the
-    // sanitized result equals the existing gates list, we still snap
-    // and play, because they pressed Run.
+  // ---- Live-text gate editing -------------------------------------------
+
+  /**
+   * Cancel any pending debounced commit and drop the draft so the textbox
+   * falls back to mirroring `gates`. Called by the non-text actions
+   * (buttons, undo/redo, clear) so a stale timer can't clobber the change
+   * they just made.
+   */
+  function cancelDraft() {
+    if (draftTimerRef.current !== null) {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+    draftPendingRef.current = null;
+    if (draftText !== null) setDraftText(null);
+  }
+
+  /**
+   * Handle a keystroke in the gate textbox. Sanitize immediately (so the
+   * field only ever holds valid codes), show the result right away for a
+   * responsive feel, and schedule the expensive sphere/trace update for
+   * `GATE_TEXT_DEBOUNCE_MS` after the user stops typing.
+   */
+  function gateTextInput(e: Event) {
+    const value = (e.target as HTMLInputElement).value;
+    const clean = sanitizeGateSequence(value).gates;
+    // Typing is an edit, so it interrupts any in-flight animation --
+    // including the tail animation a previous commit may have started.
+    // We snap nowhere here; the pending commit will snap to the right
+    // place. This keeps the textbox focused/enabled the whole time.
+    if (isPlayingRef.current) stopPlayback(false);
+    // First keystroke of a burst: snapshot the pre-edit sequence so the
+    // whole burst undoes as one step.
+    if (draftText === null) draftBaseRef.current = gates;
+    setDraftText(clean);
+    draftPendingRef.current = clean;
+    if (draftTimerRef.current !== null) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = window.setTimeout(
+      commitDraftText,
+      GATE_TEXT_DEBOUNCE_MS,
+    );
+  }
+
+  /**
+   * Snap the sphere to `arr[0..fromIndex]` and then animate the
+   * remaining gates one at a time through to the end, advancing the
+   * cursor as each completes. Shared by the actions that add a run of
+   * gates and want the new tail to *animate* into place (like a gate
+   * button does) rather than teleport: live-text commits and the Rz
+   * "Add to sequence" button. Reads gates from the passed `arr` because
+   * the caller's `setGates` hasn't flushed yet, mirroring how
+   * `playFromIndex` reads `gates`. No-op tail (fromIndex at or past the
+   * end) just lands the cursor.
+   */
+  function animateTailFrom(arr: string[], fromIndex: number) {
     if (!renderer.current) return;
-    stopPlayback(false);
-    const cleaned = sanitizedDraft;
-    const arr = cleaned.split("");
-    // Replacing the whole sequence is one undoable action; record the
-    // pre-commit sequence so Undo restores it in a single step.
-    pushHistory(gates);
-    setGates(arr);
-    setDraft(null);
-    props.onGatesChanged?.(cleaned);
-    // Snap to start, then chain the play loop manually -- we can't go
-    // through `play()` here because it reads `gates` from the closure
-    // (which still has the pre-commit value until the next render).
-    renderer.current.snapTo([]);
-    setCursor(0);
-    if (arr.length === 0) return;
+    renderer.current.snapTo(gatesToSteps(arr.slice(0, fromIndex)));
+    if (fromIndex >= arr.length) {
+      setCursor(arr.length);
+      return;
+    }
+    setCursor(fromIndex);
     isPlayingRef.current = true;
     setIsPlaying(true);
-    // Inline mini play loop: same shape as playFromIndex, but reads
-    // `arr` from the local closure so we don't have to wait for React
-    // to flush the gates update.
     const chain = (pos: number) => {
       if (!renderer.current) return;
-      const code = arr[pos];
-      const info = gateInfo[code];
+      const info = gateInfo[arr[pos]];
       if (!info) {
         isPlayingRef.current = false;
         setIsPlaying(false);
@@ -1611,22 +1692,42 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         }
       });
     };
-    chain(0);
+    chain(fromIndex);
   }
 
-  function draftKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      applyGatesFromTextbox();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      setDraft(null);
-    }
-  }
+  /**
+   * Commit the pending draft text to `gates`. Rather than teleporting to
+   * the final state, we diff against the sequence we started editing
+   * from: everything up to the first differing gate is a shared prefix,
+   * so we snap instantly to that prefix and then *animate* the divergent
+   * tail. The edit then reads as "continue from where the two sequences
+   * still agree" -- appending "H" to "XYZ" animates just the H, and even
+   * a mid-string change only re-animates from the point of divergence.
+   * The whole burst is recorded as a single undo step.
+   */
+  function commitDraftText() {
+    draftTimerRef.current = null;
+    const text = draftPendingRef.current;
+    draftPendingRef.current = null;
+    if (text === null || !renderer.current) return;
+    stopPlayback(false);
+    const arr = text.split("");
+    const prev = draftBaseRef.current;
+    // Record the pre-burst sequence as a single undoable step.
+    setPast((p) => [...p, prev]);
+    setFuture([]);
+    setGates(arr);
+    // Back to canonical mirroring -- gates.join("") now equals the text.
+    setDraftText(null);
+    props.onGatesChanged?.(text);
 
-  function draftInput(e: Event) {
-    const input = e.target as HTMLInputElement;
-    setDraft(input.value);
+    // Length of the shared leading run between old and new sequences.
+    const maxPrefix = Math.min(prev.length, arr.length);
+    let prefix = 0;
+    while (prefix < maxPrefix && prev[prefix] === arr[prefix]) prefix++;
+
+    // Snap to the shared prefix, then animate everything past it.
+    animateTailFrom(arr, prefix);
   }
 
   // The Rz angle is chosen with a circular dial (see the JSX below). The
@@ -1742,28 +1843,26 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   // Append the current Rz decomposition to the gate sequence, mirroring
   // the way the single-gate buttons commit a gate: truncate any future
-  // (inspected-past) steps, add the new gates, move the cursor to the end,
-  // and clear the redo stack. The renderer snaps straight to the final
-  // state rather than animating through all ~60 decomposition gates; the
-  // user can scrub the trace to watch the decomposition step by step.
+  // (inspected-past) steps, add the new gates, and clear the redo stack.
+  // Like a gate button, the newly-appended decomposition *animates* into
+  // place gate by gate (via `animateTailFrom`) rather than teleporting;
+  // the user can Pause partway or scrub the trace to inspect each step.
   function applyRzDecomposition() {
     if (!renderer.current || rzDecomposition.length === 0) return;
     stopPlayback(false);
+    cancelDraft();
     // The whole decomposition is appended as one undoable action.
     pushHistory(gates);
-    let base = gates;
-    if (cursor < gates.length) {
-      base = gates.slice(0, cursor);
-    }
+    // If the user is inspecting an earlier step, branch from there by
+    // truncating the later gates; otherwise append at the end.
+    const base = cursor < gates.length ? gates.slice(0, cursor) : gates;
     const next = [...base, ...rzDecomposition.split("")];
-    renderer.current.snapTo(gatesToSteps(next));
     setGates(next);
-    setCursor(next.length);
-    // The committed sequence is now the source of truth; drop any draft.
     // Leave the dial at its current angle so the user can add the same
     // rotation again without re-dialing it.
-    setDraft(null);
     props.onGatesChanged?.(next.join(""));
+    // Snap to the prefix, then animate the appended gates into place.
+    animateTailFrom(next, base.length);
   }
 
   // Memoized trace row list. Rebuilding these vnodes on every render is
@@ -1777,7 +1876,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // changes when `traceEntries` does, so the captured closure stays
   // correct between rebuilds.
   const traceRows = useMemo(() => {
-    return traceEntries.map((str, i) => {
+    // Mount only up to the progressive render limit (see above).
+    return traceEntries.slice(0, renderLimit).map((str, i) => {
       const stepIndex = i + 1;
       const classes = ["qs-bloch-trace-item"];
       if (stepIndex === cursor) classes.push("qs-bloch-trace-item-current");
@@ -1797,7 +1897,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         </div>
       );
     });
-  }, [traceEntries, cursor]);
+  }, [traceEntries, cursor, renderLimit]);
 
   return (
     <div
@@ -2066,35 +2166,16 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       <div class="qs-bloch-gate-editor">
         <div class="qs-bloch-gate-editor-row">
           <input
-            class={
-              "qs-bloch-gate-editor-input" +
-              (isDraftInvalid ? " qs-bloch-gate-editor-input-invalid" : "")
-            }
+            class="qs-bloch-gate-editor-input"
             value={displayValue}
-            onInput={draftInput}
-            onKeyDown={draftKeyDown}
-            placeholder="Type gates here (X Y Z H S s T t), Enter to run"
-            disabled={isPlaying}
+            onInput={gateTextInput}
             spellcheck={false}
             autocomplete="off"
             autocorrect="off"
             autocapitalize="off"
             aria-label="Gate program"
-            aria-invalid={isDraftInvalid}
+            placeholder="Type a gate sequence (X Y Z H S s T t)"
           />
-          <button
-            style="margin-left: 8px; margin-right: 8px; padding: 0 12px; height: 25px"
-            type="button"
-            onClick={applyGatesFromTextbox}
-            disabled={isPlaying || isDraftInvalid}
-            title={
-              isDraftInvalid
-                ? "Fix invalid input before running"
-                : "Apply this gate string and replay from the start"
-            }
-          >
-            Run
-          </button>
           {props.actionSlot}
         </div>
         {/*
@@ -2107,17 +2188,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           is, especially after the Rz slider expands a single rotation
           into a dozens-of-gates decomposition.
         */}
-        <div
-          class={
-            "qs-bloch-gate-editor-feedback" +
-            (hasUnsavedDraft ? " qs-bloch-gate-editor-unsaved" : "")
-          }
-          aria-hidden="true"
-        >
+        <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
           <span class="qs-bloch-gate-editor-breakdown">
             {(() => {
               const counts: Record<string, number> = {};
-              for (const ch of sanitizedDraft) {
+              for (const ch of displayValue) {
                 counts[ch] = (counts[ch] ?? 0) + 1;
               }
               const chips = [];
@@ -2157,30 +2232,19 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             })()}
           </span>
           <span class="qs-bloch-gate-editor-status">
-            {hasUnsavedDraft && (
-              <span
-                class="qs-bloch-gate-editor-unsaved-indicator"
-                title="Unsaved changes \u2014 press Enter or Run to apply, Esc to discard"
-              >
-                — ● unsaved
-              </span>
-            )}
             <span
               class={
-                draftHasInvalid ||
                 displayValue.length > MAX_GATE_SEQUENCE_LENGTH
                   ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
                   : "qs-bloch-gate-editor-count"
               }
               title={
-                draftHasInvalid
-                  ? `Invalid characters will be dropped on Run. Valid codes: ${VALID_GATE_CODES}`
-                  : displayValue.length > MAX_GATE_SEQUENCE_LENGTH
-                    ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap; excess will be dropped on Run`
-                    : ""
+                displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                  ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                  : ""
               }
             >
-              {sanitizedDraft.length} / {MAX_GATE_SEQUENCE_LENGTH}
+              {displayValue.length} / {MAX_GATE_SEQUENCE_LENGTH}
             </span>
           </span>
         </div>

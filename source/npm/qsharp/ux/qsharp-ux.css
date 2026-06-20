@@ -1201,22 +1201,15 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-size: 1em;
   padding: 4px 6px;
   /* Grow to fill the available width up to the editor's max-width,
-     but shrink down to a sensible minimum on narrow viewports. The
-     Run button next to it stays at its natural width. */
+     but shrink down to a sensible minimum on narrow viewports. */
   flex: 1 1 auto;
   min-width: 0;
 }
-/* Invalid-draft state: red outline (and matching focus ring) so the
-   user can tell at a glance that Run is disabled because of what's
-   currently typed. We use `outline` rather than `border` so we don't
-   shift the layout when the state toggles. */
-.qs-bloch-gate-editor-input-invalid {
-  outline: 2px solid var(--qdk-text-error, #d83b01);
-  outline-offset: -1px;
-}
-.qs-bloch-gate-editor-input-invalid:focus {
-  outline: 2px solid var(--qdk-text-error, #d83b01);
-  outline-offset: -1px;
+/* The gate string is read-only: it's built solely via the gate buttons
+   and the Rz "Add to sequence" control. Present it as a passive display
+   (no text caret) while still allowing the user to select/copy it. */
+.qs-bloch-gate-editor-input[readonly] {
+  cursor: default;
 }
 .qs-bloch-gate-editor-feedback {
   display: flex;
@@ -1287,18 +1280,12 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   gap: 8px;
   flex-shrink: 0;
 }
-.qs-bloch-gate-editor-unsaved-indicator {
-  color: var(--qdk-text-warning, #b58900);
-  font-style: italic;
-}
 .qs-bloch-gate-editor-count {
   font-variant-numeric: tabular-nums;
   opacity: 0.7;
 }
 .qs-bloch-gate-editor-count-warn {
-  /* When the sanitized version is shorter than the typed value,
-     emphasise the count so the user notices that "Run" won't apply
-     everything they see. */
+  /* Emphasise the count when the sequence reaches the gate cap. */
   color: var(--qdk-text-error, #d83b01);
   opacity: 1;
   font-weight: bold;
