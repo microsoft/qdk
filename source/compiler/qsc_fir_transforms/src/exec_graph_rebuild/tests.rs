@@ -692,6 +692,80 @@ fn exec_graph_unary_not() {
 }
 
 #[test]
+fn empty_unit_body_rebuilds_to_unit_ret() {
+    // A function with no statements has nothing to evaluate, so the rebuilt
+    // graph is just the implicit Unit value followed by Ret.
+    check_exec_graph(
+        "operation Main() : Unit {}",
+        &expect![[r#"
+            0: Unit
+            1: Ret"#]],
+    );
+}
+
+#[test]
+fn divergent_only_body_rebuilds_fail_without_trailing_value() {
+    // A non-Unit body whose sole statement diverges (`fail`) never yields a
+    // value; the rebuilt graph evaluates the message and the Fail expr, then
+    // terminates with Ret and no trailing value node.
+    check_exec_graph(
+        "function Main() : Int { fail \"boom\" }",
+        &expect![[r#"
+            0: Expr(ExprId(4)) [String(parts=1)]
+            1: Expr(ExprId(3)) [Fail]
+            2: Ret"#]],
+    );
+}
+
+#[test]
+fn nested_if_within_while_rebuilds_nested_control_flow() {
+    // Deeply nested control flow (an if/else nested inside a while loop) must
+    // reconstruct with correctly interleaved jump targets for both the loop
+    // back-edge and the inner branch.
+    check_exec_graph(
+        "function Main() : Unit {
+            mutable i = 0;
+            while i < 3 {
+                if i == 1 {
+                    i += 10;
+                } else {
+                    i += 1;
+                }
+            }
+        }",
+        &expect![[r#"
+            0: Expr(ExprId(3)) [Lit(Int(0))]
+            1: Bind(PatId(1))
+            2: Expr(ExprId(6)) [Var]
+            3: Store
+            4: Expr(ExprId(7)) [Lit(Int(3))]
+            5: Expr(ExprId(5)) [BinOp(Lt)]
+            6: JumpIfNot(26)
+            7: Expr(ExprId(10)) [Var]
+            8: Store
+            9: Expr(ExprId(11)) [Lit(Int(1))]
+            10: Expr(ExprId(9)) [BinOp(Eq)]
+            11: JumpIfNot(19)
+            12: Expr(ExprId(14)) [Var]
+            13: Store
+            14: Expr(ExprId(15)) [Lit(Int(10))]
+            15: Expr(ExprId(13)) [AssignOp(Add)]
+            16: Unit
+            17: Unit
+            18: Jump(25)
+            19: Expr(ExprId(18)) [Var]
+            20: Store
+            21: Expr(ExprId(19)) [Lit(Int(1))]
+            22: Expr(ExprId(17)) [AssignOp(Add)]
+            23: Unit
+            24: Unit
+            25: Jump(2)
+            26: Unit
+            27: Ret"#]],
+    );
+}
+
+#[test]
 fn exec_graph_callable_with_adjoint_spec_rebuilds_body_and_adj_independently() {
     let source = "operation Foo(q : Qubit) : Unit is Adj { body ... { H(q); } adjoint ... { X(q); } } operation Main() : Unit { use q = Qubit(); Foo(q); Adjoint Foo(q); }";
     check_callable_spec_exec_graph(
@@ -948,7 +1022,7 @@ fn external_udt_copy_update_exec_graph_rebuilds_mutated_external_spec() {
 }
 
 #[test]
-fn exec_graph_rebuild_preserves_invariants() {
+fn exec_graph_rebuild_passes_post_all_invariant() {
     let source = indoc! {"
         namespace Test {
             @EntryPoint()

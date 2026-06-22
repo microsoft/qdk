@@ -223,6 +223,147 @@ fn subpipeline_rewrites_pinned_udt_returning_early_return() {
     );
 }
 
+/// A pinned (non-entry-reachable) operation whose input is a plain value type
+/// (not an arrow), still early-returning inside a measurement-dependent branch.
+/// Mirrors the `ReinvokeOriginal` pinned path for a target that takes no
+/// arrow-typed argument, confirming the sub-pipeline rewrites the body to
+/// single-exit form and preserves the non-arrow signature.
+const PINNED_NON_ARROW_EARLY_RETURN: &str = indoc! {"
+    namespace Test {
+        import Std.Measurement.*;
+        @EntryPoint()
+        operation Main() : Int { 42 }
+        operation Pinned(q : Qubit) : Int {
+            let r = MResetZ(q);
+            if r == One {
+                return 1;
+            }
+            return 2;
+        }
+    }
+"};
+
+#[test]
+fn subpipeline_rewrites_pinned_non_arrow_early_return() {
+    let (mut store, pkg_id, pinned) = prepare_pinned(PINNED_NON_ARROW_EARLY_RETURN, "Pinned");
+
+    // The main pipeline skips the non-entry-reachable pinned body, so the early
+    // returns are still present before the sub-pipeline runs.
+    assert!(
+        callable_has_return(store.get(pkg_id), pinned.item),
+        "pinned body should retain early returns after the main pipeline"
+    );
+
+    let result = run_signature_preserving_subpipeline(&mut store, pkg_id, &[pinned]);
+    assert!(
+        result.is_success(),
+        "sub-pipeline should succeed: {:?}",
+        result.errors
+    );
+
+    // The body is rewritten to single-exit form.
+    assert!(
+        !callable_has_return(store.get(pkg_id), pinned.item),
+        "sub-pipeline should remove all Return nodes from the non-arrow pinned body"
+    );
+
+    // The plain `Qubit` input and `Int` output signature are preserved.
+    let package = store.get(pkg_id);
+    let ItemKind::Callable(decl) = &package.get_item(pinned.item).kind else {
+        panic!("expected Pinned to be a callable");
+    };
+    assert_eq!(
+        package.get_pat(decl.input).ty,
+        Ty::Prim(Prim::Qubit),
+        "pinned non-arrow input signature should be preserved"
+    );
+    assert_eq!(
+        decl.output,
+        Ty::Prim(Prim::Int),
+        "pinned output signature should remain Int"
+    );
+
+    invariants::check_with_seeds(
+        &store,
+        pkg_id,
+        InvariantLevel::PostSignaturePreserving,
+        &[pinned],
+    );
+}
+
+/// A pinned (non-entry-reachable) operation with multiple early returns spread
+/// across several dynamic branches (a nested `if`/`else`), each guarded by a
+/// distinct measurement. The sub-pipeline must collapse all of them into a
+/// single-exit form.
+const PINNED_MULTI_BRANCH_EARLY_RETURN: &str = indoc! {"
+    namespace Test {
+        import Std.Measurement.*;
+        @EntryPoint()
+        operation Main() : Int { 42 }
+        operation Pinned(op : (Qubit => Unit)) : Int {
+            use q = Qubit();
+            op(q);
+            let r = MResetZ(q);
+            if r == One {
+                return 1;
+            } else {
+                let s = MResetZ(q);
+                if s == One {
+                    return 2;
+                }
+            }
+            return 3;
+        }
+    }
+"};
+
+#[test]
+fn subpipeline_rewrites_pinned_multiple_branch_early_returns() {
+    let (mut store, pkg_id, pinned) = prepare_pinned(PINNED_MULTI_BRANCH_EARLY_RETURN, "Pinned");
+
+    // Sanity: the body really does carry multiple Return nodes before the
+    // sub-pipeline runs.
+    let return_count = |store: &PackageStore| {
+        let package = store.get(pkg_id);
+        let ItemKind::Callable(decl) = &package.get_item(pinned.item).kind else {
+            panic!("expected Pinned to be a callable");
+        };
+        let mut count = 0;
+        for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_id, expr| {
+            if matches!(expr.kind, ExprKind::Return(_)) {
+                count += 1;
+            }
+        });
+        count
+    };
+    assert!(
+        return_count(&store) >= 3,
+        "pinned body should carry the three branch early returns before the sub-pipeline, got {}",
+        return_count(&store)
+    );
+
+    let result = run_signature_preserving_subpipeline(&mut store, pkg_id, &[pinned]);
+    assert!(
+        result.is_success(),
+        "sub-pipeline should succeed: {:?}",
+        result.errors
+    );
+
+    // Every early return across every branch is rewritten into single-exit form.
+    assert_eq!(
+        return_count(&store),
+        0,
+        "sub-pipeline should remove all Return nodes from the multi-branch pinned body"
+    );
+
+    invariants::check_with_seeds(
+        &store,
+        pkg_id,
+        InvariantLevel::PostSignaturePreserving,
+        &[pinned],
+    );
+}
+
 /// A library operation with a measurement-dependent early return. Because the
 /// user entry point calls it directly, it is entry-reachable and the main
 /// pipeline rewrites its early returns into single-exit form in place, in the

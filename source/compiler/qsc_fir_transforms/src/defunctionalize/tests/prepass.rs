@@ -383,7 +383,7 @@ mod identity_closure_peephole_optimization {
 
     /// Non-identity closure with a capture in its arguments should not be optimized.
     #[test]
-    fn no_optimize_capture_in_args() {
+    fn no_optimize_closure_uses_capture_not_param() {
         check(
             r#"
         operation ApplyOp(f : Qubit => Unit, q : Qubit) : Unit {

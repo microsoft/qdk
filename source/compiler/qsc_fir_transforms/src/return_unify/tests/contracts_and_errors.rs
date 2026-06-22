@@ -50,8 +50,26 @@ fn assert_no_array_backed_slot(
     );
 }
 
+/// Contract check for the internal `guard_stmt_with_flag` invariant.
+///
+/// During flag-strategy return lowering, `guard_stmt_with_flag` rewrites a
+/// statement so it only runs when no early return has fired, wrapping it as
+/// `if not __has_returned { <stmt> }`. `StmtKind::Local` statements take a
+/// dedicated path (their initializer is guarded with a typed default so the
+/// binding stays in scope), but every other guarded statement is placed in a
+/// `Unit`-typed block whose value is discarded. A `StmtKind::Expr` therefore
+/// must itself be `Unit`-typed; a value-producing expression statement reaching
+/// this path would have its result silently dropped, which signals a caller bug
+/// (trailing value expressions are supposed to flow through the return-slot /
+/// trailing-merge machinery, not get guard-wrapped).
+///
+/// This test feeds the function an input that deliberately violates that
+/// contract: it hand-builds a `StmtKind::Expr` holding a non-`Unit` (`Int`)
+/// literal and confirms the defensive `assert!`
+/// ("guard_stmt_with_flag requires Unit-typed inner stmt") fires, so the
+/// invariant cannot silently regress.
 #[test]
-fn guard_stmt_with_flag_rejects_non_unit_expr_stmt() {
+fn guard_stmt_with_flag_panics_on_non_unit_expr_stmt() {
     let source = indoc! {r#"
         namespace Test {
             @EntryPoint()

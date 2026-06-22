@@ -166,6 +166,29 @@ fn common_expr_kinds_render() {
 }
 
 #[test]
+fn range_expr_renders() {
+    check_render(
+        indoc! {r#"
+            namespace Test {
+                @EntryPoint()
+                function Main() : Range {
+                    0..2..10
+                }
+            }
+        "#},
+        &expect![[r#"
+            function Main() : Range {
+                body {
+                    0..2..10
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
 fn udt_field_renders_by_name_when_available() {
     check_render(
         indoc! {r#"
@@ -225,25 +248,104 @@ fn write_expr_renders_expression() {
 }
 
 #[test]
-fn binop_as_str_covers_representative_variants() {
+fn binop_as_str_covers_all_variants() {
+    // Arithmetic.
     assert_eq!(binop_as_str(BinOp::Add), "+");
+    assert_eq!(binop_as_str(BinOp::Sub), "-");
+    assert_eq!(binop_as_str(BinOp::Mul), "*");
+    assert_eq!(binop_as_str(BinOp::Div), "/");
+    assert_eq!(binop_as_str(BinOp::Mod), "%");
+    assert_eq!(binop_as_str(BinOp::Exp), "^");
+    // Comparison.
+    assert_eq!(binop_as_str(BinOp::Eq), "==");
+    assert_eq!(binop_as_str(BinOp::Neq), "!=");
+    assert_eq!(binop_as_str(BinOp::Gt), ">");
+    assert_eq!(binop_as_str(BinOp::Gte), ">=");
+    assert_eq!(binop_as_str(BinOp::Lt), "<");
+    assert_eq!(binop_as_str(BinOp::Lte), "<=");
+    // Logical.
     assert_eq!(binop_as_str(BinOp::AndL), "and");
+    assert_eq!(binop_as_str(BinOp::OrL), "or");
+    // Bitwise.
+    assert_eq!(binop_as_str(BinOp::AndB), "&&&");
+    assert_eq!(binop_as_str(BinOp::OrB), "|||");
+    assert_eq!(binop_as_str(BinOp::XorB), "^^^");
     assert_eq!(binop_as_str(BinOp::Shl), "<<<");
+    assert_eq!(binop_as_str(BinOp::Shr), ">>>");
 }
 
 #[test]
-fn unop_as_str_covers_functors() {
+fn unop_as_str_covers_all_variants() {
     assert_eq!(unop_as_str(UnOp::Functor(Functor::Adj)), "Adjoint ");
     assert_eq!(unop_as_str(UnOp::Functor(Functor::Ctl)), "Controlled ");
+    assert_eq!(unop_as_str(UnOp::Neg), "-");
+    assert_eq!(unop_as_str(UnOp::NotB), "~~~");
+    assert_eq!(unop_as_str(UnOp::NotL), "not ");
+    assert_eq!(unop_as_str(UnOp::Pos), "+");
     assert_eq!(unop_as_str(UnOp::Unwrap), "!");
 }
 
 #[test]
-fn ty_rendering_handles_primitives_and_tuples() {
+fn ty_rendering_handles_primitives_tuples_and_arrays() {
     assert_eq!(ty_as_qsharp(&Ty::Prim(Prim::Int)), "Int");
+    assert_eq!(ty_as_qsharp(&Ty::Prim(Prim::Bool)), "Bool");
     assert_eq!(ty_as_qsharp(&Ty::Tuple(Vec::new())), "Unit");
+    // A single-element tuple renders with a trailing comma to stay distinct
+    // from a parenthesized scalar.
+    assert_eq!(
+        ty_as_qsharp(&Ty::Tuple(vec![Ty::Prim(Prim::Int)])),
+        "(Int,)"
+    );
+    assert_eq!(
+        ty_as_qsharp(&Ty::Tuple(vec![Ty::Prim(Prim::Int), Ty::Prim(Prim::Bool)])),
+        "(Int, Bool)"
+    );
     assert_eq!(
         ty_as_qsharp(&Ty::Array(Box::new(Ty::Prim(Prim::Bool)))),
         "Bool[]"
     );
+    // Nested array of tuples.
+    assert_eq!(
+        ty_as_qsharp(&Ty::Array(Box::new(Ty::Tuple(vec![
+            Ty::Prim(Prim::Int),
+            Ty::Prim(Prim::Double)
+        ])))),
+        "(Int, Double)[]"
+    );
+}
+
+#[test]
+fn ty_rendering_handles_param_and_arrow_with_functors() {
+    use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, ParamId};
+
+    // A bare type parameter renders as `'T<id>`.
+    assert_eq!(ty_as_qsharp(&Ty::Param(ParamId::from(0_usize))), "'T0");
+    assert_eq!(ty_as_qsharp(&Ty::Param(ParamId::from(2_usize))), "'T2");
+
+    // A functor-free operation arrow.
+    let plain = Ty::Arrow(Box::new(Arrow {
+        kind: CallableKind::Operation,
+        input: Box::new(Ty::Prim(Prim::Qubit)),
+        output: Box::new(Ty::UNIT),
+        functors: FunctorSet::Value(FunctorSetValue::Empty),
+    }));
+    assert_eq!(ty_as_qsharp(&plain), "(Qubit => Unit)");
+
+    // An operation arrow carrying an `Adj + Ctl` functor set.
+    let with_functors = Ty::Arrow(Box::new(Arrow {
+        kind: CallableKind::Operation,
+        input: Box::new(Ty::Prim(Prim::Qubit)),
+        output: Box::new(Ty::UNIT),
+        functors: FunctorSet::Value(FunctorSetValue::CtlAdj),
+    }));
+    assert_eq!(ty_as_qsharp(&with_functors), "(Qubit => Unit is Adj + Ctl)");
+
+    // A function arrow renders with the `->` separator.
+    let func = Ty::Arrow(Box::new(Arrow {
+        kind: CallableKind::Function,
+        input: Box::new(Ty::Prim(Prim::Int)),
+        output: Box::new(Ty::Prim(Prim::Int)),
+        functors: FunctorSet::Value(FunctorSetValue::Empty),
+    }));
+    assert_eq!(ty_as_qsharp(&func), "(Int -> Int)");
 }

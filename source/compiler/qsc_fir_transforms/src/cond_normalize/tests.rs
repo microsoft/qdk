@@ -442,6 +442,23 @@ fn while_condition_is_not_hoisted() {
     "#});
 }
 
+/// A value-position `if` (one that produces a binding's value) is left
+/// untouched even when its condition is side-effecting: defunctionalization
+/// removes the binding and rebuilds a tree that references each guard once, so
+/// this pass deliberately only normalizes statement-position `if`s.
+#[test]
+fn value_position_if_condition_is_not_hoisted() {
+    assert_no_change(indoc! {r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            let r = if { Y(q); true } { 1 } else { 0 };
+            if r == 1 {
+                X(q);
+            }
+        }
+    "#});
+}
+
 /// Normalization preserves observable behavior end to end through the full
 /// pipeline for a side-effecting `if` condition.
 #[test]

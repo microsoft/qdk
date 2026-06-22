@@ -116,7 +116,7 @@ fn build_merge(
 /// Build the canonical `let __trailing_result : T = init; if ... else __trailing_result`
 /// pattern, returning the enclosing block id along with the local id of
 /// the bound trailing result.
-fn build_canonical_pattern(
+fn build_let_merge_pattern(
     package: &mut Package,
     assigner: &mut Assigner,
     slots: &Slots,
@@ -158,7 +158,7 @@ fn canonical_literal_init_folds_into_merge_else() {
         ExprKind::Lit(Lit::Int(42)),
         Span::default(),
     );
-    let (block_id, _, merge_expr_id) = build_canonical_pattern(
+    let (block_id, _, merge_expr_id) = build_let_merge_pattern(
         &mut package,
         &mut assigner,
         &slots,
@@ -253,7 +253,7 @@ fn block_init_with_side_effect_folds() {
         Span::default(),
     );
 
-    let (block_id, _, merge_expr_id) = build_canonical_pattern(
+    let (block_id, _, merge_expr_id) = build_let_merge_pattern(
         &mut package,
         &mut assigner,
         &slots,
@@ -314,7 +314,7 @@ fn call_init_folds() {
         Span::default(),
     );
 
-    let (block_id, _, merge_expr_id) = build_canonical_pattern(
+    let (block_id, _, merge_expr_id) = build_let_merge_pattern(
         &mut package,
         &mut assigner,
         &slots,
@@ -356,7 +356,7 @@ fn wrong_name_refuses_to_fold() {
         ExprKind::Lit(Lit::Int(42)),
         Span::default(),
     );
-    let (block_id, _, _) = build_canonical_pattern(
+    let (block_id, _, _) = build_let_merge_pattern(
         &mut package,
         &mut assigner,
         &slots,
@@ -528,7 +528,7 @@ fn init_that_writes_merge_slot_refuses_to_fold() {
         Span::default(),
     );
 
-    let (block_id, _, _) = build_canonical_pattern(
+    let (block_id, _, _) = build_let_merge_pattern(
         &mut package,
         &mut assigner,
         &slots,

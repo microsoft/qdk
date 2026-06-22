@@ -1673,8 +1673,12 @@ fn closure_with_captures_not_identity() {
     );
 }
 
+/// A partial-application lambda argument (`register => Shifted(1, register)`)
+/// is lifted to a closure and then defunctionalized end-to-end: the test
+/// snapshots both the reachable-callable shape (`check`) and the full
+/// before/after rewrite (`check_rewrite`), not just the analysis result.
 #[test]
-fn partial_application_lambda_analysis_shape() {
+fn partial_application_lambda_defunctionalizes_end_to_end() {
     let source = r#"
         operation ApplyOp(op : Qubit[] => Unit, register : Qubit[]) : Unit {
             op(register);
@@ -4740,8 +4744,12 @@ fn hof_operand_block_set_specializes_reaching_definition() {
 /// emits multi-way dispatch (`if true { X } else { H }`), matching the
 /// statement-level case.
 #[allow(clippy::too_many_lines)]
+/// A conditional `set op = X` (whether at statement level or inside an operand
+/// block) leaves `op` with two reaching definitions, so the call site is
+/// rewritten into a generated `if`-dispatch that selects the matching
+/// specialization per branch.
 #[test]
-fn operand_block_conditional_set_preserves_dispatch() {
+fn operand_block_conditional_set_generates_branch_dispatch() {
     // Statement-level conditional `set`: multi-way dispatch.
     check_rewrite(
         r#"

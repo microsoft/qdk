@@ -7,7 +7,7 @@
 use super::*;
 
 #[test]
-fn three_level_block_block_if_returns_at_each_level() {
+fn block_block_if_returns_at_each_level() {
     // nested bare blocks with returns sprinkled at every level
     check_no_returns_q(
         indoc! {r#"
@@ -111,7 +111,7 @@ fn three_level_block_block_if_returns_at_each_level() {
 }
 
 #[test]
-fn three_level_qubit_scopes_with_deep_return() {
+fn qubit_scopes_with_deep_return() {
     // Three nested qubit allocation scopes; return deep inside the innermost
     // scope. Flag lowering must preserve the release order of all three
     // qubit scopes on the return path.
@@ -195,7 +195,7 @@ fn three_level_qubit_scopes_with_deep_return() {
 }
 
 #[test]
-fn three_level_nested_returns_at_every_level() {
+fn nested_returns_at_every_level() {
     // Each level has its own return on its own branch; flag lowering
     // must flatten all three into a single post-unification control flow.
     check_no_returns_q(
@@ -294,7 +294,7 @@ fn three_level_nested_returns_at_every_level() {
 }
 
 #[test]
-fn three_level_hoist_return_in_call_arg_deep() {
+fn hoist_return_in_call_arg_deep() {
     // Compound-position return three constructs deep: the inner `Return`
     // sits inside a `Call` argument inside an `if` inside a `while` inside
     // a `for`. Exercises the hoist pre-pass driving flag lowering at
@@ -376,7 +376,7 @@ fn three_level_hoist_return_in_call_arg_deep() {
 }
 
 #[test]
-fn three_level_outer_return_wraps_three_deep_block() {
+fn outer_return_wraps_three_deep_block() {
     // An outer bare `return` wrapping three levels of block-bearing
     // constructs whose leaf holds a statement-level return. Exercises the
     // `bind_inner_and_return` path across multiple nesting levels.

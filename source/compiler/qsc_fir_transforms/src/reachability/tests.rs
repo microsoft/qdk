@@ -390,7 +390,7 @@ fn seeds_include_transitive_deps_unreachable_from_entry() {
 }
 
 #[test]
-fn collect_reachable_with_seeds_missing_seed_is_documented() {
+fn collect_reachable_with_seeds_missing_seed_skipped_silently() {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir(indoc! {"
             namespace Test {
                 function Pinned() : Unit {}
@@ -421,7 +421,7 @@ fn collect_reachable_with_seeds_missing_seed_is_documented() {
 }
 
 #[test]
-fn collect_reachable_with_seeds_missing_transitive_item_is_documented() {
+fn collect_reachable_with_seeds_missing_transitive_item_omitted() {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir(indoc! {"
             namespace Test {
                 function Helper() : Unit {}
@@ -457,6 +457,56 @@ fn collect_reachable_with_seeds_missing_transitive_item_is_documented() {
     assert!(
         !reachable.contains(&helper_id),
         "generic seeded reachability should skip a missing transitive item"
+    );
+}
+
+#[test]
+fn functor_application_makes_operation_reachable() {
+    // Applying `Adjoint`/`Controlled` to an operation must still mark the
+    // underlying operation reachable — the functor wrapper is not a separate
+    // callable, so reachability has to descend through it.
+    check(
+        indoc! {"
+                namespace Test {
+                    operation Op(q : Qubit) : Unit is Adj + Ctl {
+                        body ... {}
+                        adjoint self;
+                        controlled (cs, ...) {}
+                        controlled adjoint self;
+                    }
+                    @EntryPoint()
+                    operation Main() : Unit {
+                        use (q, c) = (Qubit(), Qubit());
+                        Adjoint Op(q);
+                        Controlled Op([c], q);
+                    }
+                }
+            "},
+        &expect![[r#"
+            Main
+            Op"#]],
+    );
+}
+
+#[test]
+fn closure_capturing_closure_reachable() {
+    // An outer closure that captures and invokes an inner closure: both lifted
+    // lambda callables must be reachable from the entry point.
+    check(
+        indoc! {"
+                namespace Test {
+                    @EntryPoint()
+                    function Main() : Int {
+                        let inner = (x) -> x + 1;
+                        let outer = (y) -> inner(y) + 1;
+                        outer(5)
+                    }
+                }
+            "},
+        &expect![[r#"
+            <lambda>
+            <lambda>
+            Main"#]],
     );
 }
 

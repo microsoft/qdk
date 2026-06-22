@@ -629,6 +629,8 @@ fn whole_param_use_skips_promotion() {
 
 #[test]
 fn triple_param_decomposes() {
+    // Three-field counterpart of `param_field_access_decomposes` (two fields).
+    // Kept separate because the promoted-input snapshot differs by arity.
     let source = "struct Triple { A : Int, B : Int, C : Int }
             function Sum(t : Triple) : Int { t.A + t.B + t.C }
             function Main() : Int { Sum(new Triple { A = 1, B = 2, C = 3 }) }";
@@ -1194,6 +1196,72 @@ fn whole_value_call_arg_is_reconstructed() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn promoted_param_forwarded_to_unpromoted_callable_is_reconstructed() {
+    // `Forward` reads `p.X` (field use) so it is promoted to scalar leaves, but it
+    // also passes `p` whole to `Identity`, which only ever reads `p` as a whole
+    // value and is therefore NOT promoted (it keeps a tuple parameter). At the
+    // call site the whole-value argument must be reconstructed from the promoted
+    // leaves `(p_0, p_1)` to match `Identity`'s unflattened tuple signature.
+    // Contrast with `whole_value_call_arg_is_reconstructed`, where the callee is
+    // itself promoted and the reconstructed value is projected to scalars.
+    let source = "struct Pair { X : Int, Y : Int }
+            function Identity(p : Pair) : Pair { p }
+            function Forward(p : Pair) : Pair {
+                let _ = p.X;
+                Identity(p)
+            }
+            function Main() : Int {
+                let r = Forward(new Pair { X = 1, Y = 2 });
+                r.X
+            }";
+    check(
+        source,
+        &expect![[r#"
+        Callable Forward: input=Tuple(Bind(p.0: Int), Bind(p.1: Int))
+          local: Discard(Int)
+        Callable Identity: input=Bind(p: (Int, Int))
+        Callable Main: input=Tuple()
+          local: Tuple(Bind(r.0: Int), Bind(r.1: Int))"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype Pair = (Int, Int);
+        function Identity(p : (Int, Int)) : (Int, Int) {
+            p
+        }
+        function Forward(p : (Int, Int)) : (Int, Int) {
+            let _ : Int = p::Item < 0 >;
+            Identity(p)
+        }
+        function Main() : Int {
+            let (r_0 : Int, r_1 : Int) = Forward(1, 2);
+            r_0
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype Pair = (Int, Int);
+        function Identity(p : (Int, Int)) : (Int, Int) {
+            p
+        }
+        function Forward(p_0 : Int, p_1 : Int) : (Int, Int) {
+            let _ : Int = p_0;
+            Identity(p_0, p_1)
+        }
+        function Main() : Int {
+            let (r_0 : Int, r_1 : Int) = Forward(1, 2);
+            r_0
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
@@ -1974,6 +2042,9 @@ fn functor_applied_adjoint_call_site_payload_is_projected() {
 
 #[test]
 fn functor_applied_controlled_call_site_payload_is_projected() {
+    // Controlled counterpart of `functor_applied_adjoint_call_site_payload_is_projected`.
+    // Kept separate: `Controlled` wraps the payload in a control-register tuple
+    // `(controls, payload)`, so only the payload component is projected here.
     let source = "struct Pair { X : Int, Y : Int }
         operation Foo(p : Pair) : Unit is Ctl + Adj {
             body ... {
@@ -2367,6 +2438,33 @@ fn closure_targets_are_excluded_from_promotion() {
     assert_eq!(
         callable_input_binding_names(package, "<lambda>"),
         vec!["pair"]
+    );
+}
+
+#[test]
+fn param_captured_by_nested_closure_is_not_promoted() {
+    // `Foo` reads `p.X` as a field (normally promotable), but a nested closure
+    // also captures `p`. Capturing the parameter is a whole-value (hard) use, so
+    // the promotability gate must leave `p` as a single tuple binding rather than
+    // flattening it into scalar leaves.
+    let source = "struct Pair { X : Int, Y : Int }
+        function Foo(p : Pair) : Int {
+            let f = () -> p.X + p.Y;
+            p.X + f()
+        }
+        function Main() : Int {
+            Foo(new Pair { X = 1, Y = 2 })
+        }";
+
+    let (mut store, pkg_id) = compile_to_fir(source);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
+
+    let package = store.get(pkg_id);
+    assert_eq!(
+        callable_input_binding_names(package, "Foo"),
+        vec!["p"],
+        "a parameter captured by a nested closure must not be promoted"
     );
 }
 

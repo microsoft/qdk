@@ -1429,7 +1429,7 @@ fn udt_as_callable_return_type_erased() {
 }
 
 #[test]
-fn resolve_ty_cache_miss_returns_original_udt() {
+fn defensive_resolve_ty_cache_miss_returns_original_udt() {
     // When a Ty::Udt references an item not present in the cache,
     // resolve_ty returns the original type unchanged. This is a
     // defensive code path — in practice, all UDT items should be
@@ -1791,6 +1791,140 @@ fn before_after_udt_erasure_snapshot() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn struct_field_access_lowered_in_adjoint_and_controlled_specs() {
+    // Field reads of a struct parameter must be erased in every specialization,
+    // not just `body`. This operation reads `p.X`/`p.Y` from the body, adjoint,
+    // controlled, and controlled-adjoint specs; after erasure each `p::Field`
+    // access must become a positional `p::Item < n >` tuple projection.
+    check_before_after_udt_erase(
+        indoc! {"
+            namespace Test {
+                struct Pair { X : Int, Y : Int }
+                operation Op(p : Pair) : Unit is Adj + Ctl {
+                    body ... {
+                        let _ = p.X;
+                    }
+                    adjoint ... {
+                        let _ = p.Y;
+                    }
+                    controlled (cs, ...) {
+                        let _ = p.X + p.Y;
+                    }
+                }
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Controlled Op([q], new Pair { X = 1, Y = 2 });
+                }
+            }
+        "},
+        &expect![[r#"
+            BEFORE:
+            newtype Pair = (Int, Int);
+            operation Op(p : __UDT_Item_1__Package_2_) : Unit is Adj + Ctl {
+                body ... {
+                    let _ : Int = p::X;
+                }
+                adjoint ... {
+                    let _ : Int = p::Y;
+                }
+                controlled (cs, ...) {
+                    let _ : Int = p::X + p::Y;
+                }
+                controlled adjoint (ctls, ...) {
+                    let _ : Int = p::Y;
+                }
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Controlled Op([q], new Pair {
+                    X = 1,
+                    Y = 2
+                });
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Pair = (Int, Int);
+            operation Op(p : (Int, Int)) : Unit is Adj + Ctl {
+                body ... {
+                    let _ : Int = p::Item < 0 >;
+                }
+                adjoint ... {
+                    let _ : Int = p::Item < 1 >;
+                }
+                controlled (cs, ...) {
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
+                }
+                controlled adjoint (ctls, ...) {
+                    let _ : Int = p::Item < 1 >;
+                }
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Controlled Op([q], (1, 2));
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn nested_udt_mixing_scalar_and_tuple_fields_erased() {
+    // An outer struct whose fields mix a scalar (`S : Int`) and a nested struct
+    // (`P : Inner`). Reads of both the scalar field and a field of the nested
+    // struct must lower to the correct positional projections after erasure:
+    // `o.S` -> `o::Item < 0 >` and `o.P.A` -> `o::Item < 1 >::Item < 0 >`.
+    let source = indoc! {"
+        namespace Test {
+            struct Inner { A : Int, B : Int }
+            struct Outer { S : Int, P : Inner }
+            @EntryPoint()
+            function Main() : Int {
+                let o = new Outer { S = 10, P = new Inner { A = 1, B = 2 } };
+                o.S + o.P.A
+            }
+        }
+    "};
+    check_erasure(source, &expect!["Main: input=Unit, output=Int"]);
+    check_before_after_udt_erase(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype Inner = (Int, Int);
+        newtype Outer = (Int, __UDT_Item_1__Package_2_);
+        function Main() : Int {
+            let o : __UDT_Item_2__Package_2_ = new Outer {
+                S = 10,
+                P = new Inner {
+                    A = 1,
+                    B = 2
+                }
+
+            };
+            o::S + o::P::A
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype Inner = (Int, Int);
+        newtype Outer = (Int, __UDT_Item_1__Package_2_);
+        function Main() : Int {
+            let o : (Int, (Int, Int)) = (10, (1, 2));
+            o::Item < 0 > + o::Item < 1 >::Item < 0 >
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 

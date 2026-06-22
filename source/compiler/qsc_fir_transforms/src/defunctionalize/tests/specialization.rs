@@ -168,6 +168,8 @@ fn specialize_same_callable_reuse() {
     );
 }
 
+/// A program with no higher-order functions is a no-op for the pass: the
+/// before/after snapshots are identical because there is nothing to specialize.
 #[test]
 fn specialize_no_hof_unchanged() {
     check_rewrite(
@@ -409,6 +411,10 @@ fn specialize_closure_capture_types_preserved() {
     );
 }
 
+/// Adjoint applied only at the *creation site*: `Adjoint S` is passed to a HOF
+/// whose body calls `op(q)` plainly, so the specialization bakes in
+/// `Adjoint S(q)`. Contrast with `specialize_body_side_adjoint` (adjoint on the
+/// body call) and `specialize_double_adjoint_cancels` (both, which cancel).
 #[test]
 fn specialize_creation_site_adjoint() {
     check_rewrite(
@@ -458,6 +464,10 @@ fn specialize_creation_site_adjoint() {
     );
 }
 
+/// Adjoint applied only on the *body call*: plain `S` is passed to a HOF whose
+/// body calls `Adjoint op(q)`, so the specialization bakes in `Adjoint S(q)`.
+/// Contrast with `specialize_creation_site_adjoint` (adjoint at the argument)
+/// and `specialize_double_adjoint_cancels` (both, which cancel).
 #[test]
 fn specialize_body_side_adjoint() {
     check_rewrite(
@@ -507,6 +517,10 @@ fn specialize_body_side_adjoint() {
     );
 }
 
+/// Adjoint applied at *both* the creation site (`Adjoint S`) and the body call
+/// (`Adjoint op(q)`): functor composition cancels the two adjoints, so the
+/// specialization bakes in plain `S(q)`. Contrast with the single-adjoint
+/// siblings `specialize_creation_site_adjoint` and `specialize_body_side_adjoint`.
 #[test]
 fn specialize_double_adjoint_cancels() {
     check_rewrite(
@@ -1345,6 +1359,7 @@ fn capture_local_ids_are_reasonable() {
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
+    let mut capture_binding_count = 0;
     for (_, pat) in &package.pats {
         if let fir::PatKind::Bind(ident) = &pat.kind {
             let id: u32 = ident.id.into();
@@ -1352,8 +1367,16 @@ fn capture_local_ids_are_reasonable() {
                 id < 10_000,
                 "LocalVarId {id} is unreasonably large -- capture IDs should be sequential, not u32::MAX-based"
             );
+            if ident.name.starts_with(CAPTURE_NAME_PREFIX) {
+                capture_binding_count += 1;
+            }
         }
     }
+    assert_eq!(
+        capture_binding_count, 1,
+        "the `angle` capture should produce exactly one capture binding, proving the \
+         capture-threading path actually ran rather than vacuously passing with no captures"
+    );
 }
 
 #[test]

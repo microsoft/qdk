@@ -134,6 +134,10 @@ fn mono_explicit_entry_expression_rewritten() {
     );
 }
 
+/// Int instantiation of a generic identity: the value-typed specialization
+/// path with no qubit allocation. Paired with `mono_identity_qubit`, which
+/// exercises the qubit-typed path (allocate/release) and produces a distinct
+/// snapshot.
 #[test]
 fn mono_identity_int() {
     let source = indoc! {r#"
@@ -176,6 +180,10 @@ fn mono_identity_int() {
     );
 }
 
+/// Qubit instantiation of a generic identity: the qubit-typed specialization
+/// path, whose body allocates and releases a qubit. Paired with
+/// `mono_identity_int`; the two snapshots differ in the specialized type and
+/// the surrounding allocate/release scaffolding.
 #[test]
 fn mono_identity_qubit() {
     let source = indoc! {r#"
@@ -1069,7 +1077,7 @@ fn mono_cross_package_with_same_name() {
 }
 
 #[test]
-fn mono_identity_instantiation_not_duplicated() {
+fn mono_generic_forwarding_type_param_specializes_callee_once() {
     // When Outer<'T> calls Inner<'T>, the Inner<Param(0)> reference is
     // an identity instantiation. Only concrete instantiations (from the
     // entry) should produce specializations.
@@ -1996,6 +2004,171 @@ fn mono_preserves_simulatable_intrinsic_impl() {
 }
 
 #[test]
+fn mono_generic_with_type_class_constraint() {
+    // A generic with a class constraint (`'T: Add`) must specialize correctly:
+    // the original retains its constraint, and the Int specialization drops the
+    // generics while keeping the `x + x` body.
+    let source = indoc! {r#"
+                function Double<'T: Add>(x : 'T) : 'T { x + x }
+                operation Main() : Int { Double(21) }
+            "#};
+    check(
+        source,
+        &expect![[r#"
+        Double: generics=1, input=Param<0>, output=Param<0>
+        Double<Int>: generics=0, input=Int, output=Int
+        Main: generics=0, input=Unit, output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+        BEFORE:
+        function Double(x : 'T0) : 'T0 {
+            x + x
+        }
+        operation Main() : Int {
+            Double < Int > (21)
+        }
+        // entry
+        Main()
+
+        AFTER:
+        function Double(x : 'T0) : 'T0 {
+            x + x
+        }
+        operation Main() : Int {
+            Double_Int_(21)
+        }
+        function Double_Int_(x : Int) : Int {
+            x + x
+        }
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+#[test]
+fn mono_two_type_params_with_arrow_functor() {
+    // A two-type-parameter generic whose first parameter appears inside a
+    // functor-bearing arrow argument and whose second parameter is a plain
+    // value. Specialized with (Qubit, Int).
+    let source = indoc! {r#"
+                operation ApplyTo<'A, 'B>(op : 'A => Unit is Adj, target : 'A, tag : 'B) : 'B {
+                    op(target);
+                    tag
+                }
+                operation Main() : Int {
+                    use q = Qubit();
+                    ApplyTo(X, q, 7)
+                }
+            "#};
+    check(
+        source,
+        &expect![[r#"
+        ApplyTo: generics=3, input=((Param<0> => Unit is 2), Param<0>, Param<1>), output=Param<1>
+        ApplyTo<Qubit, Int, AdjCtl>: generics=0, input=((Qubit => Unit is Adj + Ctl), Qubit, Int), output=Int
+        Main: generics=0, input=Unit, output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+        BEFORE:
+        operation ApplyTo(op : ('T0 => Unit), target : 'T0, tag : 'T1) : 'T1 {
+            op(target);
+            tag
+        }
+        operation Main() : Int {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_42 : Int = ApplyTo < Qubit,
+            Int,
+            Adj + Ctl > (X, q, 7);
+            __quantum__rt__qubit_release(q);
+            _generated_ident_42
+        }
+        // entry
+        Main()
+
+        AFTER:
+        operation ApplyTo(op : ('T0 => Unit), target : 'T0, tag : 'T1) : 'T1 {
+            op(target);
+            tag
+        }
+        operation Main() : Int {
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let _generated_ident_42 : Int = ApplyTo_Qubit__Int__AdjCtl_(X, q, 7);
+            __quantum__rt__qubit_release(q);
+            _generated_ident_42
+        }
+        operation ApplyTo_Qubit__Int__AdjCtl_(op : (Qubit => Unit is Adj + Ctl), target : Qubit, tag : Int) : Int {
+            op(target);
+            tag
+        }
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+#[test]
+fn mono_generic_empty_body() {
+    // A generic operation with an empty body still produces a concrete
+    // specialization with no generic params.
+    let source = indoc! {r#"
+                operation Ignore<'T>(x : 'T) : Unit {}
+                operation Main() : Unit { Ignore(42) }
+            "#};
+    check(
+        source,
+        &expect![[r#"
+        Ignore: generics=1, input=Param<0>, output=Unit
+        Ignore<Int>: generics=0, input=Int, output=Unit
+        Main: generics=0, input=Unit, output=Unit"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+        BEFORE:
+        operation Ignore(x : 'T0) : Unit {}
+        operation Main() : Unit {
+            Ignore < Int > (42)
+        }
+        // entry
+        Main()
+
+        AFTER:
+        operation Ignore(x : 'T0) : Unit {}
+        operation Main() : Unit {
+            Ignore_Int_(42)
+        }
+        operation Ignore_Int_(x : Int) : Unit {}
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+#[test]
+fn mono_generic_reachable_int_unreachable_bool_only_int_specialized() {
+    // The same generic is instantiated with Int on the reachable path (from
+    // Main) and with Bool from an unreachable callable. Only the reachable Int
+    // specialization is emitted; no Bool specialization is produced.
+    let source = indoc! {r#"
+                operation Identity<'T>(x : 'T) : 'T { x }
+                operation Dead() : Bool { Identity(true) }
+                operation Main() : Int { Identity(42) }
+            "#};
+    check(
+        source,
+        &expect![[r#"
+        Dead: generics=0, input=Unit, output=Bool
+        Identity: generics=1, input=Param<0>, output=Param<0>
+        Identity<Int>: generics=0, input=Int, output=Int
+        Main: generics=0, input=Unit, output=Int"#]],
+    );
+}
+
+#[test]
 fn monomorphize_is_idempotent() {
     let source = indoc! {r#"
             operation Identity<'T>(x : 'T) : 'T { x }
@@ -2061,7 +2234,7 @@ fn before_after_generic_specialization() {
 }
 
 #[test]
-fn shared_input_and_arrow_generic_param_specializes() {
+fn generic_param_shared_by_value_and_arrow_arg_specializes_per_type() {
     check_before_after(
         indoc! {r#"
             function double<'T: Add>(x : 'T) : 'T { x + x }

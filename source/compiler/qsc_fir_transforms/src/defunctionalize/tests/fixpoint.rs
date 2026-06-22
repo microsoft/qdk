@@ -2369,7 +2369,7 @@ fn nested_hof_source(level_count: usize) -> String {
 }
 
 #[test]
-fn defunc_20_level_hof_returns_fixpoint_reached() {
+fn defunc_20_level_hof_completes_without_error() {
     // Regression test: 20-level HOF nesting is under the convergence cap.
     let source = nested_hof_source(20);
 

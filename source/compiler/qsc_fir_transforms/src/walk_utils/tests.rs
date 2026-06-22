@@ -95,6 +95,36 @@ fn decomposable_assign_tuple_literal_rhs() {
 }
 
 #[test]
+fn mutable_reassignment_non_tuple_rhs_classified_as_general_use() {
+    // Reassigning a mutable local from a *non*-tuple-literal right-hand side
+    // (here another whole value) is a promotion-blocking whole-value write,
+    // unlike the decomposable tuple-literal reassignment above.
+    let (store, pkg_id) = compile_to_fir(
+        "function Main() : (Int, Int) {
+                 let src = (5, 6);
+                 mutable t = (1, 2);
+                 t = src;
+                 t
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+    let local_id = find_local_var(package, "t");
+
+    // Aggregate: the blocking write forces the whole aggregate to general use.
+    assert_eq!(
+        classify_block_use(package, block_id, local_id),
+        UseClass::GeneralUse
+    );
+
+    // Per-site: the reassignment is a `HardBlock`, the trailing read a
+    // `WholeValueRead`.
+    let mut uses = Vec::new();
+    classify_uses_in_block(package, block_id, local_id, &mut uses);
+    assert_eq!(variant_names(&uses), ["HardBlock", "WholeValueRead"]);
+}
+
+#[test]
 fn closure_capture_classified_as_whole_use() {
     let (store, pkg_id) = compile_to_fir(
         "function Apply(f : Int -> Int, x : Int) : Int { f(x) }
@@ -127,6 +157,27 @@ fn nested_field_access_classified_as_field_use() {
     let local_id = find_local_var(package, "o");
     let class = classify_block_use(package, block_id, local_id);
     // o.I.X is a nested field access — still field-only.
+    assert_eq!(class, UseClass::FieldOnly);
+}
+
+#[test]
+fn deeply_nested_field_access_classified_as_field_use() {
+    // A three-level field projection (`c.B.A.V`) must remain field-only: each
+    // intermediate projection keeps the access on the field path rather than
+    // escalating to a whole-value read.
+    let (store, pkg_id) = compile_to_fir(
+        "struct Leaf { V : Int }
+             struct Mid { L : Leaf }
+             struct Top { M : Mid }
+             function Main() : Int {
+                 let c = new Top { M = new Mid { L = new Leaf { V = 7 } } };
+                 c.M.L.V
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+    let local_id = find_local_var(package, "c");
+    let class = classify_block_use(package, block_id, local_id);
     assert_eq!(class, UseClass::FieldOnly);
 }
 
@@ -264,16 +315,40 @@ fn collect_entry_expr_ids_returns_all_entry_descendants() {
     );
     let package = store.get(pkg_id);
     let ids = collect_expr_ids_in_entry(package);
-    // The entry expression wraps the call to Main. It should contain at least
-    // the call expression and the callee/args sub-expressions.
+    // The entry expression wraps the call to Main. The collected set must
+    // contain the entry expression itself plus the specific descendant kinds:
+    // the `Call` node and the callee `Var` that resolves to the `Main` item.
+    let entry_id = package
+        .entry
+        .expect("program should have an entry expression");
     assert!(
-        !ids.is_empty(),
-        "entry expression IDs should be non-empty for a program with an entry point"
+        ids.contains(&entry_id),
+        "collected entry IDs should include the entry expression itself"
     );
     // All returned IDs should be valid expression IDs in the package.
     for &id in &ids {
         let _ = package.get_expr(id);
     }
+    let has_call = ids
+        .iter()
+        .any(|&id| matches!(&package.get_expr(id).kind, ExprKind::Call(_, _)));
+    assert!(
+        has_call,
+        "entry descendants should include the Call to Main"
+    );
+    let calls_main = ids.iter().any(|&id| {
+        let ExprKind::Var(Res::Item(item_id), _) = &package.get_expr(id).kind else {
+            return false;
+        };
+        matches!(
+            &package.get_item(item_id.item).kind,
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Main"
+        )
+    });
+    assert!(
+        calls_main,
+        "entry descendants should include the callee Var resolving to Main"
+    );
 }
 
 #[test]
@@ -303,15 +378,33 @@ fn collect_callable_expr_ids_covers_all_specs() {
         .expect("Op callable not found");
 
     let ids = collect_expr_ids_in_local_callables(package, &[op_local_id]);
-    // Op has body, adj, and ctl specs — each contains at least a Call expression.
-    assert!(
-        ids.len() >= 3,
-        "expected at least 3 expression IDs covering multiple specs, got {}",
-        ids.len()
-    );
     // No duplicates.
     let unique: FxHashSet<_> = ids.iter().copied().collect();
     assert_eq!(ids.len(), unique.len(), "expression IDs should be unique");
+
+    // Each of the three specs (body, adj, ctl) contains a distinct
+    // `Message("...")` call. Collecting the string-literal payloads of every
+    // visited expression must therefore surface all three markers, proving the
+    // walk actually descended into each specialization rather than merely
+    // counting three expressions from one spec.
+    let mut markers: Vec<String> = Vec::new();
+    for &id in &ids {
+        if let ExprKind::String(components) = &package.get_expr(id).kind
+            && let [StringComponent::Lit(text)] = components.as_slice()
+        {
+            markers.push(text.to_string());
+        }
+    }
+    markers.sort();
+    // The auto-generated controlled-adjoint spec re-derives the adjoint body, so
+    // the "adj" marker can appear more than once; dedup to assert that each
+    // user-written spec's marker was visited at least once.
+    markers.dedup();
+    assert_eq!(
+        markers,
+        ["adj", "body", "ctl"],
+        "every specialization's Message marker should be visited"
+    );
 }
 
 #[test]

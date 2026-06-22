@@ -566,6 +566,26 @@ fn invariant_post_defunc_catches_arrow_param() {
 }
 
 #[test]
+fn post_defunc_catches_combined_arrow_param_and_closure_residue() {
+    // Both an arrow-typed parameter and a residual closure are injected into the
+    // same callable. PostDefunc must still reject it; the arrow-param check runs
+    // before the body walk, so it fires first, but either residue alone is fatal.
+    let source = r#"
+        namespace Test {
+            function Helper(x : Int) : Int { x }
+            @EntryPoint()
+            function Main() : Int { Helper(42) }
+        }
+    "#;
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    inject_arrow_param(&mut store, pkg_id);
+    inject_closure_expr(&mut store, pkg_id);
+    assert_panics_with("Arrow-typed parameter remains in callable input", || {
+        check(&store, pkg_id, InvariantLevel::PostDefunc);
+    });
+}
+
+#[test]
 fn post_tuple_decompose_catches_nested_tuple_bound_arrow() {
     let source = r#"
         namespace Test {
@@ -872,7 +892,7 @@ const NAMED_PARAM_CALLABLE: &str = r#"
 // `PostSignaturePreserving` from `is_post_return_unify_or_later` would silently
 // weaken the sub-pipeline check and stop this test from panicking.
 #[test]
-fn post_signature_preserving_guard_rejects_residual_return() {
+fn sig_preserving_rejects_residual_return() {
     let (store, pkg_id) = compile_and_run_pipeline_to(DYNAMIC_EARLY_RETURN, PipelineStage::Mono);
     assert_panics_with("ExprKind::Return found", || {
         check(&store, pkg_id, InvariantLevel::PostSignaturePreserving);
@@ -883,7 +903,7 @@ fn post_signature_preserving_guard_rejects_residual_return() {
 // `PostSignaturePreserving` must not fire on an injected arrow param. Adding
 // `PostSignaturePreserving` to `is_post_defunc_or_later` would make this panic.
 #[test]
-fn post_signature_preserving_guard_allows_arrow_param() {
+fn sig_preserving_allows_arrow_param() {
     let (mut store, pkg_id) =
         compile_and_run_pipeline_to(NAMED_PARAM_CALLABLE, PipelineStage::Defunc);
     inject_arrow_param(&mut store, pkg_id);
@@ -893,7 +913,7 @@ fn post_signature_preserving_guard_allows_arrow_param() {
 // Cross-level confirmation on the same fragment: `PostDefunc` still rejects the
 // arrow residue that `PostSignaturePreserving` allows.
 #[test]
-fn post_signature_preserving_guard_arrow_param_still_rejected_post_defunc() {
+fn sig_preserving_arrow_param_still_rejected_post_defunc() {
     let (mut store, pkg_id) =
         compile_and_run_pipeline_to(NAMED_PARAM_CALLABLE, PipelineStage::Defunc);
     inject_arrow_param(&mut store, pkg_id);
@@ -904,7 +924,7 @@ fn post_signature_preserving_guard_arrow_param_still_rejected_post_defunc() {
 
 // Exclude side: the sub-pipeline preserves `ExprKind::Closure`.
 #[test]
-fn post_signature_preserving_guard_allows_closure() {
+fn sig_preserving_allows_closure() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::Defunc);
     inject_closure_expr(&mut store, pkg_id);
     check(&store, pkg_id, InvariantLevel::PostSignaturePreserving);
@@ -913,7 +933,7 @@ fn post_signature_preserving_guard_allows_closure() {
 // Cross-level confirmation on the same fragment: `PostDefunc` still rejects the
 // closure residue that `PostSignaturePreserving` allows.
 #[test]
-fn post_signature_preserving_guard_closure_still_rejected_post_defunc() {
+fn sig_preserving_closure_still_rejected_post_defunc() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::Defunc);
     inject_closure_expr(&mut store, pkg_id);
     assert_panics_with("is a Closure after defunctionalization", || {
@@ -923,7 +943,7 @@ fn post_signature_preserving_guard_closure_still_rejected_post_defunc() {
 
 // Exclude side: the sub-pipeline preserves `Ty::Udt`.
 #[test]
-fn post_signature_preserving_guard_allows_udt_type() {
+fn sig_preserving_allows_udt_type() {
     let (mut store, pkg_id) =
         compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::UdtErase);
     inject_udt_expr_type(&mut store, pkg_id);
@@ -933,7 +953,7 @@ fn post_signature_preserving_guard_allows_udt_type() {
 // Cross-level confirmation on the same fragment: `PostUdtErase` still rejects the
 // UDT residue that `PostSignaturePreserving` allows.
 #[test]
-fn post_signature_preserving_guard_udt_still_rejected_post_udt_erase() {
+fn sig_preserving_udt_still_rejected_post_udt_erase() {
     let (mut store, pkg_id) =
         compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::UdtErase);
     inject_udt_expr_type(&mut store, pkg_id);

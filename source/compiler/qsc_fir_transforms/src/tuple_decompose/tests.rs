@@ -627,6 +627,46 @@ fn single_field_struct_field_access() {
 }
 
 #[test]
+fn struct_with_unit_field_decomposes() {
+    // A struct mixing a scalar field and a Unit-typed field. After UDT erasure the
+    // binding is a `(Int, Unit)` tuple; tuple-decompose must scalar-replace both
+    // leaves, including the Unit (empty-tuple) element, without panicking.
+    let source = "struct S { A : Int, B : Unit }
+            function Main() : Int {
+                let s = new S { A = 7, B = () };
+                s.A
+            }";
+    check(
+        source,
+        &expect![[r#"
+        Callable Main: input=Tuple()
+          local: Tuple(Bind(s.0: Int), Bind(s.1: Unit))"#]],
+    );
+    check_before_after_tuple_decompose(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype S = (Int, Unit);
+        function Main() : Int {
+            let s : (Int, Unit) = (7, ());
+            s::Item < 0 >
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype S = (Int, Unit);
+        function Main() : Int {
+            let (s_0 : Int, s_1 : Unit) = (7, ());
+            s_0
+        }
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+#[test]
 fn mutable_tuple_partial_field_modification() {
     // After UDT erasure, `set t w/= A <- 10` becomes a whole assignment
     // `set t = (10, t.1, t.2)`. tuple-decompose now recognizes this Assign-Tuple
@@ -719,7 +759,7 @@ fn tuple_passed_to_function_as_arg() {
 }
 
 #[test]
-fn tuple_decompose_candidate_in_while_loop_decomposes() {
+fn tuple_binding_in_while_loop_body_decomposes() {
     // Struct binding inside a while loop body: tuple-decompose should handle
     // control-flow nested bindings and decompose the nested local.
     let source = "struct Pair { A : Int, B : Int }
@@ -796,7 +836,7 @@ fn tuple_decompose_candidate_in_while_loop_decomposes() {
 }
 
 #[test]
-fn tuple_decompose_candidate_in_binop_operand_block_decomposes() {
+fn tuple_binding_in_binop_operand_block_decomposes() {
     // Tuple `let` bindings `t` and `u` nested inside blocks in BinOp operand
     // position (`{ ... } + { ... }`) decompose, alongside the top-level binding
     // `top`.
@@ -845,7 +885,7 @@ fn tuple_decompose_candidate_in_binop_operand_block_decomposes() {
 }
 
 #[test]
-fn tuple_decompose_candidate_in_call_arg_block_decomposes() {
+fn tuple_binding_in_call_arg_block_decomposes() {
     // Tuple `let` binding `c` nested inside a block passed as a call argument
     // decomposes, alongside the top-level binding `top`.
     let source = "struct Pair { A : Int, B : Int }
@@ -894,7 +934,7 @@ fn tuple_decompose_candidate_in_call_arg_block_decomposes() {
 }
 
 #[test]
-fn tuple_decompose_candidate_in_condition_block_decomposes() {
+fn tuple_binding_in_if_condition_block_decomposes() {
     // Tuple `let` binding `d` nested inside a block used as an `if` condition
     // decomposes, alongside the top-level binding `top`.
     let source = "struct Pair { A : Int, B : Int }
@@ -949,9 +989,9 @@ fn tuple_decompose_candidate_in_condition_block_decomposes() {
 }
 
 #[test]
-fn tuple_decompose_candidate_in_binop_operand_block_scalar_replaced_across_fixpoint() {
+fn tuple_binding_in_binop_operand_block_scalar_replaced_across_fixpoint() {
     // Fixpoint counterpart of
-    // `tuple_decompose_candidate_in_binop_operand_block_decomposes`: run through
+    // `tuple_binding_in_binop_operand_block_decomposes`: run through
     // the `... -> arg_promote -> second tuple-decompose` ordering so the operand-block
     // tuple bindings `t` and `u` are fully scalar-replaced, leaving no surviving
     // `(Int, Int)` tuple local.
@@ -976,9 +1016,9 @@ fn tuple_decompose_candidate_in_binop_operand_block_scalar_replaced_across_fixpo
 }
 
 #[test]
-fn tuple_decompose_candidate_in_call_arg_block_scalar_replaced_across_fixpoint() {
+fn tuple_binding_in_call_arg_block_scalar_replaced_across_fixpoint() {
     // Fixpoint counterpart of
-    // `tuple_decompose_candidate_in_call_arg_block_decomposes`: the call-argument
+    // `tuple_binding_in_call_arg_block_decomposes`: the call-argument
     // block tuple binding `c` is fully scalar-replaced across the fixpoint.
     check_to(
         indoc! {"
@@ -1003,9 +1043,9 @@ fn tuple_decompose_candidate_in_call_arg_block_scalar_replaced_across_fixpoint()
 }
 
 #[test]
-fn tuple_decompose_candidate_in_condition_block_scalar_replaced_across_fixpoint() {
+fn tuple_binding_in_if_condition_block_scalar_replaced_across_fixpoint() {
     // Fixpoint counterpart of
-    // `tuple_decompose_candidate_in_condition_block_decomposes`: the `if`-condition
+    // `tuple_binding_in_if_condition_block_decomposes`: the `if`-condition
     // block tuple binding `d` is fully scalar-replaced across the fixpoint.
     check_to(
         indoc! {"
@@ -1349,8 +1389,7 @@ fn tuple_decompose_tuple_compare() {
 }
 
 #[test]
-fn tuple_decompose_tuple_compare_shared_var_rewrites_all_eq_operands_after_pipeline_tuple_decompose()
- {
+fn shared_var_tuple_compare_rewrites_all_eq_operands() {
     let (eq_pairs, invalid_fields) =
         collect_eq_pairs_and_invalid_fields(SHARED_VAR_TUPLE_COMPARE_SOURCE);
 
@@ -1675,7 +1714,7 @@ fn reachable_callable_tuple_local_scalar_replaced_across_fixpoint() {
 }
 
 #[test]
-fn non_parameter_local_destructure_is_scalar_replaced() {
+fn non_parameter_local_destructure_normalized_then_scalar_replaced() {
     // `let t = (a, b); let (x, y) = t;` where `t` is an ordinary
     // local (not a callable parameter). `arg_promote`'s generalized
     // destructure normalization rewrites the destructure into `t::0`/`t::1`
@@ -1818,7 +1857,7 @@ fn deeply_nested_local_destructure_decomposes_to_scalar_leaves() {
 }
 
 #[test]
-fn mixed_discard_nested_local_destructure_emits_only_kept_leaf() {
+fn mixed_discard_nested_local_destructure_keeps_only_used_leaf_no_temp() {
     // Mixed-discard nested destructure: `let (_, (y, _)) = t;`.
     // Only the kept `y` leaf produces a projection; the discarded outer and
     // inner elements emit nothing, so no `__arg_promote_tmp` local and no

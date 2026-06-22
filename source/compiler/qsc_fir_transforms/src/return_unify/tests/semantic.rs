@@ -1,6 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+//! Runtime semantic-equivalence locks for return unification.
+//!
+//! Several fixtures here intentionally re-use the same Q# sources as the
+//! structural-snapshot tests in [`super::general`] and
+//! [`super::flag_lowering`] (named with a `_semantic` suffix). They are **not**
+//! redundant: the snapshot tests pin the *post-transform FIR shape*, while these
+//! drive the program through `check_semantic_equivalence`, evaluating both the
+//! original and unified programs and asserting they produce the same value or
+//! error. A transform that preserved structure but changed runtime behavior
+//! (or vice versa) would fail only one of the two suites, so both are kept.
+
 use super::*;
 
 #[test]
@@ -686,7 +697,7 @@ fn flag_lowering_guards_local_after_return_semantic() {
 // Tests excluded from semantic comparison (no `_semantic` companion):
 //
 // Error-contract tests (test panics/errors, not values):
-//   - guard_stmt_with_flag_rejects_non_unit_expr_stmt (asserts panic)
+//   - guard_stmt_with_flag_panics_on_non_unit_expr_stmt (asserts panic)
 //   - flag_trailing_without_trailing_expr_rejects_non_unit_contract (asserts panic)
 //   - recursive_udt_early_return_fails_before_return_unify (expects error list)
 //

@@ -270,6 +270,93 @@ fn dce_removes_unreachable_closure_and_generic() {
 }
 
 #[test]
+fn dce_removes_dead_export_keeps_live_export() {
+    // `export` is not a DCE root: only reachability from the entry keeps an
+    // item alive. `Kept` survives because `Main` calls it; `Dropped` is removed
+    // even though it is exported, because nothing reachable from the entry uses
+    // it.
+    let source = indoc! {"
+        namespace Test {
+            function Kept() : Int { 1 }
+            function Dropped() : Int { 2 }
+            export Kept, Dropped;
+            @EntryPoint()
+            function Main() : Int { Kept() }
+        }
+    "};
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ItemDce);
+    let package = store.get(pkg_id);
+    let names: Vec<String> = package
+        .items
+        .iter()
+        .filter_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+            ItemKind::Ty(..) => None,
+        })
+        .collect();
+
+    assert!(
+        names.iter().any(|n| n == "Main"),
+        "entry Main must survive DCE; remaining: {names:?}"
+    );
+    assert!(
+        names.iter().any(|n| n == "Kept"),
+        "exported callable used by the entry must survive DCE; remaining: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "Dropped"),
+        "exported but entry-unreachable callable must be removed; remaining: {names:?}"
+    );
+}
+
+#[test]
+fn dce_resolves_reexport_chain_keeping_only_used_target() {
+    // `Deep` and `Unused` are re-exported through an intermediate namespace
+    // (`A` -> `B`). Re-export statements do not create items or act as DCE
+    // roots, so following the chain only `Deep` (called by the entry) survives
+    // while the re-exported-but-unused `Unused` is removed.
+    let source = indoc! {"
+        namespace A {
+            function Deep() : Int { 7 }
+            function Unused() : Int { 8 }
+            export Deep, Unused;
+        }
+        namespace B {
+            export A.Deep;
+            export A.Unused;
+        }
+        namespace Test {
+            import B.*;
+            @EntryPoint()
+            function Main() : Int { Deep() }
+        }
+    "};
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ItemDce);
+    let package = store.get(pkg_id);
+    let names: Vec<String> = package
+        .items
+        .iter()
+        .filter_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+            ItemKind::Ty(..) => None,
+        })
+        .collect();
+
+    assert!(
+        names.iter().any(|n| n == "Main"),
+        "entry Main must survive DCE; remaining: {names:?}"
+    );
+    assert!(
+        names.iter().any(|n| n == "Deep"),
+        "re-exported target used by the entry must survive DCE; remaining: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "Unused"),
+        "re-exported but entry-unreachable target must be removed; remaining: {names:?}"
+    );
+}
+
+#[test]
 fn item_dce_is_idempotent() {
     let source = indoc! {"
         namespace Test {

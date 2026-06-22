@@ -683,7 +683,7 @@ fn full_pipeline_preserves_post_all_invariants() {
 }
 
 #[test]
-fn invariant_no_closures_remain() {
+fn invariant_no_closure_expressions_remain() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
@@ -740,7 +740,7 @@ fn invariant_no_closures_remain() {
 }
 
 #[test]
-fn invariant_no_arrow_params_remain() {
+fn invariant_no_arrow_params_remain_in_specialized_callables() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
