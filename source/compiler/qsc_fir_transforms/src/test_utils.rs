@@ -6,7 +6,7 @@
 //! Provides compilation and snapshot utilities used across transform test
 //! modules. Gated behind `#[cfg(any(test, feature = "testutil"))]`.
 //!
-//! Items marked with `#[allow(dead_code)]` are used by multiple test modules
+//! Items marked with `#[cfg(test)]` are used by multiple test modules
 //! but are not exercised by the main crate code.
 
 #[cfg(test)]
@@ -15,10 +15,14 @@ mod tests;
 use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
 };
+
 use qsc_fir::fir::{
-    self, BlockId, CallableDecl, CallableImpl, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId,
-    Package, PackageLookup, PatId, PatKind, Res, SpecDecl, StmtId, StmtKind,
+    self, CallableDecl, CallableImpl, ExprId, ExprKind, ItemKind, Package, PackageLookup, SpecDecl,
+    StmtKind,
 };
+#[cfg(test)]
+use qsc_fir::fir::{BlockId, LocalItemId, LocalVarId, PatId, PatKind, Res, StmtId};
+
 use qsc_frontend::compile::{self as frontend_compile, PackageStore as HirPackageStore};
 use qsc_hir::hir::PackageId;
 use qsc_passes::{PackageType, lower_hir_to_fir, run_core_passes, run_default_passes};
@@ -468,7 +472,7 @@ pub fn compile_to_fir_with_entry(source: &str, entry: &str) -> (fir::PackageStor
 /// core+std → HIR passes → FIR lowering → monomorphization.
 ///
 /// Returns a monomorphized FIR store ready for later pipeline stages.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn compile_to_monomorphized_fir_with_entry(
     source: &str,
     entry: &str,
@@ -486,7 +490,7 @@ pub(crate) fn compile_to_monomorphized_fir_with_entry(
 ///
 /// Panics if compilation fails, or if the requested stage reaches
 /// defunctionalization and the shared pipeline runner returns any errors.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn compile_and_run_pipeline_to_with_errors(
     source: &str,
     stage: PipelineStage,
@@ -500,7 +504,7 @@ pub(crate) fn compile_and_run_pipeline_to_with_errors(
 /// stage, asserting via [`assert_no_pipeline_errors`] that the run produced no
 /// pipeline errors at any stage. Tests that need to inspect errors should use
 /// [`compile_and_run_pipeline_to_with_errors`] instead.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn compile_and_run_pipeline_to(
     source: &str,
     stage: PipelineStage,
@@ -512,7 +516,7 @@ pub(crate) fn compile_and_run_pipeline_to(
 }
 
 /// Compiles library + user Q# source and runs the FIR pipeline, returning errors.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn compile_and_run_pipeline_to_with_library_and_errors(
     lib_source: &str,
     user_source: &str,
@@ -530,7 +534,7 @@ pub(crate) fn compile_and_run_pipeline_to_with_library_and_errors(
 /// # Panics
 ///
 /// Panics if compilation fails or if the pipeline runner returns any errors.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn compile_and_run_pipeline_to_with_library(
     lib_source: &str,
     user_source: &str,
@@ -542,7 +546,7 @@ pub(crate) fn compile_and_run_pipeline_to_with_library(
     (store, pkg_id)
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn local_name(package: &Package, local_id: LocalVarId) -> Option<&str> {
     package.pats.values().find_map(|pat| match &pat.kind {
         PatKind::Bind(ident) if ident.id == local_id => Some(ident.name.as_ref()),
@@ -550,7 +554,7 @@ fn local_name(package: &Package, local_id: LocalVarId) -> Option<&str> {
     })
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn callable_ref_short(package: &Package, pkg_id: fir::PackageId, expr_id: ExprId) -> String {
     let expr = package.get_expr(expr_id);
     match &expr.kind {
@@ -572,7 +576,7 @@ fn callable_ref_short(package: &Package, pkg_id: fir::PackageId, expr_id: ExprId
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn expr_detail_short(package: &Package, pkg_id: fir::PackageId, expr_id: ExprId) -> String {
     let expr = package.get_expr(expr_id);
     match &expr.kind {
@@ -588,7 +592,7 @@ fn expr_detail_short(package: &Package, pkg_id: fir::PackageId, expr_id: ExprId)
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn push_spec_decl_summary(
     package: &Package,
     pkg_id: fir::PackageId,
@@ -639,7 +643,7 @@ fn push_spec_decl_summary(
 /// Entries are sorted alphabetically before being joined so `expect_test`
 /// snapshots remain stable across runs regardless of the iteration order of
 /// the underlying reachable-set container.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn extract_reachable_callable_details(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
@@ -688,7 +692,7 @@ pub(crate) fn extract_reachable_callable_details(
 
 /// Finds a callable by name among reachable items from a non-root package
 /// (typically a library package). Panics if the callable is not found.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn find_library_callable(
     store: &fir::PackageStore,
     root_pkg_id: fir::PackageId,
@@ -798,7 +802,7 @@ pub fn expr_kind_short(package: &Package, expr_id: ExprId) -> String {
 /// Returns a short human-readable label for a statement kind.
 ///
 /// Used to annotate exec graph snapshot nodes for readability.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn stmt_kind_short(package: &Package, stmt_id: StmtId) -> String {
     let stmt = package.get_stmt(stmt_id);
     match &stmt.kind {
@@ -811,7 +815,7 @@ pub(crate) fn stmt_kind_short(package: &Package, stmt_id: StmtId) -> String {
 
 /// Formats a pattern as a human-readable string showing binding names, types,
 /// and tuple structure.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn format_pat(package: &Package, pat_id: PatId) -> String {
     let pat = package.get_pat(pat_id);
     match &pat.kind {
@@ -826,7 +830,7 @@ pub(crate) fn format_pat(package: &Package, pat_id: PatId) -> String {
 
 /// Collects all pattern bindings in a package into a map from local variable
 /// ID to its name.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn local_names(package: &Package) -> FxHashMap<LocalVarId, String> {
     package
         .pats
@@ -841,7 +845,7 @@ pub(crate) fn local_names(package: &Package) -> FxHashMap<LocalVarId, String> {
 /// Looks up a local variable's name in a [`local_names`] map, falling back to a
 /// `<LocalVarId(..)>` placeholder when the id is absent (e.g. a synthesized
 /// binding not present in the source pattern map).
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn local_name_or_placeholder(
     names: &FxHashMap<LocalVarId, String>,
     local_id: LocalVarId,
@@ -854,7 +858,7 @@ pub(crate) fn local_name_or_placeholder(
 
 /// Finds a callable declaration by name in the given package. Panics if not
 /// found.
-#[allow(dead_code)]
+#[cfg(any(test, feature = "testutil"))]
 pub(crate) fn find_callable<'a>(package: &'a Package, callable_name: &str) -> &'a CallableDecl {
     package
         .items
@@ -870,7 +874,7 @@ pub(crate) fn find_callable<'a>(package: &'a Package, callable_name: &str) -> &'
 
 /// Finds the [`LocalItemId`] of a callable by name in the given package.
 /// Panics if not found.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn callable_id_by_name(package: &Package, callable_name: &str) -> LocalItemId {
     package
         .items
@@ -885,7 +889,7 @@ pub(crate) fn callable_id_by_name(package: &Package, callable_name: &str) -> Loc
 /// Finds the body [`BlockId`] of a callable by name. Accepts `Spec` and
 /// `SimulatableIntrinsic` implementations and skips `Intrinsic` ones (which
 /// have no body block). Panics if no matching callable with a body is found.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn find_callable_body_block(package: &Package, callable_name: &str) -> BlockId {
     for item in package.items.values() {
         if let ItemKind::Callable(decl) = &item.kind
@@ -941,6 +945,7 @@ pub fn format_reachable_callable_summary(
 /// Returns a per-statement summary of the named callable's body block,
 /// including the block type and a short rendering of each statement.
 #[must_use]
+#[cfg(any(test, feature = "testutil"))]
 pub fn format_callable_body_summary(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
@@ -993,7 +998,6 @@ pub fn format_callable_body_summary(
 /// partial evaluation and codegen. Uses Adaptive + `IntegerComputations`
 /// capabilities so that Result-comparison programs can be lowered.
 #[cfg(test)]
-#[allow(dead_code)]
 pub(crate) fn generate_qir(source: &str) -> String {
     use qsc_codegen::qir::fir_to_qir;
     use qsc_data_structures::target::TargetCapabilityFlags;
@@ -1020,7 +1024,6 @@ pub(crate) fn generate_qir(source: &str) -> String {
 /// simulator seed for determinism. Returns `Ok(value)` on success, or
 /// `Err(error_string)` on evaluation failure.
 #[cfg(test)]
-#[allow(dead_code)]
 pub(crate) fn try_eval_fir_entry(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
@@ -1054,7 +1057,6 @@ pub(crate) fn try_eval_fir_entry(
 /// path) that an equal return value alone would not reveal.
 #[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
 pub(crate) enum TraceOp {
     QubitAllocate(usize),
     QubitRelease(usize),
@@ -1158,7 +1160,6 @@ impl qsc_eval::backend::Tracer for OpTracer {
 /// fallback) so measurement results are produced by simulation and stay
 /// aligned across runs of the same program.
 #[cfg(test)]
-#[allow(dead_code)]
 pub(crate) fn try_eval_fir_entry_with_trace(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
@@ -1194,7 +1195,6 @@ pub(crate) fn try_eval_fir_entry_with_trace(
 /// The FIR has no transforms applied — this captures the original program
 /// semantics.
 #[cfg(test)]
-#[allow(dead_code)]
 pub(crate) fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value, String> {
     let (fir_store, pkg_id) =
         compile_to_fir_with_cached_stdlib(source, None, TargetCapabilityFlags::empty());
@@ -1207,22 +1207,12 @@ pub(crate) fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value,
 /// The FIR has no transforms applied — this captures the original program
 /// semantics with a cross-package library dependency.
 #[cfg(test)]
-#[allow(dead_code)]
 pub(crate) fn eval_qsharp_original_with_library(
     lib_source: &str,
     user_source: &str,
 ) -> Result<qsc_eval::val::Value, String> {
     let (fir_store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
     try_eval_fir_entry(&fir_store, pkg_id)
-}
-
-/// Compiles Q# source, runs the full FIR transform pipeline, and evaluates
-/// the entry exec graph.
-#[cfg(test)]
-#[allow(dead_code)]
-pub(crate) fn eval_qsharp_transformed(source: &str) -> Result<qsc_eval::val::Value, String> {
-    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
-    try_eval_fir_entry(&store, pkg_id)
 }
 
 /// Asserts semantic equivalence of a Q# program before and after the
@@ -1244,7 +1234,6 @@ pub(crate) fn eval_qsharp_transformed(source: &str) -> Result<qsc_eval::val::Val
 /// fixed seed, so measurement-dependent fixtures stay aligned across the two
 /// runs and their traces compare deterministically.
 #[cfg(test)]
-#[allow(dead_code)]
 pub(crate) fn check_semantic_equivalence(source: &str) {
     let (expected, expected_trace) = {
         let (fir_store, pkg_id) =
@@ -1294,7 +1283,6 @@ pub(crate) fn check_semantic_equivalence(source: &str) {
 ///    actual return value.
 /// 3. Asserts the two results match.
 #[cfg(test)]
-#[allow(dead_code)]
 pub(crate) fn check_semantic_equivalence_with_library(lib_source: &str, user_source: &str) {
     let expected = eval_qsharp_original_with_library(lib_source, user_source);
     let actual = {

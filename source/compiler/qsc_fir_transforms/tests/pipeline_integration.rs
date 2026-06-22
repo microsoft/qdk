@@ -16,10 +16,13 @@ use qsc_fir_transforms::{
     test_utils::{
         assert_callable_body_terminal_expr_matches_block_type, assert_full_pipeline_succeeds,
         assert_no_pipeline_errors, assert_pipeline_stage_succeeds, compile_to_fir,
-        compile_to_fir_with_entry, compile_to_fir_with_library, format_callable_body_summary,
-        format_pipeline_errors, format_reachable_callable_summary,
+        compile_to_fir_with_entry, compile_to_fir_with_library, format_pipeline_errors,
+        format_reachable_callable_summary,
     },
 };
+
+#[cfg(feature = "testutil")]
+use qsc_fir_transforms::test_utils::format_callable_body_summary;
 
 type LoweredOutput = (
     qsc_fir::fir::PackageStore,
