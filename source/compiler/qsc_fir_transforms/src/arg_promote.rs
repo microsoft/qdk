@@ -77,8 +77,7 @@ use std::rc::Rc;
 ///
 /// The in-memory `Ident.name` carries a `.` sentinel (`_.arg_promote_tmp_0`,
 /// `_.arg_promote_tmp_1`, …), which is never a valid Q# identifier character;
-/// the Parseable render (`render_ident`) restores the original
-/// `__arg_promote_tmp_0` / `__arg_promote_tmp_1` spelling.
+/// the Parseable render restores the original `__arg_promote_tmp_0` spelling.
 const ARG_PROMOTE_TMP_NAME: &str = "_.arg_promote_tmp";
 
 /// Mints the next `_.arg_promote_tmp_<n>` temporary name and advances `counter`.

@@ -28,15 +28,15 @@
 //!   call sites, drop the callable arg, thread captures as extra args) →
 //!   closure tracking/cleanup. **Closure cleanup is convergence-critical:** it
 //!   replaces consumed closures with `Tuple([])` so they stop counting as
-//!   work. The iteration cap is scaled dynamically between [`MIN_ITERATIONS`]
-//!   and [`MAX_ITERATIONS`].
+//!   work. The iteration cap is scaled dynamically between `MIN_ITERATIONS`
+//!   and `MAX_ITERATIONS`.
 //!   Non-convergence appends [`Error::FixpointNotReached`] only if no other
 //!   diagnostic fired (so a real earlier error is not buried).
 //! - **Diagnostics:** [`Error::ExcessiveSpecializations`] is a non-fatal
 //!   warning; other errors are fatal because the intermediate FIR may violate
 //!   downstream invariants.
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
-//!   [`crate::exec_graph_rebuild`] repairs exec graphs later.
+//!   `crate::exec_graph_rebuild` repairs exec graphs later.
 
 mod analysis;
 mod prepass;

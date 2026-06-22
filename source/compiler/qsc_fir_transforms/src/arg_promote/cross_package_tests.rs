@@ -1,6 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+//! Cross-package argument promotion: a tuple-parameter callable declared in a
+//! library package is flattened in lockstep with every call site in every
+//! reachable package (user + library), projection temps are minted into the
+//! caller's package, and the cross-package call-shape invariant validates the
+//! rewrite end-to-end.
+
 use super::*;
 use crate::test_utils::{
     PipelineStage, assert_panics_with, check_semantic_equivalence_with_library,
@@ -10,14 +16,6 @@ use crate::test_utils::{
 use indoc::indoc;
 use qsc_fir::fir::{ExprId, ExprKind, ItemKind, PackageLookup, PatKind, StoreItemId};
 use qsc_fir::ty::{Prim, Ty};
-
-// ----------------------------------------------------------------------------
-// Cross-package argument promotion: a tuple-parameter callable declared in a
-// library package is flattened in lockstep with every call site in every
-// reachable package (user + library), projection temps are minted into the
-// caller's package, and the cross-package call-shape invariant validates the
-// rewrite end-to-end.
-// ----------------------------------------------------------------------------
 
 /// Returns the display string of a reachable callable's input pattern type.
 fn callable_input_ty_string(store: &PackageStore, sid: StoreItemId) -> String {

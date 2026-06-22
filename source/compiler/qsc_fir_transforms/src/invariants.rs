@@ -66,19 +66,13 @@ pub enum InvariantLevel {
     /// pinned `ReinvokeOriginal` target bodies).
     ///
     /// This level is **off the strict-linear pipeline axis**: it enforces only
-    /// the checks established by the passes the sub-pipeline actually runs
-    /// (`return_unify` → `tuple_compare_lower` → `tuple_decompose`): no
-    /// `ExprKind::Return` and no tuple `BinOp(Eq/Neq)`, with matching
-    /// tuple-decompose patterns. It deliberately **allows** everything those
-    /// passes do not touch: the pinned bodies are not monomorphized,
-    /// defunctionalized, UDT-erased, or argument-promoted, so residual
-    /// `Ty::Param` / `FunctorSet::Param` (monomorphization residue),
-    /// `Ty::Arrow` parameters, `ExprKind::Closure`, `Ty::Udt`,
-    /// `ExprKind::Struct`, and `Field::Path` are all permitted.
-    ///
-    /// Membership is special-cased in [`InvariantLevel::enforces`] rather than
-    /// expressed as a single linear threshold; see that method for the per-pass
-    /// include/exclude decisions.
+    /// the checks those three passes establish — no `ExprKind::Return` and no
+    /// tuple `BinOp(Eq/Neq)`, with matching tuple-decompose patterns. Because
+    /// the pinned bodies are never monomorphized, defunctionalized, UDT-erased,
+    /// or argument-promoted, it deliberately **allows** residual `Ty::Param` /
+    /// `FunctorSet::Param`, `Ty::Arrow` parameters, `ExprKind::Closure`,
+    /// `Ty::Udt`, `ExprKind::Struct`, and `Field::Path`. Membership is
+    /// special-cased in `InvariantLevel::enforces`.
     PostSignaturePreserving,
     /// After defunctionalization: additionally no `Ty::Arrow` params and no
     /// `ExprKind::Closure` in reachable code.
@@ -179,7 +173,7 @@ impl InvariantLevel {
 /// reachability closure.
 ///
 /// This entry point checks every reachable callable. The pipeline uses
-/// [`check_with_skip`] to bypass the residual-`Return` checks on callables that
+/// `check_with_skip` to bypass the residual-`Return` checks on callables that
 /// return unification deliberately left un-rewritten.
 ///
 /// # Ordering

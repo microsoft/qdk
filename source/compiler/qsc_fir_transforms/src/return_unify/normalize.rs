@@ -246,6 +246,9 @@ pub(super) fn collect_reachable_blocks(
     out
 }
 
+/// Recursion worker for [`collect_reachable_blocks`]: records `block_id` (once,
+/// via `seen`) and descends into its statements' expressions, stopping at
+/// closure boundaries so nested callable bodies are not collected here.
 pub(super) fn visit_block_for_collect(
     package: &Package,
     block_id: qsc_fir::fir::BlockId,
@@ -268,6 +271,8 @@ pub(super) fn visit_block_for_collect(
     }
 }
 
+/// Recursion worker for [`collect_reachable_blocks`]: descends an expression
+/// tree, recursing into any nested block via [`visit_block_for_collect`].
 pub(super) fn visit_expr_for_collect(
     package: &Package,
     expr_id: ExprId,

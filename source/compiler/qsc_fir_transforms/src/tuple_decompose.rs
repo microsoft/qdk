@@ -70,7 +70,7 @@ use crate::EMPTY_EXEC_RANGE;
 /// the pass decomposes the binding into one scalar local per
 /// element when **every** use of the binding falls into one of the
 /// shapes the in-pass classifier accepts (see
-/// [`crate::walk_utils::for_each_use_event`]):
+/// `crate::walk_utils::for_each_use_event`):
 ///
 /// - `Field(Var(t), Path(..))` — a field projection out of the binding,
 ///   rewritten by [`rewrite_field_accesses`] into a direct
@@ -523,6 +523,9 @@ fn replace_expr_references(
     }
 }
 
+/// Redirects a statement's direct expression edge from `old_expr_id` to
+/// `new_expr_id`. Companion to [`replace_expr_in_expr`] for
+/// [`replace_expr_references`].
 fn replace_expr_in_stmt(stmt: &mut Stmt, old_expr_id: ExprId, new_expr_id: ExprId) {
     match &mut stmt.kind {
         StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
@@ -532,6 +535,10 @@ fn replace_expr_in_stmt(stmt: &mut Stmt, old_expr_id: ExprId, new_expr_id: ExprI
     }
 }
 
+/// Redirects an expression's direct child edges from `old_expr_id` to
+/// `new_expr_id`. Rewrites only the immediate children (one structural level);
+/// [`replace_expr_references`] visits every expression in the callable, so deep
+/// recursion here would be redundant.
 fn replace_expr_in_expr(expr: &mut Expr, old_expr_id: ExprId, new_expr_id: ExprId) {
     match &mut expr.kind {
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {

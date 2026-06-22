@@ -44,7 +44,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// `callable` holds flow-sensitive reaching-definitions for callable-typed
 /// locals (both mutable and immutable). `exprs` holds raw `ExprId` bindings
 /// for all immutable locals, supporting struct field resolution and type
-/// look-ups.
+/// look-ups. `condition_substitutions` maps each higher-order-function
+/// parameter local to the caller-scope argument expression bound at the call
+/// site, so an `if` guard that reads a forwarded parameter can be folded to a
+/// literal or remapped to its caller-scope value when reconstructing branch
+/// dispatch.
 #[derive(Default)]
 pub(super) struct LocalState {
     callable: FxHashMap<LocalVarId, CalleeLattice>,
@@ -1951,8 +1955,8 @@ pub(super) fn resolve_captures(
 }
 
 /// Resolves a capture expression by walking the enclosing block scope and
-/// its visible local bindings, used when the straightforward
-/// [`resolve_capture_expr_from_state`] lookup cannot see the binding.
+/// its visible local bindings, used when a direct `LocalState.exprs` lookup
+/// cannot see the binding.
 fn resolve_scoped_capture_expr(
     pkg: &Package,
     locals: &LocalState,

@@ -52,8 +52,7 @@ const EXCESSIVE_SPECIALIZATION_THRESHOLD: usize = 10;
 /// Base name for synthesized closure-capture locals; a per-call counter is
 /// appended (`_.capture_0`, `_.capture_1`, …). The in-memory `Ident.name`
 /// carries a `.` sentinel, which is never a valid Q# identifier character; the
-/// Parseable render (`render_ident`) restores the original `__capture_0`
-/// spelling.
+/// Parseable render restores the original `__capture_0` spelling.
 pub(super) const CAPTURE_NAME_PREFIX: &str = "_.capture";
 
 /// Set of `LocalVarId`s that alias a nested callable parameter after
@@ -222,10 +221,8 @@ fn refresh_rewritten_value_types(package: &mut Package, callable_impl: &Callable
 
 /// Re-computes the type of every statement in a block, returning the
 /// refreshed trailing type so enclosing expressions can cascade the update.
-///
-/// Rewrites `Block.ty` in place to the trailing expression's type, or `Unit`
-/// when there is no trailing `Expr`, and delegates to [`refresh_stmt_types`]
-/// for each statement.
+/// The block's type becomes its trailing expression's type, or `Unit` when
+/// there is no trailing `Expr`.
 fn refresh_block_types(package: &mut Package, block_id: qsc_fir::fir::BlockId) -> Ty {
     let stmt_ids = package.get_block(block_id).stmts.clone();
     for stmt_id in stmt_ids {
@@ -252,9 +249,6 @@ fn refresh_block_types(package: &mut Package, block_id: qsc_fir::fir::BlockId) -
 /// Refreshes the type of a single statement and, when it introduces a
 /// local binding, retypes the bound pattern to match the rewritten
 /// initializer.
-///
-/// Rewrites `Pat.ty` in place for `Bind` and `Discard` patterns and
-/// delegates to [`refresh_expr_types`] for the statement's expression.
 fn refresh_stmt_types(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
     let stmt = package.get_stmt(stmt_id).clone();
     match stmt.kind {
@@ -276,9 +270,6 @@ fn refresh_stmt_types(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
 /// Recomputes the type of an expression after rewriting, propagating the
 /// refreshed type through nested blocks, conditionals, calls, and tuple
 /// constructors.
-///
-/// Rewrites `Expr.ty` in place and recursively refreshes all reachable
-/// sub-expressions.
 fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
     let expr = package.get_expr(expr_id).clone();
     let new_ty = match expr.kind {

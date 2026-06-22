@@ -14,10 +14,10 @@
 //! - **Establishes [`crate::invariants::InvariantLevel::PostReturnUnify`]:**
 //!   no `Return` nodes and no non-Unit `Semi`-terminated block tails in
 //!   reachable code, with consistent `LocalVarId` binding.
-//! - **"Flag-lowering everywhere" design (LLVM `UnifyFunctionExitNodes` +
-//!   `SimplifyCFG`).** Because FIR is a tree IR, returns are lowered into a
-//!   `__has_returned` boolean flag plus a `__ret_val` slot (standing in for
-//!   LLVM's PHI nodes), then structure is recovered by named, individually
+//! - **"Flag-lowering everywhere" design.** Because FIR is a tree IR, returns
+//!   are lowered into a `__has_returned` boolean flag plus a `__ret_val` slot
+//!   (standing in for LLVM's PHI nodes), then structure is recovered by named,
+//!   individually
 //!   tested rewrite rules. Three phases per block: **Normalize** first hoists
 //!   compound-position returns to statement boundaries
 //!   ([`normalize::hoist_returns_to_statement_boundary`]), then lifts any
@@ -33,7 +33,7 @@
 //!   synthesized for unsupported types — defaultable types use a `T` slot,
 //!   resolvable non-defaultable types use a `T[]` slot). Processing continues
 //!   for the remaining callables.
-//! - **Qubit release is folded in** (the historical `release_hoist` pre-pass).
+//! - **Qubit release is folded in.**
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
 //!   [`crate::exec_graph_rebuild`] repairs exec graphs later.
 

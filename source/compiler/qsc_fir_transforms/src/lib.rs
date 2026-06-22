@@ -25,7 +25,7 @@
 //!   passes in isolation without understanding the chain.
 //!
 //! - **``tuple_decompose`` ↔ ``arg_promote`` run to a fixed point.** These two passes
-//!   iterate until convergence (capped; see the hard-cap constant below), so
+//!   iterate until convergence (capped), so
 //!   changes to either must preserve the strictly-decreasing measure that
 //!   guarantees termination. The idempotent
 //!   ``normalize_reachable_call_arg_types`` cleanup runs exactly once after the
@@ -56,7 +56,7 @@
 //!   warnings, which do not block successful output.
 //!
 //! - **Implementation helpers.** Several passes deep-clone FIR subtrees via
-//!   [`cloner::FirCloner`]; others rewrite in place or rebuild derived
+//!   `cloner::FirCloner`; others rewrite in place or rebuild derived
 //!   structures from scratch. [`invariants`] checks the structural contracts
 //!   between stages.
 
@@ -720,7 +720,7 @@ pub fn run_pipeline_with_diagnostics(
 /// level, which forbids residual `Return` while allowing the preserved
 /// arrow/UDT residue.
 ///
-/// A [`PackageAssigners`] pool is derived from the current package state. Each
+/// A `PackageAssigners` pool is derived from the current package state. Each
 /// package's assigner continues allocation from that package's current id
 /// watermark, so seed bodies in foreign packages are rewritten with their own
 /// package's assigner without colliding with existing ids.

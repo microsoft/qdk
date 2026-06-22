@@ -231,6 +231,8 @@ fn collect_targets_in_callable_impl(
     }
 }
 
+/// Collects normalization targets from every present specialization (`body`,
+/// `adj`, `ctl`, `ctl-adj`) of a spec implementation.
 fn collect_targets_in_spec_impl(
     package: &Package,
     spec_impl: &SpecImpl,

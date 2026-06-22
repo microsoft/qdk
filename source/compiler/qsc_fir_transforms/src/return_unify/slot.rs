@@ -45,8 +45,7 @@ pub(super) enum ReturnSlotStrategy {
     ///
     /// Used when `T` has no classical default but its structure is resolvable,
     /// so the universal array default `[]` is well-typed. Reads index `[0]`
-    /// and are guarded by `__has_returned` (or by a typed `ExprKind::Fail`
-    /// in statically dead branches).
+    /// and are guarded by `__has_returned`.
     ArrayBacked,
 }
 

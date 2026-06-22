@@ -76,8 +76,7 @@ impl FirCloner {
     /// Creates a new cloner initialized with the provided `Assigner`.
     ///
     /// Use this when an `Assigner` with correct watermarks is already
-    /// available (e.g., captured from the lowerer), avoiding the O(n)
-    /// scan performed by [`FirCloner::new`].
+    /// available, avoiding the O(n) scan performed by `FirCloner::new`.
     #[must_use]
     pub fn from_assigner(assigner: Assigner) -> Self {
         Self {
@@ -533,6 +532,9 @@ impl FirCloner {
         self.assigner
     }
 
+    /// Allocates a fresh `LocalVarId` for `old` and records the old-to-new
+    /// mapping so later references to `old` in the cloned subtree are remapped
+    /// to the new id.
     pub(crate) fn alloc_local(&mut self, old: LocalVarId) -> LocalVarId {
         let new = LocalVarId::from(self.next_local);
         self.next_local += 1;

@@ -13,7 +13,7 @@
 //!
 //! - **Separate from [`gc_unreachable`](crate::gc_unreachable) because
 //!   reachability is cross-package.** Library items may be referenced from user
-//!   code, so this needs a [`PackageStore`](qsc_fir::fir::PackageStore) for the
+//!   code, so this needs a [`PackageStore`] for the
 //!   walk, whereas `gc_unreachable` works on a single package's arena nodes.
 //! - **`StmtKind::Item` edge case.** Removing an item whose declaring
 //!   `StmtKind::Item` stmt sits in a still-reachable block would trip
@@ -61,10 +61,9 @@ pub fn eliminate_dead_items(
         let keep = match &item.kind {
             // Callable items: keep only if reachable from entry.
             ItemKind::Callable(_) => local_reachable.contains(&id),
-            // Type items: dead because `udt_erase` (which must precede this
-            // pass) inlined every UDT reference in the reachable callables, and
-            // the unreachable callables that may still reference a UDT are
-            // dropped by the `Callable` arm above.
+            // Type items: dead because `udt_erase` inlined every UDT reference
+            // in the reachable callables, and the unreachable callables that
+            // may still reference a UDT are dropped by the `Callable` arm above.
             ItemKind::Ty(..) => false,
         };
         if !keep {

@@ -154,7 +154,7 @@ pub enum CalleeLattice {
     /// Exactly one known callable.
     Single(ConcreteCallable),
     /// Multiple known callables from conditional branches — up to
-    /// [`MULTI_CAP`] before degrading to `Dynamic`.
+    /// `MULTI_CAP` before degrading to `Dynamic`.
     ///
     /// Each entry is `(callable, guards)`, where `guards` is a left-associated
     /// conjunction stored outermost-first; the entry is selected when every
@@ -180,8 +180,8 @@ impl CalleeLattice {
     /// - `Bottom ⊔ x = x`
     /// - `Single(a) ⊔ Single(a) = Single(a)` (when equal)
     /// - `Single(a) ⊔ Single(b) = Multi([a, b])`
-    /// - `Multi(s) ⊔ Single(a) = Multi(s ∪ {a})` (cap at [`MULTI_CAP`] → Dynamic)
-    /// - `Multi(s1) ⊔ Multi(s2) = Multi(s1 ∪ s2)` (cap at [`MULTI_CAP`] → Dynamic)
+    /// - `Multi(s) ⊔ Single(a) = Multi(s ∪ {a})` (cap at `MULTI_CAP` → Dynamic)
+    /// - `Multi(s1) ⊔ Multi(s2) = Multi(s1 ∪ s2)` (cap at `MULTI_CAP` → Dynamic)
     /// - `Dynamic ⊔ _ = Dynamic`
     #[must_use]
     pub fn join(self, other: Self) -> Self {
@@ -238,7 +238,7 @@ impl CalleeLattice {
     ///   `condition` (s1) and `!condition` (s2) is two distinct dispatch arms.
     ///   Only the `s2` empty-guard default survives as the trailing fall-through.
     ///
-    /// Overflow past [`MULTI_CAP`] degrades to `Dynamic`.
+    /// Overflow past `MULTI_CAP` degrades to `Dynamic`.
     #[must_use]
     pub fn join_with_condition(self, other: Self, condition: ExprId) -> Self {
         match (self, other) {
