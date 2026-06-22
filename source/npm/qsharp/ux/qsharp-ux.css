@@ -667,12 +667,12 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 }
 /* End Bloch themed form controls */
 
-/* Bloch sphere widget root. A two-column grid: the 3D stage and the
-   control rows (gate buttons, gate editor, Rz slider) stack in the
-   flexible left column, while the trace pane spans the full height of
-   the fixed-width right column on the right edge of the host. The widget
-   takes the full width available but keeps a bounded height so the
-   sphere stays readable instead of stretching to fill tall hosts. */
+/* Bloch sphere widget root. A two-column grid: the sphere visualization
+   in the flexible left column and the trace pane in the fixed-width right
+   column. The gate controls overlay the bottom-left of the visualization
+   rather than taking their own space. The widget takes the full width
+   available but keeps a bounded height so the sphere stays readable
+   instead of stretching to fill tall hosts. */
 .qs-bloch {
   display: grid;
   /* The trace column's width is driven by JS: bloch.tsx measures the
@@ -683,28 +683,43 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
      can't crush it. (The single-column media query below ignores the
      custom property entirely.) */
   grid-template-columns: minmax(280px, 1fr) var(--qs-trace-width, 480px);
-  /* First row is pinned to the bounded sphere height. Pinning the TRACK
-     (not just the stage element) is what keeps the trace pane from
-     growing: an `auto` track would stretch to fit the tallest item, so a
-     long gate list would drag the pane taller. With a fixed-height track,
-     both the stage and the trace pane are clamped to it and the
-     trace list scrolls internally instead. */
-  grid-template-rows: min(60vh, 600px) auto auto auto;
-  column-gap: 16px;
+  /* A single row holds the two columns side by side. The left column
+     (`.qs-bloch-main`) has a fixed height; the trace pane fills the right
+     column and stretches to match it, so their bottoms line up. No column
+     gap so the visualization's right border meets the trace pane's left
+     border. */
+  column-gap: 0;
   width: 100%;
   box-sizing: border-box;
+  /* Breathing room above the widget so its top border isn't flush against
+     the host's tab/toolbar edge. */
+  margin-top: 12px;
 }
 
-/* The 3D canvas lives in the top-left cell and fills the pinned row.
-   `position: relative` anchors the theta/phi overlay; `min-width: 0`
-   lets the cell shrink within its grid track instead of being forced to
-   the canvas's intrinsic size. */
-.qs-bloch-stage {
+/* Left column: the sphere visualization. It owns a fixed height (the
+   sphere fills it edge to edge) and is the positioning context for the
+   gate-controls panel, which overlays its bottom-left corner. The height
+   matches what the widget used to be with the controls expanded -- the
+   bounded sphere height plus the room the control rows occupied -- so the
+   widget stays the same height whether the controls are open or collapsed.
+   The trace pane in the right column stretches to match. */
+.qs-bloch-main {
   grid-column: 1;
   grid-row: 1;
   position: relative;
+  height: calc(min(60vh, 600px) + 251px);
   min-width: 0;
-  min-height: 0;
+}
+
+/* The 3D canvas stage fills the whole visualization. `position: relative`
+   anchors the corner overlays (theta/phi, state ket, gate sequence); the
+   border marks the edge of the visualization. */
+.qs-bloch-stage {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--qdk-widget-outline);
 }
 .qs-bloch-stage canvas {
   display: block;
@@ -712,22 +727,63 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   height: 100%;
 }
 
-.qs-gate-buttons,
-.qs-bloch-gate-editor,
-.qs-bloch-rz {
-  grid-column: 1;
-  /* Keep all the control rows contained to the left, aligned with the
-     gate editor (which already caps at 600px), instead of stretching
-     the full width of the flexible sphere column up to the trace pane.
-     `justify-self: start` stops the grid item from filling the track;
-     `max-width` + `width: 100%` lets it grow up to the cap but no
-     further. */
-  justify-self: start;
-  width: 100%;
-  max-width: 600px;
+/* Expanded gate controls. A single bordered panel overlaying the
+   bottom-left corner of the visualization (the sphere shows through
+   around it). The host background keeps the controls easy to read over
+   the 3D scene; the border groups them. Width-capped so it never reaches
+   the trace pane, and height-capped with internal scroll so it can't
+   exceed the visualization. Collapsing hides this panel (it is not
+   rendered) and shows the plain-text gate overlay instead. */
+.qs-bloch-controls {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 2;
+  box-sizing: border-box;
+  width: min(600px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--qdk-host-background);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 6px;
+}
+
+/* Header row of the control panel, holding the collapse (close) button in
+   the top-left on its own line so it doesn't crowd the gate buttons. */
+.qs-bloch-controls-header {
+  display: flex;
+  align-items: center;
+}
+.qs-bloch-controls-close {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--qdk-host-foreground);
+  border: none;
+  border-radius: 4px;
+  font-size: 1.05em;
+  line-height: 1;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.qs-bloch-controls-close:hover {
+  opacity: 1;
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-controls-close:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
 }
 .qs-bloch-rz {
-  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -860,35 +916,45 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 /* Collapsed gate-controls view. When the controls are hidden, the
    current gate program is shown as a plain-text overlay in the
    bottom-left of the sphere stage, mirroring the theta/phi and
-   state-ket overlays in the top corners. Left padding clears the
-   toggle icon that shares the bottom-left corner. */
+   state-ket overlays in the top corners. The expand (gear) toggle sits
+   at the left of this row, just before the gate-sequence text. */
 .qs-bloch-gate-overlay {
   position: absolute;
-  bottom: 12px;
-  left: 42px;
+  bottom: 8px;
+  left: 8px;
   right: 12px;
-  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--qdk-host-foreground);
   font-family: var(--qdk-font-family-monospace);
   font-size: 1.05em;
   letter-spacing: 0.08em;
   opacity: 0.9;
-  text-align: left;
   user-select: none;
+}
+/* The gate-sequence text beside the toggle. Truncates with an ellipsis
+   rather than wrapping so the overlay stays a single tidy row. */
+.qs-bloch-gate-overlay-text {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* "Gate sequence:" prefix label -- non-monospace and slightly muted so
+   it reads as context rather than part of the gate codes. */
+.qs-bloch-gate-overlay-label {
+  font-family: var(--qdk-font-family);
+  letter-spacing: normal;
+  opacity: 0.7;
+}
 
-/* Subtle icon toggle in the bottom-left corner of the sphere stage
-   that shows/hides the gate controls. Sits near the controls it
-   governs (which stack below the sphere) rather than off in the
-   opposite corner. A small, low-contrast glyph that brightens on
-   hover so it stays out of the way until the user looks for it. */
+/* Subtle gear icon toggle that re-opens the gate controls. Sits at the
+   left of the collapsed gate-sequence overlay row. A small, low-contrast
+   glyph that brightens on hover so it stays out of the way until the user
+   looks for it. */
 .qs-bloch-controls-toggle {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
+  flex: 0 0 auto;
   width: 26px;
   height: 26px;
   padding: 0;
@@ -901,7 +967,7 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   border-radius: 4px;
   font-size: 1.05em;
   line-height: 1;
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: pointer;
 }
 .qs-bloch-controls-toggle:hover {
@@ -914,28 +980,21 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   outline-offset: 1px;
 }
 
-/* When the controls are collapsed, hide the gate buttons, gate editor,
-   and Rz slider with `visibility: hidden` rather than removing them.
-   This keeps their grid rows at full height so collapsing the controls
-   doesn't shrink the widget (and the trace pane that spans its full
-   height). */
-.qs-bloch-collapsed .qs-gate-buttons,
-.qs-bloch-collapsed .qs-bloch-gate-editor,
-.qs-bloch-collapsed .qs-bloch-rz {
-  visibility: hidden;
-}
-
 /* On narrow hosts (split editor, small Jupyter outputs) the two-column
    layout gets cramped, so collapse to a single column with the trace
-   pane below the sphere. */
+   pane below the visualization. */
 @media (max-width: 720px) {
   .qs-bloch {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto auto auto;
+    grid-template-rows: auto auto;
+  }
+  .qs-bloch-main {
+    grid-column: 1;
+    grid-row: 1;
   }
   .qs-bloch-trace {
     grid-column: 1;
-    grid-row: auto;
+    grid-row: 2;
     /* The inner content is absolutely positioned, so the pane no longer
        derives its height from the step list. Give it an explicit height
        in the stacked layout so it has a box for the inner list to fill
@@ -951,21 +1010,21 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    since it's drawn via WebGL. */
 .qs-bloch-trace {
   grid-column: 2;
-  /* Span every row so the pane is flush with the bottom of the widget,
-     level with the gate controls and Rz slider below the sphere. Row 1
-     is a fixed track and rows 2-4 are sized by the left-column controls.
+  grid-row: 1;
+  /* The pane stretches (default grid `align-items: stretch`) to the fixed
+     height of the visualization column (`.qs-bloch-main`), so its bottom
+     is flush with the bottom of the widget.
 
-     Crucially, the pane's *content* must not feed back into the size of
-     the spanned auto rows. A grid item spanning auto tracks contributes
-     its intrinsic height to those tracks, so a long trace list would
-     grow rows 2-4 -- and with no height cap on the host (VS Code mounts
-     the widget straight into `document.body`, unlike the playground's
-     bounded grid cell) it grows without bound. We break that feedback by
-     positioning the inner content absolutely (see `.qs-bloch-trace-inner`):
-     the only in-flow child then contributes zero height, so the pane is
-     sized purely by the surrounding grid, and the inner list scrolls. */
+     Crucially, the pane's *content* must not feed back into the row
+     height. A grid item contributes its intrinsic height to an auto row,
+     so a long trace list would grow the row -- and with no height cap on
+     the host (VS Code mounts the widget straight into `document.body`,
+     unlike the playground's bounded grid cell) it grows without bound. We
+     break that feedback by positioning the inner content absolutely (see
+     `.qs-bloch-trace-inner`): the only in-flow child then contributes zero
+     height, so the pane is sized purely by the visualization column, and
+     the inner list scrolls. */
   position: relative;
-  grid-row: 1 / -1;
   min-height: 0;
   overflow: hidden;
   background: var(--qdk-background-accent);

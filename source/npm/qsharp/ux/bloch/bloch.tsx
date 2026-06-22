@@ -868,7 +868,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   return (
     <div
-      class={"qs-bloch" + (controlsCollapsed ? " qs-bloch-collapsed" : "")}
+      class="qs-bloch"
       style={
         // Drive the trace column width from the measured content width
         // (--qs-trace-width). Unset until first measurement.
@@ -879,42 +879,309 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           : undefined
       }
     >
-      <div class="qs-bloch-stage" ref={stageRef}>
-        <canvas ref={canvasRef}></canvas>
-        <div class="qs-bloch-coords" aria-hidden="true">
-          <span>
-            <span class="qs-bloch-coords-greek">θ</span>
-            {" = "}
-            {blochAngles.theta.toFixed(2)} rad
-          </span>
-          <span>
-            <span class="qs-bloch-coords-greek">φ</span>
-            {" = "}
-            {blochAngles.polar ? "n/a" : `${blochAngles.phi.toFixed(2)} rad`}
-          </span>
+      <div class="qs-bloch-main">
+        <div class="qs-bloch-stage" ref={stageRef}>
+          <canvas ref={canvasRef}></canvas>
+          <div class="qs-bloch-coords" aria-hidden="true">
+            <span>
+              <span class="qs-bloch-coords-greek">θ</span>
+              {" = "}
+              {blochAngles.theta.toFixed(2)} rad
+            </span>
+            <span>
+              <span class="qs-bloch-coords-greek">φ</span>
+              {" = "}
+              {blochAngles.polar ? "n/a" : `${blochAngles.phi.toFixed(2)} rad`}
+            </span>
+          </div>
+          <div class="qs-bloch-state" aria-hidden="true">
+            <Markdown markdown={currentStateLatex}></Markdown>
+          </div>
+          {controlsCollapsed && (
+            <div class="qs-bloch-gate-overlay">
+              <button
+                type="button"
+                class="qs-bloch-controls-toggle"
+                onClick={() => setControlsCollapsed(false)}
+                title="Show gate controls"
+                aria-label="Show gate controls"
+                aria-expanded={false}
+              >
+                {"\u2699"}
+              </button>
+              <span class="qs-bloch-gate-overlay-text" aria-hidden="true">
+                <span class="qs-bloch-gate-overlay-label">Gate sequence:</span>{" "}
+                {gates.length > 0 ? gates.join("") : "\u2014"}
+              </span>
+            </div>
+          )}
         </div>
-        <div class="qs-bloch-state" aria-hidden="true">
-          <Markdown markdown={currentStateLatex}></Markdown>
-        </div>
-        {controlsCollapsed && (
-          <div class="qs-bloch-gate-overlay" aria-hidden="true">
-            {gates.length > 0 ? gates.join("") : "\u2014"}
+        {!controlsCollapsed && (
+          <div class="qs-bloch-controls">
+            <div class="qs-bloch-controls-header">
+              <button
+                type="button"
+                class="qs-bloch-controls-close"
+                onClick={() => setControlsCollapsed(true)}
+                title="Hide gate controls"
+                aria-label="Hide gate controls"
+              >
+                {"\u2715"}
+              </button>
+            </div>
+            <div class="qs-gate-buttons">
+              {/* Gate palette: single-qubit gates, as one segmented control. */}
+              <div
+                class="qs-bloch-gate-group qs-bloch-gate-group-palette"
+                role="group"
+                aria-label="Apply gate"
+              >
+                {(
+                  [
+                    ["X", "X"],
+                    ["Y", "Y"],
+                    ["Z", "Z"],
+                    ["H", "H"],
+                    ["S", "S"],
+                    ["s", "S†"],
+                    ["T", "T"],
+                    ["t", "T†"],
+                  ] as const
+                ).map(([code, label]) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => applyGate(code)}
+                    disabled={isPlaying}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Edit history: undo/redo, as a second segmented control. */}
+              <div
+                class="qs-bloch-gate-group"
+                role="group"
+                aria-label="Edit history"
+              >
+                <button
+                  type="button"
+                  onClick={undo}
+                  disabled={!canUndo}
+                  title="Undo last gate"
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={redo}
+                  disabled={!canRedo}
+                  title="Redo last undone gate"
+                >
+                  Redo
+                </button>
+              </div>
+
+              <div class="qs-bloch-gate-group" role="group">
+                <button
+                  type="button"
+                  onClick={clear}
+                  disabled={isPlaying}
+                  title={
+                    isPlaying ? "Pause to clear" : "Clear the entire trace"
+                  }
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div class="qs-bloch-gate-editor">
+              <div class="qs-bloch-gate-editor-row">
+                <input
+                  class="qs-bloch-gate-editor-input"
+                  value={displayValue}
+                  onInput={gateTextInput}
+                  spellcheck={false}
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  aria-label="Gate program"
+                  placeholder="Type a gate sequence (X Y Z H S s T t)"
+                />
+                {props.actionSlot}
+              </div>
+              {/*
+          Gate-count breakdown plus a T-count callout. T-count (T and T†
+          gates) is the key cost metric for fault-tolerant implementations,
+          so surfacing it live is useful after the Rz slider expands a
+          rotation into many gates.
+        */}
+              <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
+                <span class="qs-bloch-gate-editor-breakdown">
+                  {(() => {
+                    const counts: Record<string, number> = {};
+                    for (const ch of displayValue) {
+                      counts[ch] = (counts[ch] ?? 0) + 1;
+                    }
+                    const chips = [];
+                    for (const code of VALID_GATE_CODES) {
+                      const n = counts[code] ?? 0;
+                      if (n === 0) continue;
+                      chips.push(
+                        <span
+                          key={code}
+                          class="qs-bloch-gate-editor-chip"
+                          title={`${n}× ${gateInfo[code].display}`}
+                        >
+                          <span class="qs-bloch-gate-editor-chip-name">
+                            {gateInfo[code].display}
+                          </span>
+                          <span class="qs-bloch-gate-editor-chip-count">
+                            {n}
+                          </span>
+                        </span>,
+                      );
+                    }
+                    const tCount = (counts["T"] ?? 0) + (counts["t"] ?? 0);
+                    if (chips.length === 0) {
+                      return (
+                        <span class="qs-bloch-gate-editor-empty">no gates</span>
+                      );
+                    }
+                    return (
+                      <>
+                        {chips}
+                        {tCount > 0 && (
+                          <span
+                            class="qs-bloch-gate-editor-tcount"
+                            title="T-count: number of T and T† gates. T gates are the expensive primitive in fault-tolerant quantum computing."
+                          >
+                            T-count: {tCount}
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                </span>
+                <span class="qs-bloch-gate-editor-status">
+                  <span
+                    class={
+                      displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                        ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
+                        : "qs-bloch-gate-editor-count"
+                    }
+                    title={
+                      displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                        ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                        : ""
+                    }
+                  >
+                    {displayValue.length} / {MAX_GATE_SEQUENCE_LENGTH}
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div class="qs-bloch-rz">
+              <div class="qs-bloch-rz-row">
+                {(() => {
+                  // Knob sits on the track at the current angle. 0 rad is at
+                  // 3 o'clock, increasing counterclockwise; SVG y points down
+                  // so the vertical term is negated.
+                  const trackR = 46;
+                  const knobX = 60 + trackR * Math.cos(rzAngle);
+                  const knobY = 60 - trackR * Math.sin(rzAngle);
+                  return (
+                    <svg
+                      ref={dialRef}
+                      class={
+                        "qs-bloch-rz-dial" +
+                        (isPlaying ? " qs-bloch-rz-dial-disabled" : "")
+                      }
+                      viewBox="0 0 120 120"
+                      role="slider"
+                      tabIndex={isPlaying ? -1 : 0}
+                      aria-label="Rz angle in radians"
+                      aria-valuemin={0}
+                      aria-valuemax={(RZ_STEPS - 1) * RZ_STEP}
+                      aria-valuenow={rzAngle}
+                      aria-valuetext={`${rzAngle.toFixed(2)} radians`}
+                      onPointerDown={dialPointerDown}
+                      onPointerMove={dialPointerMove}
+                      onPointerUp={dialPointerUp}
+                      onKeyDown={dialKeyDown}
+                    >
+                      <circle
+                        class="qs-bloch-rz-dial-track"
+                        cx="60"
+                        cy="60"
+                        r={trackR}
+                      />
+                      {/* Tick marks at 0, π/2, π, 3π/2 for orientation. */}
+                      {[0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((a) => (
+                        <line
+                          key={a}
+                          class="qs-bloch-rz-dial-tick"
+                          x1={60 + (trackR - 5) * Math.cos(a)}
+                          y1={60 - (trackR - 5) * Math.sin(a)}
+                          x2={60 + (trackR + 5) * Math.cos(a)}
+                          y2={60 - (trackR + 5) * Math.sin(a)}
+                        />
+                      ))}
+                      <line
+                        class="qs-bloch-rz-dial-needle"
+                        x1="60"
+                        y1="60"
+                        x2={knobX}
+                        y2={knobY}
+                      />
+                      <circle
+                        class="qs-bloch-rz-dial-center"
+                        cx="60"
+                        cy="60"
+                        r="3"
+                      />
+                      <circle
+                        class="qs-bloch-rz-dial-knob"
+                        cx={knobX}
+                        cy={knobY}
+                        r="8"
+                      />
+                    </svg>
+                  );
+                })()}
+                <div class="qs-bloch-rz-info">
+                  <span class="qs-bloch-rz-readout">
+                    Rz({rzAngle.toFixed(2)} rad)
+                  </span>
+                  <button
+                    type="button"
+                    class="qs-bloch-rz-apply"
+                    onClick={applyRzDecomposition}
+                    disabled={isPlaying || rzDecomposition.length === 0}
+                    title={
+                      rzDecomposition.length === 0
+                        ? "Set a non-zero angle to add an Rz rotation"
+                        : "Append this Rz decomposition to the gate sequence"
+                    }
+                  >
+                    Add to sequence
+                  </button>
+                  <div class="qs-bloch-rz-decomposition" aria-live="polite">
+                    <span class="qs-bloch-rz-decomposition-label">
+                      Decomposition:
+                    </span>
+                    <span class="qs-bloch-rz-decomposition-gates">
+                      {rzDecomposition.length > 0
+                        ? rzDecomposition
+                        : "identity (no gates)"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
-        <button
-          type="button"
-          class="qs-bloch-controls-toggle"
-          onClick={() => setControlsCollapsed((c) => !c)}
-          title={
-            controlsCollapsed ? "Show gate controls" : "Hide gate controls"
-          }
-          aria-label={
-            controlsCollapsed ? "Show gate controls" : "Hide gate controls"
-          }
-          aria-expanded={!controlsCollapsed}
-        >
-          {controlsCollapsed ? "\u2699" : "\u2715"}
-        </button>
       </div>
       <div class="qs-bloch-trace" style="font-size: 0.9em;">
         <div class="qs-bloch-trace-inner">
@@ -1038,242 +1305,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               <Markdown markdown={INITIAL_KET_MARKDOWN}></Markdown>
             </div>
             {traceRows}
-          </div>
-        </div>
-      </div>
-      <div class="qs-gate-buttons">
-        {/* Gate palette: single-qubit gates, as one segmented control. */}
-        <div
-          class="qs-bloch-gate-group qs-bloch-gate-group-palette"
-          role="group"
-          aria-label="Apply gate"
-        >
-          {(
-            [
-              ["X", "X"],
-              ["Y", "Y"],
-              ["Z", "Z"],
-              ["H", "H"],
-              ["S", "S"],
-              ["s", "S†"],
-              ["T", "T"],
-              ["t", "T†"],
-            ] as const
-          ).map(([code, label]) => (
-            <button
-              key={code}
-              type="button"
-              onClick={() => applyGate(code)}
-              disabled={isPlaying}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Edit history: undo/redo, as a second segmented control. */}
-        <div class="qs-bloch-gate-group" role="group" aria-label="Edit history">
-          <button
-            type="button"
-            onClick={undo}
-            disabled={!canUndo}
-            title="Undo last gate"
-          >
-            Undo
-          </button>
-          <button
-            type="button"
-            onClick={redo}
-            disabled={!canRedo}
-            title="Redo last undone gate"
-          >
-            Redo
-          </button>
-        </div>
-
-        <div class="qs-bloch-gate-group" role="group">
-          <button
-            type="button"
-            onClick={clear}
-            disabled={isPlaying}
-            title={isPlaying ? "Pause to clear" : "Clear the entire trace"}
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-      <div class="qs-bloch-gate-editor">
-        <div class="qs-bloch-gate-editor-row">
-          <input
-            class="qs-bloch-gate-editor-input"
-            value={displayValue}
-            onInput={gateTextInput}
-            spellcheck={false}
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="off"
-            aria-label="Gate program"
-            placeholder="Type a gate sequence (X Y Z H S s T t)"
-          />
-          {props.actionSlot}
-        </div>
-        {/*
-          Gate-count breakdown plus a T-count callout. T-count (T and T†
-          gates) is the key cost metric for fault-tolerant implementations,
-          so surfacing it live is useful after the Rz slider expands a
-          rotation into many gates.
-        */}
-        <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
-          <span class="qs-bloch-gate-editor-breakdown">
-            {(() => {
-              const counts: Record<string, number> = {};
-              for (const ch of displayValue) {
-                counts[ch] = (counts[ch] ?? 0) + 1;
-              }
-              const chips = [];
-              for (const code of VALID_GATE_CODES) {
-                const n = counts[code] ?? 0;
-                if (n === 0) continue;
-                chips.push(
-                  <span
-                    key={code}
-                    class="qs-bloch-gate-editor-chip"
-                    title={`${n}× ${gateInfo[code].display}`}
-                  >
-                    <span class="qs-bloch-gate-editor-chip-name">
-                      {gateInfo[code].display}
-                    </span>
-                    <span class="qs-bloch-gate-editor-chip-count">{n}</span>
-                  </span>,
-                );
-              }
-              const tCount = (counts["T"] ?? 0) + (counts["t"] ?? 0);
-              if (chips.length === 0) {
-                return <span class="qs-bloch-gate-editor-empty">no gates</span>;
-              }
-              return (
-                <>
-                  {chips}
-                  {tCount > 0 && (
-                    <span
-                      class="qs-bloch-gate-editor-tcount"
-                      title="T-count: number of T and T† gates. T gates are the expensive primitive in fault-tolerant quantum computing."
-                    >
-                      T-count: {tCount}
-                    </span>
-                  )}
-                </>
-              );
-            })()}
-          </span>
-          <span class="qs-bloch-gate-editor-status">
-            <span
-              class={
-                displayValue.length > MAX_GATE_SEQUENCE_LENGTH
-                  ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
-                  : "qs-bloch-gate-editor-count"
-              }
-              title={
-                displayValue.length > MAX_GATE_SEQUENCE_LENGTH
-                  ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
-                  : ""
-              }
-            >
-              {displayValue.length} / {MAX_GATE_SEQUENCE_LENGTH}
-            </span>
-          </span>
-        </div>
-      </div>
-      <div class="qs-bloch-rz">
-        <div class="qs-bloch-rz-row">
-          {(() => {
-            // Knob sits on the track at the current angle. 0 rad is at
-            // 3 o'clock, increasing counterclockwise; SVG y points down
-            // so the vertical term is negated.
-            const trackR = 46;
-            const knobX = 60 + trackR * Math.cos(rzAngle);
-            const knobY = 60 - trackR * Math.sin(rzAngle);
-            return (
-              <svg
-                ref={dialRef}
-                class={
-                  "qs-bloch-rz-dial" +
-                  (isPlaying ? " qs-bloch-rz-dial-disabled" : "")
-                }
-                viewBox="0 0 120 120"
-                role="slider"
-                tabIndex={isPlaying ? -1 : 0}
-                aria-label="Rz angle in radians"
-                aria-valuemin={0}
-                aria-valuemax={(RZ_STEPS - 1) * RZ_STEP}
-                aria-valuenow={rzAngle}
-                aria-valuetext={`${rzAngle.toFixed(2)} radians`}
-                onPointerDown={dialPointerDown}
-                onPointerMove={dialPointerMove}
-                onPointerUp={dialPointerUp}
-                onKeyDown={dialKeyDown}
-              >
-                <circle
-                  class="qs-bloch-rz-dial-track"
-                  cx="60"
-                  cy="60"
-                  r={trackR}
-                />
-                {/* Tick marks at 0, π/2, π, 3π/2 for orientation. */}
-                {[0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((a) => (
-                  <line
-                    key={a}
-                    class="qs-bloch-rz-dial-tick"
-                    x1={60 + (trackR - 5) * Math.cos(a)}
-                    y1={60 - (trackR - 5) * Math.sin(a)}
-                    x2={60 + (trackR + 5) * Math.cos(a)}
-                    y2={60 - (trackR + 5) * Math.sin(a)}
-                  />
-                ))}
-                <line
-                  class="qs-bloch-rz-dial-needle"
-                  x1="60"
-                  y1="60"
-                  x2={knobX}
-                  y2={knobY}
-                />
-                <circle class="qs-bloch-rz-dial-center" cx="60" cy="60" r="3" />
-                <circle
-                  class="qs-bloch-rz-dial-knob"
-                  cx={knobX}
-                  cy={knobY}
-                  r="8"
-                />
-              </svg>
-            );
-          })()}
-          <div class="qs-bloch-rz-info">
-            <span class="qs-bloch-rz-readout">
-              Rz({rzAngle.toFixed(2)} rad)
-            </span>
-            <button
-              type="button"
-              class="qs-bloch-rz-apply"
-              onClick={applyRzDecomposition}
-              disabled={isPlaying || rzDecomposition.length === 0}
-              title={
-                rzDecomposition.length === 0
-                  ? "Set a non-zero angle to add an Rz rotation"
-                  : "Append this Rz decomposition to the gate sequence"
-              }
-            >
-              Add to sequence
-            </button>
-            <div class="qs-bloch-rz-decomposition" aria-live="polite">
-              <span class="qs-bloch-rz-decomposition-label">
-                Decomposition:
-              </span>
-              <span class="qs-bloch-rz-decomposition-gates">
-                {rzDecomposition.length > 0
-                  ? rzDecomposition
-                  : "identity (no gates)"}
-              </span>
-            </div>
           </div>
         </div>
       </div>
