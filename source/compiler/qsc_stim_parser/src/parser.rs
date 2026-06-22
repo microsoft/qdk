@@ -1,11 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::lex::Delim::Brace;
-use crate::lex::Delim::Paren;
-use crate::lex::Lexer;
-use crate::lex::Token;
-use crate::lex::TokenKind;
+use crate::lex::{Delim::Brace, Delim::Paren, Lexer, Token, TokenKind};
 use qsc_data_structures::span::Span;
 use std::{iter::Peekable, str::FromStr};
 

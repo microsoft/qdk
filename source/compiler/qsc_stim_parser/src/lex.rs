@@ -41,7 +41,7 @@ impl Display for TokenKind {
             TokenKind::InstructionName => f.write_str("instruction_name"),
             TokenKind::Rec => f.write_str("rec"),
             TokenKind::Sweep => f.write_str("sweep"),
-            TokenKind::Tag => write!(f, "tag"),
+            TokenKind::Tag => f.write_str("tag"),
             TokenKind::Open(delim) => write!(f, "open({})", delim),
             TokenKind::Close(delim) => write!(f, "close({})", delim),
             TokenKind::Star => write!(f, "star"),
