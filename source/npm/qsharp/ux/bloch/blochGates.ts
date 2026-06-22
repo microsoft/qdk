@@ -16,7 +16,7 @@ import {
   SGate,
   TGate,
   Hadamard,
-} from "./quantum-math.js";
+} from "../quantum-math.js";
 
 /**
  * Axis names accepted by the renderer's animated rotation methods and by

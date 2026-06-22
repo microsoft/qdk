@@ -12,9 +12,9 @@ import { ComponentChildren } from "preact";
 
 import { Vector3 } from "three";
 
-import { Rotations, Ket0, Vec2 } from "./cplx.js";
-import { Markdown } from "./renderers.js";
-import { detectThemeChange, ensureTheme } from "./themeObserver.js";
+import { Rotations, Ket0, Vec2 } from "../cplx.js";
+import { Markdown } from "../renderers.js";
+import { detectThemeChange, ensureTheme } from "../themeObserver.js";
 import {
   gateInfo,
   MAX_GATE_SEQUENCE_LENGTH,
@@ -23,7 +23,7 @@ import {
 } from "./blochGates.js";
 import { BlochRenderer, DEFAULT_ROTATION_TIME_MS } from "./blochRenderer.js";
 
-import rzOps from "../rz-array.json";
+import rzOps from "../../rz-array.json";
 
 // Markdown for the initial |0> state shown as the first trace row. Kept
 // as a module constant so the trace list and the hidden width-probe
