@@ -266,7 +266,10 @@ function createPanel(
       QSharpWebViewType,
       title,
       {
-        viewColumn: ViewColumn.Three,
+        // The Bloch sphere is a standalone interactive view, so open it in
+        // the active (main) editor column rather than beside the source.
+        // Other panels (help, circuit, histogram, etc.) open to the side.
+        viewColumn: type == "bloch" ? ViewColumn.Active : ViewColumn.Three,
         preserveFocus: true,
       },
       {
@@ -303,7 +306,10 @@ export function sendMessageToPanel(
   message: any,
 ) {
   const panelRecord = getOrCreatePanel(panel.panelType, panel.id);
-  if (reveal) panelRecord.panel.reveal(ViewColumn.Beside);
+  if (reveal)
+    panelRecord.panel.reveal(
+      panel.panelType == "bloch" ? ViewColumn.Active : ViewColumn.Beside,
+    );
   if (message) panelRecord.panel.sendMessage(message);
 }
 
