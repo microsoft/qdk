@@ -1131,6 +1131,12 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const PROGRESSIVE_CHUNK = 6;
   const prevTraceRef = useRef<string[]>([]);
   const renderLimitRef = useRef(0);
+  // Set by snap-only navigation (undo/redo) to force the whole trace to
+  // mount this render instead of ramping. Those paths stop the animation
+  // first, so there's nothing for the ramp to protect -- and ramping would
+  // otherwise leave the active row (and its highlight/anchor) unmounted
+  // until requestIdleCallback happens to fire.
+  const fullMountRef = useRef(false);
   const [, setRampTick] = useState(0);
   if (traceEntries !== prevTraceRef.current) {
     const prev = prevTraceRef.current;
@@ -1139,11 +1145,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     let shared = 0;
     const overlap = Math.min(prev.length, total);
     while (shared < overlap && prev[shared] === traceEntries[shared]) shared++;
-    // Small changes mount fully now; a large batch mounts only its
-    // unchanged prefix and lets the ramp below add the rest.
+    // Small changes (or a forced full mount) render everything now; a large
+    // batch mounts only its unchanged prefix and lets the ramp add the rest.
     renderLimitRef.current =
-      total - shared <= PROGRESSIVE_CHUNK ? total : shared;
+      fullMountRef.current || total - shared <= PROGRESSIVE_CHUNK
+        ? total
+        : shared;
     prevTraceRef.current = traceEntries;
+    fullMountRef.current = false;
   }
   const renderLimit = renderLimitRef.current;
 
@@ -1328,9 +1337,15 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     return `$$ | \\psi \\rangle = ${state.toLaTeX()} $$`;
   }, [gates, cursor]);
 
-  const inInspectMode = cursor < gates.length;
-  const canUndo = !inInspectMode && past.length > 0 && !isPlaying;
-  const canRedo = !inInspectMode && future.length > 0 && !isPlaying;
+  // "Inspect mode" means the user has *deliberately* parked the cursor on
+  // an earlier step to look at it (as opposed to a forward tail animation,
+  // which also has cursor < gates.length -- hence !isPlaying). It gates
+  // editing actions, but NOT undo/redo: those are always available when
+  // there's a history state to navigate to. Triggering one stops any
+  // in-flight animation and snaps to the restored sequence (see undo/redo).
+  const inInspectMode = !isPlaying && cursor < gates.length;
+  const canUndo = past.length > 0;
+  const canRedo = future.length > 0;
   // Playback affordance. These cover the media-control row; everything
   // is derived from `cursor` / `gates` / `isPlaying` so the buttons can
   // never disagree with what the sphere is actually doing.
@@ -1553,8 +1568,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
    * Step back one entry in the history, restoring the whole previous
    * sequence snapshot. Because history records one snapshot per action,
    * this reverts an entire action at once -- e.g. undoing "Add sequence"
-   * removes the whole Rz decomposition. Only valid at the
-   * end of the sequence; inspect mode disables the button.
+   * removes the whole Rz decomposition. Always available when there's a
+   * prior state: stops any in-flight animation and snaps to the end of the
+   * restored sequence.
    */
   function undo() {
     if (!canUndo || !renderer.current) return;
@@ -1565,6 +1581,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     // The sequence we're leaving becomes the next thing Redo restores.
     setFuture([gates, ...future]);
     renderer.current.snapTo(gatesToSteps(prev));
+    // Snap navigation: mount the whole restored trace at once so the
+    // active row (and its highlight/anchor) appears immediately.
+    fullMountRef.current = true;
     setGates(prev);
     setCursor(prev.length);
     props.onGatesChanged?.(prev.join(""));
@@ -1572,8 +1591,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   /**
    * Step forward one entry in the history, restoring the snapshot that
-   * was most recently undone away. Snaps rather than animating to stay
-   * visually symmetric with undo.
+   * was most recently undone away. Like undo, it's always available when
+   * there's a state to redo: stops any in-flight animation and snaps to
+   * the end of the restored sequence (symmetric with undo).
    */
   function redo() {
     if (!canRedo || !renderer.current) return;
@@ -1584,6 +1604,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     // The sequence we're leaving goes back onto the undo history.
     setPast([...past, gates]);
     renderer.current.snapTo(gatesToSteps(next));
+    // Snap navigation: mount the whole restored trace at once so the
+    // active row (and its highlight/anchor) appears immediately.
+    fullMountRef.current = true;
     setGates(next);
     setCursor(next.length);
     props.onGatesChanged?.(next.join(""));
@@ -1710,9 +1733,17 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const text = draftPendingRef.current;
     draftPendingRef.current = null;
     if (text === null || !renderer.current) return;
-    stopPlayback(false);
     const arr = text.split("");
     const prev = draftBaseRef.current;
+    // Nothing actually changed during this burst (e.g. pasting the same
+    // text, or a stray input event). Drop the draft without recording a
+    // history step -- otherwise undo gets a no-op entry that appears to
+    // only reset the trace position.
+    if (prev.join("") === text) {
+      if (draftText !== null) setDraftText(null);
+      return;
+    }
+    stopPlayback(false);
     // Record the pre-burst sequence as a single undoable step.
     setPast((p) => [...p, prev]);
     setFuture([]);
@@ -2126,13 +2157,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             type="button"
             onClick={undo}
             disabled={!canUndo}
-            title={
-              isPlaying
-                ? "Pause to edit the sequence"
-                : inInspectMode
-                  ? "Jump to latest to edit the sequence"
-                  : "Undo last gate"
-            }
+            title="Undo last gate"
           >
             Undo
           </button>
@@ -2140,13 +2165,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             type="button"
             onClick={redo}
             disabled={!canRedo}
-            title={
-              isPlaying
-                ? "Pause to edit the sequence"
-                : inInspectMode
-                  ? "Jump to latest to edit the sequence"
-                  : "Redo last undone gate"
-            }
+            title="Redo last undone gate"
           >
             Redo
           </button>
