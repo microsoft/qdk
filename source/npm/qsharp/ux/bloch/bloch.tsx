@@ -36,8 +36,8 @@ export interface BlochSphereProps {
   /** Called with the full gate sequence whenever it changes, so parents
    * can keep a URL or other external state in sync. */
   onGatesChanged?: (gates: string) => void;
-  /** Host-supplied control rendered after the Run button in the editor row
-   * (the playground uses it for its "share link" button). */
+  /** Host-supplied control rendered after the gate-program input in the
+   * editor row (the playground uses it for its "share link" button). */
   actionSlot?: ComponentChildren;
 }
 
