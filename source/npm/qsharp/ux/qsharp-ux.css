@@ -1157,14 +1157,29 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    short enough to fit in the panel, sticky has no effect and the row
    sits in its natural place at the end of the flow. Needs an opaque
    background (matching the pane) so rows scrolling underneath are
-   visually occluded, and a top border to separate the pinned row
-   from whichever row last scrolled past it. */
+   visually occluded, and a thicker accent top border plus a small
+   "Latest" badge so the pinned row clearly reads as the final step
+   rather than just another row that happened to scroll into place.
+   The badge is absolutely positioned in the top-left corner so it adds
+   no height -- the row stays the same size as the others. */
 .qs-bloch-trace-item-latest {
   position: sticky;
   bottom: 0;
   background: var(--qdk-background-accent);
-  border-top: 1px solid var(--qdk-widget-outline);
+  border-top: 2px solid var(--qdk-atom-fill);
   z-index: 1;
+}
+.qs-bloch-trace-item-latest::before {
+  content: "Latest";
+  position: absolute;
+  top: 3px;
+  left: 8px;
+  font-size: 0.6em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--qdk-atom-fill);
+  pointer-events: none;
 }
 /* When the pinned row also happens to be the current cursor row,
    keep the selected highlight instead of the plain pane background.
