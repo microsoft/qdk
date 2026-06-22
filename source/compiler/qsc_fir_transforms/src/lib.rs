@@ -438,8 +438,7 @@ fn run_pipeline_to_impl(
     // reachable package. Earlier passes may have structurally mutated reachable
     // callables in any package, so the rebuild walks the whole reachable closure
     // rather than tracking which specs were mutated. The reachable-spec exec
-    // graphs (range integrity and non-empty ranges) are validated by the
-    // `PostAll` invariant walk below.
+    // graphs are validated by the `PostAll` invariant walk below.
     exec_graph_rebuild::rebuild_exec_graphs(store, package_id, pinned_items);
     if matches!(stage, PipelineStage::ExecGraphRebuild) {
         return result;

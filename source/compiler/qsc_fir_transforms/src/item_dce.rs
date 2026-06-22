@@ -39,8 +39,9 @@ use rustc_hash::FxHashSet;
 /// reachable set are ignored.
 ///
 /// Type items are unconditionally removed: `udt_erase` (which must precede this
-/// pass) has already inlined every UDT reference, so no surviving callable can
-/// reference one.
+/// pass) inlined every UDT reference in the *reachable* callables, and this
+/// pass drops the unreachable callables that may still reference a UDT, so no
+/// surviving callable references a type item.
 ///
 /// Returns the number of items removed.
 #[allow(clippy::implicit_hasher)]
@@ -61,7 +62,9 @@ pub fn eliminate_dead_items(
             // Callable items: keep only if reachable from entry.
             ItemKind::Callable(_) => local_reachable.contains(&id),
             // Type items: dead because `udt_erase` (which must precede this
-            // pass) already inlined every UDT reference.
+            // pass) inlined every UDT reference in the reachable callables, and
+            // the unreachable callables that may still reference a UDT are
+            // dropped by the `Callable` arm above.
             ItemKind::Ty(..) => false,
         };
         if !keep {
@@ -140,11 +143,12 @@ fn eliminate_foreign_items_in_package(
     // so unioning the pins themselves is sufficient.
     //
     // Only **callable** items may be pinned. The `Ty` arm of the
-    // retain below drops every type item unconditionally — sound only because
-    // `udt_erase` (which must precede this pass) already inlined every UDT
-    // reference. A pinned `Ty` would therefore be dropped despite its pin, so
-    // reject that contract violation deterministically rather than silently
-    // miscompiling.
+    // retain below drops every type item unconditionally — sound because
+    // `udt_erase` (which must precede this pass) inlined every UDT reference in
+    // the reachable callables, and the `Callable` arm drops the unreachable
+    // callables that may still reference a UDT. A pinned `Ty` would therefore
+    // be dropped despite its pin, so reject that contract violation
+    // deterministically rather than silently miscompiling.
     for pin in pinned_items {
         if pin.package == package_id {
             assert!(
@@ -165,8 +169,10 @@ fn eliminate_foreign_items_in_package(
             // Callable items: keep only if entry-reachable (no export rooting).
             ItemKind::Callable(_) => local_reachable.contains(&id),
             // Type items: dead because `udt_erase` (which must precede this
-            // pass) already inlined every UDT reference; the pin loop above
-            // already rejected any pinned `Ty`.
+            // pass) inlined every UDT reference in the reachable callables, and
+            // the `Callable` arm above drops the unreachable callables that may
+            // still reference a UDT; the pin loop above already rejected any
+            // pinned `Ty`.
             ItemKind::Ty(..) => false,
         };
         if !keep {

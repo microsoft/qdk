@@ -160,8 +160,7 @@ pub(crate) fn defunctionalize(
 
         // Rewrite call sites and run dead callable-local cleanup even on
         // iterations where no new specializations were discovered. Call sites
-        // can live in foreign bodies (e.g. generic HOFs relocated into their
-        // owning package by monomorphization), so rewrite runs once per package
+        // can live in foreign bodies so rewrite runs once per package
         // that owns call sites, each with that package's own assigner.
         rewrite_call_sites(store, package_id, &analysis, &spec_map, assigners);
 
@@ -250,8 +249,7 @@ fn run_specialization(
 }
 
 /// Rewrites call sites in every package that owns one. Call sites can live in
-/// foreign bodies (e.g. generic HOFs relocated into their owning package by
-/// monomorphization), so rewrite is driven once per owning package using that
+/// foreign bodies so rewrite is driven once per owning package using that
 /// package's own assigner. The entry package is always rewritten so that
 /// iterations with only direct-call cleanup still run.
 fn rewrite_call_sites(

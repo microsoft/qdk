@@ -5,7 +5,9 @@
 // snapshot, so the generated Q# pushes function bodies past the line limit.
 #![allow(clippy::too_many_lines)]
 
-use crate::defunctionalize::specialize::CAPTURE_NAME_PREFIX;
+use crate::{
+    defunctionalize::specialize::CAPTURE_NAME_PREFIX, package_assigners::PackageAssigners,
+};
 
 use super::*;
 use expect_test::expect;
@@ -1338,7 +1340,7 @@ fn capture_local_ids_are_reasonable() {
         }
         "#,
     );
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
@@ -1390,7 +1392,7 @@ fn multiple_captures_sequential_ids() {
         }
         "#,
     );
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
@@ -1906,7 +1908,7 @@ fn branch_split_nested_callable_in_tuple_args_consistency() {
         }
         "#,
     );
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
@@ -2291,7 +2293,7 @@ fn branch_split_nested_callable_adj_ctl_args_consistency() {
         }
         "#,
     );
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
@@ -3050,7 +3052,7 @@ fn excessive_specializations_warning_does_not_block_compilation() {
         }
         "#,
     );
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
 
     // Should have exactly one warning, no fatal errors.

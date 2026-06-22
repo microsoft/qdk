@@ -5,6 +5,8 @@
 // snapshot, so the generated Q# pushes function bodies past the line limit.
 #![allow(clippy::too_many_lines)]
 
+use crate::package_assigners::PackageAssigners;
+
 use super::*;
 use expect_test::expect;
 
@@ -255,7 +257,7 @@ fn error_returned_not_panicked() {
         }
         "#,
     );
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, package_id);
+    let mut assigners = PackageAssigners::entry(&store, package_id);
     let errors = defunctionalize(&mut store, package_id, &mut assigners);
     assert!(
         !errors.is_empty(),
@@ -280,7 +282,7 @@ fn error_multiple_dynamic_sites_collected() {
         }
         "#,
     );
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, package_id);
+    let mut assigners = PackageAssigners::entry(&store, package_id);
     let errors = defunctionalize(&mut store, package_id, &mut assigners);
     assert_eq!(
         errors.len(),

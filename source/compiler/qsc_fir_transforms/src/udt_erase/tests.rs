@@ -5,7 +5,7 @@ use expect_test::{Expect, expect};
 use indoc::indoc;
 
 use super::*;
-use crate::test_utils::local_names;
+use crate::test_utils::{find_callable_body_block, local_name_or_placeholder, local_names};
 use qsc_data_structures::index_map::IndexMap;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
@@ -530,29 +530,6 @@ fn check_erasure(source: &str, expect: &Expect) {
     expect.assert_eq(&extract_types_after_erasure(source));
 }
 
-fn find_callable_body_block(package: &Package, callable_name: &str) -> BlockId {
-    for item in package.items.values() {
-        if let ItemKind::Callable(decl) = &item.kind
-            && decl.name.name.as_ref() == callable_name
-        {
-            return match &decl.implementation {
-                CallableImpl::Spec(spec_impl) => spec_impl.body.block,
-                CallableImpl::SimulatableIntrinsic(spec) => spec.block,
-                CallableImpl::Intrinsic => continue,
-            };
-        }
-    }
-
-    panic!("callable '{callable_name}' not found");
-}
-
-fn local_name(local_names: &FxHashMap<LocalVarId, String>, local_id: LocalVarId) -> String {
-    local_names
-        .get(&local_id)
-        .cloned()
-        .unwrap_or_else(|| format!("<{local_id:?}>"))
-}
-
 fn format_pat_name(package: &Package, pat_id: PatId) -> String {
     let pat = package.get_pat(pat_id);
     match &pat.kind {
@@ -595,7 +572,7 @@ fn describe_expr(
                 .join(", ")
         ),
         ExprKind::Var(Res::Local(local_id), _) => {
-            format!("Var({})", local_name(local_names, *local_id))
+            format!("Var({})", local_name_or_placeholder(local_names, *local_id))
         }
         ExprKind::Var(res, _) => format!("Var({res})"),
         _ => crate::test_utils::expr_kind_short(package, expr_id),

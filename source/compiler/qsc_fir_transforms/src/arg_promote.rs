@@ -44,6 +44,9 @@
 mod tests;
 
 #[cfg(test)]
+mod cross_package_tests;
+
+#[cfg(test)]
 mod semantic_equivalence_tests;
 
 use crate::EMPTY_EXEC_RANGE;

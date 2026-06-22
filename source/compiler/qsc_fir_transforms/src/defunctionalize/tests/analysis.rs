@@ -5,7 +5,10 @@
 // snapshot, so the generated Q# pushes function bodies past the line limit.
 #![allow(clippy::too_many_lines)]
 
-use crate::defunctionalize::analysis::{LocalState, resolve_captures};
+use crate::{
+    defunctionalize::analysis::{LocalState, resolve_captures},
+    package_assigners::PackageAssigners,
+};
 
 use super::*;
 use expect_test::expect;
@@ -4478,7 +4481,7 @@ fn operand_block_set_specializes_to_reaching_definition() {
 fn loop_operand_block_set_forces_dynamic() {
     fn assert_forces_dynamic(context: &str, source: &str) {
         let (mut store, package_id) = compile_to_monomorphized_fir(source);
-        let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, package_id);
+        let mut assigners = PackageAssigners::entry(&store, package_id);
         let errors = defunctionalize(&mut store, package_id, &mut assigners);
         assert_eq!(
             errors.len(),

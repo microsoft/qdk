@@ -16,8 +16,8 @@ use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
 };
 use qsc_fir::fir::{
-    self, CallableDecl, CallableImpl, ExprId, ExprKind, ItemKind, LocalVarId, Package,
-    PackageLookup, PatId, PatKind, Res, SpecDecl, StmtId, StmtKind,
+    self, BlockId, CallableDecl, CallableImpl, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId,
+    Package, PackageLookup, PatId, PatKind, Res, SpecDecl, StmtId, StmtKind,
 };
 use qsc_frontend::compile::{self as frontend_compile, PackageStore as HirPackageStore};
 use qsc_hir::hir::PackageId;
@@ -28,6 +28,7 @@ use std::cell::RefCell;
 use qsc_lowerer::map_hir_package_to_fir;
 
 pub(crate) use crate::PipelineStage;
+use crate::package_assigners::PackageAssigners;
 
 fn format_errors<T: ToString>(errors: &[T]) -> String {
     errors
@@ -411,7 +412,7 @@ pub(crate) fn compile_to_fir_with_two_libraries(
 /// Compiles a libB → libA → user dependency chain and runs the FIR pipeline up
 /// to `stage`, asserting no pipeline errors.
 #[cfg(test)]
-#[allow(dead_code, clippy::similar_names)]
+#[allow(clippy::similar_names)]
 pub(crate) fn compile_and_run_pipeline_to_with_two_libraries(
     lib_b_source: &str,
     lib_a_source: &str,
@@ -449,7 +450,7 @@ pub fn compile_to_monomorphized_fir_with_capabilities(
     capabilities: TargetCapabilityFlags,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir_with_capabilities(source, capabilities);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
     (store, pkg_id)
 }
@@ -461,6 +462,21 @@ pub fn compile_to_monomorphized_fir_with_capabilities(
 #[must_use]
 pub fn compile_to_fir_with_entry(source: &str, entry: &str) -> (fir::PackageStore, fir::PackageId) {
     compile_to_fir_with_cached_stdlib(source, Some(entry), TargetCapabilityFlags::empty())
+}
+
+/// Compiles Q# source with an explicit executable entry expression through
+/// core+std → HIR passes → FIR lowering → monomorphization.
+///
+/// Returns a monomorphized FIR store ready for later pipeline stages.
+#[allow(dead_code)]
+pub(crate) fn compile_to_monomorphized_fir_with_entry(
+    source: &str,
+    entry: &str,
+) -> (fir::PackageStore, fir::PackageId) {
+    let (mut store, pkg_id) = compile_to_fir_with_entry(source, entry);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
+    (store, pkg_id)
 }
 
 /// Compiles Q# source and runs the FIR optimization pipeline up to the given
@@ -822,6 +838,20 @@ pub(crate) fn local_names(package: &Package) -> FxHashMap<LocalVarId, String> {
         .collect()
 }
 
+/// Looks up a local variable's name in a [`local_names`] map, falling back to a
+/// `<LocalVarId(..)>` placeholder when the id is absent (e.g. a synthesized
+/// binding not present in the source pattern map).
+#[allow(dead_code)]
+pub(crate) fn local_name_or_placeholder(
+    names: &FxHashMap<LocalVarId, String>,
+    local_id: LocalVarId,
+) -> String {
+    names
+        .get(&local_id)
+        .cloned()
+        .unwrap_or_else(|| format!("<{local_id:?}>"))
+}
+
 /// Finds a callable declaration by name in the given package. Panics if not
 /// found.
 #[allow(dead_code)]
@@ -836,6 +866,40 @@ pub(crate) fn find_callable<'a>(package: &'a Package, callable_name: &str) -> &'
             _ => None,
         })
         .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
+}
+
+/// Finds the [`LocalItemId`] of a callable by name in the given package.
+/// Panics if not found.
+#[allow(dead_code)]
+pub(crate) fn callable_id_by_name(package: &Package, callable_name: &str) -> LocalItemId {
+    package
+        .items
+        .iter()
+        .find_map(|(item_id, item)| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name => Some(item_id),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("callable {callable_name} should exist"))
+}
+
+/// Finds the body [`BlockId`] of a callable by name. Accepts `Spec` and
+/// `SimulatableIntrinsic` implementations and skips `Intrinsic` ones (which
+/// have no body block). Panics if no matching callable with a body is found.
+#[allow(dead_code)]
+pub(crate) fn find_callable_body_block(package: &Package, callable_name: &str) -> BlockId {
+    for item in package.items.values() {
+        if let ItemKind::Callable(decl) = &item.kind
+            && decl.name.name.as_ref() == callable_name
+        {
+            return match &decl.implementation {
+                CallableImpl::Spec(spec_impl) => spec_impl.body.block,
+                CallableImpl::SimulatableIntrinsic(spec) => spec.block,
+                CallableImpl::Intrinsic => continue,
+            };
+        }
+    }
+
+    panic!("callable '{callable_name}' not found");
 }
 
 fn callable_body_spec<'a>(decl: &'a CallableDecl, callable_name: &str) -> &'a SpecDecl {

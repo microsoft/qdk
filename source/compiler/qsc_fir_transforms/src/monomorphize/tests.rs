@@ -2,6 +2,10 @@
 // Licensed under the MIT License.
 
 use super::*;
+use crate::test_utils::{
+    compile_to_monomorphized_fir as compile_and_monomorphize,
+    compile_to_monomorphized_fir_with_entry as compile_entry_and_monomorphize,
+};
 use expect_test::{Expect, expect};
 use indoc::indoc;
 
@@ -37,23 +41,6 @@ fn check_details(source: &str, expect: &Expect) {
     expect.assert_eq(&crate::test_utils::extract_reachable_callable_details(
         &store, pkg_id,
     ));
-}
-
-fn compile_and_monomorphize(source: &str) -> (qsc_fir::fir::PackageStore, qsc_fir::fir::PackageId) {
-    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
-    monomorphize(&mut store, pkg_id, &mut assigners);
-    (store, pkg_id)
-}
-
-fn compile_entry_and_monomorphize(
-    source: &str,
-    entry: &str,
-) -> (qsc_fir::fir::PackageStore, qsc_fir::fir::PackageId) {
-    let (mut store, pkg_id) = crate::test_utils::compile_to_fir_with_entry(source, entry);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
-    monomorphize(&mut store, pkg_id, &mut assigners);
-    (store, pkg_id)
 }
 
 fn entry_callee_name_and_generic_arg_count(package: &qsc_fir::fir::Package) -> (String, usize) {
@@ -1967,7 +1954,7 @@ fn monomorphize_no_entry_panics() {
 
     assert!(fir_store.get(fir_pkg_id).entry.is_none());
 
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
     crate::test_utils::assert_panics_with("package must have an entry expression", || {
         monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
     });
@@ -1982,7 +1969,7 @@ fn mono_preserves_simulatable_intrinsic_impl() {
             operation MySimIntrinsic<'T>(x : 'T) : 'T { x }
             operation Main() : Int { MySimIntrinsic(42) }
         "#});
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     monomorphize(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
@@ -2019,7 +2006,7 @@ fn monomorphize_is_idempotent() {
         crate::test_utils::PipelineStage::Mono,
     );
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     monomorphize(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "monomorphize should be idempotent");
@@ -2028,7 +2015,7 @@ fn monomorphize_is_idempotent() {
 fn render_before_after_mono(source: &str) -> (String, String) {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     monomorphize(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
@@ -2239,7 +2226,7 @@ fn cross_package_generic_specialization_lives_in_library_package() {
 
     let (mut store, user_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, user_pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, user_pkg_id);
     monomorphize(&mut store, user_pkg_id, &mut assigners);
 
     let spec_name = "Identity<Int>";

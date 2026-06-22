@@ -3,6 +3,7 @@
 
 use crate::{
     PipelineStage,
+    package_assigners::PackageAssigners,
     return_unify::{tests::assert_no_reachable_returns, unify_returns},
     test_utils::compile_and_run_pipeline_to,
 };
@@ -19,7 +20,7 @@ use indoc::indoc;
 fn check_before_after(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     let (errors, _skipped) = unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),

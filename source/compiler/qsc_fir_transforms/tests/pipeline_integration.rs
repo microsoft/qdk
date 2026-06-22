@@ -940,7 +940,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
     run_pipeline_to_successfully(&mut fir_store, fir_pkg_id, PipelineStage::Full);
 
     // Generic library callables are monomorphized in place into their owning
-    // (library) package, so the `MappedByIndex` specialization and its lifted
+    // package, so the `MappedByIndex` specialization and its lifted
     // lambda live alongside `Enumerated` in the standard library package rather
     // than in the user package.
     let reachable = reachability::collect_reachable_from_entry(&fir_store, fir_pkg_id);

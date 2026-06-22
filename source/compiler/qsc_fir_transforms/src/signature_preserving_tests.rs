@@ -20,7 +20,8 @@ use qsc_fir::ty::{Prim, Ty};
 
 use crate::invariants::{self, InvariantLevel};
 use crate::test_utils::{
-    assert_panics_with, compile_to_fir, compile_to_fir_with_library, find_library_callable,
+    assert_panics_with, callable_id_by_name, compile_to_fir, compile_to_fir_with_library,
+    find_library_callable,
 };
 use crate::walk_utils::for_each_expr_in_callable_impl;
 use crate::{
@@ -48,17 +49,6 @@ const PINNED_ARROW_EARLY_RETURN: &str = indoc! {"
         }
     }
 "};
-
-fn callable_id_by_name(package: &Package, name: &str) -> LocalItemId {
-    package
-        .items
-        .iter()
-        .find_map(|(item_id, item)| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref() == name => Some(item_id),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("callable {name} should exist"))
-}
 
 /// Locates a callable by name in any package of `store`, regardless of
 /// reachability. Used to seed a callable that is not entry-reachable.

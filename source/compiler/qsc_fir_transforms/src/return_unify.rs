@@ -549,8 +549,7 @@ fn process_callable_returns(
     // Return-slot selection depends only on the callable's return type, so
     // it is decided once, before any block is mutated. When no slot
     // representation exists for a return-bearing callable, leave it
-    // un-rewritten rather than partially hoisting and then bailing out (as in
-    // the pre-check above, the body stays byte-for-byte the monomorphized FIR).
+    // un-rewritten rather than partially hoisting and then bailing out.
     let return_slot_strategy = {
         let context = UdtResolutionContext::Store(store);
         select_return_slot_strategy(&return_ty, udt_pure_tys, &context)

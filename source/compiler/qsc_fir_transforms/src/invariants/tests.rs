@@ -315,7 +315,7 @@ fn reachable_exec_graph_checker_rejects_empty_mutated_external_expr_range() {
     });
 }
 
-/// Layer-4: `ExprId`s are package-relative, so two different packages can
+/// `ExprId`s are package-relative, so two different packages can
 /// legitimately reuse the same `ExprId` value. With `check_expr_id_ownership`
 /// keyed on `(PackageId, ExprId)`, walking a reachable set that spans packages
 /// must not flag that shared value as a uniqueness violation.

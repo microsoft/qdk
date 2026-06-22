@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Full-pipeline snapshot tests over the `Dynamics.qs` and `Grover.qs`
-//! samples.
+//! Full-pipeline snapshot tests that stress the cross-package FIR transforms.
 //!
-//! Each test compiles the corresponding sample (pulled in directly from the
-//! `samples/` tree via [`include_str!`]), runs the complete FIR transform
-//! pipeline, and snapshots the result.
+//! Each test compiles a sample (pulled in from the `samples/` tree via
+//! [`include_str!`]), runs the complete FIR transform pipeline, and snapshots
+//! the result. `shor` additionally pins the one simulation-only intrinsic
+//! (`DrawRandomInt`) to a constant so the rest of the algorithm stays intact.
 //!
 //! Unlike most snapshot tests in this crate — which render a single (user)
 //! package — these render **every item reachable from the entry expression
@@ -15,5 +15,5 @@
 //! library/dependency callables appear in the snapshot alongside the user
 //! callables.
 
-mod dynamics;
 mod grover;
+mod shor;

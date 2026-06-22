@@ -3,7 +3,8 @@
 
 use super::*;
 use crate::test_utils::{
-    PipelineStage, compile_and_run_pipeline_to, format_pat, generate_qir, local_names,
+    PipelineStage, compile_and_run_pipeline_to, format_pat, generate_qir,
+    local_name_or_placeholder, local_names,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
@@ -78,13 +79,6 @@ fn extract_result(store: &PackageStore, pkg_id: PackageId) -> String {
     entries.join("\n")
 }
 
-fn local_name(names: &FxHashMap<LocalVarId, String>, local_id: LocalVarId) -> String {
-    names
-        .get(&local_id)
-        .cloned()
-        .unwrap_or_else(|| format!("<{local_id:?}>"))
-}
-
 fn var_local_name(
     package: &qsc_fir::fir::Package,
     names: &FxHashMap<LocalVarId, String>,
@@ -92,7 +86,7 @@ fn var_local_name(
 ) -> Option<String> {
     let expr = package.get_expr(expr_id);
     match &expr.kind {
-        ExprKind::Var(Res::Local(local_id), _) => Some(local_name(names, *local_id)),
+        ExprKind::Var(Res::Local(local_id), _) => Some(local_name_or_placeholder(names, *local_id)),
         _ => None,
     }
 }

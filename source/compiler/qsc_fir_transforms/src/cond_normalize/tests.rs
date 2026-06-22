@@ -9,6 +9,7 @@ use expect_test::{Expect, expect};
 use indoc::indoc;
 
 use crate::cond_normalize::normalize_conditions;
+use crate::package_assigners::PackageAssigners;
 use crate::test_utils::{
     PipelineStage, check_semantic_equivalence, check_semantic_equivalence_with_library,
     compile_and_run_pipeline_to, compile_and_run_pipeline_to_with_library,
@@ -21,7 +22,7 @@ use crate::test_utils::{
 fn check_normalize(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_to_monomorphized_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
@@ -32,7 +33,7 @@ fn check_normalize(source: &str, expect: &Expect) {
 fn assert_no_change(source: &str) {
     let (mut store, pkg_id) = compile_to_monomorphized_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     assert_eq!(before, after, "pure condition must not be rewritten");
@@ -473,7 +474,7 @@ fn normalization_is_idempotent() {
             Z(q);
         }
     "#});
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
     let once = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
@@ -604,7 +605,7 @@ fn cross_branch_boundary_guard_is_equivalent() {
 }
 
 /// Cross-package: a library operation whose statement-position `if` guards a
-/// side-effecting condition (`MResetZ`) is condition-normalized in place, so the
+/// side-effecting condition is condition-normalized in place, so the
 /// measurement is hoisted into a single-evaluation `__cond` binding and
 /// evaluates exactly once.
 #[test]
@@ -640,7 +641,7 @@ fn cross_package_side_effecting_if_condition_hoisted_in_library_body() {
     );
     let lib_pkg = find_library_callable(&store, pkg_id, "CondFlip").package;
 
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::entry(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
 
     let rendered = crate::pretty::write_package_qsharp_parseable(&store, lib_pkg);

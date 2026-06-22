@@ -3,8 +3,8 @@
 
 use crate::PipelineStage;
 use crate::test_utils::{
-    assert_panics_with, compile_and_run_pipeline_to, compile_and_run_pipeline_to_with_library,
-    compile_to_fir, compile_to_fir_with_library,
+    assert_panics_with, callable_id_by_name, compile_and_run_pipeline_to,
+    compile_and_run_pipeline_to_with_library, compile_to_fir, compile_to_fir_with_library,
 };
 use indoc::indoc;
 use qsc_data_structures::span::Span;
@@ -35,17 +35,6 @@ fn ty_item_names(package: &qsc_fir::fir::Package) -> Vec<String> {
             ItemKind::Callable(_) => None,
         })
         .collect()
-}
-
-fn callable_id_by_name(package: &qsc_fir::fir::Package, name: &str) -> qsc_fir::fir::LocalItemId {
-    package
-        .items
-        .iter()
-        .find_map(|(item_id, item)| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref() == name => Some(item_id),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("callable {name} should exist"))
 }
 
 #[test]
@@ -323,6 +312,8 @@ fn item_dce_is_idempotent() {
 /// (declaration) level; node-level (block/stmt/expr arena) cleanup is deferred to
 /// the downstream garbage-collection pass.
 mod item_dce_contracts {
+    use crate::package_assigners::PackageAssigners;
+
     use super::*;
 
     fn dangling_item_refs(package: &qsc_fir::fir::Package) -> Vec<qsc_fir::fir::LocalItemId> {
@@ -395,7 +386,7 @@ mod item_dce_contracts {
         "};
 
         let (mut store, pkg_id) = compile_to_fir(source);
-        let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+        let mut assigners = PackageAssigners::entry(&store, pkg_id);
         crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
         let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
         let assigner = assigners.get_mut(&store, pkg_id);

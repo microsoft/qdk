@@ -7,25 +7,13 @@ use crate::fir_builder::{
     alloc_local_var_expr,
 };
 use crate::test_utils::compile_to_fir;
+use crate::test_utils::find_callable_body_block as find_callable_block;
 use expect_test::expect;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{CallableDecl, CallableImpl, CallableKind, ItemKind, Lit, PatKind};
 use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty};
 use std::rc::Rc;
-
-/// Finds the body block of the named callable in the user package.
-fn find_callable_block(package: &Package, name: &str) -> BlockId {
-    for item in package.items.values() {
-        if let ItemKind::Callable(decl) = &item.kind
-            && decl.name.name.as_ref() == name
-            && let CallableImpl::Spec(spec) = &decl.implementation
-        {
-            return spec.body.block;
-        }
-    }
-    panic!("callable '{name}' not found");
-}
 
 /// Finds the `LocalVarId` for the first pattern binding with the given name.
 fn find_local_var(package: &Package, name: &str) -> LocalVarId {

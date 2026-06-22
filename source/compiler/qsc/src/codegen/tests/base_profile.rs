@@ -512,7 +512,7 @@ fn cross_package_apply_if_equal_l_generates_qir() {
 /// Specializing `Std.Arithmetic.ApplyIfGreaterLE` with a concrete operation
 /// relocates the library body's nested lambda into the entry package and lowers
 /// to valid Base-profile QIR. Mirrors the `signed` library's comparison calls,
-/// which previously failed to generate QIR.
+/// which previously failed to generate QIR before FIR transorms were applied.
 #[test]
 fn cross_package_apply_if_greater_le_generates_qir() {
     let source = "namespace Test {
