@@ -97,6 +97,15 @@ pub(crate) fn decompose_joint_measurements(program: &mut Program) {
     if !used_m {
         program.callables.remove(m_id);
     }
+    if let Some(mxx_id) = mxx_id {
+        program.callables.remove(mxx_id);
+    }
+    if let Some(mxz_id) = mxz_id {
+        program.callables.remove(mxz_id);
+    }
+    if let Some(mzz_id) = mzz_id {
+        program.callables.remove(mzz_id);
+    }
 }
 
 // Decompose mxx 0 1 to cx 0 1, h 0, m 0, h 0, cx 0 1
