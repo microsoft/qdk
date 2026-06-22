@@ -247,64 +247,31 @@ fn call_cyclic_function_with_classical_argument_yields_no_errors() {
 }
 
 #[test]
-fn call_cyclic_function_with_dynamic_argument_yields_error() {
+fn call_cyclic_function_with_dynamic_argument_yields_no_errors() {
     check_profile(
         CALL_TO_CYCLIC_FUNCTION_WITH_DYNAMIC_ARGUMENT,
         &expect![[r#"
-            [
-                CallToCyclicFunctionWithDynamicArg(
-                    Span {
-                        lo: 211,
-                        hi: 243,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }
 
 #[test]
-fn call_cyclic_operation_with_classical_argument_yields_errors() {
+fn call_cyclic_operation_with_classical_argument_yields_no_errors() {
     check_profile(
         CALL_TO_CYCLIC_OPERATION_WITH_CLASSICAL_ARGUMENT,
         &expect![[r#"
-            [
-                CyclicOperationSpec(
-                    Span {
-                        lo: 15,
-                        hi: 23,
-                    },
-                ),
-                CallToCyclicOperation(
-                    Span {
-                        lo: 187,
-                        hi: 199,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }
 
 #[test]
-fn call_cyclic_operation_with_dynamic_argument_yields_errors() {
+fn call_cyclic_operation_with_dynamic_argument_yields_no_errors() {
     check_profile(
         CALL_TO_CYCLIC_OPERATION_WITH_DYNAMIC_ARGUMENT,
         &expect![[r#"
-            [
-                CyclicOperationSpec(
-                    Span {
-                        lo: 15,
-                        hi: 23,
-                    },
-                ),
-                CallToCyclicOperation(
-                    Span {
-                        lo: 212,
-                        hi: 244,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }

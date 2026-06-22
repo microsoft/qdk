@@ -19,7 +19,7 @@ fn check_rca_for_static_single_qubit_measurement() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(QubitAllocation)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -64,7 +64,7 @@ fn check_rca_for_static_single_measurement_and_reset() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(QubitAllocation)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -110,7 +110,7 @@ fn check_rca_for_static_multi_qubit_measurement() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(QubitAllocation)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }

@@ -1756,9 +1756,9 @@ fn controlled_specialization_inlines() {
     );
 }
 
-/// A recursive operation inlines (recursion is excluded from eligibility).
+/// A recursive operation can be emitted into an IR function.
 #[test]
-fn recursive_operation_inlines() {
+fn recursive_operation_emits_to_ir_function() {
     let source = "namespace Test {
             operation Recurse(n : Int, q : Qubit) : Unit {
                 if n > 0 {
@@ -1773,7 +1773,53 @@ fn recursive_operation_inlines() {
             }
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
-    assert_inlined(&qir, "Recurse");
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_t\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @Recurse(i64 3, ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        define void @Recurse(i64 %var_0, ptr %var_1) {
+        block_1:
+          %var_2 = icmp sgt i64 %var_0, 0
+          br i1 %var_2, label %block_2, label %block_3
+        block_2:
+          call void @__quantum__qis__x__body(ptr %var_1)
+          %var_3 = sub i64 %var_0, 1
+          call void @Recurse(i64 %var_3, ptr %var_1)
+          br label %block_3
+        block_3:
+          ret void
+        }
+
+        declare void @__quantum__qis__x__body(ptr)
+
+        declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
 }
 
 /// A call into a stdlib/library operation (cross-package) still inlines.
@@ -2096,4 +2142,63 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
                     [0]: 0_i
         "#]]
         .assert_eq(ssa);
+}
+
+#[test]
+fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
+    let source = "
+    operation Main() : Result {
+        use q = Qubit();
+        Std.StatePreparation.PreparePureStateD([0.0, 1.0], [q]);
+        MResetZ(q)
+    }
+    ";
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__rz__body(double 3.141592653589793, ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__qis__s__adj(ptr)
+
+        declare void @__quantum__qis__h__body(ptr)
+
+        declare void @__quantum__qis__rz__body(double, ptr)
+
+        declare void @__quantum__qis__s__body(ptr)
+
+        declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
 }

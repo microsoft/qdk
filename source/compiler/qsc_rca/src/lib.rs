@@ -13,8 +13,6 @@ mod analyzer;
 mod applications;
 mod common;
 mod core;
-mod cycle_detection;
-mod cyclic_callables;
 pub mod errors;
 #[cfg(debug_assertions)]
 mod invariants;
@@ -637,7 +635,7 @@ bitflags! {
     /// Runtime features represent anything a program can do that is more complex than executing quantum operations on
     /// statically allocated qubits and using constant arguments.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct RuntimeFeatureFlags: u64 {
+    pub struct RuntimeFeatureFlags: u32 {
         /// Use of a dynamic `Bool`.
         const UseOfDynamicBool = 1 << 0;
         /// Use of a dynamic `Int`.
@@ -664,46 +662,40 @@ bitflags! {
         const UseOfDynamicArrowFunction = 1 << 11;
         /// Use of a dynamic arrow operation.
         const UseOfDynamicArrowOperation = 1 << 12;
-        /// A function with cycles used with a dynamic argument.
-        const CallToCyclicFunctionWithDynamicArg = 1 << 13;
-        /// An operation specialization with cycles exists.
-        const CyclicOperationSpec = 1 << 14;
-        /// A call to an operation with cycles.
-        const CallToCyclicOperation = 1 << 15;
         /// A callee expression is dynamic.
-        const CallToDynamicCallee = 1 << 16;
+        const CallToDynamicCallee = 1 << 13;
         /// A callee expression could not be resolved to a specific callable.
-        const CallToUnresolvedCallee = 1 << 17;
+        const CallToUnresolvedCallee = 1 << 14;
         /// Performing a measurement within a dynamic scope.
-        const MeasurementWithinDynamicScope = 1 << 18;
+        const MeasurementWithinDynamicScope = 1 << 15;
         /// Use of a dynamic index to access or update an array.
-        const UseOfDynamicIndex = 1 << 19;
+        const UseOfDynamicIndex = 1 << 16;
         /// A return expression within a dynamic scope.
-        const ReturnWithinDynamicScope = 1 << 20;
+        const ReturnWithinDynamicScope = 1 << 17;
         /// A loop with a dynamic condition.
-        const LoopWithDynamicCondition = 1 << 21;
+        const LoopWithDynamicCondition = 1 << 18;
         /// Use of an advanced type as output of a computation.
-        const UseOfAdvancedOutput = 1 << 22;
+        const UseOfAdvancedOutput = 1 << 19;
         /// Use of a `Bool` as output of a computation.
-        const UseOfBoolOutput = 1 << 23;
+        const UseOfBoolOutput = 1 << 20;
         /// Use of a `Double` as output of a computation.
-        const UseOfDoubleOutput = 1 << 24;
+        const UseOfDoubleOutput = 1 << 21;
         /// Use of an `Int` as output of a computation.
-        const UseOfIntOutput = 1 << 25;
+        const UseOfIntOutput = 1 << 22;
         /// Use of a dynamic exponent in a computation.
-        const UseOfDynamicExponent = 1 << 26;
+        const UseOfDynamicExponent = 1 << 23;
         /// Use of a dynamic `Result` variable in a computation.
-        const UseOfDynamicResult = 1 << 27;
+        const UseOfDynamicResult = 1 << 24;
         /// Use of a dynamic tuple variable.
-        const UseOfDynamicTuple = 1 << 28;
+        const UseOfDynamicTuple = 1 << 25;
         /// A callee expression to a measurement.
-        const CallToCustomMeasurement = 1 << 29;
+        const CallToCustomMeasurement = 1 << 26;
         /// A callee expression to a reset.
-        const CallToCustomReset = 1 << 30;
+        const CallToCustomReset = 1 << 27;
         /// Use of a dynamic generic parameter.
-        const UseOfDynamicGeneric = 1 << 31;
+        const UseOfDynamicGeneric = 1 << 28;
         /// A callable allocates qubits (directly or transitively).
-        const QubitAllocation = 1 << 32;
+        const QubitAllocation = 1 << 29;
     }
 }
 
@@ -766,15 +758,6 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicArrowOperation) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
-        }
-        if self.contains(RuntimeFeatureFlags::CallToCyclicFunctionWithDynamicArg) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
-        }
-        if self.contains(RuntimeFeatureFlags::CyclicOperationSpec) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
-        }
-        if self.contains(RuntimeFeatureFlags::CallToCyclicOperation) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::CallToDynamicCallee) {

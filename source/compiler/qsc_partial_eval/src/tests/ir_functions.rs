@@ -261,7 +261,7 @@ fn un_promoted_tuple_parameter_callee_is_inlined() {
 }
 
 #[test]
-fn recursive_callee_is_inlined() {
+fn recursive_callee_is_emitted() {
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
@@ -280,7 +280,13 @@ fn recursive_callee_is_inlined() {
         "#,
     );
 
-    assert_ir_function_names(&program, &expect!["[]"]);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "Recurse",
+        ]"#]],
+    );
 }
 
 #[test]

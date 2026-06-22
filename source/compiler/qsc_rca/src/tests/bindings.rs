@@ -40,7 +40,7 @@ fn check_rca_for_immutable_dynamic_result_binding() {
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(QubitAllocation)
-                    value_kind: Variable
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }

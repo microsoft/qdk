@@ -15,6 +15,7 @@ use core::panic;
 use evaluation_context::{Arg, BlockNode, EvalControlFlow, EvaluationContext, Scope};
 use management::{QuantumIntrinsicsChecker, ResourceManager};
 use miette::Diagnostic;
+use num_bigint::BigInt;
 use qsc_data_structures::{functors::FunctorApp, span::Span, target::TargetCapabilityFlags};
 use qsc_eval::{
     self, Error as EvalError, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Variable,
@@ -24,8 +25,8 @@ use qsc_eval::{
     output::GenericReceiver,
     resolve_closure,
     val::{
-        self, Value, Var, VarTy, index_array, slice_array, update_functor_app, update_index_range,
-        update_index_single,
+        self, Value, Var, VarTy, index_array, slice_array, unwrap_tuple, update_functor_app,
+        update_index_range, update_index_single,
     },
 };
 use qsc_fir::{
@@ -1850,6 +1851,8 @@ impl<'a> PartialEvaluator<'a> {
             );
         }
 
+        let args_statically_known = is_static_value(&args_value);
+
         // There are a few special cases regarding intrinsic callables. Identify them and handle them properly.
         match callable_decl.name.name.as_ref() {
             // Qubit allocations and measurements have special handling.
@@ -1916,6 +1919,39 @@ impl<'a> PartialEvaluator<'a> {
                 }
             }
             "IntAsDouble" | "Truncate" => self.convert_value(&args_value, args_span),
+
+            // These intrinsic functions should be evaluated immediately rather than emitted if all
+            // arguments can be treated as statically known values.
+            "ArcCos" if args_statically_known => {
+                Ok(Value::Double(args_value.unwrap_double().acos()))
+            }
+            "ArcSin" if args_statically_known => {
+                Ok(Value::Double(args_value.unwrap_double().asin()))
+            }
+            "ArcTan" if args_statically_known => {
+                Ok(Value::Double(args_value.unwrap_double().atan()))
+            }
+            "ArcTan2" if args_statically_known => {
+                let [x, y] = unwrap_tuple(args_value);
+                Ok(Value::Double(x.unwrap_double().atan2(y.unwrap_double())))
+            }
+            "Cos" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().cos())),
+            "Cosh" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().cosh())),
+            "Sin" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().sin())),
+            "Sinh" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().sinh())),
+            "Tan" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().tan())),
+            "Tanh" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().tanh())),
+            "Sqrt" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().sqrt())),
+            "Log" if args_statically_known => Ok(Value::Double(args_value.unwrap_double().ln())),
+            "IntAsBigInt" if args_statically_known => {
+                Ok(Value::BigInt(BigInt::from(args_value.unwrap_int())))
+            }
+            "DoubleAsStringWithPrecision" if args_statically_known => {
+                // Strings are not populated during partial evaluation, so leave this empty.
+                Ok(Value::String("".into()))
+            }
+
+            // Otherwise, we will try to emit the call as a RIR instruction.
             _ => self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
                 callable_decl,
@@ -2094,18 +2130,13 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // Recursive callables, callables whose bodies contain calls that RCA could not
+        // Callables whose bodies contain calls that RCA could not
         // statically resolve, and callables that transitively allocate qubits (unless dynamic qubit
         // allocation is enabled) must be inlined. These are surfaced as inherent runtime features of
-        // the specialization by RCA. Recursion appears as `CyclicOperationSpec`/
-        // `CallToCyclicOperation`, while unresolved-callee paths surface as
+        // the specialization by RCA. Unresolved-callee paths surface as
         // `CallToUnresolvedCallee`; in all such cases the specialization is inlined.
         let inherent_features = self.spec_inherent_runtime_features(store_item_id, functor_app);
-        if inherent_features.intersects(
-            RuntimeFeatureFlags::CyclicOperationSpec
-                | RuntimeFeatureFlags::CallToCyclicOperation
-                | RuntimeFeatureFlags::CallToUnresolvedCallee,
-        ) {
+        if inherent_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee) {
             return false;
         }
         if inherent_features.contains(RuntimeFeatureFlags::QubitAllocation)
@@ -4615,6 +4646,19 @@ impl<'a> PartialEvaluator<'a> {
                 end: exprs[2],
             },
         ))))
+    }
+}
+
+// Determines if a value can be treated as a static value, meaning something that can be directly passed
+// to full evaluation without requiring any emission of RIR instructions.
+fn is_static_value(args_value: &Value) -> bool {
+    match args_value {
+        // Qubit/Result ids and variables values cannot be treated as static.
+        Value::Qubit(_) | Value::Result(val::Result::Id(_)) | Value::Var(_) => false,
+        Value::Array(inner) => inner.iter().all(is_static_value),
+        Value::Tuple(inner, _) => inner.iter().all(is_static_value),
+        Value::Closure(c) => c.fixed_args.iter().all(is_static_value),
+        _ => true,
     }
 }
 
