@@ -121,6 +121,15 @@ impl<'a> Parser<'a> {
         token
     }
 
+    fn expect_line_end(&mut self) {
+        if let Some(token) = self.tokens.peek().copied() {
+            if token.kind != TokenKind::Newline {
+                panic!("expected newline or end of input, got {:?}", token.kind);
+            }
+            self.tokens.next();
+        }
+    }
+
     pub fn parse(&mut self) -> Circuit {
         let input_len = self
             .input
@@ -187,7 +196,7 @@ impl<'a> Parser<'a> {
             }
         }
         let closing_brace = self.expect(TokenKind::Close(Brace));
-        self.expect(TokenKind::Newline);
+        self.expect_line_end();
         let hi = closing_brace.span.hi;
         Block {
             span: Span { lo, hi },
@@ -197,7 +206,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_line(&mut self, instruction: Instruction) -> Line {
-        self.expect(TokenKind::Newline);
+        self.expect_line_end();
         Line {
             span: instruction.span,
             instruction,
