@@ -10,7 +10,7 @@ use crate::bytecode::AdaptiveProgram;
 use crate::correlated_noise::NoiseTables;
 use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
-use crate::noise_mapping::get_noise_ops;
+use crate::noise_mapping::{expand_correlated_loss_commits, get_noise_ops};
 use crate::shader_types::{
     self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
     MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS,
@@ -260,8 +260,9 @@ impl GpuContext {
             let mut non_noise_count = 0;
 
             for op in self.get_program() {
-                // Check if this is a noise op
-                let is_noise = matches!(op.id, ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE);
+                // Check if this is a noise op. Pauli noise ops are consumed inline
+                // by the preceding gate; loss-commit ops are dispatched on their own.
+                let is_noise = matches!(op.id, ops::PAULI_NOISE_1Q..=ops::PAULI_NOISE_2Q);
 
                 if !is_noise {
                     non_noise_count += 1;
@@ -308,15 +309,16 @@ impl GpuContext {
                         | ops::CX..=ops::RZZ
                         | ops::CY
                         | ops::SWAP
-                        | ops::CORRELATED_NOISE => {
+                        | ops::CORRELATED_NOISE
+                        | ops::LOSS_NOISE => {
                             compute_pass.set_pipeline(&kernels.prepare_op);
                             compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
                             compute_pass.set_pipeline(&kernels.execute_op);
                             compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
                         }
-                        // Skip over simple noise ops
-                        ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE => {}
+                        // Pauli noise ops are consumed inline by the preceding gate
+                        ops::PAULI_NOISE_1Q..=ops::PAULI_NOISE_2Q => {}
                         _ => {
                             panic!("Unsupported op ID {}", op.id);
                         }
@@ -379,14 +381,16 @@ impl GpuContext {
 
         if self.program_is_dirty || self.noise_config_is_dirty {
             // Rebuild the program (with noise if needed) and upload to GPU
-            if let Some(noise) = &self.noise_config {
-                let ops = add_noise_config_to_ops(&self.program, noise);
-                self.resources.upload_ops_data(cast_slice(&ops))?;
-                self.program_with_noise = Some(ops);
+            let base_ops = if let Some(noise) = &self.noise_config {
+                &add_noise_config_to_ops(&self.program, noise)
             } else {
-                self.resources.upload_ops_data(cast_slice(&self.program))?;
-                self.program_with_noise = None;
-            }
+                &self.program
+            };
+            // Insert loss-commit ops after correlated-noise ops so intrinsic
+            // tables containing loss strings can lose qubits on the GPU.
+            let ops = expand_correlated_loss_commits(base_ops);
+            self.resources.upload_ops_data(cast_slice(&ops))?;
+            self.program_with_noise = Some(ops);
             self.program_is_dirty = false;
         }
 
@@ -928,8 +932,10 @@ fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op>
 
     for op in ops {
         let mut add_ops: Vec<Op> = vec![*op];
-        // If there's a NoiseConfig, and we get noise for this op, append it
-        if let Some(noise_ops) = get_noise_ops(op, noise) {
+        // If there's a NoiseConfig, and we get noise for this op, append it.
+        // The base path dispatches ops linearly, so it needs explicit
+        // loss-commit ops to perform any deferred qubit loss.
+        if let Some(noise_ops) = get_noise_ops(op, noise, true) {
             add_ops.extend(noise_ops);
         }
         // If it's an MResetZ, MZ, or ResetZ with noise, change to an Id with noise, followed by the original op
@@ -957,11 +963,16 @@ fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op>
 
 /// Expand the adaptive quantum op pool with noise ops.
 ///
-/// For each original op, this emits the op itself and then any Pauli/loss
-/// noise ops from the `NoiseConfig`.  Unlike `add_noise_config_to_ops` used
+/// For each original op, this emits the op itself and then the Pauli/loss
+/// sampler op from the `NoiseConfig`.  Unlike `add_noise_config_to_ops` used
 /// by the non-adaptive path, this does *not* reorder measure/reset ops or
 /// drop identity gates, because the adaptive bytecode interpreter references
 /// each op by index and handles measure/reset at the instruction level.
+///
+/// It also does *not* emit loss-commit ops: the adaptive interpreter commits
+/// any sampled qubit loss by draining `pending_loss_mask` in its run loop, so
+/// emitting per-gate loss-commit ops here would only bloat the op pool with
+/// entries that are never dispatched.
 ///
 /// Returns `(expanded_ops, index_map)` where `index_map[old_idx]` gives
 /// the new index of the original op in the expanded pool.
@@ -980,8 +991,8 @@ fn add_noise_to_adaptive_ops(
 
         noisy_ops.push(*op);
 
-        // Append any noise ops (pauli + loss) from the config
-        if let Some(noise_ops) = get_noise_ops(op, noise) {
+        // Append the Pauli/loss sampler op (no loss-commit ops; see above).
+        if let Some(noise_ops) = get_noise_ops(op, noise, false) {
             noisy_ops.extend(noise_ops);
         }
     }
