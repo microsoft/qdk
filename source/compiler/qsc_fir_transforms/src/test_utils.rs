@@ -347,7 +347,7 @@ pub fn compile_to_fir_with_library_and_capabilities(
 /// Returns a FIR store with six packages (core, std, libB, libA, user) and the
 /// user package ID.
 #[cfg(test)]
-#[allow(dead_code, clippy::similar_names)]
+#[allow(clippy::similar_names)]
 pub(crate) fn compile_to_fir_with_two_libraries(
     lib_b_source: &str,
     lib_a_source: &str,
