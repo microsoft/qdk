@@ -54,6 +54,16 @@ pub(super) struct LocalState {
     callable: FxHashMap<LocalVarId, CalleeLattice>,
     exprs: FxHashMap<LocalVarId, ExprId>,
     condition_substitutions: FxHashMap<LocalVarId, ExprId>,
+    /// Types of the enclosing callable's capturable variable bindings
+    /// (parameters and immutable `let` bindings), keyed by `LocalVarId`.
+    /// `LocalVarId`s are scoped per callable and collide freely across
+    /// callables in the same package, so a captured variable's type must be
+    /// resolved against this per-callable map rather than a package-wide
+    /// pattern scan. This map serves only closure-capture type resolution.
+    /// Mutable locals may still exist and are tracked for flow in `callable`;
+    /// they are simply never recorded here because a closure can never capture
+    /// one.
+    var_types: FxHashMap<LocalVarId, Ty>,
 }
 
 /// Maximum recursion depth when resolving callee expressions to prevent
@@ -274,6 +284,7 @@ fn collect_call_sites(
                 body_pkg,
                 store,
                 &decl.implementation,
+                decl.input,
                 body_pkg_id,
                 Some(&mut recorder),
             );
@@ -301,6 +312,7 @@ fn collect_call_sites(
             callable: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
+            var_types: FxHashMap::default(),
         };
         let mut recorder = CallRecorder {
             hof_params,
@@ -928,6 +940,7 @@ fn resolve_callee(
                 callable: locals.callable.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
+                var_types: locals.var_types.clone(),
             };
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
             let block_scoped_vars = if allow_scoped_capture_exprs {
@@ -1078,6 +1091,7 @@ fn resolve_callee_projection(
                 callable: locals.callable.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
+                var_types: locals.var_types.clone(),
             };
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
             let block_scoped_vars = if allow_scoped_capture_exprs {
@@ -1324,6 +1338,7 @@ fn resolve_callable_return(
         callable: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
+        var_types: collect_binding_types_from_pat(callee_pkg, body_input),
     };
     seed_param_bindings_from_call(
         pkg,
@@ -2019,16 +2034,96 @@ fn collect_pat_local_bindings(pkg: &Package, pat_id: PatId, bound: &mut FxHashSe
     }
 }
 
-/// Finds the type of a local variable by looking up its initialiser expression.
-/// Falls back to a full pattern scan when the variable is not in the
-/// immutable-locals map (e.g. function parameters or outer-scope bindings).
+/// Finds the type of a local variable.
+///
+/// Resolution order: the immutable-locals initialiser map (`exprs`), then the
+/// per-callable variable-type map (`var_types`, covering parameters and
+/// immutable `let` bindings), then a package-wide pattern scan as a last
+/// resort. The scoped lookups are preferred because `LocalVarId`s collide
+/// across callables, so the global scan can return an unrelated binding.
 fn find_local_var_type(pkg: &Package, locals: &LocalState, var: LocalVarId) -> Option<Ty> {
     if let Some(&init_expr_id) = locals.exprs.get(&var) {
         Some(pkg.get_expr(init_expr_id).ty.clone())
+    } else if let Some(ty) = locals.var_types.get(&var) {
+        // Enclosing-callable parameter or immutable `let` binding. Resolve
+        // against the per-callable variable map; `LocalVarId`s collide across
+        // callables, so a package-wide pattern scan would return an unrelated
+        // binding.
+        Some(ty.clone())
     } else {
-        // The variable may be a function parameter or from an outer scope not
-        // tracked in the immutable-locals map. Scan all patterns as a fallback.
+        // The variable may come from an outer scope not tracked above. Scan
+        // all patterns as a last resort. This is unreliable when `LocalVarId`s
+        // collide across callables, so the scoped lookups above are preferred.
         find_var_type_in_pats(pkg, var)
+    }
+}
+
+/// Collects the types of a callable's parameter bindings into a per-callable
+/// map keyed by `LocalVarId`, walking the body specialization input pattern
+/// (falling back to the declaration input) and any functored specializations.
+fn collect_callable_param_types(
+    pkg: &Package,
+    callable_impl: &CallableImpl,
+    fallback_input: qsc_fir::fir::PatId,
+) -> FxHashMap<LocalVarId, Ty> {
+    let mut map = FxHashMap::default();
+    match callable_impl {
+        CallableImpl::Intrinsic => {
+            collect_binding_types_from_pat_into(pkg, fallback_input, &mut map);
+        }
+        CallableImpl::Spec(spec_impl) => {
+            collect_binding_types_from_pat_into(
+                pkg,
+                spec_impl.body.input.unwrap_or(fallback_input),
+                &mut map,
+            );
+            for spec in functored_specs(spec_impl) {
+                collect_binding_types_from_pat_into(
+                    pkg,
+                    spec.input.unwrap_or(fallback_input),
+                    &mut map,
+                );
+            }
+        }
+        CallableImpl::SimulatableIntrinsic(spec_decl) => {
+            collect_binding_types_from_pat_into(
+                pkg,
+                spec_decl.input.unwrap_or(fallback_input),
+                &mut map,
+            );
+        }
+    }
+    map
+}
+
+/// Returns a fresh per-callable variable-type map built from a single input
+/// pattern.
+fn collect_binding_types_from_pat(
+    pkg: &Package,
+    pat_id: qsc_fir::fir::PatId,
+) -> FxHashMap<LocalVarId, Ty> {
+    let mut map = FxHashMap::default();
+    collect_binding_types_from_pat_into(pkg, pat_id, &mut map);
+    map
+}
+
+/// Recursively records `LocalVarId` → `Ty` for every binding in a pattern.
+fn collect_binding_types_from_pat_into(
+    pkg: &Package,
+    pat_id: qsc_fir::fir::PatId,
+    map: &mut FxHashMap<LocalVarId, Ty>,
+) {
+    let pat = pkg.get_pat(pat_id);
+    match &pat.kind {
+        PatKind::Bind(ident) => {
+            map.insert(ident.id, pat.ty.clone());
+        }
+        PatKind::Tuple(sub_pats) => {
+            for &sub_pat_id in sub_pats {
+                collect_binding_types_from_pat_into(pkg, sub_pat_id, map);
+            }
+        }
+        PatKind::Discard => {}
     }
 }
 
@@ -2062,6 +2157,7 @@ fn build_callable_flow_state(
     pkg: &Package,
     store: &PackageStore,
     callable_impl: &CallableImpl,
+    input_pat: qsc_fir::fir::PatId,
     package_id: PackageId,
     recorder: Option<&mut CallRecorder>,
 ) -> LocalState {
@@ -2069,6 +2165,7 @@ fn build_callable_flow_state(
         callable: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
+        var_types: collect_callable_param_types(pkg, callable_impl, input_pat),
     };
     match callable_impl {
         CallableImpl::Intrinsic => {}
@@ -2158,6 +2255,12 @@ fn analyze_stmt_flow(
         StmtKind::Local(Mutability::Immutable, pat_id, init_expr_id) => {
             // Record ExprId bindings for all immutable locals.
             collect_bindings_from_pat(pkg, *pat_id, *init_expr_id, &mut state.exprs);
+            // Record binding types so captured locals resolve against this
+            // per-callable map instead of a collision-prone package-wide scan.
+            // Only immutable bindings need recording: the frontend forbids
+            // closures from capturing mutable variables so a mutable binding can never
+            // appear as a capture whose type needs resolving here.
+            collect_binding_types_from_pat_into(pkg, *pat_id, &mut state.var_types);
             // For callable-typed bindings, resolve and store in lattice.
             bind_callable_pat(pkg, store, state, *pat_id, *init_expr_id, package_id);
             analyze_expr_flow(pkg, store, *init_expr_id, state, package_id, recorder);

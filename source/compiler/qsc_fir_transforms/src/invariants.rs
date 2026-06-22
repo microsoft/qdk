@@ -937,6 +937,15 @@ fn check_reachable_invariants(
             // invariant checks.
             check_type_invariants(&decl.output, level, scope, "callable output type");
 
+            // The callable's input *parameter* pattern types must satisfy the
+            // same stage invariants as the output type. The statement walk in
+            // `check_spec_decl_types` only covers `let` bindings inside the
+            // body, so without this a residual `Ty::Param` (or other
+            // stage-eliminated form) left in the input signature by a buggy
+            // pass would go unchecked. `check_type_invariants` recurses into
+            // tuples and arrows, covering the whole structured input type.
+            check_pat_types(item_pkg, decl.input, level, scope);
+
             if scope.enforces(level, StageCheck::Defunc) {
                 check_no_arrow_params(item_pkg, decl);
             }
@@ -1554,6 +1563,12 @@ fn check_spec_decl_types(
     level: InvariantLevel,
     scope: CheckScope,
 ) {
+    // A specialization may carry its own input pattern (for example the
+    // controlled specialization's added control register). Validate its types
+    // against the stage invariants alongside the body statements.
+    if let Some(input) = spec.input {
+        check_pat_types(package, input, level, scope);
+    }
     let block = package.get_block(spec.block);
     for &stmt_id in &block.stmts {
         check_stmt_types(store, package, stmt_id, level, scope);
