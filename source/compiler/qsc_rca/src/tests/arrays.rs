@@ -95,6 +95,66 @@ fn check_rca_for_array_repeat_with_dynamic_result_value_and_classical_size() {
 }
 
 #[test]
+fn check_rca_for_concatenation_of_static_arrays() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        let a = [1, 2, 3] + [4, 5, 6];
+        a"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_concatenation_of_dynamic_variable_array() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let a = [1, 2, 3] + [4, 5, if M(q) == Zero { 6 } else { 7 }];
+        a"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_concatenation_of_result_dynamic_constant_array() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let a = [M(q)] + [M(q)];
+        a"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
 fn check_rca_for_array_repeat_with_dynamic_bool_value_and_classical_size() {
     let mut compilation_context = CompilationContext::default();
     compilation_context.update(

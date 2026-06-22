@@ -239,6 +239,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_bin_op(
         &mut self,
+        op: BinOp,
         lhs_expr_id: ExprId,
         rhs_expr_id: ExprId,
         expr_type: &Ty,
@@ -263,10 +264,10 @@ impl<'a> Analyzer<'a> {
         } = &mut compute_kind
         {
             let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
-            if is_any_result(lhs_expr_ty) {
-                // The only binary operators on result types are equality and inequality. In this path, we know
-                // at least one side of the comparison is dynamic (constant or variable), so the boolean that comes
-                // from the comparison must be variable. This is the critical source of dynamic variable values
+            if (op == BinOp::Eq || op == BinOp::Neq) && is_any_result(lhs_expr_ty) {
+                // When binary operators on result types are equality or inequality, the Boolean outcome may be a dynamic variable.
+                // In this path, we know at least one side of the comparison is dynamic (constant or variable), so the boolean
+                // that comes from the comparison must be variable. This is the critical source of dynamic variable values
                 // in a program that operates on qubits measurements.
                 *value_kind = ValueKind::Variable;
             }
@@ -1895,8 +1896,8 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::BinOp(BinOp::Exp, lhs_expr_id, rhs_expr_id) => {
                 self.analyze_expr_bin_op_exp(*lhs_expr_id, *rhs_expr_id)
             }
-            ExprKind::BinOp(_, lhs_expr_id, rhs_expr_id) => {
-                self.analyze_expr_bin_op(*lhs_expr_id, *rhs_expr_id, &expr.ty)
+            ExprKind::BinOp(op, lhs_expr_id, rhs_expr_id) => {
+                self.analyze_expr_bin_op(*op, *lhs_expr_id, *rhs_expr_id, &expr.ty)
             }
             ExprKind::Block(block_id) => self.analyze_expr_block(*block_id),
             ExprKind::Call(callee_expr_id, args_expr_id) => {

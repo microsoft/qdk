@@ -1946,6 +1946,10 @@ impl<'a> PartialEvaluator<'a> {
             "IntAsBigInt" if args_statically_known => {
                 Ok(Value::BigInt(BigInt::from(args_value.unwrap_int())))
             }
+            "DoubleAsStringWithPrecision" if args_statically_known => {
+                // Strings are not populated during partial evaluation, so leave this empty.
+                Ok(Value::String("".into()))
+            }
 
             // Otherwise, we will try to emit the call as a RIR instruction.
             _ => self.eval_expr_call_to_intrinsic_qis(
