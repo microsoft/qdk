@@ -130,8 +130,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     renderer.current = r;
     // Replay any URL-supplied gates. We seed `gates` directly (rather than
     // the regular applyGate path, which hits stale-closure bugs in a tight
-    // setState loop) and park the cursor at 0, so the widget opens on |0⟩
-    // in inspect mode and the user can Play/step through the program.
+    // setState loop) and open on the latest step, so a linked-to program
+    // shows its final state and the user can add gates without first
+    // overwriting it. They can still Play/step back through the trace.
     if (props.initialGates) {
       const { gates: cleaned, modified } = sanitizeGateSequence(
         props.initialGates,
@@ -146,7 +147,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       if (cleaned) {
         const arr = cleaned.split("");
         setGates(arr);
-        setCursor(0);
+        // Snap the sphere to the end of the sequence and park the cursor
+        // there, matching the latest trace step.
+        r.snapTo(gatesToSteps(arr));
+        setCursor(arr.length);
         props.onGatesChanged?.(cleaned);
       }
     }
@@ -303,11 +307,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       ".qs-bloch-trace-item-current",
     );
     if (!active) return;
-    // The sticky latest row only overlaps when it isn't the active row.
+    // The latest row is sticky-pinned to the bottom, so it's always
+    // visible -- skip scrolling when it's the active row, which otherwise
+    // causes a small jump when the user clicks it.
     const sticky = container.querySelector<HTMLElement>(
       ".qs-bloch-trace-item-latest",
     );
-    const stickyOverlap = sticky && sticky !== active ? sticky.offsetHeight : 0;
+    if (sticky === active) return;
+    const stickyOverlap = sticky ? sticky.offsetHeight : 0;
     const visibleHeight = container.clientHeight - stickyOverlap;
     const cTop = container.scrollTop;
     const cBottom = cTop + visibleHeight;
