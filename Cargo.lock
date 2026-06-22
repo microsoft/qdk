@@ -2244,6 +2244,7 @@ version = "0.0.0"
 dependencies = [
  "bitflags 2.11.0",
  "expect-test",
+ "indenter",
  "index_map",
  "miette",
  "rustc-hash",
