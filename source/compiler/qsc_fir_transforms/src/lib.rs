@@ -275,7 +275,7 @@ fn run_pipeline_to_impl(
 
     let mut result = PipelineResult::default();
 
-    let mut assigners = PackageAssigners::entry(store, package_id);
+    let mut assigners = PackageAssigners::new(store, package_id);
 
     monomorphize::monomorphize(store, package_id, &mut assigners);
     invariants::check(store, package_id, invariants::InvariantLevel::PostMono);
@@ -748,7 +748,7 @@ pub fn run_signature_preserving_subpipeline(
 ) -> PipelineResult {
     let mut result = PipelineResult::default();
 
-    let mut assigners = PackageAssigners::entry(store, package_id);
+    let mut assigners = PackageAssigners::new(store, package_id);
 
     let (ru_errors, skipped) =
         return_unify::unify_returns_with_seeds(store, package_id, &mut assigners, seeds);

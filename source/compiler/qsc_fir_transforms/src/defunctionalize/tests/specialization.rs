@@ -1354,7 +1354,7 @@ fn capture_local_ids_are_reasonable() {
         }
         "#,
     );
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
@@ -1415,7 +1415,7 @@ fn multiple_captures_sequential_ids() {
         }
         "#,
     );
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
@@ -1931,7 +1931,7 @@ fn branch_split_nested_callable_in_tuple_args_consistency() {
         }
         "#,
     );
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
@@ -2316,7 +2316,7 @@ fn branch_split_nested_callable_adj_ctl_args_consistency() {
         }
         "#,
     );
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
@@ -3075,7 +3075,7 @@ fn excessive_specializations_warning_does_not_block_compilation() {
         }
         "#,
     );
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
 
     // Should have exactly one warning, no fatal errors.

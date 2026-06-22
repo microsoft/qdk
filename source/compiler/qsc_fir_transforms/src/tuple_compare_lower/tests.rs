@@ -609,7 +609,7 @@ fn tuple_compare_lower_is_idempotent() {
     "};
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     crate::tuple_compare_lower::lower_tuple_comparisons(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "tuple_compare_lower should be idempotent");

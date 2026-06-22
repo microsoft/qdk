@@ -6,6 +6,8 @@
 // a tombstoned node) rather than behavioral equivalence. Q# template generation doesn't add
 // much beyond targeted snapshots that create known orphan patterns.
 
+#![allow(clippy::similar_names)]
+
 use crate::PipelineStage;
 use crate::test_utils::compile_and_run_pipeline_to;
 use indoc::indoc;

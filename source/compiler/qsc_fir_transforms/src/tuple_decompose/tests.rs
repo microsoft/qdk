@@ -15,7 +15,7 @@ use rustc_hash::FxHashMap;
 
 fn check(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     tuple_decompose(&mut store, pkg_id, &mut assigners);
     let result = extract_result(&store, pkg_id);
     expect.assert_eq(&result);
@@ -96,7 +96,7 @@ fn assert_assignment_exprs_are_unit_after_tuple_decompose(
     expected_assignments: usize,
 ) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     tuple_decompose(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
@@ -187,7 +187,7 @@ fn collect_assignment_targets_and_stale_assign_fields_after_tuple_decompose(
     source: &str,
 ) -> (Vec<String>, Vec<String>) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     tuple_decompose(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
@@ -818,7 +818,7 @@ fn tuple_binding_in_while_loop_body_decomposes() {
     );
 
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     tuple_decompose(&mut store, pkg_id, &mut assigners);
     let local_patterns = collect_local_patterns_recursive(store.get(pkg_id));
     assert!(
@@ -1568,7 +1568,7 @@ fn struct_fields_decompose_in_adj_and_ctl_specs() {
             Controlled Foo([ctrl], q);
         }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     tuple_decompose(&mut store, pkg_id, &mut assigners);
     let result = extract_result_all_specs(&store, pkg_id);
     expect![[r#"
@@ -1652,7 +1652,7 @@ fn tuple_decompose_is_idempotent() {
             }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     tuple_decompose(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "tuple_decompose should be idempotent");
@@ -1661,7 +1661,7 @@ fn tuple_decompose_is_idempotent() {
 fn render_before_after_tuple_decompose(source: &str) -> (String, String) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigners = crate::package_assigners::PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
     tuple_decompose(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)

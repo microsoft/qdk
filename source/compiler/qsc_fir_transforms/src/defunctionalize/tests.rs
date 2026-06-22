@@ -90,7 +90,7 @@ fn check(source: &str, expect: &Expect) {
 
 fn compile_and_defunctionalize(source: &str) -> (fir::PackageStore, fir::PackageId) {
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     (fir_store, fir_pkg_id)
@@ -114,7 +114,7 @@ fn check_rewrite_with_capabilities(
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let before = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
@@ -372,7 +372,7 @@ fn check_invariants(source: &str) {
 fn check_invariants_with_capabilities(source: &str, capabilities: TargetCapabilityFlags) {
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     fir_invariants::check(&fir_store, fir_pkg_id, InvariantLevel::PostDefunc);
@@ -382,7 +382,7 @@ fn check_invariants_with_capabilities(source: &str, capabilities: TargetCapabili
 /// error messages for comparison.
 fn check_errors(source: &str, expect: &Expect) {
     let (mut store, package_id) = compile_to_monomorphized_fir(source);
-    let mut assigners = PackageAssigners::entry(&store, package_id);
+    let mut assigners = PackageAssigners::new(&store, package_id);
     let errors = defunctionalize(&mut store, package_id, &mut assigners);
     expect.assert_eq(&format_defunctionalization_errors(&errors));
 }
@@ -436,7 +436,7 @@ namespace Test {
 }
 ";
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     // The callable stored in the field originates from a dynamic array index,
     // so defunctionalize cannot fully resolve it (non-convergence is expected
     // and orthogonal to this regression). We only assert binding survival.
@@ -628,7 +628,7 @@ fn unreachable_closure_structure_preserved() {
             }
         }
     "});
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("unreachable_closure_structure_preserved", &errors);
 
@@ -714,7 +714,7 @@ fn cross_package_return_stmt_is_analyzed() {
     // (library) package; its body still ends in `return x -> x;`
     // (`Semi(Return)`), since return unification has not run on the freshly
     // cloned cross-package body.
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
     // Precondition: a reachable callable (in whichever package owns the

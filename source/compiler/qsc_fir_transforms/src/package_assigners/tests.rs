@@ -41,7 +41,7 @@ fn largest_foreign_package(store: &PackageStore, entry: PackageId) -> PackageId 
 fn entry_seed_matches_single_assigner() {
     let (store, pkg_id) = compile_to_fir(SOURCE);
 
-    let mut pool = PackageAssigners::entry(&store, pkg_id);
+    let mut pool = PackageAssigners::new(&store, pkg_id);
     let pooled = pool.get_mut(&store, pkg_id);
     let mut direct = Assigner::from_package(store.get(pkg_id));
 
@@ -60,7 +60,7 @@ fn lazily_seeds_external_package_from_its_own_watermark() {
     let (store, pkg_id) = compile_to_fir(SOURCE);
     let foreign = largest_foreign_package(&store, pkg_id);
 
-    let mut pool = PackageAssigners::entry(&store, pkg_id);
+    let mut pool = PackageAssigners::new(&store, pkg_id);
     let pooled = pool.get_mut(&store, foreign);
     let mut direct = Assigner::from_package(store.get(foreign));
 
@@ -76,7 +76,7 @@ fn minting_into_external_package_never_overwrites_existing_arena_entry() {
     let (store, pkg_id) = compile_to_fir(SOURCE);
     let foreign = largest_foreign_package(&store, pkg_id);
 
-    let mut pool = PackageAssigners::entry(&store, pkg_id);
+    let mut pool = PackageAssigners::new(&store, pkg_id);
     let assigner = pool.get_mut(&store, foreign);
     let package = store.get(foreign);
 

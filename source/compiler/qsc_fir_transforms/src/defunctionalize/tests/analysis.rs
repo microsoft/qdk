@@ -4485,7 +4485,7 @@ fn operand_block_set_specializes_to_reaching_definition() {
 fn loop_operand_block_set_forces_dynamic() {
     fn assert_forces_dynamic(context: &str, source: &str) {
         let (mut store, package_id) = compile_to_monomorphized_fir(source);
-        let mut assigners = PackageAssigners::entry(&store, package_id);
+        let mut assigners = PackageAssigners::new(&store, package_id);
         let errors = defunctionalize(&mut store, package_id, &mut assigners);
         assert_eq!(
             errors.len(),

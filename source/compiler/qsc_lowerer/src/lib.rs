@@ -200,14 +200,16 @@ impl Lowerer {
             // Namespace and export items are inert metadata that no FIR consumer
             // reads, so skip them. Item ids stay identity-mapped; the gaps left
             // at the skipped ids are tolerated by the item map.
-            .filter(|i| {
-                !matches!(
+            .filter_map(|i| {
+                if matches!(
                     i.kind,
                     hir::ItemKind::Namespace(..) | hir::ItemKind::Export(..)
-                )
+                ) {
+                    return None;
+                }
+                let i = self.lower_item(i);
+                Some((i.id, i))
             })
-            .map(|i| self.lower_item(i))
-            .map(|i| (i.id, i))
             .collect();
 
         // Lower top-level statements
@@ -251,14 +253,16 @@ impl Lowerer {
             // Namespace and export items are inert metadata that no FIR consumer
             // reads, so skip them. Item ids stay identity-mapped; the gaps left
             // at the skipped ids are tolerated by the item map.
-            .filter(|i| {
-                !matches!(
+            .filter_map(|i| {
+                if matches!(
                     i.kind,
                     hir::ItemKind::Namespace(..) | hir::ItemKind::Export(..)
-                )
+                ) {
+                    return None;
+                }
+                let i = self.lower_item(i);
+                Some((i.id, i))
             })
-            .map(|i| self.lower_item(i))
-            .map(|i| (i.id, i))
             .collect();
 
         for stmt in &hir_package.stmts {

@@ -450,7 +450,7 @@ pub fn compile_to_monomorphized_fir_with_capabilities(
     capabilities: TargetCapabilityFlags,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir_with_capabilities(source, capabilities);
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
     (store, pkg_id)
 }
@@ -474,7 +474,7 @@ pub(crate) fn compile_to_monomorphized_fir_with_entry(
     entry: &str,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir_with_entry(source, entry);
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
     (store, pkg_id)
 }

@@ -2374,7 +2374,7 @@ fn defunc_20_level_hof_completes_without_error() {
     let source = nested_hof_source(20);
 
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
 
     assert!(
@@ -2392,7 +2392,7 @@ fn defunc_21_level_hof_returns_static_resolution_error() {
     let source = nested_hof_source(21);
 
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
-    let mut assigners = PackageAssigners::entry(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
 
     assert!(

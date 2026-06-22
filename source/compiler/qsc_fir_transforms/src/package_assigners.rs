@@ -62,7 +62,7 @@ impl PackageAssigners {
     /// The eager seed is cosmetic parity only — `get_mut`/`with_package` would
     /// lazily seed the entry package from the same watermark on first use, so
     /// this is equivalent to starting from an empty map.
-    pub(crate) fn entry(store: &PackageStore, package_id: PackageId) -> Self {
+    pub(crate) fn new(store: &PackageStore, package_id: PackageId) -> Self {
         let mut map = FxHashMap::default();
         map.insert(package_id, Assigner::from_package(store.get(package_id)));
         Self { map }

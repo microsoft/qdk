@@ -306,12 +306,9 @@ where
     F: FnMut(CallableNode),
 {
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             for_each_node_in_spec_impl(pkg, spec_impl, visit);
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            for_each_node_in_spec_decl(pkg, spec_decl, visit);
         }
     }
 }

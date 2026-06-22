@@ -20,7 +20,7 @@ use indoc::indoc;
 fn check_before_after(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     let (errors, _skipped) = unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),

@@ -473,7 +473,7 @@ mod item_dce_contracts {
         "};
 
         let (mut store, pkg_id) = compile_to_fir(source);
-        let mut assigners = PackageAssigners::entry(&store, pkg_id);
+        let mut assigners = PackageAssigners::new(&store, pkg_id);
         crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
         let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
         let assigner = assigners.get_mut(&store, pkg_id);

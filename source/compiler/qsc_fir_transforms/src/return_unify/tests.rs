@@ -128,7 +128,7 @@ fn compile_no_hoist_return_unified(source: &str) -> NoHoistReturnUnifyResult {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
 
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     let (errors, _skipped) = super::unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),
@@ -854,7 +854,7 @@ fn check_idempotency(source: &str) {
     let before = format!("{:?}", Assigner::from_package(store.get(pkg_id)));
 
     // Run unify_returns a second time.
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     let (errors, _skipped) = super::unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),

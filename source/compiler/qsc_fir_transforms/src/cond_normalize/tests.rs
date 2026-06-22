@@ -22,7 +22,7 @@ use crate::test_utils::{
 fn check_normalize(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_to_monomorphized_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
@@ -33,7 +33,7 @@ fn check_normalize(source: &str, expect: &Expect) {
 fn assert_no_change(source: &str) {
     let (mut store, pkg_id) = compile_to_monomorphized_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     assert_eq!(before, after, "pure condition must not be rewritten");
@@ -491,7 +491,7 @@ fn normalization_is_idempotent() {
             Z(q);
         }
     "#});
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
     let once = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
@@ -658,7 +658,7 @@ fn cross_package_side_effecting_if_condition_hoisted_in_library_body() {
     );
     let lib_pkg = find_library_callable(&store, pkg_id, "CondFlip").package;
 
-    let mut assigners = PackageAssigners::entry(&store, pkg_id);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
     normalize_conditions(&mut store, pkg_id, &mut assigners);
 
     let rendered = crate::pretty::write_package_qsharp_parseable(&store, lib_pkg);

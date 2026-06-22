@@ -66,7 +66,7 @@ fn assert_no_array_backed_slot(
 /// This test feeds the function an input that deliberately violates that
 /// contract: it hand-builds a `StmtKind::Expr` holding a non-`Unit` (`Int`)
 /// literal and confirms the defensive `assert!`
-/// ("guard_stmt_with_flag requires Unit-typed inner stmt") fires, so the
+/// ("`guard_stmt_with_flag` requires Unit-typed inner stmt") fires, so the
 /// invariant cannot silently regress.
 #[test]
 fn guard_stmt_with_flag_panics_on_non_unit_expr_stmt() {
