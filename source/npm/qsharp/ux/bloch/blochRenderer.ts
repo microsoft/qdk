@@ -34,10 +34,9 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { AppliedGate, Rotations } from "../cplx.js";
 import { RotationAxis } from "./blochGates.js";
 
-// Two color palettes for parts of the scene we draw directly with WebGL
-// (sphere material, label sprites). Picked by eye to stay legible against
-// the typical VS Code light / dark / playground backgrounds. CSS-styled
-// parts of the widget instead pull from the shared QDK theme tokens.
+// Two color palettes for the directly-WebGL-drawn parts of the scene
+// (sphere material, label sprites), picked to stay legible on light/dark
+// backgrounds. CSS-styled parts use the shared QDK theme tokens instead.
 const lightThemeColors = {
   sphereColor: 0x404080,
   sphereBrightness: 2,
@@ -100,10 +99,8 @@ function hueToRgb(p: number, q: number, t: number) {
 }
 
 function makeLabelSprite(text: string, fillStyle: string): Sprite {
-  // Render the label into an offscreen canvas and use it as a sprite texture.
-  // Sprites always face the camera, so labels stay legible as the user
-  // orbits the sphere. No font asset, no async load, no extra three.js
-  // example modules required.
+  // Render the label into an offscreen canvas used as a sprite texture.
+  // Sprites always face the camera, so labels stay legible while orbiting.
   const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -116,25 +113,19 @@ function makeLabelSprite(text: string, fillStyle: string): Sprite {
   ctx.fillText(text, size / 2, size / 2);
 
   const texture = new CanvasTexture(canvas);
-  // depthWrite off: the sprite is a mostly-transparent quad, and writing
-  // depth for the whole quad would punch a box-shaped hole in the grid
-  // circles drawn behind it (the transparent corners still occlude). The
-  // glyph itself still shows because the sprite renders after the lines.
+  // depthWrite off: the mostly-transparent quad would otherwise punch a
+  // box-shaped hole in the grid circles behind it.
   const material = new SpriteMaterial({
     map: texture,
     transparent: true,
     depthWrite: false,
   });
   const sprite = new Sprite(material);
-  // Scale chosen to roughly match the visual size of the previous 3D text
-  // (size: 0.6 extrusion with bevel).
   sprite.scale.set(1.2, 1.2, 1);
   return sprite;
 }
 
 function createLabels(isDark: boolean): Sprite[] {
-  // Positions preserved verbatim from the original FontLoader/TextGeometry
-  // implementation so the labels land in exactly the same spots.
   const fill = colorsFor(isDark).labelCanvasColor;
 
   const xLabel = makeLabelSprite("x", fill);
@@ -149,15 +140,10 @@ function createLabels(isDark: boolean): Sprite[] {
   return [xLabel, yLabel, zLabel];
 }
 
-// Default duration of a single gate animation, in milliseconds. The
-// component exposes a live speed slider that overwrites
-// `BlochRenderer.rotationTimeMs` directly; the rAF loop re-reads the
-// value every frame so changes take effect mid-animation.
-//
-// Tuned by feel: 333ms (~3 gates/sec at 1x) is slow enough to actually
-// follow each rotation visually. The slider runs 0.25x..4x, so users
-// who want the original snappy 100ms-per-gate feel can dial it up to
-// ~3.3x.
+// Default duration of a single gate animation (ms). The speed slider
+// overwrites `BlochRenderer.rotationTimeMs` directly; the rAF loop
+// re-reads it every frame so changes take effect mid-animation. The
+// slider's 0.25x..4x range covers ~1.3s down to ~83ms per gate.
 export const DEFAULT_ROTATION_TIME_MS = 333;
 
 export class BlochRenderer {
@@ -169,19 +155,13 @@ export class BlochRenderer {
   trail: Group;
   rotationAxis: Group;
   animationCallbackId = 0;
-  // Per-renderer override for animation speed. Public so the React
-  // component can mutate it from the speed slider without going through
-  // a setter -- there is no derived state to keep in sync.
+  // Public so the speed slider can mutate it directly; no derived state.
   rotationTimeMs = DEFAULT_ROTATION_TIME_MS;
-  // Animation queue. Each entry wraps an `AppliedGate` (which carries the
-  // interpolation path used by the animation loop) with an optional
-  // `onComplete` callback fired the moment that gate's animation ends.
-  // The play loop relies on this callback to chain to the next gate; the
-  // one-off `applyGate` path doesn't need it.
+  // Animation queue. Each entry's optional `onComplete` fires when that
+  // gate's animation ends; the play loop uses it to chain to the next gate.
   gateQueue: { gate: AppliedGate; onComplete?: () => void }[] = [];
   rotations: Rotations;
-  // Stored so setTheme() can mutate the sphere material and swap out the
-  // axis label sprites when light/dark changes after construction.
+  // Stored so setTheme() can recolor materials and swap label sprites.
   sphereMaterial: MeshLambertMaterial;
   sphereLineMaterial: LineBasicMaterial;
   markerMaterial: MeshBasicMaterial;
@@ -189,21 +169,19 @@ export class BlochRenderer {
   labelSprites: Sprite[] = [];
   isDark: boolean;
   // Shared GPU resources for trail dots. Without these, every replayed gate
-  // (snapTo) and every animation frame (queueGate) used to allocate a fresh
-  // SphereGeometry + MeshBasicMaterial per path point -- ~3.2k geometries and
-  // ~6.4k materials per click for a 50-gate sequence -- which is what was
-  // freezing the UI on trace-row clicks.
+  // and animation frame allocated a fresh geometry + material per path
+  // point, which froze the UI on trace-row clicks for long sequences.
   private trailDotGeometry!: SphereGeometry;
-  // Pre-built palette of fade colors. Trail-dot age maps to an index via
-  // `getTrailDotMaterial`; lookups replace per-dot `new MeshBasicMaterial`.
+  // Pre-built fade-color palette; dot age maps to an index via
+  // `getTrailDotMaterial`, replacing per-dot material allocation.
   private trailDotMaterials!: MeshBasicMaterial[];
 
   constructor(canvas: HTMLCanvasElement, isDark: boolean) {
     this.rotations = new Rotations(64);
     this.isDark = isDark;
 
-    // Build the shared trail-dot resources up front so the hot paths in
-    // snapTo/queueGate are pure object linking, not allocation.
+    // Build the shared trail-dot resources up front so snapTo/queueGate
+    // hot paths just link objects rather than allocate.
     this.trailDotGeometry = new SphereGeometry(0.05, 16, 16);
     const TRAIL_PALETTE_SIZE = 32;
     this.trailDotMaterials = [];
@@ -251,11 +229,9 @@ export class BlochRenderer {
     // Create a group to hold the qubit
     const qubit = new Group();
 
-    // The sphere itself (and its grid lines) stay fixed in the scene: a
-    // gate rotates only the qubit's *state*, not the reference frame, so
-    // the Bloch axes and sphere surface must not spin. Only the position
-    // marker below lives in the rotating `qubit` group; the sphere and
-    // grid lines are parented to a separate, non-rotating group instead.
+    // The sphere and its grid lines stay fixed: a gate rotates the qubit's
+    // *state*, not the reference frame. Only the position marker lives in
+    // the rotating `qubit` group.
     const sphereFrame = new Group();
 
     // Add the main sphere.
@@ -268,19 +244,14 @@ export class BlochRenderer {
     });
     this.sphereMaterial = material;
     const sphere = new Mesh(sphereGeometry, material);
-    // Draw the (transparent, emissive) sphere before the grid lines. Both
-    // are transparent, so without an explicit order three.js sorts them by
-    // centroid distance and the sphere sometimes lands *after* the near-side
-    // line circles -- painting the emissive surface over them and washing a
-    // whole hemisphere of lines to white. The washed half flips as the
-    // camera rotates. Pinning the sphere to renderOrder 0 (and the lines to
-    // 1, below) makes the order deterministic.
+    // Draw the sphere (renderOrder 0) before the grid lines (1). Both are
+    // transparent, so without an explicit order three.js sorts by centroid
+    // and the sphere sometimes paints over the near-side lines.
     sphere.renderOrder = 0;
     sphereFrame.add(sphere);
 
-    // Add the 'spin' direction marker. This is the only part of the qubit
-    // group that should move when a gate is applied -- it tracks the
-    // current state vector across the (fixed) sphere surface.
+    // The spin-direction marker is the only part of the qubit group that
+    // moves with a gate; it tracks the state vector across the sphere.
     const coneGeometry = new ConeGeometry(0.2, 0.75, 32);
     const coneMat = new MeshBasicMaterial({ color: palette.markerColor });
     this.markerMaterial = coneMat;
@@ -294,9 +265,8 @@ export class BlochRenderer {
     const gridRadius = 5.1;
     const circleSegments = 128;
     const lineMaterial = new LineBasicMaterial({
-      // Test against the sphere's depth so far-side circles stay occluded,
-      // but don't write depth: the lines render after the sphere (renderOrder
-      // below) and shouldn't depth-fight one another.
+      // Test depth so far-side circles stay occluded, but don't write it
+      // (lines render after the sphere and shouldn't depth-fight).
       depthTest: true,
       depthWrite: false,
       transparent: true,
@@ -305,8 +275,6 @@ export class BlochRenderer {
     this.sphereLineMaterial = lineMaterial;
     const sphereLines = new Group();
 
-    // Build a closed circle of `circleSegments` points from a function that
-    // maps an angle in [0, 2*PI) to a point on the sphere.
     const addCircle = (pointAt: (angle: number) => Vector3) => {
       const points: Vector3[] = [];
       for (let i = 0; i <= circleSegments; i++) {
@@ -314,14 +282,12 @@ export class BlochRenderer {
       }
       const geometry = new BufferGeometry().setFromPoints(points);
       const line = new Line(geometry, lineMaterial);
-      // Render after the sphere (renderOrder 0) so the sphere never paints
-      // over the lines. depthTest still occludes the far-side circles.
+      // After the sphere so it never paints over the lines.
       line.renderOrder = 1;
       sphereLines.add(line);
     };
 
-    // Latitude circles: evenly spaced rings of constant polar angle. We skip
-    // the poles (the degenerate zero-radius rings) and draw the rest.
+    // Latitude circles, skipping the degenerate pole rings.
     const latitudeCount = 18;
     for (let i = 1; i < latitudeCount; i++) {
       const theta = (i / latitudeCount) * Math.PI;
@@ -332,9 +298,8 @@ export class BlochRenderer {
       );
     }
 
-    // Longitude circles: great circles through both poles, evenly spaced in
-    // azimuth. Each half-meridian repeats on the far side, so stepping over
-    // half the circle covers the whole sphere.
+    // Longitude circles: great circles through both poles. Each
+    // half-meridian repeats on the far side, so half a turn covers all.
     const longitudeCount = 18;
     for (let i = 0; i < longitudeCount; i++) {
       const phi = (i / longitudeCount) * Math.PI;
@@ -424,7 +389,7 @@ export class BlochRenderer {
     this.qubit = qubit;
     this.trail = trail;
 
-    // Labels are now synchronous, so just create them and render once.
+    // Labels are synchronous now, so just create them and render once.
     this.labelSprites = createLabels(isDark);
     this.labelSprites.forEach((s) => scene.add(s));
     this.render();
@@ -470,8 +435,8 @@ export class BlochRenderer {
       currentRotation.path.forEach((val) => {
         // Draw any that don't already have a point
         if (val.ref) return;
-        // Shared geometry + a placeholder material from the palette; the
-        // fade pass below will assign the correct material this frame.
+        // Shared geometry + placeholder material; the fade pass assigns the
+        // correct material this frame.
         const trackBall = new Mesh(
           this.trailDotGeometry,
           this.trailDotMaterials[0],
@@ -489,8 +454,7 @@ export class BlochRenderer {
       // Set qubit position to slerped values
       this.qubit.quaternion.copy(currentRotation.pos);
 
-      // Fade out the path trail as needed. Use shared palette materials
-      // instead of allocating a fresh MeshBasicMaterial per dot per frame.
+      // Fade out the trail using shared palette materials.
       this.trail.children.forEach((child, idx, arr) => {
         const ball = child as Mesh;
         const sat = easeOutSine((idx + 1) / arr.length);
@@ -500,11 +464,8 @@ export class BlochRenderer {
 
       this.render();
 
-      // If that gate is done, unset it and fire the completion callback.
-      // The callback may queue another gate (that's exactly how the play
-      // loop chains): in that case `queueGate` sees a live
-      // `animationCallbackId` and just appends to the queue, and the
-      // rAF we schedule below will pick it up next frame.
+      // Gate done: fire the completion callback (which may queue another
+      // gate -- queueGate sees the live animationCallbackId and appends).
       if (t >= 1) {
         const finishedCb = currentEntry.onComplete;
         currentEntry = undefined;
@@ -522,9 +483,8 @@ export class BlochRenderer {
 
   /**
    * Animate a single gate by axis + angle, optionally invoking
-   * `onComplete` when the rotation finishes. This is the seam the play
-   * loop in the React component uses to chain gates without having to
-   * know about `AppliedGate` / `Rotations`.
+   * `onComplete` when it finishes. The seam the component's play loop uses
+   * to chain gates without knowing about `AppliedGate` / `Rotations`.
    */
   animateStep(axis: RotationAxis, angle: number, onComplete?: () => void) {
     let applied: AppliedGate;
@@ -573,32 +533,24 @@ export class BlochRenderer {
   }
 
   /**
-   * Apply a sequence of rotations instantly with no animation. The
-   * dotted trail showing the qubit's path through each rotation is
-   * reconstructed from the same interpolation points the animated path
-   * (`queueGate`) uses, so the visible result is identical to what the
-   * user would see if they had clicked the gates one at a time and
-   * waited for each animation to finish. Used by the "inspect trace"
-   * UI and undo/redo paths where the user wants to see a specific past
-   * state without sitting through replay animations.
+   * Apply a sequence of rotations instantly with no animation, rebuilding
+   * the dotted trail from the same interpolation points the animated path
+   * uses. Used by trace inspection and undo/redo.
    */
   snapTo(steps: { axis: RotationAxis; angle: number }[]) {
-    // Cancel any in-flight animation so its render callback doesn't fight
-    // us by writing the in-progress quaternion back over our snap.
+    // Cancel any in-flight animation so its render callback doesn't write
+    // the in-progress quaternion back over our snap.
     if (this.animationCallbackId) {
       cancelAnimationFrame(this.animationCallbackId);
       this.animationCallbackId = 0;
     }
     this.gateQueue.length = 0;
     this.trail.clear();
-    // The rotation-axis indicator group is added to the qubit only while
-    // a gate is animating; detach it in case we're cancelling mid-flight.
+    // Detach the rotation-axis indicator in case we're cancelling mid-flight.
     this.qubit.remove(this.rotationAxis);
 
-    // Reset the underlying rotation model, then apply each step. We keep
-    // the AppliedGate returned by each call so we can rebuild the trail
-    // from its interpolation path -- otherwise navigating the trace would
-    // erase the dotted trace the user was following.
+    // Reset the rotation model, then apply each step, keeping each
+    // AppliedGate so we can rebuild the trail from its interpolation path.
     this.rotations.reset();
     this.qubit.quaternion.identity();
     for (const { axis, angle } of steps) {
@@ -617,15 +569,9 @@ export class BlochRenderer {
           applied = this.rotations.rotateH(angle);
           break;
       }
-      // Same trackball construction as the animation loop in queueGate,
-      // but we don't know the final dot count until we've walked every
-      // step, so we defer color/scale to a single fade pass after the
-      // loop. Shared geometry + a placeholder palette material keep this
-      // allocation-free apart from the lightweight Mesh wrapper.
-      // We deliberately do not set val.ref here: these are throwaway
-      // visuals owned by the snap (cleared on the next snapTo), not the
-      // long-lived references the animation path uses to skip
-      // already-drawn points.
+      // Same trackball construction as queueGate, but defer color/scale to
+      // one fade pass after the loop. These dots are throwaway visuals
+      // owned by the snap, so we don't set val.ref.
       for (const val of applied.path) {
         const trackBall = new Mesh(
           this.trailDotGeometry,
@@ -636,9 +582,8 @@ export class BlochRenderer {
         this.trail.add(trackBall);
       }
     }
-    // Apply the same age-based fade the animation loop applies on every
-    // frame so the trail looks the same whether it was drawn step by
-    // step or rebuilt in one shot. Palette lookup, no allocations.
+    // Same age-based fade as the animation loop, so a rebuilt trail looks
+    // identical to one drawn step by step.
     this.trail.children.forEach((child, idx, arr) => {
       const ball = child as Mesh;
       const sat = easeOutSine((idx + 1) / arr.length);
@@ -650,11 +595,9 @@ export class BlochRenderer {
   }
 
   /**
-   * Map an age-fade saturation in [0, 1] to a pre-built material from
-   * `trailDotMaterials`. Replaces `new MeshBasicMaterial({ color })` on
-   * the per-dot hot path -- the visual difference of bucketing 64 unique
-   * sat values into 32 palette entries is imperceptible, the perf
-   * difference (no allocation, no GC) is not.
+   * Map an age-fade saturation in [0, 1] to a pre-built palette material,
+   * avoiding per-dot material allocation. Bucketing into 32 entries is
+   * visually imperceptible.
    */
   private getTrailDotMaterial(sat: number): MeshBasicMaterial {
     const n = this.trailDotMaterials.length;
@@ -667,13 +610,10 @@ export class BlochRenderer {
     this.renderer.render(this.scene, this.camera);
   }
 
-  // Resize the WebGL drawing buffer to match the on-screen size of the
-  // canvas's container. Passing `false` as the third arg to `setSize`
-  // tells three.js to update the backing buffer only and leave the
-  // canvas's CSS size alone, so the element keeps stretching to fill its
-  // flex cell while the render resolution tracks the actual pixels. The
-  // perspective camera's aspect ratio is updated to match so the sphere
-  // stays round at any container shape.
+  // Resize the WebGL buffer to the container's on-screen size. The `false`
+  // arg leaves the canvas CSS size alone so it keeps filling its flex cell
+  // while render resolution tracks actual pixels; aspect is updated to
+  // keep the sphere round.
   resize(width: number, height: number) {
     const w = Math.max(1, Math.floor(width));
     const h = Math.max(1, Math.floor(height));
@@ -702,12 +642,9 @@ export class BlochRenderer {
 
     this.directionalLight.intensity = palette.directionalLightBrightness;
 
-    // Canvas-backed sprite textures are baked at the colors they were
-    // generated with; the cheapest correct fix is to recreate them.
+    // Sprite textures are baked at their generation colors, so recreate them.
     this.labelSprites.forEach((sprite) => {
       this.scene.remove(sprite);
-      // Both texture and material are disposable; clean up before
-      // releasing the reference to keep WebGL resources tidy.
       sprite.material.map?.dispose();
       sprite.material.dispose();
     });
@@ -718,18 +655,16 @@ export class BlochRenderer {
   }
 
   dispose() {
-    // Stop any in-flight animation frame so it doesn't try to render into
-    // a context we're about to throw away.
+    // Stop any in-flight frame so it doesn't render into a dead context.
     if (this.animationCallbackId) {
       cancelAnimationFrame(this.animationCallbackId);
       this.animationCallbackId = 0;
     }
     this.controls.dispose();
-    // Walk every Mesh in the scene and release its geometry/material/textures.
-    // three.js doesn't do this automatically; failing to do so accumulates
-    // GPU memory and (more visibly) eats WebGL contexts on every remount.
-    // Trail dots all share the same geometry + a small material palette, so
-    // we skip them here and dispose those shared resources exactly once below.
+    // three.js doesn't free GPU resources automatically; walk the scene and
+    // dispose each Mesh's geometry/material/textures, or remounts leak GPU
+    // memory and WebGL contexts. Trail dots share resources, disposed once
+    // below, so skip them here.
     const sharedGeo = this.trailDotGeometry;
     const sharedMats = new Set<MeshBasicMaterial>(this.trailDotMaterials);
     this.scene.traverse((obj) => {

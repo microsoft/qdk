@@ -2,11 +2,10 @@
 // Licensed under the MIT License.
 
 /*
- * Pure helpers for validating Bloch-sphere gate-code input.
+ * Pure gate-code metadata and validation for the Bloch-sphere widget.
  *
- * Kept in a separate module from bloch.tsx so they can be unit-tested
- * directly under plain Node without dragging in three.js, preact, or the
- * JSON data tables that bloch.tsx imports.
+ * Kept separate from bloch.tsx so it can be unit-tested under plain Node
+ * without pulling in three.js, preact, or the JSON data tables.
  */
 
 import {
@@ -18,22 +17,14 @@ import {
   Hadamard,
 } from "../quantum-math.js";
 
-/**
- * Axis names accepted by the renderer's animated rotation methods and by
- * `BlochRenderer.snapTo`. Distinct from x/y/z labels in the visualization;
- * these are the rotation primitives the renderer exposes.
- */
+/** Rotation primitives the renderer exposes (distinct from the x/y/z axis
+ * labels in the visualization). */
 export type RotationAxis = "X" | "Y" | "Z" | "H";
 
 /**
- * Per-gate metadata used by both the visualization layer (to animate or
- * snap the sphere) and the math layer (to display the LaTeX equation and
- * update the basis-coefficient state vector). Keyed by the single-character
- * gate code (see `VALID_GATE_CODES`).
- *
- * Keeping one table avoids the previous duplication where the same code was
- * mentioned in a `switch` in the React component, a separate `gateLaTeX`
- * dictionary, and the `cplx` matrix imports.
+ * Per-gate metadata, keyed by single-character gate code, shared by the
+ * visualization layer (to animate/snap) and the math layer (to display
+ * the LaTeX equation and update the state vector).
  */
 export const gateInfo: Record<
   string,
@@ -117,25 +108,21 @@ export const gateInfo: Record<
  * The set of single-character gate codes the widget understands. Each
  * character here must correspond to a `case` arm in `BlochSphere.rotate`.
  */
+/** The single-character gate codes the widget understands. */
 export const VALID_GATE_CODES = "XYZHSsTt";
 
 /**
- * Maximum number of gates accepted from a single untrusted input (URL
- * parameter, paste into the Run textbox, etc.). Each gate animates for
- * ~100ms so even the cap here represents ~25 seconds of replay, which is
- * already past the "this is bad UX" line. The cap exists to bound the
- * abuse case (a stale or hostile link with thousands of gates flooding
- * the animation queue), not to define the intended UX limit.
+ * Cap on gates accepted from a single untrusted input (URL parameter,
+ * paste, etc.). Bounds the abuse case (a hostile link with thousands of
+ * gates flooding the animation queue), not the intended UX limit.
  */
 export const MAX_GATE_SEQUENCE_LENGTH = 256;
 
 const validGateSet = new Set(VALID_GATE_CODES);
 
 /**
- * Filter a string of gate codes down to characters in `VALID_GATE_CODES`
- * and cap its length at `MAX_GATE_SEQUENCE_LENGTH`. Returns the cleaned
- * string and a flag indicating whether anything was dropped, so callers
- * can decide whether to surface a hint to the user.
+ * Filter a string down to `VALID_GATE_CODES` and cap its length. Returns
+ * the cleaned string and whether anything was dropped.
  */
 export function sanitizeGateSequence(input: string | undefined | null): {
   gates: string;

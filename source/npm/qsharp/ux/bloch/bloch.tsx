@@ -25,107 +25,64 @@ import { BlochRenderer, DEFAULT_ROTATION_TIME_MS } from "./blochRenderer.js";
 
 import rzOps from "../../rz-array.json";
 
-// Markdown for the initial |0> state shown as the first trace row. Kept
-// as a module constant so the trace list and the hidden width-probe
-// (see `widthProbe`) render exactly the same source.
+// Markdown for the initial |0> state shown as the first trace row.
 const INITIAL_KET_MARKDOWN =
   "$$ | \\psi \\rangle_0 = \\begin{bmatrix} 1 \\\\ 0 \\end{bmatrix} $$";
 
 export interface BlochSphereProps {
-  /** Sequence of single-character gate codes to replay on mount. Each
-   * character must be one of the gate keys understood by `rotate` (X, Y, Z,
-   * H, S, s, T, t); see `VALID_GATE_CODES`. Unknown characters are silently
-   * dropped and the total length is capped (`MAX_GATE_SEQUENCE_LENGTH`),
-   * so it is safe to pass straight from an untrusted URL parameter. */
+  /** Gate codes (X Y Z H S s T t) to replay on mount. Sanitized and
+   * length-capped, so it's safe to pass straight from an untrusted URL. */
   initialGates?: string;
-  /** Called whenever the applied-gate sequence changes (gate applied, gates
-   * applied in bulk via Run, or reset). The argument is the full sequence
-   * of single-character gate codes applied so far. Parents can use this to
-   * keep a URL or other external state in sync. */
+  /** Called with the full gate sequence whenever it changes, so parents
+   * can keep a URL or other external state in sync. */
   onGatesChanged?: (gates: string) => void;
-  /** Optional host-supplied control rendered just after the Run button in
-   * the gate-editor row. The playground uses this to place its
-   * "share link" button alongside Run rather than floating it over the
-   * widget. */
+  /** Host-supplied control rendered after the Run button in the editor row
+   * (the playground uses it for its "share link" button). */
   actionSlot?: ComponentChildren;
 }
 
 export function BlochSphere(props: BlochSphereProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // Wrapper around the canvas whose size the WebGL buffer tracks. The
-  // canvas itself stretches to fill this element via CSS; we observe the
-  // wrapper (not the canvas) so the ResizeObserver reports the intended
-  // layout size rather than the size three.js just wrote to the canvas.
+  // We observe this wrapper (not the canvas) for size changes, since the
+  // canvas is stretched to fill it by CSS and three.js overwrites its size.
   const stageRef = useRef<HTMLDivElement>(null);
   const renderer = useRef<BlochRenderer | null>(null);
-  // Scrollable container holding the trace rows. We keep a ref so we
-  // can pull the currently-active row into view whenever the cursor
-  // moves (e.g. during playback). Doing it manually instead of via
-  // `Element.scrollIntoView` so we only ever move the trace pane and
-  // never accidentally scroll the page.
+  // Scrollable trace container; kept as a ref so we can scroll the active
+  // row into view without ever scrolling the page.
   const traceScrollRef = useRef<HTMLDivElement>(null);
 
-  // The widget's interaction model is a time-travel trace:
+  // The interaction model is a time-travel trace:
+  //   * `gates` is the canonical, ordered list of applied gate codes. It is
+  //     the only durable state; everything else is derived from it.
+  //   * `cursor` is the viewing position in [0, gates.length]. Values
+  //     between 0 and the end put the widget in *inspect mode*: the sphere
+  //     shows that intermediate state without truncating the sequence.
+  //   * `past` / `future` are undo/redo history as whole-sequence snapshots
+  //     (one per user action), so undo reverts an entire action at once.
   //
-  //   * `gates` is the canonical list of single-character gate codes that
-  //     have been applied to |0\u27e9, in order. It is the only durable state;
-  //     everything else (sphere position, displayed state vectors,
-  //     trace rows) is derived from it.
-  //   * `cursor` is the current viewing position, in [0, gates.length].
-  //     0 means "at the initial |0\u27e9 state", gates.length means "at the
-  //     end of the applied sequence". Values in between put the widget
-  //     into *inspect mode*: the sphere shows that intermediate state
-  //     without truncating the future part of the sequence.
-  //   * `past` / `future` are the undo/redo history, kept as whole
-  //     sequence snapshots (see below). They are *not* per-gate: each
-  //     user action records one snapshot, so undoing reverts an entire
-  //     action -- including a multi-gate "Add sequence" -- in one step.
-  //
-  // Inspect mode (cursor < gates.length) is signalled visually by a
-  // persistent banner, dimmed/italicized future rows, and disabled
-  // Undo/Redo buttons. Applying a new gate while inspecting commits the
-  // truncation (future rows become discarded). This mirrors how
-  // browsers and most editors handle "navigate back, then act".
+  // Applying a new gate while inspecting commits the truncation (later rows
+  // are discarded), mirroring "navigate back, then act" in browsers.
   const [gates, setGates] = useState<string[]>([]);
   const [cursor, setCursor] = useState(0);
-  // Undo/redo history as full-sequence snapshots. `past` holds the
-  // sequences that preceded the current one (oldest first, newest
-  // last); `future` holds sequences that were undone away (the next one
-  // to redo is first).
   const [past, setPast] = useState<string[][]>([]);
   const [future, setFuture] = useState<string[][]>([]);
   const [rzAngle, setRzAngle] = useState(0);
 
-  // Whether the gate controls (gate buttons, gate-string editor, Rz
-  // slider) are collapsed. When collapsed, the whole control stack is
-  // replaced by a compact read-only view of the current gate program
-  // plus a button to expand the controls again -- handy for users who
-  // just want to scrub the trace without the editing chrome taking up
-  // vertical space.
+  // Whether the gate controls are collapsed to a compact read-only view,
+  // for users who just want to scrub the trace without the editing chrome.
   const [controlsCollapsed, setControlsCollapsed] = useState(false);
 
-  // Playback state for the media-player-style controls. Stored both as
-  // React state (drives button labels and disabled flags) and as a ref
-  // (read from inside animation-completion callbacks, which capture
-  // their value at call time so plain state would go stale).
-  //
-  // `animatingToIndexRef` tracks the trace index the in-flight
-  // animation is heading toward, so that Pause can snap there cleanly
-  // instead of leaving the sphere mid-rotation. Null when nothing is
-  // animating.
+  // Playback state. Mirrored as a ref because animation-completion
+  // callbacks capture state at call time and would otherwise read it stale.
+  // `animatingToIndexRef` is the index the in-flight animation heads toward,
+  // so Pause can snap there cleanly; null when nothing is animating.
   const [isPlaying, setIsPlaying] = useState(false);
   const isPlayingRef = useRef(false);
   const animatingToIndexRef = useRef<number | null>(null);
 
-  // Playback speed multiplier. 1× is the original 100ms-per-gate
-  // default; 0.25× → 400ms, 4× → 25ms. We push the value straight into
-  // `renderer.current.rotationTimeMs` on change so live-dragging the
-  // slider during a Play actually affects the in-flight animation
-  // (the rAF loop re-reads the field every frame). A small visual jump
-  // is possible when the speed changes mid-rotation -- elapsed-time
-  // arithmetic doesn't carry over -- but it's not worth the extra
-  // state-tracking machinery to smooth out, given the slider is mainly
-  // used between gates.
+  // Playback speed multiplier (0.25x..4x). Pushed straight into
+  // `renderer.current.rotationTimeMs` so dragging mid-Play takes effect
+  // immediately (the rAF loop re-reads it every frame).
   const [speed, setSpeed] = useState(1);
 
   function speedChange(e: Event) {
@@ -137,44 +94,28 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     }
   }
 
-  // Live-text editing of the gate sequence.
-  //
-  //   * `draftText === null` means the textbox simply mirrors the
-  //     committed sequence (`gates.join("")`); buttons, undo, etc. flow
-  //     straight through.
-  //   * `draftText !== null` means the user is actively typing. The
-  //     textbox shows their text *immediately* (so typing stays snappy),
-  //     but the expensive part -- recomputing every trace row and snapping
-  //     the sphere -- is deferred until they pause (`GATE_TEXT_DEBOUNCE_MS`
-  //     after the last keystroke). The math itself is sub-millisecond; the
-  //     debounce exists to avoid rebuilding the whole trace on every
-  //     keystroke, not because the state calc is slow.
-  //
-  // Input is sanitized as it's typed, so the textbox only ever contains
-  // valid gate codes -- there's no transient "invalid"/"unsaved" state to
-  // reconcile, and the sphere (once the debounce fires) always matches
-  // exactly what's shown.
+  // Live-text editing of the gate sequence. `draftText === null` means the
+  // textbox mirrors the committed `gates`. While the user is typing,
+  // `draftText` holds their input and is shown immediately; the expensive
+  // trace/sphere update is deferred until they pause (debounced). Input is
+  // sanitized per keystroke, so the textbox only ever holds valid codes.
   const GATE_TEXT_DEBOUNCE_MS = 150;
   const [draftText, setDraftText] = useState<string | null>(null);
   const displayValue = draftText ?? gates.join("");
-  // Pending-commit timer id, the text waiting to be committed, and a
-  // snapshot of `gates` taken at the start of an editing burst (so the
-  // whole burst collapses into a single undoable step).
+  // Pending-commit timer, the text awaiting commit, and a snapshot of
+  // `gates` from the start of an editing burst (so the burst is one undo).
   const draftTimerRef = useRef<number | null>(null);
   const draftPendingRef = useRef<string | null>(null);
   const draftBaseRef = useRef<string[]>([]);
 
-  // Measured natural width (px) of the widest piece of trace content,
-  // used to size the trace pane so it grows horizontally to fit the
-  // wide `gate . |psi> = result` equations instead of clipping them or
-  // showing a horizontal scrollbar. Null until first measurement.
+  // Measured natural width (px) of the widest trace row, fed back as an
+  // explicit column width so the wide equations don't clip or scroll.
   const [traceContentWidth, setTraceContentWidth] = useState<number | null>(
     null,
   );
 
-  // Convert a gate-code sequence to the format `BlochRenderer.snapTo`
-  // expects. Keeping this as a small helper keeps the model/view seam
-  // narrow: the renderer never has to know about gate codes.
+  // Convert gate codes to the {axis, angle} steps `snapTo` expects, keeping
+  // the renderer ignorant of gate codes.
   function gatesToSteps(codes: string[]) {
     return codes.map((c) => ({
       axis: gateInfo[c].rotateAxis,
@@ -184,19 +125,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   useEffect(() => {
     if (!canvasRef.current) return;
-    // Resolve the initial theme exactly once; subsequent changes are
-    // delivered via detectThemeChange below.
     const initialIsDark = ensureTheme() ?? false;
     const r = new BlochRenderer(canvasRef.current, initialIsDark);
     renderer.current = r;
-    // Replay any gates supplied via the URL on initial mount. We bypass
-    // the regular `applyGate` path here because reading back state
-    // inside a tight setState loop hits stale-closure bugs. Instead,
-    // seed `gates` directly and position the cursor at the start so
-    // the widget opens on |0⟩ in inspect mode -- the user can then
-    // press Play (or step-forward) to watch the supplied program
-    // execute, rather than being shown only the final state. The
-    // trace pane and transport controls let them scrub freely.
+    // Replay any URL-supplied gates. We seed `gates` directly (rather than
+    // the regular applyGate path, which hits stale-closure bugs in a tight
+    // setState loop) and park the cursor at 0, so the widget opens on |0⟩
+    // in inspect mode and the user can Play/step through the program.
     if (props.initialGates) {
       const { gates: cleaned, modified } = sanitizeGateSequence(
         props.initialGates,
@@ -211,25 +146,16 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       if (cleaned) {
         const arr = cleaned.split("");
         setGates(arr);
-        // Cursor at 0 puts the widget in inspect mode on the initial
-        // |0⟩ state; the renderer is already there by default so no
-        // snapTo is needed. `onGatesChanged` still fires so the parent
-        // sees the full sequence -- only the visible step starts at
-        // the beginning rather than the end.
         setCursor(0);
         props.onGatesChanged?.(cleaned);
       }
     }
-    // Wire live theme switches (e.g. user toggles VS Code light/dark while
-    // the widget is open) through to the WebGL scene. CSS-styled parts of
-    // the widget pick up the change automatically via theme tokens.
+    // Live theme switches (e.g. VS Code light/dark toggled while open).
     const themeCleanup = detectThemeChange(document.body, (isDark) => {
       r.setTheme(isDark);
     });
-    // Keep the WebGL drawing buffer in sync with the on-screen size of the
-    // stage. Observing the wrapper element lets the widget fill whatever
-    // host it sits in (a full VS Code editor tab, a playground pane, or an
-    // inline Jupyter output) and stay sharp on high-DPI displays.
+    // Keep the WebGL buffer in sync with the stage's on-screen size, so the
+    // widget fills whatever host it sits in and stays sharp on high-DPI.
     let resizeObserver: ResizeObserver | undefined;
     const stage = stageRef.current;
     if (stage) {
@@ -324,25 +250,12 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     return () => unschedule(id);
   }, [renderLimit, traceEntries]);
 
-  // Measure the natural width of the trace content and drive the pane
-  // width from it. The visible content lives in an absolutely-positioned
-  // inner layer (so a long trace can't grow the grid's rows -- see
-  // `.qs-bloch-trace` in the CSS), which means it no longer contributes
-  // its width to the `auto` grid column either; the column would collapse
-  // to the pane's `min-width`. So we measure the widest rendered row here
-  // and feed it back as an explicit column width (via the
-  // `--qs-trace-width` custom property), letting the pane grow
-  // horizontally in both hosts without a horizontal scrollbar.
-  //
-  // The equation rows live inside the scroll container, which clips its
-  // overflow -- so we can't read their width from the inner layer's
-  // `scrollWidth`. Instead we measure each row's own `scrollWidth` (the
-  // rows are typeset `white-space: nowrap`, so each one's width is its
-  // intrinsic content width, independent of the pane width) and add the
-  // actual rendered scrollbar gutter so the vertical scrollbar never eats
-  // into a row. Because row widths don't depend on the pane width, the
-  // result is a stable fixed point with no layout feedback loop. We round
-  // up and only update on a real change to avoid sub-pixel thrashing.
+  // Measure the widest trace row and feed it back as an explicit column
+  // width (--qs-trace-width) so the wide equations don't clip or scroll.
+  // The rows are absolutely positioned (so they can't stretch the grid)
+  // and `white-space: nowrap`, so each row's scrollWidth is its intrinsic
+  // width and independent of the pane width -- a stable fixed point. We
+  // add the scrollbar gutter, round up, and only update on real change.
   const PANE_MIN_WIDTH = 480;
   useEffect(() => {
     const list = traceScrollRef.current;
@@ -352,8 +265,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       for (const row of Array.from(list.children)) {
         widestRow = Math.max(widestRow, (row as HTMLElement).scrollWidth);
       }
-      // Width consumed by the (possibly absent) vertical scrollbar, so a
-      // long trace doesn't clip the right edge of the widest row.
       const scrollbar = list.offsetWidth - list.clientWidth;
       // +2 for the pane's 1px left/right border.
       const next = Math.max(
@@ -365,8 +276,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       );
     };
     measure();
-    // Re-measure when fonts finish loading or the host font size changes,
-    // since either can change the typeset width after first paint.
+    // Re-measure when fonts finish loading or the host font size changes.
     const ro = new ResizeObserver(measure);
     ro.observe(list);
     for (const row of Array.from(list.children)) ro.observe(row);
@@ -381,21 +291,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     };
   }, []);
 
-  // Keep the currently-active trace row in view as `cursor` advances
-  // (most visibly during playback). We scroll the trace container
-  // directly via `scrollTo` instead of `Element.scrollIntoView` --
-  // `scrollIntoView` walks up the ancestor chain and will scroll the
-  // page itself once the trace pane has bottomed out (e.g. when the
-  // active row is near the end of a long sequence). Driving
-  // `container.scrollTop` keeps the scrolling strictly local to the
-  // trace pane.
-  //
-  // The bottom of the visible band is partially covered by the sticky
-  // `.qs-bloch-trace-item-latest` row (the pinned final step), so we
-  // subtract its height -- otherwise the active row could slip behind
-  // the sticky row and look stuck. When we do scroll, we aim to center
-  // the active row in the (visible band minus the sticky overlap) so
-  // long sequences keep the active step in the middle of the pane.
+  // Keep the active trace row in view as `cursor` advances. We drive
+  // `container.scrollTop` directly rather than `scrollIntoView`, which
+  // would scroll the whole page once the pane bottoms out. The sticky
+  // "latest" row overlaps the bottom of the band, so we subtract its
+  // height and center the active row in the remaining visible band.
   useEffect(() => {
     const container = traceScrollRef.current;
     if (!container) return;
@@ -403,8 +303,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       ".qs-bloch-trace-item-current",
     );
     if (!active) return;
-    // The sticky latest row only overlaps when the active row isn't
-    // *also* the latest one -- otherwise it's the same element.
+    // The sticky latest row only overlaps when it isn't the active row.
     const sticky = container.querySelector<HTMLElement>(
       ".qs-bloch-trace-item-latest",
     );
@@ -415,11 +314,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const aTop = active.offsetTop;
     const aBottom = aTop + active.offsetHeight;
     if (aTop < cTop || aBottom > cBottom) {
-      // Target scrollTop that centers the active row inside the
-      // visible band. Clamp to the container's scrollable range so we
-      // don't ask for a negative offset (active row near the very top)
-      // or overshoot past the end (active row near the bottom of a
-      // short list).
+      // Center the active row, clamped to the scrollable range.
       const desired = aTop - (visibleHeight - active.offsetHeight) / 2;
       const maxScroll = container.scrollHeight - container.clientHeight;
       const target = Math.max(0, Math.min(maxScroll, desired));
@@ -427,19 +322,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     }
   }, [cursor, gates]);
 
-  // Current Bloch-sphere spherical coordinates (theta, phi) for the qubit
-  // state after applying the first `cursor` gates. Derived by re-walking
-  // the gate list through a throwaway `Rotations` instance so the overlay
-  // can never drift out of sync with the renderer. We don't follow the
-  // inter-step animation here on purpose: the overlay shows the discrete
-  // post-step state, matching what the LaTeX trace pane shows.
-  //
-  // Three.js axes are not the Bloch axes the user sees on the diagram:
-  //   axis label X is drawn at three.js (0, 0, 6.4)  -> Bloch x = three.js z
-  //   axis label Y is drawn at three.js (6.4, 0, 0)  -> Bloch y = three.js x
-  //   axis label Z is drawn at three.js (0, 6.4, 0)  -> Bloch z = three.js y
-  // The state vector starts pointing along three.js +Y (i.e. Bloch +z),
-  // which is the |0> north pole.
+  // Spherical coordinates (theta, phi) of the qubit state after the first
+  // `cursor` gates, re-walked through a throwaway `Rotations` so the
+  // overlay can't drift from the renderer. Three.js axes differ from the
+  // drawn Bloch axes: Bloch x = three.js z, Bloch y = three.js x, Bloch
+  // z = three.js y; the state starts along three.js +Y (the |0> pole).
   const blochAngles = useMemo(() => {
     const rot = new Rotations();
     for (let i = 0; i < cursor; i++) {
@@ -468,10 +355,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     return { theta, phi, polar };
   }, [gates, cursor]);
 
-  // Current state-vector amplitudes at the cursor, as a column-vector
-  // ket. Walks the same matrix product as the trace list but stops at
-  // the cursor, so the overlay always shows the state the sphere is
-  // currently displaying. Rendered in the top-right corner of the stage.
+  // State-vector ket at the cursor, walking the same matrix product as
+  // the trace but stopping at the cursor. Shown in the stage's corner.
   const currentStateLatex = useMemo(() => {
     let state: Vec2 = Ket0;
     for (let i = 0; i < cursor; i++) {
@@ -480,18 +365,15 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     return `$$ | \\psi \\rangle = ${state.toLaTeX()} $$`;
   }, [gates, cursor]);
 
-  // "Inspect mode" means the user has *deliberately* parked the cursor on
-  // an earlier step to look at it (as opposed to a forward tail animation,
-  // which also has cursor < gates.length -- hence !isPlaying). It gates
-  // editing actions, but NOT undo/redo: those are always available when
-  // there's a history state to navigate to. Triggering one stops any
-  // in-flight animation and snaps to the restored sequence (see undo/redo).
+  // "Inspect mode" means the cursor is deliberately parked on an earlier
+  // step (not a forward tail animation, which also has cursor <
+  // gates.length -- hence !isPlaying). It gates editing, but NOT
+  // undo/redo, which are always available when there's history.
   const inInspectMode = !isPlaying && cursor < gates.length;
   const canUndo = past.length > 0;
   const canRedo = future.length > 0;
-  // Playback affordance. These cover the media-control row; everything
-  // is derived from `cursor` / `gates` / `isPlaying` so the buttons can
-  // never disagree with what the sphere is actually doing.
+  // Playback affordances, all derived from cursor/gates/isPlaying so the
+  // media buttons can't disagree with what the sphere is doing.
   const atStart = cursor === 0;
   const atEnd = cursor >= gates.length;
   const canStepBack = !atStart;
@@ -499,17 +381,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const canPlay = gates.length > 0;
 
   /**
-   * Cancel any in-flight playback animation and land cleanly on a
-   * trace step. Called by Pause directly, and called as a guard by
-   * every editing or seeking action so the user can never "edit while
-   * playing" or end up with the cursor stuck mid-rotation. No-op when
-   * already stopped, so it is always safe to call.
-   *
-   * When called as a Pause (no follow-up seek), we snap forward to the
-   * destination of the in-flight gate -- treating Pause as "finish the
-   * current step, then stop". When called as a guard before another
-   * seek (passed `snapToTarget=false`), we skip that snap because the
-   * caller is about to snap somewhere else anyway.
+   * Stop any in-flight playback and land cleanly on a trace step. Called
+   * by Pause, and as a guard before every edit/seek so the user can't
+   * edit mid-rotation. No-op when already stopped. When called as a Pause
+   * (snapToTarget=true) it snaps forward to the in-flight gate's
+   * destination; guards pass false since they snap elsewhere next.
    */
   function stopPlayback(snapToTarget = true) {
     if (!isPlayingRef.current) return;
@@ -524,32 +400,22 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Animate one gate from the current sequence and, when the animation
-   * completes, advance the cursor and chain to the next gate if play is
-   * still active. Defined as a closure inside the component so it can
-   * read `gates` and the refs directly; the recursive chain captures
-   * `pos` per gate, so each callback knows which step it just finished.
+   * Animate one gate, then advance the cursor and chain to the next if
+   * play is still active. The recursive chain captures `pos` per gate.
    */
   function playFromIndex(pos: number) {
     if (!renderer.current) return;
     const code = gates[pos];
     const info = gateInfo[code];
     if (!info) {
-      // Defensive: malformed gate code shouldn't be possible (the input
-      // paths all run through sanitizeGateSequence), but if one slips
-      // through we end playback cleanly rather than calling rotateX on
-      // undefined.
+      // Defensive: inputs are sanitized, but bail cleanly if one slips by.
       stopPlayback(false);
       return;
     }
     animatingToIndexRef.current = pos + 1;
     renderer.current.animateStep(info.rotateAxis, info.rotateAngle, () => {
-      // We may have been paused while this gate was animating; in that
-      // case Pause already advanced the cursor and we should not chain.
-      // The ref check is belt-and-suspenders: snapTo cancels the rAF, so
-      // in practice this callback won't fire after a pause -- but if it
-      // ever does (e.g. callback fires the same tick pause clicks), we
-      // bail.
+      // If we were paused mid-gate, Pause already advanced the cursor and
+      // cancelled the rAF; bail rather than chaining.
       animatingToIndexRef.current = null;
       if (!isPlayingRef.current) return;
       const next = pos + 1;
@@ -564,10 +430,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Begin (or restart) playback from the current cursor through the end
-   * of the sequence. If the cursor is already at the end, treat the
-   * click as a Replay: snap to the start and play from there. Disabled
-   * with no effect if the sequence is empty.
+   * Play from the cursor to the end. If already at the end, treat the
+   * click as Replay: rewind to the start and play from there.
    */
   function play() {
     if (isPlayingRef.current || gates.length === 0 || !renderer.current) {
@@ -594,22 +458,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     stopPlayback(false);
     const target = cursor - 1;
     const r = renderer.current;
-    // Make sure the renderer's pose and `rotations.currPosition` are
-    // exactly at `cursor` before we animate. If a play just got
-    // cancelled by stopPlayback they could otherwise be one gate ahead.
+    // Align the renderer's pose with `cursor` before animating, in case a
+    // just-cancelled play left it a gate ahead.
     r.snapTo(gatesToSteps(gates.slice(0, cursor)));
-    // Animate the inverse of the last applied gate: same axis, negated
-    // angle. For each gate primitive (X/Y/Z/H plus the angle-bearing
-    // S/T variants), rotating by -angle around the same local axis is
-    // the true inverse, so the qubit retraces the gate's arc backward
-    // and lands exactly on the pose at `target`.
-    //
-    // Side effect during the animation: queueGate adds new trackballs
-    // along the reverse path. Because the reverse traces the same arc
-    // as the forward gate, those new dots visually overlap the existing
-    // trail dots, so the user just sees the qubit gliding back along the
-    // existing path. We clean them up in `onComplete` below by snapping
-    // -- snapTo wipes the trail and rebuilds it for `[0..target-1]`.
+    // Animate the inverse of the last gate (same axis, negated angle) so
+    // the qubit retraces its arc backward. queueGate lays down trail dots
+    // along the reverse path; they overlap the existing trail, and the
+    // onComplete snapTo wipes and rebuilds the trail for [0..target-1].
     const info = gateInfo[gates[cursor - 1]];
     r.animateStep(info.rotateAxis, -info.rotateAngle, () => {
       r.snapTo(gatesToSteps(gates.slice(0, target)));
@@ -622,8 +477,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     stopPlayback(false);
     const target = cursor + 1;
     const r = renderer.current;
-    // Same guard as stepBack: align the renderer with `cursor` before
-    // animating, so a half-finished play doesn't carry over.
+    // Same guard as stepBack: align the renderer with `cursor` first.
     r.snapTo(gatesToSteps(gates.slice(0, cursor)));
     const info = gateInfo[gates[cursor]];
     r.animateStep(info.rotateAxis, info.rotateAngle, () => {
@@ -642,10 +496,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Record the sequence as it was *before* the current action so Undo
-   * can return to it, and clear the redo `future` (a fresh action
-   * invalidates anything that was previously undone away). Call this
-   * once at the start of every action that changes `gates`.
+   * Snapshot the sequence before an action so Undo can return to it, and
+   * clear the redo stack. Call once at the start of every gate-changing
+   * action.
    */
   function pushHistory(prev: string[]) {
     setPast((p) => [...p, prev]);
@@ -653,22 +506,16 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Apply a single new gate to the sequence. If the user is currently
-   * inspecting an earlier step, the future part of the sequence is
-   * truncated (matching browser back-button + new-navigation semantics),
-   * and the redo stack is cleared.
+   * Apply one new gate. If inspecting an earlier step, the future part of
+   * the sequence is truncated (browser back-then-navigate semantics).
    */
   function applyGate(code: string) {
     const info = gateInfo[code];
     if (!info || !renderer.current) return;
-    // Editing always stops playback first. We pass snapToTarget=false
-    // because we're about to either snap (truncate-on-inspect path) or
-    // start a fresh animation immediately -- the renderer's queue gets
-    // cleared either way.
+    // Stop playback first; snapToTarget=false since we snap or animate next.
     stopPlayback(false);
 
-    // Drop any pending text edit so its debounced commit can't fire
-    // after this gate and overwrite it.
+    // Drop any pending text edit so its debounced commit can't overwrite this.
     cancelDraft();
 
     // Record the pre-action sequence so Undo reverts this whole action
@@ -691,29 +538,23 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Move the cursor to an arbitrary position in the existing sequence
-   * without modifying it. Used by clicks on trace rows and the
-   * "Jump to latest" button. Snaps the renderer instantly (no animation
-   * noise) because the user is inspecting, not acting.
+   * Move the cursor within the existing sequence without modifying it
+   * (trace-row clicks, jump buttons). Snaps instantly since the user is
+   * inspecting, not acting.
    */
   function navigateTo(pos: number) {
     if (!renderer.current) return;
     if (pos < 0 || pos > gates.length) return;
-    // Any deliberate seek (trace-row click, jump button) implicitly
-    // pauses playback. We pass snapToTarget=false because we're about
-    // to snap to `pos` ourselves a couple of lines down.
+    // The seek implicitly pauses; snapToTarget=false since we snap below.
     stopPlayback(false);
     renderer.current.snapTo(gatesToSteps(gates.slice(0, pos)));
     setCursor(pos);
   }
 
   /**
-   * Step back one entry in the history, restoring the whole previous
-   * sequence snapshot. Because history records one snapshot per action,
-   * this reverts an entire action at once -- e.g. undoing "Add sequence"
-   * removes the whole Rz decomposition. Always available when there's a
-   * prior state: stops any in-flight animation and snaps to the end of the
-   * restored sequence.
+   * Undo: restore the previous whole-sequence snapshot. One snapshot per
+   * action, so this reverts an entire action at once (e.g. a whole Rz
+   * decomposition). Always available when there's prior history.
    */
   function undo() {
     if (!canUndo || !renderer.current) return;
@@ -721,11 +562,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     cancelDraft();
     const prev = past[past.length - 1];
     setPast(past.slice(0, -1));
-    // The sequence we're leaving becomes the next thing Redo restores.
     setFuture([gates, ...future]);
     renderer.current.snapTo(gatesToSteps(prev));
-    // Snap navigation: mount the whole restored trace at once so the
-    // active row (and its highlight/anchor) appears immediately.
+    // Mount the whole restored trace now so the active row appears at once.
     fullMountRef.current = true;
     setGates(prev);
     setCursor(prev.length);
@@ -733,10 +572,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Step forward one entry in the history, restoring the snapshot that
-   * was most recently undone away. Like undo, it's always available when
-   * there's a state to redo: stops any in-flight animation and snaps to
-   * the end of the restored sequence (symmetric with undo).
+   * Redo: restore the snapshot most recently undone away. Symmetric with
+   * undo; always available when there's a state to redo.
    */
   function redo() {
     if (!canRedo || !renderer.current) return;
@@ -744,11 +581,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     cancelDraft();
     const next = future[0];
     setFuture(future.slice(1));
-    // The sequence we're leaving goes back onto the undo history.
     setPast([...past, gates]);
     renderer.current.snapTo(gatesToSteps(next));
-    // Snap navigation: mount the whole restored trace at once so the
-    // active row (and its highlight/anchor) appears immediately.
+    // Mount the whole restored trace now so the active row appears at once.
     fullMountRef.current = true;
     setGates(next);
     setCursor(next.length);
@@ -757,16 +592,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   function clear() {
     stopPlayback(false);
-    // A pending text edit would otherwise fire after the clear and
-    // resurrect the old sequence; drop it first.
+    // Drop any pending text edit so it can't resurrect the old sequence.
     cancelDraft();
-    // Clear is an editing action like any other: record the cleared-from
-    // sequence so an accidental Clear can be undone.
+    // Record the cleared-from sequence so an accidental Clear can be undone.
     pushHistory(gates);
     setGates([]);
     setCursor(0);
-    // Also return the Rz slider to its zero position so the control
-    // reflects the cleared state rather than a stale angle.
+    // Return the Rz slider to zero so it reflects the cleared state.
     setRzAngle(0);
     renderer.current?.reset();
     props.onGatesChanged?.("");
@@ -776,9 +608,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   /**
    * Cancel any pending debounced commit and drop the draft so the textbox
-   * falls back to mirroring `gates`. Called by the non-text actions
-   * (buttons, undo/redo, clear) so a stale timer can't clobber the change
-   * they just made.
+   * mirrors `gates` again. Called by the non-text actions so a stale timer
+   * can't clobber the change they just made.
    */
   function cancelDraft() {
     if (draftTimerRef.current !== null) {
@@ -790,18 +621,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Handle a keystroke in the gate textbox. Sanitize immediately (so the
-   * field only ever holds valid codes), show the result right away for a
-   * responsive feel, and schedule the expensive sphere/trace update for
-   * `GATE_TEXT_DEBOUNCE_MS` after the user stops typing.
+   * Handle a keystroke in the gate textbox: sanitize immediately, show the
+   * result right away, and debounce the expensive sphere/trace update.
    */
   function gateTextInput(e: Event) {
     const value = (e.target as HTMLInputElement).value;
     const clean = sanitizeGateSequence(value).gates;
-    // Typing is an edit, so it interrupts any in-flight animation --
-    // including the tail animation a previous commit may have started.
-    // We snap nowhere here; the pending commit will snap to the right
-    // place. This keeps the textbox focused/enabled the whole time.
+    // Typing interrupts any in-flight animation; the pending commit snaps
+    // to the right place, so we snap nowhere here.
     if (isPlayingRef.current) stopPlayback(false);
     // First keystroke of a burst: snapshot the pre-edit sequence so the
     // whole burst undoes as one step.
@@ -816,15 +643,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Snap the sphere to `arr[0..fromIndex]` and then animate the
-   * remaining gates one at a time through to the end, advancing the
-   * cursor as each completes. Shared by the actions that add a run of
-   * gates and want the new tail to *animate* into place (like a gate
-   * button does) rather than teleport: live-text commits and the Rz
-   * "Add to sequence" button. Reads gates from the passed `arr` because
-   * the caller's `setGates` hasn't flushed yet, mirroring how
-   * `playFromIndex` reads `gates`. No-op tail (fromIndex at or past the
-   * end) just lands the cursor.
+   * Snap to `arr[0..fromIndex]` then animate the remaining gates one at a
+   * time. Shared by the actions that append a run and want the tail to
+   * animate in (live-text commits, the Rz "Add to sequence" button).
+   * Reads from `arr` because the caller's setGates hasn't flushed yet.
    */
   function animateTailFrom(arr: string[], fromIndex: number) {
     if (!renderer.current) return;
@@ -862,14 +684,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
-   * Commit the pending draft text to `gates`. Rather than teleporting to
-   * the final state, we diff against the sequence we started editing
-   * from: everything up to the first differing gate is a shared prefix,
-   * so we snap instantly to that prefix and then *animate* the divergent
-   * tail. The edit then reads as "continue from where the two sequences
-   * still agree" -- appending "H" to "XYZ" animates just the H, and even
-   * a mid-string change only re-animates from the point of divergence.
-   * The whole burst is recorded as a single undo step.
+   * Commit the pending draft text. Diffs against the sequence editing
+   * started from: snap to the shared prefix, then animate the divergent
+   * tail, so appending "H" to "XYZ" animates just the H. Recorded as one
+   * undo step.
    */
   function commitDraftText() {
     draftTimerRef.current = null;
@@ -878,10 +696,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     if (text === null || !renderer.current) return;
     const arr = text.split("");
     const prev = draftBaseRef.current;
-    // Nothing actually changed during this burst (e.g. pasting the same
-    // text, or a stray input event). Drop the draft without recording a
-    // history step -- otherwise undo gets a no-op entry that appears to
-    // only reset the trace position.
+    // Nothing changed this burst (e.g. pasting identical text): drop the
+    // draft without a history step, else undo gets a no-op entry.
     if (prev.join("") === text) {
       if (draftText !== null) setDraftText(null);
       return;
@@ -891,44 +707,35 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setPast((p) => [...p, prev]);
     setFuture([]);
     setGates(arr);
-    // Back to canonical mirroring -- gates.join("") now equals the text.
     setDraftText(null);
     props.onGatesChanged?.(text);
 
-    // Length of the shared leading run between old and new sequences.
+    // Shared leading run between old and new; snap to it, animate the rest.
     const maxPrefix = Math.min(prev.length, arr.length);
     let prefix = 0;
     while (prefix < maxPrefix && prev[prefix] === arr[prefix]) prefix++;
-
-    // Snap to the shared prefix, then animate everything past it.
     animateTailFrom(arr, prefix);
   }
 
-  // The Rz angle is chosen with a circular dial (see the JSX below). The
-  // dial stores the angle snapped to the lookup-table resolution so the
-  // previewed decomposition matches exactly what gets committed. The
-  // table is indexed by angle*200, so one step is 1/200 rad and the full
-  // turn is rzOps.length steps (== 2*PI*200).
+  // The Rz angle is chosen with a circular dial (JSX below). Angles are
+  // snapped to the lookup-table resolution (1/200 rad per step, indexed
+  // by angle*200) so the preview matches what gets committed.
   const dialRef = useRef<SVGSVGElement>(null);
-  // Holds the pending requestAnimationFrame id while dragging the dial,
-  // so pointermove can coalesce rapid moves into one update per frame.
+  // Pending requestAnimationFrame id while dragging, to coalesce moves.
   const dialFrameRef = useRef<number | null>(null);
   const RZ_STEP = 1 / 200;
   const RZ_STEPS = rzOps.length;
 
-  // Snap an arbitrary angle (radians) onto the lookup-table grid and wrap
-  // it into [0, 2*PI). Keeping every angle on the grid means the dial,
-  // the readout, and the committed decomposition can never disagree.
+  // Snap an angle (radians) onto the lookup-table grid and wrap into
+  // [0, 2*PI), so dial, readout, and decomposition can't disagree.
   function snapAngle(a: number): number {
     let idx = Math.round(a * 200) % RZ_STEPS;
     if (idx < 0) idx += RZ_STEPS;
     return idx * RZ_STEP;
   }
 
-  // Convert a pointer position to an angle measured from the dial center.
-  // 0 rad points right (3 o'clock) and increases counterclockwise, the
-  // standard math convention; SVG's y-axis points down, so we negate the
-  // vertical delta to flip it back.
+  // Pointer position to angle from the dial center. 0 rad is 3 o'clock,
+  // increasing counterclockwise; SVG y points down, so negate the y delta.
   function angleFromPointer(clientX: number, clientY: number): number {
     const svg = dialRef.current;
     if (!svg) return rzAngle;
@@ -950,10 +757,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function dialPointerMove(e: PointerEvent) {
     const svg = e.currentTarget as SVGSVGElement;
     if (!svg.hasPointerCapture(e.pointerId)) return;
-    // Coalesce moves to one state update per animation frame. Pointer
-    // events can fire far more often than the display refreshes, and each
-    // setRzAngle triggers a re-render, so without this a fast drag queues
-    // up many redundant renders and feels sluggish.
+    // Coalesce moves to one state update per frame; pointer events can
+    // outpace the refresh rate and each setRzAngle re-renders.
     const next = angleFromPointer(e.clientX, e.clientY);
     if (dialFrameRef.current !== null) return;
     dialFrameRef.current = requestAnimationFrame(() => {
@@ -966,8 +771,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const svg = e.currentTarget as SVGSVGElement;
     if (svg.hasPointerCapture(e.pointerId))
       svg.releasePointerCapture(e.pointerId);
-    // Flush any frame queued by the last move so the final position isn't
-    // dropped, and clear the pending-frame guard for the next drag.
+    // Flush any queued frame so the final position isn't dropped.
     if (dialFrameRef.current !== null) {
       cancelAnimationFrame(dialFrameRef.current);
       dialFrameRef.current = null;
@@ -975,9 +779,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setRzAngle(angleFromPointer(e.clientX, e.clientY));
   }
 
-  // Keyboard support for the dial (focusable, role="slider"). Arrow keys
-  // nudge by one grid step; Home/End jump to 0 / just under a full turn.
-  // The angle wraps, matching the circular control.
+  // Keyboard support for the dial (focusable, role="slider"). Arrows nudge
+  // one step, PageUp/Down by ten, Home/End to 0 / just under a full turn.
   function dialKeyDown(e: KeyboardEvent) {
     if (isPlaying) return;
     let next: number;
@@ -1009,56 +812,39 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setRzAngle(snapAngle(next));
   }
 
-  // Map the current Rz angle to its precomputed Clifford+T decomposition.
-  // The table is indexed by angle*200 (mod 1256 == 2*PI*200), matching the
-  // resolution the slider steps at. Empty string for angle 0 (identity).
+  // Map the current Rz angle to its precomputed Clifford+T decomposition
+  // (empty string at angle 0 = identity).
   const rzAngleIdx = Math.round(rzAngle * 200) % rzOps.length;
   const rzDecomposition = rzOps[rzAngleIdx] ?? "";
 
-  // Append the current Rz decomposition to the gate sequence, mirroring
-  // the way the single-gate buttons commit a gate: truncate any future
-  // (inspected-past) steps, add the new gates, and clear the redo stack.
-  // Like a gate button, the newly-appended decomposition *animates* into
-  // place gate by gate (via `animateTailFrom`) rather than teleporting;
-  // the user can Pause partway or scrub the trace to inspect each step.
+  // Append the current Rz decomposition like a gate button does: truncate
+  // any inspected-future steps, clear redo, and animate the new gates in.
   function applyRzDecomposition() {
     if (!renderer.current || rzDecomposition.length === 0) return;
     stopPlayback(false);
     cancelDraft();
     // The whole decomposition is appended as one undoable action.
     pushHistory(gates);
-    // If the user is inspecting an earlier step, branch from there by
-    // truncating the later gates; otherwise append at the end.
+    // Branch from the inspected step if inspecting; otherwise append.
     const base = cursor < gates.length ? gates.slice(0, cursor) : gates;
     const next = [...base, ...rzDecomposition.split("")];
     setGates(next);
-    // Leave the dial at its current angle so the user can add the same
-    // rotation again without re-dialing it.
+    // Leave the dial angle as-is so the user can add the rotation again.
     props.onGatesChanged?.(next.join(""));
-    // Snap to the prefix, then animate the appended gates into place.
     animateTailFrom(next, base.length);
   }
 
-  // Memoized trace row list. Rebuilding these vnodes on every render is
-  // what made the dial feel slower as the sequence grew: each dial move
-  // calls setRzAngle, re-rendering the whole component, and preact then
-  // has to re-create and diff one vnode (plus a Markdown child) per gate.
-  // Keying the list on the values it actually depends on -- the rendered
-  // entries and the cursor position -- lets preact reuse the exact same
-  // vnodes when only the Rz angle changed, so the trace cost drops out of
-  // the drag entirely. `navigateTo` reads `gates` via closure, which only
-  // changes when `traceEntries` does, so the captured closure stays
-  // correct between rebuilds.
+  // Memoized trace rows. Keying on the values they depend on (entries +
+  // cursor) lets preact reuse the vnodes when only the Rz angle changed,
+  // keeping the dial drag cheap as the sequence grows.
   const traceRows = useMemo(() => {
-    // Mount only up to the progressive render limit (see above).
     return traceEntries.slice(0, renderLimit).map((str, i) => {
       const stepIndex = i + 1;
       const classes = ["qs-bloch-trace-item"];
       if (stepIndex === cursor) classes.push("qs-bloch-trace-item-current");
       if (stepIndex > cursor) classes.push("qs-bloch-trace-item-future");
-      // Pin the bottom-most row so the latest step stays visible
-      // when the rest of the trace scrolls. See the CSS rule
-      // for `.qs-bloch-trace-item-latest` for the mechanics.
+      // Pin the last row so the latest step stays visible while scrolling
+      // (see `.qs-bloch-trace-item-latest` in the CSS).
       if (i === traceEntries.length - 1)
         classes.push("qs-bloch-trace-item-latest");
       return (
@@ -1077,11 +863,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     <div
       class={"qs-bloch" + (controlsCollapsed ? " qs-bloch-collapsed" : "")}
       style={
-        // Drive the trace column's width from the measured content
-        // width (see the `traceContentWidth` effect). Exposed as a CSS
-        // custom property the grid template consumes, so the single-column
-        // media query can simply ignore it. Unset until first measurement,
-        // when the column falls back to its default floor.
+        // Drive the trace column width from the measured content width
+        // (--qs-trace-width). Unset until first measurement.
         traceContentWidth !== null
           ? ({
               "--qs-trace-width": `${traceContentWidth}px`,
@@ -1145,13 +928,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             )}
           </div>
           {/*
-          Media-player-style transport controls. Layout left-to-right:
-          jump-to-start, step-back, play/pause/replay, step-forward,
-          jump-to-end. Step/jump buttons are seek-only (no animation) so
-          they feel "instant"; the centre button is the only animated
-          path and is also where Pause is wired. We render unicode media
-          glyphs so the bar reads as the standard transport control even
-          without color or icons.
+          Media transport controls: jump-to-start, step-back,
+          play/pause/replay, step-forward, jump-to-end. Step/jump are
+          seek-only; the centre button is the only animated path.
         */}
           <div
             class="qs-bloch-media-controls"
@@ -1193,12 +972,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 title={atEnd ? "Replay from start" : "Play from here"}
                 aria-label={atEnd ? "Replay from start" : "Play"}
               >
-                {/* Show the circular-arrow "replay" glyph when the cursor
-                  is at the end of the sequence, so users see at a glance
-                  that clicking will rewind first. Otherwise show the
-                  standard play triangle. The trailing U+FE0E forces
-                  text-style (non-emoji) presentation so these match the
-                  step/jump glyphs. */}
+                {/* Replay glyph when the cursor is at the end (clicking
+                  rewinds first); play triangle otherwise. U+FE0E forces
+                  text-style presentation to match the other glyphs. */}
                 {atEnd ? "\u21BB" : "\u23F5\uFE0E"}
               </button>
             )}
@@ -1222,10 +998,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             </button>
           </div>
           {/*
-          Speed slider. Lives directly below the transport bar so the two
-          playback controls read as one cluster. Slider value IS the
-          speed multiplier (higher = faster) which matches the natural
-          mental model; the renderer translates it back to milliseconds.
+          Speed slider. The value is the speed multiplier (higher =
+          faster); the renderer translates it back to milliseconds.
         */}
           <div class="qs-bloch-speed-control">
             <label for="qs-bloch-speed-slider">Speed</label>
@@ -1261,10 +1035,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         </div>
       </div>
       <div class="qs-gate-buttons">
-        {/* Gate palette: the single-qubit gates that can be applied to
-            the current state. Rendered as one segmented control so the
-            eight gates read as a single related set rather than a row of
-            disconnected buttons. */}
+        {/* Gate palette: single-qubit gates, as one segmented control. */}
         <div
           class="qs-bloch-gate-group qs-bloch-gate-group-palette"
           role="group"
@@ -1293,8 +1064,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           ))}
         </div>
 
-        {/* Edit history: undo/redo of the gate sequence, grouped as a
-            second segmented control. */}
+        {/* Edit history: undo/redo, as a second segmented control. */}
         <div class="qs-bloch-gate-group" role="group" aria-label="Edit history">
           <button
             type="button"
@@ -1341,14 +1111,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           {props.actionSlot}
         </div>
         {/*
-          Gate-count breakdown for the sanitized draft. Shows one
-          chip per gate type used (in canonical X Y Z H S S† T T†
-          order), then a T-count callout. T-count is a meaningful
-          quantum-cost metric for fault-tolerant implementations -- T
-          and T† gates are the expensive primitives -- so surfacing it
-          live gives users a quick sense of "how heavy" their program
-          is, especially after the Rz slider expands a single rotation
-          into a dozens-of-gates decomposition.
+          Gate-count breakdown plus a T-count callout. T-count (T and T†
+          gates) is the key cost metric for fault-tolerant implementations,
+          so surfacing it live is useful after the Rz slider expands a
+          rotation into many gates.
         */}
         <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
           <span class="qs-bloch-gate-editor-breakdown">
