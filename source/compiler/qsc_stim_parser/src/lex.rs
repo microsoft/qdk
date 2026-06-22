@@ -44,10 +44,10 @@ impl Display for TokenKind {
             TokenKind::Tag => f.write_str("tag"),
             TokenKind::Open(delim) => write!(f, "open({})", delim),
             TokenKind::Close(delim) => write!(f, "close({})", delim),
-            TokenKind::Star => write!(f, "star"),
-            TokenKind::Bang => write!(f, "bang"),
-            TokenKind::Comma => write!(f, "comma"),
-            TokenKind::Unknown => write!(f, "unknown"),
+            TokenKind::Star => f.write_str("star"),
+            TokenKind::Bang => f.write_str("bang"),
+            TokenKind::Comma => f.write_str("comma"),
+            TokenKind::Unknown => f.write_str("unknown"),
         }
     }
 }
