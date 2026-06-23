@@ -699,6 +699,14 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   margin-top: 12px;
 }
 
+/* Collapsed trace: the pane shrinks to a thin strip (just wide enough for
+   the expand button and a vertical "Trace" label) so the sphere column
+   takes the rest of the width. The measured `--qs-trace-width` is ignored
+   while collapsed; expanding restores it. */
+.qs-bloch.qs-bloch-trace-collapsed {
+  grid-template-columns: minmax(280px, 1fr) 34px;
+}
+
 /* Left column: the sphere visualization. It owns a fixed height (the
    sphere fills it edge to edge) and is the positioning context for the
    gate-controls panel, which overlays its bottom-left corner. The height
@@ -1036,6 +1044,37 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
        and scroll within. */
     height: 40vh;
   }
+  /* When collapsed in the stacked layout the pane becomes a short, full
+     width bar below the sphere rather than a tall narrow strip, so the
+     chevron and label sit side by side. */
+  .qs-bloch.qs-bloch-trace-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .qs-bloch-trace-collapsed .qs-bloch-trace {
+    height: auto;
+  }
+  .qs-bloch-trace-collapsed .qs-bloch-trace-collapsed-bar {
+    position: relative;
+    flex-direction: row;
+    align-items: stretch;
+  }
+  .qs-bloch-trace-collapsed .qs-bloch-trace-expand {
+    flex-direction: row;
+    justify-content: center;
+    padding: 8px;
+  }
+  .qs-bloch-trace-collapsed .qs-bloch-trace-collapsed-label {
+    writing-mode: horizontal-tb;
+  }
+  .qs-bloch-trace-collapsed .qs-bloch-trace-expand-icon {
+    transform: rotate(90deg);
+  }
+  .qs-bloch-trace-collapsed .qs-bloch-trace-collapsed-controls {
+    flex-direction: row;
+    align-items: center;
+    border-top: none;
+    border-left: 1px solid var(--qdk-widget-outline);
+  }
 }
 
 /* Bloch sphere widget: the gate-trace pane sitting to the right of the
@@ -1141,6 +1180,106 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* Left cluster of the title bar: the collapse toggle and the "Trace"
+   heading, grouped so the step counter stays pushed to the far right by
+   the title bar's space-between. */
+.qs-bloch-trace-title-main {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Chevron button in the title bar that collapses the trace pane. Borrows
+   the subtle, borderless look of the gate-controls close button so it
+   reads as chrome rather than a primary action. */
+.qs-bloch-trace-toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--qdk-host-foreground);
+  border: none;
+  border-radius: 4px;
+  font-size: 1.2em;
+  line-height: 1;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.qs-bloch-trace-toggle:hover {
+  opacity: 1;
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-trace-toggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+
+/* The thin strip shown in place of the trace content when collapsed. It
+   fills the pane and stacks the expand button (chevron + vertical "Trace"
+   label) above a compact set of transport controls. */
+.qs-bloch-trace-collapsed-bar {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--qdk-menu-fill);
+  color: var(--qdk-host-foreground);
+}
+
+/* The expand button fills most of the strip so a click almost anywhere
+   re-opens the pane; the transport buttons below keep their own smaller
+   hit areas. */
+.qs-bloch-trace-expand {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  background: transparent;
+  color: inherit;
+  border: none;
+  cursor: pointer;
+}
+.qs-bloch-trace-expand:hover {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-trace-expand:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: -2px;
+}
+.qs-bloch-trace-expand-icon {
+  font-size: 1.2em;
+  line-height: 1;
+  opacity: 0.7;
+}
+.qs-bloch-trace-collapsed-label {
+  writing-mode: vertical-rl;
+  font-weight: bold;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+  user-select: none;
+}
+
+/* Compact transport buttons at the bottom of the collapsed strip, so the
+   user can still replay from the start or skip to the end without first
+   expanding the pane. */
+.qs-bloch-trace-collapsed-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 4px;
+  border-top: 1px solid var(--qdk-widget-outline);
+}
+.qs-bloch-trace-collapsed-controls button {
+  padding: 4px 0;
 }
 
 /* Step counter pinned to the right of the trace title bar. Lighter
