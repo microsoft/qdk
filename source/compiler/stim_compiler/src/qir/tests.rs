@@ -1,12 +1,21 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod noise_channels;
+mod noise_channels_broadcasting;
+mod preselect;
+mod single_qubit_gates;
+mod single_qubit_gates_broadcasting;
+mod two_qubit_gates;
+mod two_qubit_gates_broadcasting;
+mod unsupported_instructions;
+
 use expect_test::{Expect, expect};
 use qdk_simulators::noise_config::NoiseConfig;
 
 /// Check that a stim source compiles to the
 /// expected QIR or yields the expected errors.
-fn check_stim(source: &str, expect: &Expect) {
+fn check(source: &str, expect: &Expect) {
     let mut noise = NoiseConfig::NOISELESS;
     match crate::compile(source, &mut noise) {
         Ok(qir) => {
@@ -25,7 +34,9 @@ fn check_stim(source: &str, expect: &Expect) {
 
 #[test]
 fn empty_src() {
-    check_stim("", &expect![[r#"
+    check(
+        "",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__rt__array_record_output(i64 0, ptr null)
@@ -51,5 +62,6 @@ fn empty_src() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
