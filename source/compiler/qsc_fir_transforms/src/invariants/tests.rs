@@ -963,47 +963,26 @@ fn sig_preserving_udt_still_rejected_post_udt_erase() {
 }
 
 // ----------------------------------------------------------------------------
-// Lockstep scope predicate: a structural check runs across the whole reachable
-// package closure only once its producing pass is cross-packaged. This is the
-// single widening point, so the predicate directly encodes the lockstep
-// decision per stage.
+// Structural-scope forcing function: every structural pass runs across the
+// whole reachable closure, so the forcing function admits every stage.
 // ----------------------------------------------------------------------------
 
-/// The argument-promotion call-shape check is cross-packaged: a
-/// foreign (library) callable is admitted, so its call shapes are validated even
-/// though it does not live in the entry package.
+/// Every structural pass runs across the whole reachable package closure, so
+/// `structural_check_in_scope` admits every stage.
 #[test]
-fn arg_promote_check_admits_foreign_package_in_lockstep() {
-    let entry = qsc_fir::fir::PackageId::CORE;
-    let foreign = entry.successor();
-    assert!(structural_check_in_scope(
+fn structural_check_admits_every_stage() {
+    for check in [
+        StageCheck::Mono,
+        StageCheck::ReturnUnify,
+        StageCheck::Defunc,
+        StageCheck::UdtErase,
+        StageCheck::TupleCompLower,
+        StageCheck::TupleDecompose,
         StageCheck::ArgPromote,
-        foreign,
-        entry
-    ));
-    assert!(structural_check_in_scope(
-        StageCheck::ArgPromote,
-        entry,
-        entry
-    ));
-}
-
-/// At the end state every structural pass runs across the whole reachable
-/// package closure, so `Mono` and `Defunc` (the last stages cross-packaged)
-/// admit a foreign (library) package just like the earlier stages. The entry
-/// package is always admitted.
-#[test]
-fn mono_and_defunc_checks_admit_foreign_package_in_lockstep() {
-    let entry = qsc_fir::fir::PackageId::CORE;
-    let foreign = entry.successor();
-    for check in [StageCheck::Mono, StageCheck::Defunc] {
+    ] {
         assert!(
-            structural_check_in_scope(check, foreign, entry),
-            "cross-packaged stage must admit a foreign package"
-        );
-        assert!(
-            structural_check_in_scope(check, entry, entry),
-            "the entry package is always in scope"
+            structural_check_in_scope(check),
+            "every structural stage is in scope"
         );
     }
 }

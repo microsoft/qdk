@@ -266,7 +266,7 @@ pub(crate) fn check_with_skip_and_seeds(
         check_id_references_in_reachable_items(store, &reachable, package_id);
     }
 
-    check_reachable_invariants(store, package_id, &reachable, level, skip);
+    check_reachable_invariants(store, &reachable, level, skip);
 
     // After all passes, `exec_graph_rebuild` rebuilds the exec graph of every
     // reachable spec in every reachable package. Validate that whole reachable
@@ -283,17 +283,11 @@ pub(crate) fn check_with_skip_and_seeds(
 
         if level.enforces(StageCheck::ReturnUnify) {
             check_non_unit_block_tails(store, package_id, &reachable, skip);
-            check_no_flag_writes_in_operand_position(store, package_id, &reachable, skip);
+            check_no_flag_writes_in_operand_position(store, &reachable, skip);
         }
 
-        // Check type invariants on the entry expression tree. The entry
-        // expression lives in the target package, so every stage check is in
-        // scope for it.
-        let entry_scope = CheckScope {
-            item_package: package_id,
-            target_package_id: package_id,
-        };
-        check_expr_types(store, package, entry_id, level, entry_scope);
+        // Check type invariants on the entry expression tree.
+        check_expr_types(store, package, entry_id, level);
 
         // After all passes, validate the entry exec graph.
         if level == InvariantLevel::PostAll {
@@ -558,10 +552,9 @@ pub(crate) fn check_non_unit_block_tails(
     };
 
     for item_id in reachable {
-        // The single-exit block-tail form is established by return unification,
-        // which runs across the whole reachable package closure, so this check
-        // applies to every reachable package.
-        if !structural_check_in_scope(StageCheck::ReturnUnify, item_id.package, package_id) {
+        // Return unification runs across the whole reachable closure, so this
+        // block-tail check applies to every reachable package.
+        if !structural_check_in_scope(StageCheck::ReturnUnify) {
             continue;
         }
 
@@ -907,100 +900,71 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
 /// - `check_spec_exec_graph` once exec graphs have been rebuilt at `PostAll`.
 fn check_reachable_invariants(
     store: &PackageStore,
-    target_package_id: qsc_fir::fir::PackageId,
     reachable: &FxHashSet<StoreItemId>,
     level: InvariantLevel,
     skip: &FxHashSet<StoreItemId>,
 ) {
     for item_id in reachable {
-        // Each structural invariant (no-`Return`, no-arrow params, call-shape,
-        // type residue) holds for a package only once the pass that establishes
-        // it has run on that package. Passes are cross-packaged in lockstep
-        // across the implementation phases; `CheckScope::enforces` centralizes
-        // that decision per stage. For a callable in the target package every
-        // stage is in scope, so the entry-package walk is unchanged; a foreign
-        // (e.g. stdlib) callable runs only the checks whose producing pass is
-        // already cross-package, and is skipped for stages still entry-rooted —
-        // so it may legitimately still carry `Ty::Param`, `Arrow` types, or
-        // closures without tripping a check. Package-wide UDT-erase invariants
-        // and reachable-spec exec graphs are validated separately across the
-        // whole closure.
-        let scope = CheckScope {
-            item_package: item_id.package,
-            target_package_id,
-        };
+        // Every structural pass runs across the whole reachable closure, so
+        // `enforces_stage` admits every reachable callable once its level is
+        // reached. Package-wide UDT-erase invariants and reachable-spec exec
+        // graphs are validated separately across the closure.
         let item_pkg = store.get(item_id.package);
         let item = item_pkg.get_item(item_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
             // All reachable callables have been through the full pipeline
             // via the entry expression and should pass all stage-specific
             // invariant checks.
-            check_type_invariants(&decl.output, level, scope, "callable output type");
+            check_type_invariants(&decl.output, level, "callable output type");
 
-            // The callable's input *parameter* pattern types must satisfy the
-            // same stage invariants as the output type. The statement walk in
-            // `check_spec_decl_types` only covers `let` bindings inside the
-            // body, so without this a residual `Ty::Param` (or other
-            // stage-eliminated form) left in the input signature by a buggy
-            // pass would go unchecked. `check_type_invariants` recurses into
-            // tuples and arrows, covering the whole structured input type.
-            check_pat_types(item_pkg, decl.input, level, scope);
+            // Check the input parameter pattern types too: the
+            // `check_spec_decl_types` statement walk only covers `let`
+            // bindings, so a stage-eliminated form left in the input signature
+            // would otherwise go unchecked.
+            check_pat_types(item_pkg, decl.input, level);
 
-            if scope.enforces(level, StageCheck::Defunc) {
+            if enforces_stage(level, StageCheck::Defunc) {
                 check_no_arrow_params(item_pkg, decl);
             }
 
-            if scope.enforces(level, StageCheck::ArgPromote) {
+            if enforces_stage(level, StageCheck::ArgPromote) {
                 check_callable_input_pattern_shapes(item_pkg, decl);
             }
 
-            if scope.enforces(level, StageCheck::ReturnUnify) && !skip.contains(item_id) {
+            if enforces_stage(level, StageCheck::ReturnUnify) && !skip.contains(item_id) {
                 check_no_returns(item_pkg, decl);
             }
 
             match &decl.implementation {
                 CallableImpl::Spec(spec_impl) => {
-                    check_spec_decl_types(store, item_pkg, &spec_impl.body, level, scope);
+                    check_spec_decl_types(store, item_pkg, &spec_impl.body, level);
                     for spec in functored_specs(spec_impl) {
-                        check_spec_decl_types(store, item_pkg, spec, level, scope);
+                        check_spec_decl_types(store, item_pkg, spec, level);
                     }
                 }
                 CallableImpl::SimulatableIntrinsic(spec) => {
-                    check_spec_decl_types(store, item_pkg, spec, level, scope);
+                    check_spec_decl_types(store, item_pkg, spec, level);
                 }
                 CallableImpl::Intrinsic => {}
             }
 
-            if scope.enforces(level, StageCheck::Mono) {
+            if enforces_stage(level, StageCheck::Mono) {
                 check_local_var_consistency(item_pkg, decl);
             }
         }
     }
 }
 
-/// Per-stage cross-package scope for structural invariant checks.
+/// Per-stage forcing function for the structural invariant checks.
 ///
-/// The structural invariants only hold for a package once the pass that
-/// establishes them has run on that package. Passes were cross-packaged in
-/// lockstep across the implementation phases; this predicate is the single
-/// widening point for that lockstep decision. At the end state every structural
-/// pass runs across the whole reachable package closure, so every stage's
-/// invariant holds for every reachable package and this predicate admits every
-/// reachable package for every stage. The exhaustive match is retained so that
-/// adding a new stage forces an explicit scope decision.
-fn structural_check_in_scope(
-    check: StageCheck,
-    _item_package: PackageId,
-    _target_package_id: PackageId,
-) -> bool {
+/// Every structural pass runs across the whole reachable package closure, so
+/// each stage's invariant holds for every reachable package and this admits
+/// every stage. The exhaustive match is kept so that adding a stage forces an
+/// explicit decision about whether its invariant holds across the closure.
+fn structural_check_in_scope(check: StageCheck) -> bool {
     match check {
-        // Every structural pass rewrites the reachable callable closure in
-        // place across every reachable package (the body-rewriting passes
-        // rewrite each callable; `ArgPromote` additionally rewrites every call
-        // site; `Mono` allocates specializations into the source's owning
-        // package and `Defunc` into the call site's package, each redirecting
-        // call sites in every package), so each stage's invariant holds for
-        // every reachable package.
+        // Every structural pass rewrites the whole reachable callable closure,
+        // so each stage's invariant holds for every reachable package.
         StageCheck::ReturnUnify
         | StageCheck::UdtErase
         | StageCheck::TupleCompLower
@@ -1011,25 +975,16 @@ fn structural_check_in_scope(
     }
 }
 
-/// Couples an invariant `level` with the per-stage cross-package scope for the
-/// callable currently being checked.
+/// Returns `true` when `level` enforces `check` and `check`'s structural
+/// invariant is established across the whole reachable package closure.
 ///
-/// `enforces` answers "should stage `check` run on this callable?": yes exactly
-/// when the level is at or past that stage and the callable's package is in the
-/// stage's cross-package scope. For a callable in the entry (target) package
-/// every stage is in scope, so `enforces` reduces to `level.enforces(check)` and
-/// the entry-package walk is unchanged.
-#[derive(Clone, Copy)]
-struct CheckScope {
-    item_package: PackageId,
-    target_package_id: PackageId,
-}
-
-impl CheckScope {
-    fn enforces(self, level: InvariantLevel, check: StageCheck) -> bool {
-        level.enforces(check)
-            && structural_check_in_scope(check, self.item_package, self.target_package_id)
-    }
+/// Composes [`InvariantLevel::enforces`] with the forcing function
+/// [`structural_check_in_scope`]. Every structural pass runs across the
+/// closure, so this currently reduces to `level.enforces(check)`; the
+/// composition is kept so a future not-yet-established stage has a single place
+/// to be gated.
+fn enforces_stage(level: InvariantLevel, check: StageCheck) -> bool {
+    level.enforces(check) && structural_check_in_scope(check)
 }
 
 /// Validates that callable input patterns no longer expose arrow-typed leaves.
@@ -1103,20 +1058,16 @@ const RETURN_FLAG_LOCAL_LABELS: [&str; 2] = [
 /// Panics if a synthesized flag write is found in an operand position.
 fn check_no_flag_writes_in_operand_position(
     store: &PackageStore,
-    package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
     skip: &FxHashSet<StoreItemId>,
 ) {
-    // Return unification runs across the whole reachable package closure, so a
-    // foreign callable may carry synthesized flag locals too. Collect the flag
-    // locals lazily per owning package (each package owns an independent
-    // `LocalVarId` space) and scan only the packages that actually have them.
+    // Return unification runs across the whole reachable closure, so a foreign
+    // callable may carry synthesized flag locals too. Collect them lazily per
+    // owning package, since each package has an independent `LocalVarId` space.
     let mut flag_locals_by_pkg: FxHashMap<PackageId, FxHashSet<LocalVarId>> = FxHashMap::default();
 
     for item_id in reachable {
-        if !structural_check_in_scope(StageCheck::ReturnUnify, item_id.package, package_id)
-            || skip.contains(item_id)
-        {
+        if !structural_check_in_scope(StageCheck::ReturnUnify) || skip.contains(item_id) {
             continue;
         }
         let item_pkg = store.get(item_id.package);
@@ -1561,17 +1512,16 @@ fn check_spec_decl_types(
     package: &Package,
     spec: &qsc_fir::fir::SpecDecl,
     level: InvariantLevel,
-    scope: CheckScope,
 ) {
     // A specialization may carry its own input pattern (for example the
     // controlled specialization's added control register). Validate its types
     // against the stage invariants alongside the body statements.
     if let Some(input) = spec.input {
-        check_pat_types(package, input, level, scope);
+        check_pat_types(package, input, level);
     }
     let block = package.get_block(spec.block);
     for &stmt_id in &block.stmts {
-        check_stmt_types(store, package, stmt_id, level, scope);
+        check_stmt_types(store, package, stmt_id, level);
     }
 }
 
@@ -1592,18 +1542,17 @@ fn check_stmt_types(
     package: &Package,
     stmt_id: qsc_fir::fir::StmtId,
     level: InvariantLevel,
-    scope: CheckScope,
 ) {
     let stmt = package.get_stmt(stmt_id);
     match &stmt.kind {
-        StmtKind::Expr(e) | StmtKind::Semi(e) => check_expr_types(store, package, *e, level, scope),
+        StmtKind::Expr(e) | StmtKind::Semi(e) => check_expr_types(store, package, *e, level),
         StmtKind::Local(_, pat, expr) => {
-            check_pat_types(package, *pat, level, scope);
-            if scope.enforces(level, StageCheck::TupleDecompose) {
+            check_pat_types(package, *pat, level);
+            if enforces_stage(level, StageCheck::TupleDecompose) {
                 check_tuple_pat_shape_matches_type(package, *pat, "local binding");
                 check_local_pat_for_nested_tuple_arrow(package, *pat);
             }
-            check_expr_types(store, package, *expr, level, scope);
+            check_expr_types(store, package, *expr, level);
 
             if level == InvariantLevel::PostReturnUnify || level == InvariantLevel::PostAll {
                 let pat_ty = &package.get_pat(*pat).ty;
@@ -1634,10 +1583,9 @@ fn check_expr_types(
     package: &Package,
     expr_id: ExprId,
     level: InvariantLevel,
-    scope: CheckScope,
 ) {
     crate::walk_utils::for_each_expr(package, expr_id, &mut |expr_id, _expr| {
-        check_expr_type(store, package, expr_id, level, scope);
+        check_expr_type(store, package, expr_id, level);
     });
 }
 
@@ -1660,10 +1608,9 @@ fn check_expr_type(
     package: &Package,
     expr_id: ExprId,
     level: InvariantLevel,
-    scope: CheckScope,
 ) {
     let expr = package.get_expr(expr_id);
-    check_type_invariants(&expr.ty, level, scope, &format!("Expr {expr_id}"));
+    check_type_invariants(&expr.ty, level, &format!("Expr {expr_id}"));
 
     if let Some(kind_name) = assignment_kind_name(&expr.kind) {
         assert!(
@@ -1674,7 +1621,7 @@ fn check_expr_type(
     }
 
     // After defunctionalization, no closures should remain in reachable code.
-    if scope.enforces(level, StageCheck::Defunc) {
+    if enforces_stage(level, StageCheck::Defunc) {
         assert!(
             !matches!(&expr.kind, ExprKind::Closure(_, _)),
             "Expr {expr_id} is a Closure after defunctionalization"
@@ -1682,7 +1629,7 @@ fn check_expr_type(
     }
 
     // PostMono: no remaining generic args on Var references.
-    if scope.enforces(level, StageCheck::Mono)
+    if enforces_stage(level, StageCheck::Mono)
         && let ExprKind::Var(_, args) = &expr.kind
     {
         assert!(
@@ -1692,7 +1639,7 @@ fn check_expr_type(
     }
 
     // After UDT erasure, all Struct expressions must have been lowered.
-    if scope.enforces(level, StageCheck::UdtErase) {
+    if enforces_stage(level, StageCheck::UdtErase) {
         if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
             panic!(
                 "PostUdtErase invariant violation: Expr {expr_id} contains \
@@ -1723,7 +1670,7 @@ fn check_expr_type(
     }
 
     // After tuple comparison lowering, no BinOp(Eq/Neq) on non-empty tuple operands.
-    if scope.enforces(level, StageCheck::TupleCompLower)
+    if enforces_stage(level, StageCheck::TupleCompLower)
         && let ExprKind::BinOp(BinOp::Eq | BinOp::Neq, lhs_id, _) = &expr.kind
     {
         let lhs_ty = &package.get_expr(*lhs_id).ty;
@@ -1737,7 +1684,7 @@ fn check_expr_type(
     }
 
     // After defunctionalization, tuple expressions must have types with matching arity.
-    if scope.enforces(level, StageCheck::Defunc)
+    if enforces_stage(level, StageCheck::Defunc)
         && let ExprKind::Tuple(es) = &expr.kind
         && let Ty::Tuple(tys) = &expr.ty
     {
@@ -1749,7 +1696,7 @@ fn check_expr_type(
         );
     }
 
-    if scope.enforces(level, StageCheck::ArgPromote)
+    if enforces_stage(level, StageCheck::ArgPromote)
         && let ExprKind::Call(callee_id, arg_id) = &expr.kind
     {
         check_call_shape_matches_callee(store, package, expr_id, *callee_id, *arg_id);
@@ -1892,58 +1839,57 @@ fn apply_controlled_input_layers(mut input_ty: Ty, controlled_depth: usize) -> T
 
 /// Validates a pattern's declared type by delegating to
 /// `check_type_invariants`.
-fn check_pat_types(package: &Package, pat_id: PatId, level: InvariantLevel, scope: CheckScope) {
+fn check_pat_types(package: &Package, pat_id: PatId, level: InvariantLevel) {
     let pat = package.get_pat(pat_id);
-    check_type_invariants(&pat.ty, level, scope, &format!("Pat {pat_id}"));
+    check_type_invariants(&pat.ty, level, &format!("Pat {pat_id}"));
 }
 
 /// Recursively validates the stage-sensitive invariants for a type.
 ///
 /// This is the common type checker used by callable signatures, patterns, and
 /// expressions. It enforces the type-form restrictions guaranteed by each
-/// pipeline stage while walking into nested array, tuple, and arrow types.
-/// `scope` gates each stage's assertion to the packages that pass has already
-/// run on, so a foreign callable from a not-yet-cross-packaged pass is not
-/// asserted against that stage's invariant.
+/// pipeline stage while walking into nested array, tuple, and arrow types. Each
+/// stage's assertion is gated by `enforces_stage`, so a type is only checked
+/// against an invariant once the establishing pass's pipeline level is reached.
 ///
 /// # Panics
 ///
 /// Panics when a type still contains a form that should have been eliminated by
 /// the current invariant level, such as `Ty::Param`, `FunctorSet::Param`, or
 /// `Ty::Udt`.
-fn check_type_invariants(ty: &Ty, level: InvariantLevel, scope: CheckScope, context: &str) {
+fn check_type_invariants(ty: &Ty, level: InvariantLevel, context: &str) {
     match ty {
         Ty::Param(_) => {
             assert!(
-                !scope.enforces(level, StageCheck::Mono),
+                !enforces_stage(level, StageCheck::Mono),
                 "{context} contains Ty::Param after monomorphization"
             );
         }
         Ty::Arrow(arrow) => {
-            if scope.enforces(level, StageCheck::Mono) {
+            if enforces_stage(level, StageCheck::Mono) {
                 assert!(
                     !matches!(arrow.functors, FunctorSet::Param(_)),
                     "{context} contains FunctorSet::Param after monomorphization"
                 );
             }
-            if scope.enforces(level, StageCheck::Defunc) {
+            if enforces_stage(level, StageCheck::Defunc) {
                 // `Ty::Arrow` leaves are allowed on callable outputs and
                 // cross-package items; the `PostDefunc` invariant targets
                 // arrow-typed callable *parameters*, enforced by
                 // `check_no_arrow_params`.
             }
-            check_type_invariants(&arrow.input, level, scope, context);
-            check_type_invariants(&arrow.output, level, scope, context);
+            check_type_invariants(&arrow.input, level, context);
+            check_type_invariants(&arrow.output, level, context);
         }
-        Ty::Array(inner) => check_type_invariants(inner, level, scope, context),
+        Ty::Array(inner) => check_type_invariants(inner, level, context),
         Ty::Tuple(items) => {
             for item in items {
-                check_type_invariants(item, level, scope, context);
+                check_type_invariants(item, level, context);
             }
         }
         Ty::Udt(_) => {
             assert!(
-                !scope.enforces(level, StageCheck::UdtErase),
+                !enforces_stage(level, StageCheck::UdtErase),
                 "{context} contains Ty::Udt after UDT erasure"
             );
         }
