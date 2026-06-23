@@ -84,10 +84,10 @@ fn invariants_closure_with_captures() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let angle : Double = 1.;
-                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda_3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda_3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -106,14 +106,14 @@ fn invariants_closure_with_captures() {
                 ApplyOp_Empty__closure_(q, angle);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda_3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
-                _lambda__3(__capture_0, q);
+                _lambda_3(__capture_0, q);
             }
             // entry
             Main()
@@ -631,10 +631,10 @@ fn full_pipeline_preserves_post_all_invariants() {
                 ApplyOp_AdjCtl_(H, q);
                 ApplyOp_AdjCtl_(X, q);
                 let angle : Double = 1.;
-                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda_3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda_3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
@@ -658,7 +658,7 @@ fn full_pipeline_preserves_post_all_invariants() {
                 ApplyOp_Empty__closure_(q, angle);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda_3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
@@ -674,7 +674,7 @@ fn full_pipeline_preserves_post_all_invariants() {
                 X(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
-                _lambda__3(__capture_0, q);
+                _lambda_3(__capture_0, q);
             }
             // entry
             Main()
@@ -703,10 +703,10 @@ fn invariant_no_closure_expressions_remain() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(q1 : Qubit, ) : Unit {
+            operation _lambda_3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -724,7 +724,7 @@ fn invariant_no_closure_expressions_remain() {
                 ApplyOp_Empty__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(q1 : Qubit, ) : Unit {
+            operation _lambda_3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1154,9 +1154,9 @@ fn newtype_ctor_callable_field_cleanup() {
             newtype Choice = ((Int -> Int), Int);
             function Choose(flag : Bool) : __UDT_Item_1__Package_2_ {
                 if flag {
-                    Choice(/ * closure item = 4 captures = [] * / _lambda__4, 100)
+                    Choice(/ * closure item = 4 captures = [] * / _lambda_4, 100)
                 } else {
-                    Choice(/ * closure item = 5 captures = [] * / _lambda__5, 7)
+                    Choice(/ * closure item = 5 captures = [] * / _lambda_5, 7)
                 }
 
             }
@@ -1167,10 +1167,10 @@ fn newtype_ctor_callable_field_cleanup() {
                 let fF : (Int -> Int) = selectedF::F;
                 fT(10) + fF(10) + selectedT::Offset + selectedF::Offset
             }
-            function _lambda__4(x : Int, ) : Int {
+            function _lambda_4(x : Int, ) : Int {
                 x + 1
             }
-            function _lambda__5(x : Int, ) : Int {
+            function _lambda_5(x : Int, ) : Int {
                 x * 2
             }
             // entry
@@ -1190,19 +1190,19 @@ fn newtype_ctor_callable_field_cleanup() {
                 let selectedT : __UDT_Item_1__Package_2_ = Choose(true);
                 let selectedF : __UDT_Item_1__Package_2_ = Choose(false);
                 if true {
-                    _lambda__4(10)
+                    _lambda_4(10)
                 } else {
-                    _lambda__5(10)
+                    _lambda_5(10)
                 } + if false {
-                    _lambda__4(10)
+                    _lambda_4(10)
                 } else {
-                    _lambda__5(10)
+                    _lambda_5(10)
                 } + selectedT::Offset + selectedF::Offset
             }
-            function _lambda__4(x : Int, ) : Int {
+            function _lambda_4(x : Int, ) : Int {
                 x + 1
             }
-            function _lambda__5(x : Int, ) : Int {
+            function _lambda_5(x : Int, ) : Int {
                 x * 2
             }
             // entry

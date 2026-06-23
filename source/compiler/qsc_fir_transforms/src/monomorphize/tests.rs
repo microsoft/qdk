@@ -923,13 +923,13 @@ fn mono_closure_in_generic() {
         &expect![[r#"
             BEFORE:
             operation WithClosure(x : 'T0) : 'T0 {
-                let f : ('T0 -> 'T0) = / * closure item = 3 captures = [] * / _lambda__3;
+                let f : ('T0 -> 'T0) = / * closure item = 3 captures = [] * / _lambda_3;
                 f(x)
             }
             operation Main() : Int {
                 WithClosure < Int > (42)
             }
-            function _lambda__3(y : 'T0, ) : 'T0 {
+            function _lambda_3(y : 'T0, ) : 'T0 {
                 y
             }
             // entry
@@ -937,20 +937,20 @@ fn mono_closure_in_generic() {
 
             AFTER:
             operation WithClosure(x : 'T0) : 'T0 {
-                let f : ('T0 -> 'T0) = / * closure item = 3 captures = [] * / _lambda__3;
+                let f : ('T0 -> 'T0) = / * closure item = 3 captures = [] * / _lambda_3;
                 f(x)
             }
             operation Main() : Int {
                 WithClosure_Int_(42)
             }
-            function _lambda__3(y : 'T0, ) : 'T0 {
+            function _lambda_3(y : 'T0, ) : 'T0 {
                 y
             }
             operation WithClosure_Int_(x : Int) : Int {
-                let f : (Int -> Int) = / * closure item = 5 captures = [] * / _lambda__3;
+                let f : (Int -> Int) = / * closure item = 5 captures = [] * / _lambda_3;
                 f(x)
             }
-            function _lambda__3(y : Int, ) : Int {
+            function _lambda_3(y : Int, ) : Int {
                 y
             }
             // entry
@@ -1484,13 +1484,13 @@ fn mono_generic_captures_variable() {
             BEFORE:
             operation WithCapture(x : 'T0) : 'T0 {
                 let captured : 'T0 = x;
-                let f : (Unit -> 'T0) = / * closure item = 3 captures = [captured] * / _lambda__3;
+                let f : (Unit -> 'T0) = / * closure item = 3 captures = [captured] * / _lambda_3;
                 f()
             }
             operation Main() : Int {
                 WithCapture < Int > (42)
             }
-            function _lambda__3(captured : 'T0, ()) : 'T0 {
+            function _lambda_3(captured : 'T0, ()) : 'T0 {
                 captured
             }
             // entry
@@ -1499,21 +1499,21 @@ fn mono_generic_captures_variable() {
             AFTER:
             operation WithCapture(x : 'T0) : 'T0 {
                 let captured : 'T0 = x;
-                let f : (Unit -> 'T0) = / * closure item = 3 captures = [captured] * / _lambda__3;
+                let f : (Unit -> 'T0) = / * closure item = 3 captures = [captured] * / _lambda_3;
                 f()
             }
             operation Main() : Int {
                 WithCapture_Int_(42)
             }
-            function _lambda__3(captured : 'T0, ()) : 'T0 {
+            function _lambda_3(captured : 'T0, ()) : 'T0 {
                 captured
             }
             operation WithCapture_Int_(x : Int) : Int {
                 let captured : Int = x;
-                let f : (Unit -> Int) = / * closure item = 5 captures = [captured] * / _lambda__3;
+                let f : (Unit -> Int) = / * closure item = 5 captures = [captured] * / _lambda_3;
                 f()
             }
-            function _lambda__3(captured : Int, ()) : Int {
+            function _lambda_3(captured : Int, ()) : Int {
                 captured
             }
             // entry

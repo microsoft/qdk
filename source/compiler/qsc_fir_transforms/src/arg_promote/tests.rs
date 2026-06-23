@@ -1617,7 +1617,7 @@ fn unreachable_partial_application_does_not_block_promotion() {
                 UsePair((1, 2), q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__5(arg : Qubit, hole : (Int, Int)) : Unit {
+            operation _lambda_5(arg : Qubit, hole : (Int, Int)) : Unit {
                 UsePair(hole, arg)
             }
             // entry
@@ -1637,7 +1637,7 @@ fn unreachable_partial_application_does_not_block_promotion() {
                 UsePair(1, 2, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__5(arg : Qubit, hole : (Int, Int)) : Unit {
+            operation _lambda_5(arg : Qubit, hole : (Int, Int)) : Unit {
                 UsePair(hole, arg)
             }
             // entry

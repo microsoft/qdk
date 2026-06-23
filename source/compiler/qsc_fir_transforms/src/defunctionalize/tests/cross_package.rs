@@ -551,11 +551,11 @@ fn analysis_apply_operation_power_ca_consumer() {
                 let qs : Qubit[] = AllocateQubitArray(1);
                 Consume_AdjCtl_({
                     let arg : (Qubit[] => Unit is Adj + Ctl) = U;
-                    / * closure item = 4 captures = [arg] * / _lambda__4
+                    / * closure item = 4 captures = [arg] * / _lambda_4
                 }, qs);
                 ReleaseQubitArray(qs);
             }
-            operation _lambda__4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole : Qubit[])) : Unit is Adj + Ctl {
+            operation _lambda_4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole : Qubit[])) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole)
                 }
@@ -598,7 +598,7 @@ fn analysis_apply_operation_power_ca_consumer() {
                 Consume_AdjCtl__closure__U_(qs);
                 ReleaseQubitArray(qs);
             }
-            operation _lambda__4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole : Qubit[])) : Unit is Adj + Ctl {
+            operation _lambda_4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole : Qubit[])) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole)
                 }
@@ -616,12 +616,12 @@ fn analysis_apply_operation_power_ca_consumer() {
                 apply_power_of_u(1, target);
             }
             operation Consume_AdjCtl__closure_(target : Qubit[], __capture_0 : (Qubit[] => Unit is Adj + Ctl)) : Unit {
-                _lambda__4(__capture_0, (1, target));
+                _lambda_4(__capture_0, (1, target));
             }
             operation Consume_AdjCtl__closure__U_(target : Qubit[]) : Unit {
-                _lambda__4_U_(1, target);
+                _lambda_4_U_(1, target);
             }
-            operation _lambda__4_U_(hole : Int, hole : Qubit[]) : Unit is Adj + Ctl {
+            operation _lambda_4_U_(hole : Int, hole : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole)
                 }
@@ -863,10 +863,10 @@ fn analysis_bernstein_vazirani_sample_shape() {
             function EncodeIntegerAsParityOperation(bitStringAsInt : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = bitStringAsInt;
-                    / * closure item = 5 captures = [arg] * / _lambda__5
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
-            operation _lambda__5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation BernsteinVazirani_Empty_(Uf : ((Qubit[], Qubit) => Unit), n : Int) : Result[] {
@@ -970,7 +970,7 @@ fn analysis_bernstein_vazirani_sample_shape() {
                     ()
                 };
             }
-            operation _lambda__5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation BernsteinVazirani_Empty_(Uf : ((Qubit[], Qubit) => Unit), n : Int) : Result[] {
@@ -1011,7 +1011,7 @@ fn analysis_bernstein_vazirani_sample_shape() {
 
                     let _apply_res : Unit = {
                         H(target);
-                        _lambda__5(__capture_0, (queryRegister, target));
+                        _lambda_5(__capture_0, (queryRegister, target));
                     };
                     {
                         Adjoint ApplyToEachA_Qubit__AdjCtl__H_(queryRegister);
@@ -2344,10 +2344,10 @@ fn cross_package_apply_to_each_closure_arg_defunctionalizes() {
             operation Main() : Unit {
                 let qs : Qubit[] = AllocateQubitArray(3);
                 let angle : Double = 1.;
-                ApplyToEach_Qubit__Empty_(/ * closure item = 2 captures = [angle] * / _lambda__2, qs);
+                ApplyToEach_Qubit__Empty_(/ * closure item = 2 captures = [angle] * / _lambda_2, qs);
                 ReleaseQubitArray(qs);
             }
-            operation _lambda__2(angle : Double, q : Qubit) : Unit {
+            operation _lambda_2(angle : Double, q : Qubit) : Unit {
                 Rx(angle, q)
             }
             // entry
@@ -2360,7 +2360,7 @@ fn cross_package_apply_to_each_closure_arg_defunctionalizes() {
                 ApplyToEach_Qubit__Empty__closure_(qs, angle);
                 ReleaseQubitArray(qs);
             }
-            operation _lambda__2(angle : Double, q : Qubit) : Unit {
+            operation _lambda_2(angle : Double, q : Qubit) : Unit {
                 Rx(angle, q)
             }
             operation ApplyToEach_Qubit__Empty__closure_(register : Qubit[], __capture_0 : Double) : Unit {
@@ -2370,7 +2370,7 @@ fn cross_package_apply_to_each_closure_arg_defunctionalizes() {
                     mutable _index_id_46222 : Int = 0;
                     while _index_id_46222 < _len_id_46217 {
                         let item : Qubit = _array_id_46213[_index_id_46222];
-                        _lambda__2(__capture_0, item);
+                        _lambda_2(__capture_0, item);
                         _index_id_46222 += 1;
                     }
 
@@ -2910,9 +2910,9 @@ fn stdlib_hof_specialized_with_concrete_callable() {
             BEFORE:
             operation Main() : Int[] {
                 let arr : Int[] = [1, 2, 3];
-                Mapped_Int__Int_(/ * closure item = 2 captures = [] * / _lambda__2, arr)
+                Mapped_Int__Int_(/ * closure item = 2 captures = [] * / _lambda_2, arr)
             }
-            function _lambda__2(x : Int, ) : Int {
+            function _lambda_2(x : Int, ) : Int {
                 x + 1
             }
             // entry
@@ -2923,7 +2923,7 @@ fn stdlib_hof_specialized_with_concrete_callable() {
                 let arr : Int[] = [1, 2, 3];
                 Mapped_Int__Int__closure_(arr)
             }
-            function _lambda__2(x : Int, ) : Int {
+            function _lambda_2(x : Int, ) : Int {
                 x + 1
             }
             function Mapped_Int__Int__closure_(array : Int[]) : Int[] {
@@ -2934,7 +2934,7 @@ fn stdlib_hof_specialized_with_concrete_callable() {
                     mutable _index_id_45736 : Int = 0;
                     while _index_id_45736 < _len_id_45731 {
                         let element : Int = _array_id_45727[_index_id_45736];
-                        mapped += [_lambda__2(element, )];
+                        mapped += [_lambda_2(element, )];
                         _index_id_45736 += 1;
                     }
 
@@ -2971,22 +2971,22 @@ fn lambda_expression_sample_shape_has_no_defunctionalization_errors() {
         &expect![[r#"
             BEFORE:
             operation Main() : Unit {
-                let add : ((Int, Int) -> Int) = / * closure item = 2 captures = [] * / _lambda__2;
+                let add : ((Int, Int) -> Int) = / * closure item = 2 captures = [] * / _lambda_2;
                 let _ : Int = add(2, 3);
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let cnotOnControl : (Qubit => Unit) = / * closure item = 3 captures = [control] * / _lambda__3;
+                let cnotOnControl : (Qubit => Unit) = / * closure item = 3 captures = [control] * / _lambda_3;
                 let intArray : Int[] = [1, 2, 3, 4, 5];
                 let _ : Int = Fold_Int__Int_(add, 0, intArray);
-                let _ : Int[] = Mapped_Int__Int_(/ * closure item = 4 captures = [] * / _lambda__4, intArray);
+                let _ : Int[] = Mapped_Int__Int_(/ * closure item = 4 captures = [] * / _lambda_4, intArray);
                 __quantum__rt__qubit_release(control);
             }
-            function _lambda__2((x : Int, y : Int), ) : Int {
+            function _lambda_2((x : Int, y : Int), ) : Int {
                 x + y
             }
-            operation _lambda__3(control : Qubit, q : Qubit) : Unit {
+            operation _lambda_3(control : Qubit, q : Qubit) : Unit {
                 CNOT(control, q)
             }
-            function _lambda__4(x : Int, ) : Int {
+            function _lambda_4(x : Int, ) : Int {
                 x + 1
             }
             // entry
@@ -2994,20 +2994,20 @@ fn lambda_expression_sample_shape_has_no_defunctionalization_errors() {
 
             AFTER:
             operation Main() : Unit {
-                let _ : Int = _lambda__2((2, 3), );
+                let _ : Int = _lambda_2((2, 3), );
                 let control : Qubit = __quantum__rt__qubit_allocate();
                 let intArray : Int[] = [1, 2, 3, 4, 5];
                 let _ : Int = Fold_Int__Int__closure_(0, intArray);
                 let _ : Int[] = Mapped_Int__Int__closure_(intArray);
                 __quantum__rt__qubit_release(control);
             }
-            function _lambda__2((x : Int, y : Int), ) : Int {
+            function _lambda_2((x : Int, y : Int), ) : Int {
                 x + y
             }
-            operation _lambda__3(control : Qubit, q : Qubit) : Unit {
+            operation _lambda_3(control : Qubit, q : Qubit) : Unit {
                 CNOT(control, q)
             }
-            function _lambda__4(x : Int, ) : Int {
+            function _lambda_4(x : Int, ) : Int {
                 x + 1
             }
             function Fold_Int__Int__closure_(state : Int, array : Int[]) : Int {
@@ -3018,7 +3018,7 @@ fn lambda_expression_sample_shape_has_no_defunctionalization_errors() {
                     mutable _index_id_45480 : Int = 0;
                     while _index_id_45480 < _len_id_45475 {
                         let element : Int = _array_id_45471[_index_id_45480];
-                        current = _lambda__2((current, element), );
+                        current = _lambda_2((current, element), );
                         _index_id_45480 += 1;
                     }
 
@@ -3034,7 +3034,7 @@ fn lambda_expression_sample_shape_has_no_defunctionalization_errors() {
                     mutable _index_id_45736 : Int = 0;
                     while _index_id_45736 < _len_id_45731 {
                         let element : Int = _array_id_45727[_index_id_45736];
-                        mapped += [_lambda__4(element, )];
+                        mapped += [_lambda_4(element, )];
                         _index_id_45736 += 1;
                     }
 
@@ -3082,19 +3082,19 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
             function Main() : Unit {
                 let incrementByOne : (Int -> Int) = {
                     let arg : Int = 1;
-                    / * closure item = 4 captures = [arg] * / _lambda__4
+                    / * closure item = 4 captures = [arg] * / _lambda_4
                 };
-                let incrementByOneLambda : (Int -> Int) = / * closure item = 5 captures = [] * / _lambda__5;
+                let incrementByOneLambda : (Int -> Int) = / * closure item = 5 captures = [] * / _lambda_5;
                 let _ : Int = incrementByOne(4);
                 let sumAndAddOne : ((Int, Int, Int) -> Int) = {
                     let arg : Int = 1;
-                    / * closure item = 6 captures = [arg] * / _lambda__6
+                    / * closure item = 6 captures = [arg] * / _lambda_6
                 };
-                let sumAndAddOneLambda : ((Int, Int, Int) -> Int) = / * closure item = 7 captures = [] * / _lambda__7;
+                let sumAndAddOneLambda : ((Int, Int, Int) -> Int) = / * closure item = 7 captures = [] * / _lambda_7;
                 let intArray : Int[] = [1, 2, 3, 4, 5];
                 let _ : Int[] = Mapped_Int__Int_({
                     let arg : Int = 1;
-                    / * closure item = 8 captures = [arg] * / _lambda__8
+                    / * closure item = 8 captures = [arg] * / _lambda_8
                 }, intArray);
             }
             function Add(x : Int, y : Int) : Int {
@@ -3103,19 +3103,19 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
             function AddMany(a : Int, b : Int, c : Int, d : Int) : Int {
                 return a + b + c + d;
             }
-            function _lambda__4(arg : Int, hole : Int) : Int {
+            function _lambda_4(arg : Int, hole : Int) : Int {
                 Add(hole, arg)
             }
-            function _lambda__5(x : Int, ) : Int {
+            function _lambda_5(x : Int, ) : Int {
                 Add(x, 1)
             }
-            function _lambda__6(arg : Int, (hole : Int, hole : Int, hole : Int)) : Int {
+            function _lambda_6(arg : Int, (hole : Int, hole : Int, hole : Int)) : Int {
                 AddMany(hole, hole, hole, arg)
             }
-            function _lambda__7((a : Int, b : Int, c : Int), ) : Int {
+            function _lambda_7((a : Int, b : Int, c : Int), ) : Int {
                 AddMany(a, b, c, 1)
             }
-            function _lambda__8(arg : Int, hole : Int) : Int {
+            function _lambda_8(arg : Int, hole : Int) : Int {
                 Add(hole, arg)
             }
             // entry
@@ -3123,7 +3123,7 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
 
             AFTER:
             function Main() : Unit {
-                let _ : Int = _lambda__4(1, 4);
+                let _ : Int = _lambda_4(1, 4);
                 let intArray : Int[] = [1, 2, 3, 4, 5];
                 let _ : Int[] = Mapped_Int__Int__closure_(intArray, 1);
             }
@@ -3133,19 +3133,19 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
             function AddMany(a : Int, b : Int, c : Int, d : Int) : Int {
                 return a + b + c + d;
             }
-            function _lambda__4(arg : Int, hole : Int) : Int {
+            function _lambda_4(arg : Int, hole : Int) : Int {
                 Add(hole, arg)
             }
-            function _lambda__5(x : Int, ) : Int {
+            function _lambda_5(x : Int, ) : Int {
                 Add(x, 1)
             }
-            function _lambda__6(arg : Int, (hole : Int, hole : Int, hole : Int)) : Int {
+            function _lambda_6(arg : Int, (hole : Int, hole : Int, hole : Int)) : Int {
                 AddMany(hole, hole, hole, arg)
             }
-            function _lambda__7((a : Int, b : Int, c : Int), ) : Int {
+            function _lambda_7((a : Int, b : Int, c : Int), ) : Int {
                 AddMany(a, b, c, 1)
             }
-            function _lambda__8(arg : Int, hole : Int) : Int {
+            function _lambda_8(arg : Int, hole : Int) : Int {
                 Add(hole, arg)
             }
             function Mapped_Int__Int__closure_(array : Int[], __capture_0 : Int) : Int[] {
@@ -3156,7 +3156,7 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
                     mutable _index_id_45736 : Int = 0;
                     while _index_id_45736 < _len_id_45731 {
                         let element : Int = _array_id_45727[_index_id_45736];
-                        mapped += [_lambda__8(__capture_0, element)];
+                        mapped += [_lambda_8(__capture_0, element)];
                         _index_id_45736 += 1;
                     }
 

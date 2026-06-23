@@ -317,10 +317,10 @@ fn analysis_closure_callable_arg() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(q1 : Qubit, ) : Unit {
+            operation _lambda_3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -338,7 +338,7 @@ fn analysis_closure_callable_arg() {
                 ApplyOp_Empty__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(q1 : Qubit, ) : Unit {
+            operation _lambda_3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1204,12 +1204,12 @@ fn udt_field_closure_value() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let angle : Double = 1.;
                 let config : __UDT_Item_1__Package_2_ = new Config {
-                    Op = / * closure item = 4 captures = [angle] * / _lambda__4
+                    Op = / * closure item = 4 captures = [angle] * / _lambda_4
                 };
                 ApplyOp_Empty_(config::Op, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__4(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda_4(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1229,14 +1229,14 @@ fn udt_field_closure_value() {
                 ApplyOp_Empty__closure_(q, angle);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__4(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda_4(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
-                _lambda__4(__capture_0, q);
+                _lambda_4(__capture_0, q);
             }
             // entry
             Main()
@@ -1343,10 +1343,10 @@ fn identity_closure_over_global_callable_collapses() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(a : Qubit, ) : Unit {
+            operation _lambda_3(a : Qubit, ) : Unit {
                 H(a)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1364,7 +1364,7 @@ fn identity_closure_over_global_callable_collapses() {
                 ApplyOp_Empty__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(a : Qubit, ) : Unit {
+            operation _lambda_3(a : Qubit, ) : Unit {
                 H(a)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1402,23 +1402,23 @@ fn identity_closure_wrapping_param() {
                 op(q);
             }
             operation Outer(action : (Qubit => Unit), q : Qubit) : Unit {
-                Inner_Empty_(/ * closure item = 4 captures = [action] * / _lambda__4, q);
+                Inner_Empty_(/ * closure item = 4 captures = [action] * / _lambda_4, q);
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 Outer_AdjCtl_(H, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__4(action : (Qubit => Unit), a : Qubit) : Unit {
+            operation _lambda_4(action : (Qubit => Unit), a : Qubit) : Unit {
                 action(a)
             }
             operation Inner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
             operation Outer_AdjCtl_(action : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                Inner_Empty_(/ * closure item = 7 captures = [action] * / _lambda__4, q);
+                Inner_Empty_(/ * closure item = 7 captures = [action] * / _lambda_4, q);
             }
-            operation _lambda__4(action : (Qubit => Unit is Adj + Ctl), a : Qubit) : Unit {
+            operation _lambda_4(action : (Qubit => Unit is Adj + Ctl), a : Qubit) : Unit {
                 action(a)
             }
             // entry
@@ -1429,14 +1429,14 @@ fn identity_closure_wrapping_param() {
                 op(q);
             }
             operation Outer(action : (Qubit => Unit), q : Qubit) : Unit {
-                Inner_Empty_(/ * closure item = 4 captures = [action] * / _lambda__4, q);
+                Inner_Empty_(/ * closure item = 4 captures = [action] * / _lambda_4, q);
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 Outer_AdjCtl__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__4(action : (Qubit => Unit), a : Qubit) : Unit {
+            operation _lambda_4(action : (Qubit => Unit), a : Qubit) : Unit {
                 action(a)
             }
             operation Inner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1445,7 +1445,7 @@ fn identity_closure_wrapping_param() {
             operation Outer_AdjCtl_(action : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 Inner_Empty_(action, q);
             }
-            operation _lambda__4(action : (Qubit => Unit is Adj + Ctl), a : Qubit) : Unit {
+            operation _lambda_4(action : (Qubit => Unit is Adj + Ctl), a : Qubit) : Unit {
                 action(a)
             }
             operation Outer_AdjCtl__H_(q : Qubit) : Unit {
@@ -1488,10 +1488,10 @@ fn non_identity_closure_preserved() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(a : Qubit, ) : Unit {
+            operation _lambda_3(a : Qubit, ) : Unit {
                 {
                     H(a);
                     X(a);
@@ -1513,7 +1513,7 @@ fn non_identity_closure_preserved() {
                 ApplyOp_Empty__closure_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(a : Qubit, ) : Unit {
+            operation _lambda_3(a : Qubit, ) : Unit {
                 {
                     H(a);
                     X(a);
@@ -1524,7 +1524,7 @@ fn non_identity_closure_preserved() {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit) : Unit {
-                _lambda__3(q, );
+                _lambda_3(q, );
             }
             // entry
             Main()
@@ -1563,11 +1563,11 @@ fn identity_closure_tuple_args() {
             operation Main() : Unit {
                 let q1 : Qubit = __quantum__rt__qubit_allocate();
                 let q2 : Qubit = __quantum__rt__qubit_allocate();
-                HOF2_Empty_(/ * closure item = 4 captures = [] * / _lambda__4, q1, q2);
+                HOF2_Empty_(/ * closure item = 4 captures = [] * / _lambda_4, q1, q2);
                 __quantum__rt__qubit_release(q2);
                 __quantum__rt__qubit_release(q1);
             }
-            operation _lambda__4((a : Qubit, b : Qubit), ) : Unit {
+            operation _lambda_4((a : Qubit, b : Qubit), ) : Unit {
                 Pair(a, b)
             }
             operation HOF2_Empty_(op : ((Qubit, Qubit) => Unit), q1 : Qubit, q2 : Qubit) : Unit {
@@ -1591,7 +1591,7 @@ fn identity_closure_tuple_args() {
                 __quantum__rt__qubit_release(q2);
                 __quantum__rt__qubit_release(q1);
             }
-            operation _lambda__4((a : Qubit, b : Qubit), ) : Unit {
+            operation _lambda_4((a : Qubit, b : Qubit), ) : Unit {
                 Pair(a, b)
             }
             operation HOF2_Empty_(op : ((Qubit, Qubit) => Unit), q1 : Qubit, q2 : Qubit) : Unit {
@@ -1636,10 +1636,10 @@ fn closure_with_captures_not_identity() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let angle : Double = 1.;
-                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda_3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(angle : Double, a : Qubit) : Unit {
+            operation _lambda_3(angle : Double, a : Qubit) : Unit {
                 Rx(angle, a)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1658,14 +1658,14 @@ fn closure_with_captures_not_identity() {
                 ApplyOp_Empty__closure_(q, angle);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(angle : Double, a : Qubit) : Unit {
+            operation _lambda_3(angle : Double, a : Qubit) : Unit {
                 Rx(angle, a)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
-                _lambda__3(__capture_0, q);
+                _lambda_3(__capture_0, q);
             }
             // entry
             Main()
@@ -1709,10 +1709,10 @@ fn partial_application_lambda_defunctionalizes_end_to_end() {
             }
             operation Main() : Unit {
                 let register : Qubit[] = AllocateQubitArray(2);
-                ApplyOp_Empty_(/ * closure item = 4 captures = [] * / _lambda__4, register);
+                ApplyOp_Empty_(/ * closure item = 4 captures = [] * / _lambda_4, register);
                 ReleaseQubitArray(register);
             }
-            operation _lambda__4(register : Qubit[], ) : Unit {
+            operation _lambda_4(register : Qubit[], ) : Unit {
                 Shifted(1, register)
             }
             operation ApplyOp_Empty_(op : (Qubit[] => Unit), register : Qubit[]) : Unit {
@@ -1733,14 +1733,14 @@ fn partial_application_lambda_defunctionalizes_end_to_end() {
                 ApplyOp_Empty__closure_(register);
                 ReleaseQubitArray(register);
             }
-            operation _lambda__4(register : Qubit[], ) : Unit {
+            operation _lambda_4(register : Qubit[], ) : Unit {
                 Shifted(1, register)
             }
             operation ApplyOp_Empty_(op : (Qubit[] => Unit), register : Qubit[]) : Unit {
                 op(register);
             }
             operation ApplyOp_Empty__closure_(register : Qubit[]) : Unit {
-                _lambda__4(register, );
+                _lambda_4(register, );
             }
             // entry
             Main()
@@ -2060,10 +2060,10 @@ fn analysis_closure_through_multiple_levels() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                Outer_Empty_(/ * closure item = 4 captures = [] * / _lambda__4, q);
+                Outer_Empty_(/ * closure item = 4 captures = [] * / _lambda_4, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__4(q1 : Qubit, ) : Unit {
+            operation _lambda_4(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation Inner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -2087,7 +2087,7 @@ fn analysis_closure_through_multiple_levels() {
                 Outer_Empty__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__4(q1 : Qubit, ) : Unit {
+            operation _lambda_4(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation Inner_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -2275,7 +2275,7 @@ fn callable_returning_partial_application_resolves_statically() {
             operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Bool[] = bits;
-                    / * closure item = 5 captures = [arg] * / _lambda__5
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -2286,7 +2286,7 @@ fn callable_returning_partial_application_resolves_statically() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda__5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
@@ -2318,14 +2318,14 @@ fn callable_returning_partial_application_resolves_statically() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda__5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
             }
             operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Bool[]) : Unit {
-                _lambda__5(__capture_0, (register, target));
+                _lambda_5(__capture_0, (register, target));
             }
             // entry
             Main()
@@ -2384,7 +2384,7 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
             operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Bool[] = bits;
-                    / * closure item = 5 captures = [arg] * / _lambda__5
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -2395,7 +2395,7 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda__5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
@@ -2427,14 +2427,14 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda__5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
             }
             operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Bool[]) : Unit {
-                _lambda__5(__capture_0, (register, target));
+                _lambda_5(__capture_0, (register, target));
             }
             // entry
             Main()
@@ -2492,7 +2492,7 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
             operation Encode(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 {
                     let arg : Bool[] = bits;
-                    / * closure item = 5 captures = [arg] * / _lambda__5
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 }
 
             }
@@ -2501,7 +2501,7 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
                 let oracle : ((Qubit[], Qubit) => Unit) = Encode(bits);
                 UseOracle_Empty_(oracle, Length(bits));
             }
-            operation _lambda__5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation UseOracle_Empty_(oracle : ((Qubit[], Qubit) => Unit), n : Int) : Unit {
@@ -2543,7 +2543,7 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
                 let bits : Bool[] = [true];
                 UseOracle_Empty__closure_(Length(bits), bits);
             }
-            operation _lambda__5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation UseOracle_Empty_(oracle : ((Qubit[], Qubit) => Unit), n : Int) : Unit {
@@ -2558,7 +2558,7 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
             operation UseOracle_Empty__closure_(n : Int, __capture_0 : Bool[]) : Unit {
                 let register : Qubit[] = AllocateQubitArray(n);
                 let target : Qubit = __quantum__rt__qubit_allocate();
-                _lambda__5(__capture_0, (register, target));
+                _lambda_5(__capture_0, (register, target));
                 Reset(target);
                 ResetAll(register);
                 __quantum__rt__qubit_release(target);
@@ -2664,7 +2664,7 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
             function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = value;
-                    / * closure item = 5 captures = [arg] * / _lambda__5
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -2676,7 +2676,7 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda__5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
@@ -2709,14 +2709,14 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda__5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
             }
             operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Int) : Unit {
-                _lambda__5(__capture_0, (register, target));
+                _lambda_5(__capture_0, (register, target));
             }
             // entry
             Main()
@@ -2873,7 +2873,7 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
             function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = value;
-                    / * closure item = 5 captures = [arg] * / _lambda__5
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -2895,7 +2895,7 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                 ReleaseQubitArray(register);
                 _generated_ident_156
             }
-            operation _lambda__5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
@@ -2938,14 +2938,14 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                 ReleaseQubitArray(register);
                 _generated_ident_156
             }
-            operation _lambda__5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
             }
             operation ApplyOp_Empty__closure_(register : Qubit[], target : Qubit, __capture_0 : Int) : Unit {
-                _lambda__5(__capture_0, (register, target));
+                _lambda_5(__capture_0, (register, target));
             }
             // entry
             Main()
@@ -3429,10 +3429,10 @@ fn identity_closure_adjoint_wrapped_collapses() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(q1 : Qubit, ) : Unit {
+            operation _lambda_3(q1 : Qubit, ) : Unit {
                 Adjoint S(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -3450,7 +3450,7 @@ fn identity_closure_adjoint_wrapped_collapses() {
                 ApplyOp_Empty__Adj_S_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__3(q1 : Qubit, ) : Unit {
+            operation _lambda_3(q1 : Qubit, ) : Unit {
                 Adjoint S(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {

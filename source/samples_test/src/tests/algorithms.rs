@@ -31,7 +31,7 @@ pub const BITFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
     |000⟩: 0.4472+0.0000𝑖
     |111⟩: 0.8944+0.0000𝑖
     One"#]];
-pub const BITFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 8046"];
+pub const BITFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 8068"];
 pub const BITFLIPCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 3794"];
 pub const DEUTSCHJOZSA_EXPECT: Expect = expect!["[true, false, true, false]"];
 pub const DEUTSCHJOZSA_EXPECT_DEBUG: Expect = expect!["[true, false, true, false]"];
@@ -135,7 +135,7 @@ pub const PHASEFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
     |110⟩: 0.4743+0.0000𝑖
     |111⟩: −0.1581+0.0000𝑖
     One"#]];
-pub const PHASEFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 9728"];
+pub const PHASEFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 9784"];
 pub const PHASEFLIPCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 4734"];
 pub const QRNG_EXPECT: Expect = expect!["7568811972615905454"];
 pub const QRNG_EXPECT_DEBUG: Expect = expect!["7568811972615905454"];

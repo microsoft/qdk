@@ -62,10 +62,10 @@ fn fixpoint_no_hof_call_sites_prunes_dead_callable_local_chain() {
         &expect![[r#"
             BEFORE:
             operation Main() : Unit {
-                let first : (Int -> Bool) = / * closure item = 2 captures = [] * / _lambda__2;
+                let first : (Int -> Bool) = / * closure item = 2 captures = [] * / _lambda_2;
                 let second : (Int -> Bool) = first;
             }
-            function _lambda__2(value : Int, ) : Bool {
+            function _lambda_2(value : Int, ) : Bool {
                 value == 0
             }
             // entry
@@ -73,7 +73,7 @@ fn fixpoint_no_hof_call_sites_prunes_dead_callable_local_chain() {
 
             AFTER:
             operation Main() : Unit {}
-            function _lambda__2(value : Int, ) : Bool {
+            function _lambda_2(value : Int, ) : Bool {
                 value == 0
             }
             // entry
@@ -1097,7 +1097,7 @@ fn producer_body_closure_cleanup_converges() {
             function MakeOp(extra : Bool) : (Qubit => Unit) {
                 return {
                     let arg : Bool = extra;
-                    / * closure item = 5 captures = [arg] * / _lambda__5
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -1106,7 +1106,7 @@ fn producer_body_closure_cleanup_converges() {
                 ApplyOp_Empty_(op, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__5(arg : Bool, hole : Qubit) : Unit {
+            operation _lambda_5(arg : Bool, hole : Qubit) : Unit {
                 InnerOp(arg, hole)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1133,14 +1133,14 @@ fn producer_body_closure_cleanup_converges() {
                 ApplyOp_Empty__closure_(q, true);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__5(arg : Bool, hole : Qubit) : Unit {
+            operation _lambda_5(arg : Bool, hole : Qubit) : Unit {
                 InnerOp(arg, hole)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Bool) : Unit {
-                _lambda__5(__capture_0, q);
+                _lambda_5(__capture_0, q);
             }
             // entry
             Main()
@@ -1183,12 +1183,12 @@ fn closure_in_active_call_arg_survives_cleanup() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let op1 : (Qubit => Unit) = {
                     let arg : Bool = true;
-                    / * closure item = 4 captures = [arg] * / _lambda__4
+                    / * closure item = 4 captures = [arg] * / _lambda_4
                 };
                 Apply2_Empty__AdjCtl_(op1, X, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__4(arg : Bool, hole : Qubit) : Unit {
+            operation _lambda_4(arg : Bool, hole : Qubit) : Unit {
                 Inner(arg, hole)
             }
             operation Apply2_Empty__AdjCtl_(f : (Qubit => Unit), g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
@@ -1211,7 +1211,7 @@ fn closure_in_active_call_arg_survives_cleanup() {
                 Apply2_Empty__AdjCtl__closure__X_(q, true);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda__4(arg : Bool, hole : Qubit) : Unit {
+            operation _lambda_4(arg : Bool, hole : Qubit) : Unit {
                 Inner(arg, hole)
             }
             operation Apply2_Empty__AdjCtl_(f : (Qubit => Unit), g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
@@ -1219,7 +1219,7 @@ fn closure_in_active_call_arg_survives_cleanup() {
                 g(q);
             }
             operation Apply2_Empty__AdjCtl__closure_(g : (Qubit => Unit is Adj + Ctl), q : Qubit, __capture_0 : Bool) : Unit {
-                _lambda__4(__capture_0, q);
+                _lambda_4(__capture_0, q);
                 g(q);
             }
             operation Apply2_Empty__AdjCtl__X_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
@@ -1227,7 +1227,7 @@ fn closure_in_active_call_arg_survives_cleanup() {
                 g(q);
             }
             operation Apply2_Empty__AdjCtl__closure__X_(q : Qubit, __capture_0 : Bool) : Unit {
-                _lambda__4(__capture_0, q);
+                _lambda_4(__capture_0, q);
                 X(q);
             }
             // entry
@@ -1288,9 +1288,9 @@ fn single_capture_single_closure_param_rewrite() {
             }
             operation Main() : Bool {
                 let threshold : Int = 3;
-                RunOp(/ * closure item = 3 captures = [threshold] * / _lambda__3)
+                RunOp(/ * closure item = 3 captures = [threshold] * / _lambda_3)
             }
-            function _lambda__3(threshold : Int, x : Int) : Bool {
+            function _lambda_3(threshold : Int, x : Int) : Bool {
                 x >= threshold
             }
             // entry
@@ -1304,11 +1304,11 @@ fn single_capture_single_closure_param_rewrite() {
                 let threshold : Int = 3;
                 RunOp_closure_(threshold)
             }
-            function _lambda__3(threshold : Int, x : Int) : Bool {
+            function _lambda_3(threshold : Int, x : Int) : Bool {
                 x >= threshold
             }
             function RunOp_closure_(__capture_0 : Int) : Bool {
-                _lambda__3(__capture_0, 5)
+                _lambda_3(__capture_0, 5)
             }
             // entry
             Main()
