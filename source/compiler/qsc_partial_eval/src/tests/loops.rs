@@ -427,6 +427,17 @@ fn rotation_call_within_a_for_loop() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
+                    name: Rx
+                    call_type: Regular
+                    input_type:
+                        [0]: Double
+                        [1]: Qubit
+                    input_vars:
+                        [0]: 4
+                        [1]: 5
+                    output_type: <VOID>
+                    body: 4
+                Callable 3: Callable:
                     name: __quantum__qis__rx__body
                     call_type: Regular
                     input_type:
@@ -434,7 +445,7 @@ fn rotation_call_within_a_for_loop() {
                         [1]: Qubit
                     output_type: <VOID>
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -451,15 +462,18 @@ fn rotation_call_within_a_for_loop() {
                     Variable(1, Boolean) = Icmp Slt, Variable(0, Integer), Integer(3)
                     Branch Variable(1, Boolean), 3, 2
                 Block 2: Block:
-                    Call id(3), args( Integer(0), Tag(0, 3), )
+                    Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
                 Block 3: Block:
                     Variable(2, Double) = Index Array(0), Variable(0, Integer)
                     Variable(3, Double) = Store Variable(2, Double)
                     Call id(2), args( Variable(3, Double), Qubit(0), )
-                    Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
-                    Variable(0, Integer) = Store Variable(4, Integer)
+                    Variable(6, Integer) = Add Variable(0, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(6, Integer)
                     Jump(1)
+                Block 4: Block:
+                    Call id(3), args( Variable(4, Double), Variable(5, Qubit), )
+                    Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
@@ -522,6 +536,7 @@ fn rotation_call_within_a_while_loop_unrolled() {
     );
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
     let program = get_rir_program_with_adaptive_profile(indoc! {
@@ -559,6 +574,17 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
+                    name: Rx
+                    call_type: Regular
+                    input_type:
+                        [0]: Double
+                        [1]: Qubit
+                    input_vars:
+                        [0]: 5
+                        [1]: 6
+                    output_type: <VOID>
+                    body: 4
+                Callable 3: Callable:
                     name: __quantum__qis__rx__body
                     call_type: Regular
                     input_type:
@@ -566,7 +592,7 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                         [1]: Qubit
                     output_type: <VOID>
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -585,29 +611,32 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
                     Branch Variable(2, Boolean), 3, 2
                 Block 2: Block:
                     Variable(0, Integer) = Store Integer(1)
-                    Variable(6, Integer) = Store Integer(0)
-                    Jump(4)
+                    Variable(8, Integer) = Store Integer(0)
+                    Jump(5)
                 Block 3: Block:
                     Variable(3, Double) = Index Array(0), Variable(1, Integer)
                     Variable(4, Double) = Store Variable(3, Double)
                     Call id(2), args( Variable(4, Double), Qubit(0), )
-                    Variable(5, Integer) = Add Variable(1, Integer), Integer(1)
-                    Variable(1, Integer) = Store Variable(5, Integer)
+                    Variable(7, Integer) = Add Variable(1, Integer), Integer(1)
+                    Variable(1, Integer) = Store Variable(7, Integer)
                     Jump(1)
                 Block 4: Block:
-                    Variable(7, Boolean) = Icmp Slt, Variable(6, Integer), Integer(2)
-                    Branch Variable(7, Boolean), 6, 5
+                    Call id(3), args( Variable(5, Double), Variable(6, Qubit), )
+                    Return
                 Block 5: Block:
-                    Variable(0, Integer) = Store Integer(2)
-                    Call id(3), args( Integer(0), Tag(0, 3), )
-                    Return Integer(0)
+                    Variable(9, Boolean) = Icmp Slt, Variable(8, Integer), Integer(2)
+                    Branch Variable(9, Boolean), 7, 6
                 Block 6: Block:
-                    Variable(8, Double) = Index Array(1), Variable(6, Integer)
-                    Variable(9, Double) = Store Variable(8, Double)
-                    Call id(2), args( Variable(9, Double), Qubit(0), )
-                    Variable(10, Integer) = Add Variable(6, Integer), Integer(1)
-                    Variable(6, Integer) = Store Variable(10, Integer)
-                    Jump(4)
+                    Variable(0, Integer) = Store Integer(2)
+                    Call id(4), args( Integer(0), Tag(0, 3), )
+                    Return Integer(0)
+                Block 7: Block:
+                    Variable(10, Double) = Index Array(1), Variable(8, Integer)
+                    Variable(11, Double) = Store Variable(10, Double)
+                    Call id(2), args( Variable(11, Double), Qubit(0), )
+                    Variable(12, Integer) = Add Variable(8, Integer), Integer(1)
+                    Variable(8, Integer) = Store Variable(12, Integer)
+                    Jump(5)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
@@ -654,6 +683,17 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
+                    name: Rx
+                    call_type: Regular
+                    input_type:
+                        [0]: Double
+                        [1]: Qubit
+                    input_vars:
+                        [0]: 2
+                        [1]: 3
+                    output_type: <VOID>
+                    body: 1
+                Callable 3: Callable:
                     name: __quantum__qis__rx__body
                     call_type: Regular
                     input_type:
@@ -661,7 +701,7 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
                         [1]: Qubit
                     output_type: <VOID>
                     body: <NONE>
-                Callable 3: Callable:
+                Callable 4: Callable:
                     name: __quantum__rt__tuple_record_output
                     call_type: OutputRecording
                     input_type:
@@ -680,8 +720,11 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
                     Variable(1, Integer) = Store Integer(1)
                     Call id(2), args( Double(1), Qubit(0), )
                     Variable(1, Integer) = Store Integer(2)
-                    Call id(3), args( Integer(0), Tag(0, 3), )
+                    Call id(4), args( Integer(0), Tag(0, 3), )
                     Return Integer(0)
+                Block 1: Block:
+                    Call id(3), args( Variable(2, Double), Variable(3, Qubit), )
+                    Return
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1

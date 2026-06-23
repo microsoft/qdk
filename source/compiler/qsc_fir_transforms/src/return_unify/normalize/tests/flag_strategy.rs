@@ -362,7 +362,7 @@ fn flag_fallback_handles_arrow_return() {
                 while not __has_returned and i < 3 {
                     if i == n {
                         {
-                            __ret_val = / * closure item = 3 captures = [] * / _lambda_;
+                            __ret_val = / * closure item = 3 captures = [] * / _lambda__3;
                             __has_returned = true;
                         };
                     }
@@ -376,7 +376,7 @@ fn flag_fallback_handles_arrow_return() {
                     __ret_val
                 } else {
                     if not __has_returned {
-                        / * closure item = 4 captures = [] * / _lambda_
+                        / * closure item = 4 captures = [] * / _lambda__4
                     } else {
                         __ret_val
                     }
@@ -387,10 +387,10 @@ fn flag_fallback_handles_arrow_return() {
                 let f : (Int -> Int) = MakeAdder(1);
                 f(10)
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda__3(x : Int, ) : Int {
                 x + 1
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda__4(x : Int, ) : Int {
                 x
             }
             function __return_unify_fail_5(_ : Int) : Int {

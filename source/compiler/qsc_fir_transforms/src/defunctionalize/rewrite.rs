@@ -1799,7 +1799,7 @@ fn apply_target_input_at_control_path(
 /// target whose parameters live in a one-element tuple.
 ///
 /// Relies on the naming contract with the producer pass: lifted lambdas
-/// that take a single tuple parameter are named with a leading `"<lambda>"`
+/// that take a single tuple parameter are named with a leading `".lambda"`
 /// prefix. Do not rename lambda items without updating this predicate.
 fn direct_lambda_packaged_input(package: &Package, item_id: LocalItemId) -> Option<Ty> {
     let ItemKind::Callable(decl) = &package.get_item(item_id).kind else {
@@ -1807,7 +1807,7 @@ fn direct_lambda_packaged_input(package: &Package, item_id: LocalItemId) -> Opti
     };
 
     let input_ty = package.get_pat(decl.input).ty.clone();
-    if decl.name.name.as_ref().starts_with("<lambda>")
+    if decl.name.name.as_ref().starts_with(".lambda")
         && matches!(&input_ty, Ty::Tuple(items) if items.len() == 1)
     {
         Some(input_ty)

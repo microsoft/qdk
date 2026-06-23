@@ -1617,7 +1617,7 @@ fn unreachable_partial_application_does_not_block_promotion() {
                 UsePair((1, 2), q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(arg : Qubit, hole : (Int, Int)) : Unit {
+            operation _lambda__5(arg : Qubit, hole : (Int, Int)) : Unit {
                 UsePair(hole, arg)
             }
             // entry
@@ -1637,7 +1637,7 @@ fn unreachable_partial_application_does_not_block_promotion() {
                 UsePair(1, 2, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(arg : Qubit, hole : (Int, Int)) : Unit {
+            operation _lambda__5(arg : Qubit, hole : (Int, Int)) : Unit {
                 UsePair(hole, arg)
             }
             // entry
@@ -2429,14 +2429,21 @@ fn closure_targets_are_excluded_from_promotion() {
         }";
 
     let (mut store, pkg_id) = compile_to_fir(source);
-    assert_eq!(closure_target_names(&store, pkg_id), vec!["<lambda>"]);
+    let lambda_names = closure_target_names(&store, pkg_id);
+    assert_eq!(lambda_names.len(), 1, "expected a single lifted lambda");
+    assert!(
+        lambda_names[0].starts_with(".lambda"),
+        "expected lifted lambda name to start with `.lambda`, got `{}`",
+        lambda_names[0]
+    );
+    let lambda_name = lambda_names[0].clone();
 
     let mut assigners = PackageAssigners::new(&store, pkg_id);
     arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     assert_eq!(
-        callable_input_binding_names(package, "<lambda>"),
+        callable_input_binding_names(package, &lambda_name),
         vec!["pair"]
     );
 }

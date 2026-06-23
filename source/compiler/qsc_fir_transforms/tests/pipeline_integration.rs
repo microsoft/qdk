@@ -151,6 +151,16 @@ fn store_with_removed_pinned_callable() -> (
     (store, pkg_id, pinned_store_id)
 }
 
+fn callable_name_matches(actual: &str, requested: &str) -> bool {
+    if requested == ".lambda" {
+        // Lifted lambdas are named `.lambda_<item-id>`; the `.lambda` sentinel
+        // matches any lifted lambda regardless of its volatile item-id suffix.
+        actual.starts_with(".lambda")
+    } else {
+        actual == requested
+    }
+}
+
 fn expr_targets_callable(
     package: &qsc_fir::fir::Package,
     pkg_id: qsc_fir::fir::PackageId,
@@ -163,7 +173,7 @@ fn expr_targets_callable(
             if item_id.package == pkg_id
                 && matches!(
                     &package.get_item(item_id.item).kind,
-                    ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name
+                    ItemKind::Callable(decl) if callable_name_matches(decl.name.name.as_ref(), callable_name)
                 ) =>
         {
             true
@@ -987,7 +997,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
         .items
         .values()
         .filter_map(|item| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with("<lambda>") => {
+            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with(".lambda") => {
                 Some(decl.name.name.to_string())
             }
             _ => None,
@@ -998,7 +1008,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
         .values()
         .find_map(|expr| match &expr.kind {
             ExprKind::Call(callee_id, args_id)
-                if expr_targets_callable(package, host_pkg_id, *callee_id, "<lambda>") =>
+                if expr_targets_callable(package, host_pkg_id, *callee_id, ".lambda") =>
             {
                 Some(*args_id)
             }
@@ -1062,7 +1072,7 @@ fn direct_lambda_calls_preserve_nested_tuple_packaging() {
         .items
         .values()
         .filter_map(|item| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with("<lambda>") => {
+            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with(".lambda") => {
                 Some(decl.name.name.to_string())
             }
             _ => None,
@@ -1073,7 +1083,7 @@ fn direct_lambda_calls_preserve_nested_tuple_packaging() {
         .values()
         .find_map(|expr| match &expr.kind {
             ExprKind::Call(callee_id, args_id)
-                if expr_targets_callable(package, fir_pkg_id, *callee_id, "<lambda>") =>
+                if expr_targets_callable(package, fir_pkg_id, *callee_id, ".lambda") =>
             {
                 Some(*args_id)
             }

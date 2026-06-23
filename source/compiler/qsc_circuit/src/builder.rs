@@ -595,8 +595,7 @@ fn collapse_if_unnecessary(
             && source_lookup
                 .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
                 .name
-                .as_ref()
-                == "<lambda>"
+                .starts_with(".lambda")
         {
             // remove the lambda scope
             return Some(take(children));
@@ -909,7 +908,7 @@ fn source_span_contents(contents: &str, source_offset: u32, span: Span) -> Optio
 }
 
 fn displayable_callable_scope_name(name: &str) -> Rc<str> {
-    if name.starts_with("<lambda>") {
+    if name.starts_with(".lambda") {
         return name.into();
     }
 
