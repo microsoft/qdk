@@ -912,8 +912,8 @@ fn mono_closure_in_generic() {
     check(
         source,
         &expect![[r#"
-            <lambda>_3: generics=0, input=(Int,), output=Int
-            <lambda>_3: generics=0, input=(Param<0>,), output=Param<0>
+            .lambda_3: generics=0, input=(Int,), output=Int
+            .lambda_3: generics=0, input=(Param<0>,), output=Param<0>
             Main: generics=0, input=Unit, output=Int
             WithClosure: generics=1, input=Param<0>, output=Param<0>
             WithClosure<Int>: generics=0, input=Int, output=Int"#]],
@@ -1472,8 +1472,8 @@ fn mono_generic_captures_variable() {
     check(
         source,
         &expect![[r#"
-            <lambda>_3: generics=0, input=(Int, Unit), output=Int
-            <lambda>_3: generics=0, input=(Param<0>, Unit), output=Param<0>
+            .lambda_3: generics=0, input=(Int, Unit), output=Int
+            .lambda_3: generics=0, input=(Param<0>, Unit), output=Param<0>
             Main: generics=0, input=Unit, output=Int
             WithCapture: generics=1, input=Param<0>, output=Param<0>
             WithCapture<Int>: generics=0, input=Int, output=Int"#]],

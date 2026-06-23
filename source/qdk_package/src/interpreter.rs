@@ -1573,7 +1573,7 @@ fn create_py_callable(
     name: &str,
     val: Value,
 ) -> PyResult<()> {
-    if namespace.is_empty() && name.starts_with("<lambda>") {
+    if namespace.is_empty() && name.starts_with(".lambda") {
         // We don't want to bind auto-generated lambda callables.
         return Ok(());
     }

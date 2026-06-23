@@ -2432,8 +2432,8 @@ fn closure_targets_are_excluded_from_promotion() {
     let lambda_names = closure_target_names(&store, pkg_id);
     assert_eq!(lambda_names.len(), 1, "expected a single lifted lambda");
     assert!(
-        lambda_names[0].starts_with("<lambda>"),
-        "expected lifted lambda name to start with `<lambda>`, got `{}`",
+        lambda_names[0].starts_with(".lambda"),
+        "expected lifted lambda name to start with `.lambda`, got `{}`",
         lambda_names[0]
     );
     let lambda_name = lambda_names[0].clone();

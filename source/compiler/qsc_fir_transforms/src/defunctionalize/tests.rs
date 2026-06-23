@@ -134,7 +134,7 @@ fn callable_decl<'a>(package: &'a fir::Package, callable_name: &str) -> &'a fir:
         .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
 }
 
-/// Lifted lambdas are renamed `<lambda>_<item>`, embedding the defining item id
+/// Lifted lambdas are renamed `.lambda_<item>`, embedding the defining item id
 /// so distinct lambdas in the same package receive distinct names. This guards
 /// the prefix-preserving lambda rename at the FIR layer.
 #[test]
@@ -162,7 +162,7 @@ fn lifted_lambda_names_embed_item_id_and_are_distinct() {
         .items
         .values()
         .filter_map(|item| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.starts_with("<lambda>") => {
+            ItemKind::Callable(decl) if decl.name.name.starts_with(".lambda") => {
                 Some(decl.name.name.to_string())
             }
             _ => None,
@@ -173,11 +173,11 @@ fn lifted_lambda_names_embed_item_id_and_are_distinct() {
         2,
         "expected two lifted lambdas; got: {lambda_names:?}"
     );
-    // Each lifted lambda keeps the `<lambda>_` prefix and embeds a numeric item id.
+    // Each lifted lambda keeps the `.lambda_` prefix and embeds a numeric item id.
     for name in &lambda_names {
-        let suffix = name.strip_prefix("<lambda>_").unwrap_or_else(|| {
-            panic!("lambda name must keep the `<lambda>_` prefix; got {name:?}")
-        });
+        let suffix = name
+            .strip_prefix(".lambda_")
+            .unwrap_or_else(|| panic!("lambda name must keep the `.lambda_` prefix; got {name:?}"));
         assert!(
             !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()),
             "lambda name must embed a numeric item id; got {name:?}"

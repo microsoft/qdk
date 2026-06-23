@@ -238,7 +238,7 @@ fn lambda_item_ids(package: &fir::Package) -> std::collections::BTreeSet<LocalIt
         .items
         .iter()
         .filter_map(|(id, item)| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with("<lambda>") => Some(id),
+            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with(".lambda") => Some(id),
             _ => None,
         })
         .collect()
@@ -2900,7 +2900,7 @@ fn stdlib_hof_specialized_with_concrete_callable() {
     check(
         source,
         &expect![[r#"
-            <lambda>_2: input_ty=(Int,)
+            .lambda_2: input_ty=(Int,)
             Main: input_ty=Unit
             Mapped<Int, Int>{closure}: input_ty=(Int)[]"#]],
     );

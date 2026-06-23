@@ -126,7 +126,7 @@ pub(super) fn lift(
         name: Ident {
             id: assigner.next_node(),
             span,
-            name: format!("<lambda>_{item}").into(),
+            name: format!(".lambda_{item}").into(),
         },
         generics: Vec::new(),
         input,

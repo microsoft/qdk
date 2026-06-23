@@ -646,7 +646,7 @@ fn lambda_in_entry_expr() {
             r
         }"},
         &expect![[r#"
-            <lambda>_1@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            .lambda_1@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
         "#]],
     );
 }

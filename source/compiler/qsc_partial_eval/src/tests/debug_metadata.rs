@@ -340,7 +340,7 @@ fn lambda() {
 
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-1)
-                1 = SubProgram name=<lambda>_2 location=(2-65)
+                1 = SubProgram name=.lambda_2 location=(2-65)
                 2 = SubProgram name=H location=(1-111225)
             dbg_locations:
                 [1]: scope=0 location=(2-99)

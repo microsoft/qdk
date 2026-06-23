@@ -2077,11 +2077,11 @@ fn callable_with_nested_udt_wrapped_arrow_generates_qir_via_callable_args() {
 // Synthetic-path and fallback-path coverage for callable-args codegen
 // ---------------------------------------------------------------------------
 
-/// Matches a callable's actual name against a requested lookup name. The `<lambda>` sentinel
-/// matches any lifted lambda, whose real name carries a volatile `<lambda>_<item-id>` suffix.
+/// Matches a callable's actual name against a requested lookup name. The `.lambda` sentinel
+/// matches any lifted lambda, whose real name carries a volatile `.lambda_<item-id>` suffix.
 fn callable_name_matches(actual: &str, requested: &str) -> bool {
-    if requested == "<lambda>" {
-        actual.starts_with("<lambda>")
+    if requested == ".lambda" {
+        actual.starts_with(".lambda")
     } else {
         actual == requested
     }
@@ -2529,7 +2529,7 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
     let caps = Profile::AdaptiveRIF.into();
     let (store, pkg, items) = compile_and_locate_items(
         source,
-        &[("RunOp", true), ("Shifted", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Shifted", true), (".lambda", true)],
         caps,
     );
 
@@ -2537,7 +2537,7 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
     // leaves the explicit `register` slot for the synthetic entry to supply.
     let shifted_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Int(1)].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
     let args = Value::Tuple(vec![shifted_closure, Value::Int(1)].into(), None);
@@ -2591,7 +2591,7 @@ fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() 
     let caps = Profile::AdaptiveRIF.into();
     let (store, pkg, items) = compile_and_locate_items(
         source,
-        &[("RunOp", true), ("Entangle", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Entangle", true), (".lambda", true)],
         caps,
     );
 
@@ -2599,7 +2599,7 @@ fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() 
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
 
@@ -2824,7 +2824,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     let synthetic_source = early_return_synthetic_entry_source();
     let (store, pkg, items) = compile_and_locate_items(
         &synthetic_source,
-        &[("RunOp", true), ("Rotate", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Rotate", true), (".lambda", true)],
         caps,
     );
 
@@ -2832,7 +2832,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     // explicit `target` slot for the closure invocation to supply.
     let rotation_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Int(1)].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
 
@@ -2859,7 +2859,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     let reinvoke_source = early_return_reinvoke_original_source();
     let (store, pkg, items) = compile_and_locate_items(
         &reinvoke_source,
-        &[("RunOp", true), ("Entangle", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Entangle", true), (".lambda", true)],
         caps,
     );
 
@@ -2867,7 +2867,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
 
@@ -2906,7 +2906,7 @@ fn early_return_in_dynamic_branch_reinvoke_original_compiles_parity_target() {
     let reinvoke_source = early_return_reinvoke_original_source();
     let (store, pkg, items) = compile_and_locate_items(
         &reinvoke_source,
-        &[("RunOp", true), ("Entangle", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Entangle", true), (".lambda", true)],
         caps,
     );
 
@@ -2914,7 +2914,7 @@ fn early_return_in_dynamic_branch_reinvoke_original_compiles_parity_target() {
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
 

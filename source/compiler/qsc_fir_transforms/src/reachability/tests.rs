@@ -123,7 +123,7 @@ fn closure_inside_reachable_callable_followed() {
                 }
             "},
         &expect![[r#"
-            <lambda>_2
+            .lambda_2
             Main"#]],
     );
 }
@@ -201,7 +201,7 @@ fn callable_only_in_closure_body() {
                 }
             "},
         &expect![[r#"
-            <lambda>_3
+            .lambda_3
             Main
             Other"#]],
     );
@@ -221,7 +221,7 @@ fn lambda_in_entry_expression() {
                 }
             "},
         &expect![[r#"
-            <lambda>_2
+            .lambda_2
             Main"#]],
     );
 }
@@ -504,8 +504,8 @@ fn closure_capturing_closure_reachable() {
                 }
             "},
         &expect![[r#"
-            <lambda>
-            <lambda>
+            .lambda_2
+            .lambda_3
             Main"#]],
     );
 }

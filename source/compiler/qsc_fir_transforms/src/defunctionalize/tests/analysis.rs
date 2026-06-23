@@ -1694,7 +1694,7 @@ fn partial_application_lambda_defunctionalizes_end_to_end() {
     check(
         source,
         &expect![
-            "<lambda>_4: input_ty=((Qubit)[],)\nApplyOp<Empty>{closure}: input_ty=(Qubit)[]\nMain: input_ty=Unit\nShifted: input_ty=(Int, (Qubit)[])"
+            ".lambda_4: input_ty=((Qubit)[],)\nApplyOp<Empty>{closure}: input_ty=(Qubit)[]\nMain: input_ty=Unit\nShifted: input_ty=(Int, (Qubit)[])"
         ],
     );
     check_rewrite(

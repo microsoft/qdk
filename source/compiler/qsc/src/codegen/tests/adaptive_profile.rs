@@ -2567,7 +2567,7 @@ fn user_callable_named_like_entry_point_is_discriminated() {
 
 /// Two distinct directly-invoked lambdas in a single user package are each
 /// lifted into their own callable and emitted as separate IR functions. The
-/// lifted names embed the defining item id (`<lambda>_<item>`), so the two
+/// lifted names embed the defining item id (`.lambda_<item>`), so the two
 /// emitted symbols are distinct and there is no duplicate `define`.
 #[test]
 fn distinct_lambdas_emit_distinct_ir_functions() {
@@ -2585,16 +2585,16 @@ fn distinct_lambdas_emit_distinct_ir_functions() {
     // Each lambda is lifted and emitted as its own IR function. Lifted names
     // contain special characters and therefore render as quoted globals.
     assert_eq!(
-        qir.matches("define void @\"<lambda>").count(),
+        qir.matches("define void @.lambda").count(),
         2,
         "expected two distinct lifted-lambda IR functions; got:\n{qir}"
     );
     // The two emitted lambda definitions must have different names.
     let names: Vec<&str> = qir
-        .match_indices("define void @\"<lambda>")
+        .match_indices("define void @.lambda")
         .map(|(idx, _)| {
-            let rest = &qir[idx + "define void @\"".len()..];
-            let end = rest.find('"').expect("quoted name should be terminated");
+            let rest = &qir[idx + "define void @".len()..];
+            let end = rest.find('(').expect("lambda name should be terminated");
             &rest[..end]
         })
         .collect();

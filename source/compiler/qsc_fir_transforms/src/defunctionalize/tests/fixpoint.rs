@@ -1257,7 +1257,7 @@ fn single_capture_single_closure_param_input_is_scalar() {
     check(
         source,
         &expect![[r#"
-            <lambda>_3: input_ty=(Int, Int)
+            .lambda_3: input_ty=(Int, Int)
             Main: input_ty=Unit
             RunOp{closure}: input_ty=Int"#]],
     );

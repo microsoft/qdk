@@ -198,7 +198,7 @@ mod single_use_callable_local_promotion {
         }
         "#,
             &expect![[r#"
-                <lambda>_4: input_ty=(Double, Qubit)
+                .lambda_4: input_ty=(Double, Qubit)
                 ApplyOp<Empty>{closure}: input_ty=(Qubit, Double)
                 Main: input_ty=Unit
                 Parametrized: input_ty=(Double, Qubit)"#]],
@@ -375,7 +375,7 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-                <lambda>_3: input_ty=((Qubit, Qubit),)
+                .lambda_3: input_ty=((Qubit, Qubit),)
                 ApplyTwo<Empty>{closure}: input_ty=(Qubit, Qubit)
                 Main: input_ty=Unit"#]],
         );
@@ -396,7 +396,7 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-                <lambda>_3: input_ty=(Qubit, Qubit)
+                .lambda_3: input_ty=(Qubit, Qubit)
                 ApplyOp<Empty>{closure}: input_ty=(Qubit, Qubit)
                 Main: input_ty=Unit"#]],
         );
@@ -417,7 +417,7 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-                <lambda>_3: input_ty=(Qubit, Unit)
+                .lambda_3: input_ty=(Qubit, Unit)
                 ApplyOp<Empty>{closure}: input_ty=(Unit, Qubit)
                 Main: input_ty=Unit"#]],
         );
@@ -437,7 +437,7 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-                <lambda>_3: input_ty=(Qubit,)
+                .lambda_3: input_ty=(Qubit,)
                 ApplyOp<Empty>{closure}: input_ty=Qubit
                 Main: input_ty=Unit"#]],
         );
@@ -457,7 +457,7 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-                <lambda>_3: input_ty=(Qubit,)
+                .lambda_3: input_ty=(Qubit,)
                 ApplyOp<Empty>{closure}: input_ty=Qubit
                 Main: input_ty=Unit"#]],
         );
