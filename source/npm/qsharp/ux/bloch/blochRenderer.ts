@@ -522,10 +522,22 @@ export class BlochRenderer {
   }
 
   reset() {
+    // Cancel any in-flight animation and drain the queue so its render
+    // callback can't write the in-progress quaternion back over the reset
+    // (otherwise clearing mid-playback leaves the state indicator stranded
+    // wherever the last frame landed).
+    if (this.animationCallbackId) {
+      cancelAnimationFrame(this.animationCallbackId);
+      this.animationCallbackId = 0;
+    }
+    this.gateQueue.length = 0;
+    // Detach the rotation-axis indicator in case we're cancelling mid-flight.
+    this.qubit.remove(this.rotationAxis);
     this.controls.reset();
     this.rotations.reset();
     this.trail.clear();
     this.scene.position.set(0, 0, 0);
+    this.qubit.quaternion.identity();
     this.qubit.rotation.set(0, 0, 0);
     this.camera.position.set(4, 4, 27);
     this.camera.lookAt(0, 0, 0);

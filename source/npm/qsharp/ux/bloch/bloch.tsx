@@ -929,159 +929,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 {"\u2715"}
               </button>
             </div>
-            <div class="qs-gate-buttons">
-              {/* Gate palette: single-qubit gates, as one segmented control. */}
-              <div
-                class="qs-bloch-gate-group qs-bloch-gate-group-palette"
-                role="group"
-                aria-label="Apply gate"
-              >
-                {(
-                  [
-                    ["X", "X"],
-                    ["Y", "Y"],
-                    ["Z", "Z"],
-                    ["H", "H"],
-                    ["S", "S"],
-                    ["s", "S†"],
-                    ["T", "T"],
-                    ["t", "T†"],
-                  ] as const
-                ).map(([code, label]) => (
-                  <button
-                    key={code}
-                    type="button"
-                    onClick={() => applyGate(code)}
-                    disabled={isPlaying}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Edit history: undo/redo, as a second segmented control. */}
-              <div
-                class="qs-bloch-gate-group"
-                role="group"
-                aria-label="Edit history"
-              >
-                <button
-                  type="button"
-                  onClick={undo}
-                  disabled={!canUndo}
-                  title="Undo last gate"
-                >
-                  Undo
-                </button>
-                <button
-                  type="button"
-                  onClick={redo}
-                  disabled={!canRedo}
-                  title="Redo last undone gate"
-                >
-                  Redo
-                </button>
-              </div>
-
-              <div class="qs-bloch-gate-group" role="group">
-                <button
-                  type="button"
-                  onClick={clear}
-                  disabled={isPlaying}
-                  title={
-                    isPlaying ? "Pause to clear" : "Clear the entire trace"
-                  }
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div class="qs-bloch-gate-editor">
-              <div class="qs-bloch-gate-editor-row">
-                <input
-                  class="qs-bloch-gate-editor-input"
-                  value={displayValue}
-                  onInput={gateTextInput}
-                  spellcheck={false}
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  aria-label="Gate program"
-                  placeholder="Type a gate sequence (X Y Z H S s T t)"
-                />
-                {props.actionSlot}
-              </div>
-              {/*
-          Gate-count breakdown plus a T-count callout. T-count (T and T†
-          gates) is the key cost metric for fault-tolerant implementations,
-          so surfacing it live is useful after the Rz slider expands a
-          rotation into many gates.
-        */}
-              <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
-                <span class="qs-bloch-gate-editor-breakdown">
-                  {(() => {
-                    const counts: Record<string, number> = {};
-                    for (const ch of displayValue) {
-                      counts[ch] = (counts[ch] ?? 0) + 1;
-                    }
-                    const chips = [];
-                    for (const code of VALID_GATE_CODES) {
-                      const n = counts[code] ?? 0;
-                      if (n === 0) continue;
-                      chips.push(
-                        <span
-                          key={code}
-                          class="qs-bloch-gate-editor-chip"
-                          title={`${n}× ${gateInfo[code].display}`}
-                        >
-                          <span class="qs-bloch-gate-editor-chip-name">
-                            {gateInfo[code].display}
-                          </span>
-                          <span class="qs-bloch-gate-editor-chip-count">
-                            {n}
-                          </span>
-                        </span>,
-                      );
-                    }
-                    const tCount = (counts["T"] ?? 0) + (counts["t"] ?? 0);
-                    if (chips.length === 0) {
-                      return (
-                        <span class="qs-bloch-gate-editor-empty">no gates</span>
-                      );
-                    }
-                    return (
-                      <>
-                        {chips}
-                        {tCount > 0 && (
-                          <span
-                            class="qs-bloch-gate-editor-tcount"
-                            title="T-count: number of T and T† gates. T gates are the expensive primitive in fault-tolerant quantum computing."
-                          >
-                            T-count: {tCount}
-                          </span>
-                        )}
-                      </>
-                    );
-                  })()}
-                </span>
-                <span class="qs-bloch-gate-editor-status">
-                  <span
-                    class={
-                      displayValue.length > MAX_GATE_SEQUENCE_LENGTH
-                        ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
-                        : "qs-bloch-gate-editor-count"
-                    }
-                    title={
-                      displayValue.length > MAX_GATE_SEQUENCE_LENGTH
-                        ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
-                        : ""
-                    }
-                  >
-                    {displayValue.length} / {MAX_GATE_SEQUENCE_LENGTH}
-                  </span>
-                </span>
-              </div>
-            </div>
             <div class="qs-bloch-rz">
               <div class="qs-bloch-rz-row">
                 {(() => {
@@ -1178,6 +1025,156 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                     </span>
                   </div>
                 </div>
+              </div>
+            </div>
+            <div class="qs-gate-buttons">
+              {/* Gate palette: single-qubit gates, as one segmented control. */}
+              <div
+                class="qs-bloch-gate-group qs-bloch-gate-group-palette"
+                role="group"
+                aria-label="Apply gate"
+              >
+                {(
+                  [
+                    ["X", "X"],
+                    ["Y", "Y"],
+                    ["Z", "Z"],
+                    ["H", "H"],
+                    ["S", "S"],
+                    ["s", "S†"],
+                    ["T", "T"],
+                    ["t", "T†"],
+                  ] as const
+                ).map(([code, label]) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => applyGate(code)}
+                    disabled={isPlaying}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Edit history: undo/redo, as a second segmented control. */}
+              <div
+                class="qs-bloch-gate-group"
+                role="group"
+                aria-label="Edit history"
+              >
+                <button
+                  type="button"
+                  onClick={undo}
+                  disabled={!canUndo}
+                  title="Undo last gate"
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={redo}
+                  disabled={!canRedo}
+                  title="Redo last undone gate"
+                >
+                  Redo
+                </button>
+              </div>
+
+              <div class="qs-bloch-gate-group" role="group">
+                <button
+                  type="button"
+                  onClick={clear}
+                  title="Clear the entire trace"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div class="qs-bloch-gate-editor">
+              <div class="qs-bloch-gate-editor-row">
+                <input
+                  class="qs-bloch-gate-editor-input"
+                  value={displayValue}
+                  onInput={gateTextInput}
+                  spellcheck={false}
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  aria-label="Gate program"
+                  placeholder="Type a gate sequence (X Y Z H S s T t)"
+                />
+                {props.actionSlot}
+              </div>
+              {/*
+          Gate-count breakdown plus a T-count callout. T-count (T and T†
+          gates) is the key cost metric for fault-tolerant implementations,
+          so surfacing it live is useful after the Rz slider expands a
+          rotation into many gates.
+        */}
+              <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
+                <span class="qs-bloch-gate-editor-breakdown">
+                  {(() => {
+                    const counts: Record<string, number> = {};
+                    for (const ch of displayValue) {
+                      counts[ch] = (counts[ch] ?? 0) + 1;
+                    }
+                    const chips = [];
+                    for (const code of VALID_GATE_CODES) {
+                      const n = counts[code] ?? 0;
+                      if (n === 0) continue;
+                      chips.push(
+                        <span
+                          key={code}
+                          class="qs-bloch-gate-editor-chip"
+                          title={`${n}× ${gateInfo[code].display}`}
+                        >
+                          <span class="qs-bloch-gate-editor-chip-name">
+                            {gateInfo[code].display}
+                          </span>
+                          <span class="qs-bloch-gate-editor-chip-count">
+                            {n}
+                          </span>
+                        </span>,
+                      );
+                    }
+                    const tCount = (counts["T"] ?? 0) + (counts["t"] ?? 0);
+                    if (chips.length === 0) {
+                      return (
+                        <span class="qs-bloch-gate-editor-empty">no gates</span>
+                      );
+                    }
+                    return (
+                      <>
+                        {chips}
+                        {tCount > 0 && (
+                          <span
+                            class="qs-bloch-gate-editor-tcount"
+                            title="T-count: number of T and T† gates. T gates are the expensive primitive in fault-tolerant quantum computing."
+                          >
+                            T-count: {tCount}
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                </span>
+                <span class="qs-bloch-gate-editor-status">
+                  <span
+                    class={
+                      displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                        ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
+                        : "qs-bloch-gate-editor-count"
+                    }
+                    title={
+                      displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                        ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                        : ""
+                    }
+                  >
+                    {displayValue.length} / {MAX_GATE_SEQUENCE_LENGTH}
+                  </span>
+                </span>
               </div>
             </div>
           </div>

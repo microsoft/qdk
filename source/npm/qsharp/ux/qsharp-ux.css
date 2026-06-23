@@ -549,7 +549,10 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
    row of separate buttons. */
 .qs-gate-buttons {
   display: flex;
-  flex-wrap: wrap;
+  /* The palette, undo/redo, and clear groups must stay together on a
+     single line -- they read as one toolbar. The control panel is sized
+     to fit this row, so it must never wrap. */
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
 }
@@ -740,7 +743,11 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   bottom: 8px;
   z-index: 2;
   box-sizing: border-box;
-  width: min(600px, calc(100% - 16px));
+  /* Sized to just fit the single-line gate-button toolbar (palette +
+     Undo/Redo + Clear), the widest rigid row in the panel. This keeps the
+     panel from stretching toward the trace pane while leaving the toolbar
+     on one line. Shrinks with the host on narrow layouts. */
+  width: min(500px, calc(100% - 16px));
   max-height: calc(100% - 16px);
   overflow-y: auto;
   display: flex;
@@ -1343,10 +1350,14 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
 }
 /* Placeholder shown when the sanitized draft contains no gates
    (empty input, or whitespace-only). Quieter than the chips so it
-   doesn't compete visually. */
+   doesn't compete visually. The transparent border + matching padding
+   give it the same box height as a gate chip, so the feedback row
+   doesn't grow by a couple of pixels when the first gate is added. */
 .qs-bloch-gate-editor-empty {
   font-style: italic;
   opacity: 0.5;
+  padding: 1px 0;
+  border: 1px solid transparent;
 }
 .qs-bloch-gate-editor-status {
   display: flex;
