@@ -19,7 +19,6 @@ pub enum Item {
 
 #[derive(Debug)]
 pub struct Line {
-    pub span: Span,
     pub instruction: Instruction,
 }
 
@@ -207,10 +206,7 @@ impl<'a> Parser<'a> {
 
     fn parse_line(&mut self, instruction: Instruction) -> Line {
         self.expect_line_end();
-        Line {
-            span: instruction.span,
-            instruction,
-        }
+        Line { instruction }
     }
 
     fn parse_instruction(&mut self) -> Instruction {
