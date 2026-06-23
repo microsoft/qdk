@@ -5,12 +5,47 @@
 mod tests;
 
 use enum_iterator::Sequence;
+use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use std::str::CharIndices;
 use std::{
     fmt::{self, Display, Formatter},
     iter::Peekable,
 };
+use thiserror::Error;
+
+#[derive(Clone, Debug, Error, Diagnostic)]
+pub enum Error {
+    /// A character that does not start any valid token, e.g. `@` or `$`.
+    #[error("unrecognized character")]
+    #[diagnostic(code("Stim.UnrecognizedCharacter"))]
+    UnrecognizedCharacter {
+        #[label]
+        span: Span,
+    },
+    /// A sign (`+` or `-`) that is not followed by any digits, e.g. `+` or `-`.
+    #[error("expected digits after sign")]
+    #[diagnostic(code("Stim.MissingDigitsAfterSign"))]
+    MissingDigitsAfterSign {
+        #[label]
+        span: Span,
+    },
+    /// A decimal point that is not followed by any digits, e.g. `3.`.
+    #[error("expected digits after decimal point")]
+    #[diagnostic(code("Stim.MissingFractionalDigits"))]
+    MissingFractionalDigits {
+        #[label]
+        span: Span,
+    },
+    /// An exponent marker (`e`/`E`, optionally signed) that is not followed by
+    /// any digits, e.g. `1e` or `1e-`.
+    #[error("expected digits in exponent")]
+    #[diagnostic(code("Stim.MissingExponentDigits"))]
+    MissingExponentDigits {
+        #[label]
+        span: Span,
+    },
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Token {
@@ -32,7 +67,6 @@ pub enum TokenKind {
     Star,            // *
     Bang,            // !
     Comma,           // ,
-    Unknown,         // unknown token
 }
 
 impl Display for TokenKind {
@@ -50,7 +84,6 @@ impl Display for TokenKind {
             TokenKind::Star => f.write_str("star"),
             TokenKind::Bang => f.write_str("bang"),
             TokenKind::Comma => f.write_str("comma"),
-            TokenKind::Unknown => f.write_str("unknown"),
         }
     }
 }
@@ -88,6 +121,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    fn pos(&mut self) -> u32 {
+        self.chars.peek().map_or(self.input_len, |(i, _)| *i as u32)
+    }
+
     fn eat_while(&mut self, f: impl Fn(char) -> bool) {
         while self.chars.next_if(|i| f(i.1)).is_some() {}
     }
@@ -112,7 +149,7 @@ impl<'a> Lexer<'a> {
         true
     }
 
-    fn scan_number(&mut self, signed: bool) -> TokenKind {
+    fn scan_number(&mut self, lo: u32, signed: bool) -> Result<TokenKind, Error> {
         // Lexes a number: an optional sign, an integer part, an optional
         // fractional part, and an optional exponent.
 
@@ -122,7 +159,9 @@ impl<'a> Lexer<'a> {
             //   "<+>1", "<->42", "<+>3.5e-2"
             // This block consumes the integer digits: "+<1>", "-<42>"
             if !self.eat_one_or_more_digits() {
-                return TokenKind::Unknown;
+                return Err(Error::MissingDigitsAfterSign {
+                    span: Span { lo, hi: self.pos() },
+                });
             }
             is_double = true; // A signed number is always a double.
         } else {
@@ -135,9 +174,11 @@ impl<'a> Lexer<'a> {
         if self.chars.next_if(|(_, c)| *c == '.').is_some() {
             // Optional fractional part: a '.' followed by one or more digits.
             //   "3<.14>", "0<.5>"
-            // A '.' with no digits after it ("3.") => Unknown.
+            // A '.' with no digits after it ("3.") is an error.
             if !self.eat_one_or_more_digits() {
-                return TokenKind::Unknown;
+                return Err(Error::MissingFractionalDigits {
+                    span: Span { lo, hi: self.pos() },
+                });
             }
             is_double = true;
         }
@@ -148,21 +189,23 @@ impl<'a> Lexer<'a> {
         {
             // Optional exponent: 'e'/'E', an optional sign, then one or more digits.
             //   "1<e9>", "2.5<E-3>", "6<e+2>"
-            // A bare "1e" or "1e-" (no exponent digits) => Unknown.
+            // A bare "1e" or "1e-" (no exponent digits) is an error.
             self.chars.next_if(|(_, c)| *c == '+' || *c == '-');
             if !self.eat_one_or_more_digits() {
-                return TokenKind::Unknown;
+                return Err(Error::MissingExponentDigits {
+                    span: Span { lo, hi: self.pos() },
+                });
             }
             is_double = true;
         }
 
         // No '.' and no exponent => an unsigned integer ("42" => Uint);
         // a sign, '.', or exponent makes it a Double ("-42", "3.14", "1e9").
-        if is_double {
+        Ok(if is_double {
             TokenKind::Double
         } else {
             TokenKind::Uint
-        }
+        })
     }
 
     fn scan_identifier(&mut self, lo: usize) -> TokenKind {
@@ -189,7 +232,7 @@ impl<'a> Lexer<'a> {
 }
 
 impl Iterator for Lexer<'_> {
-    type Item = Token;
+    type Item = Result<Token, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         use Delim::{Brace, Paren};
@@ -220,22 +263,32 @@ impl Iterator for Lexer<'_> {
             '*' => TokenKind::Star,
             '!' => TokenKind::Bang,
             ',' => TokenKind::Comma,
-            '+' | '-' => self.scan_number(true),
-            '0'..='9' => self.scan_number(false),
+            '+' | '-' => match self.scan_number(lo, true) {
+                Ok(kind) => kind,
+                Err(error) => return Some(Err(error)),
+            },
+            '0'..='9' => match self.scan_number(lo, false) {
+                Ok(kind) => kind,
+                Err(error) => return Some(Err(error)),
+            },
             'A'..='Z' | 'a'..='z' => self.scan_identifier(lo as usize),
             '[' => {
                 self.eat_while(|c| c != ']');
                 self.chars.next_if(|(_, c)| *c == ']');
                 TokenKind::Tag
             }
-            _ => TokenKind::Unknown,
+            _ => {
+                return Some(Err(Error::UnrecognizedCharacter {
+                    span: Span { lo, hi: self.pos() },
+                }));
+            }
         };
 
-        let hi: u32 = self.chars.peek().map_or(self.input_len, |(i, _)| *i as u32);
-        Some(Token {
+        let hi: u32 = self.pos();
+        Some(Ok(Token {
             kind: token_kind,
             span: Span { lo, hi },
-        })
+        }))
     }
 }
 
