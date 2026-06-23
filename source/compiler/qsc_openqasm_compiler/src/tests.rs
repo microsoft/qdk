@@ -476,10 +476,9 @@ fn get_last_statement_as_qsharp(package: &Package) -> String {
     }
 }
 
-#[allow(dead_code)]
 pub struct AstDespanner;
 impl AstDespanner {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // false positive lint
     pub fn despan(&mut self, package: &Package) -> Package {
         let mut p = package.clone();
         self.visit_package(&mut p);
@@ -512,8 +511,6 @@ impl qsc::hir::mut_visit::MutVisitor for HirDespanner {
     }
 }
 
-// This code is very used in debugging tests, so we allow dead code here to avoid warnings.
-#[allow(dead_code)]
 mod qsharp {
     use qsc_ast::ast::Package;
     use qsc_data_structures::{language_features::LanguageFeatures, source::SourceMap};
