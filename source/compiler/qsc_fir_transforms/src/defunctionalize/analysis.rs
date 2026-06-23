@@ -434,15 +434,40 @@ fn inspect_call_expr(
         return;
     }
 
+    // Reaching here means the call is a plain direct call, not a HOF call site
+    // (the HOF branch above already returned). Decide whether to record it.
+    //
+    // `record_direct_calls` is `false` for *foreign* bodies — callables owned
+    // by a package other than the entry package. Such bodies are walked only to
+    // discover closures they thread into a HOF; their own already-direct calls
+    // are deliberately skipped, since recording every one would drag the entire
+    // standard-library call graph in as spurious direct call sites (see
+    // `CallRecorder::record_direct_calls`).
+    //
+    // The one exception is the empty-capture `Closure([], target)` callee that
+    // specialization materializes in place when a no-capture closure is threaded
+    // into a HOF specialized where it sits. The direct-call rewrite must lower
+    // that closure into a direct item call, or the `PostDefunc` invariant breaks
+    // and the convergence metric never reaches zero.
+    //
+    // So, in a foreign body, skip every direct call whose callee — after peeling
+    // functor wrappers like `Adjoint`/`Controlled` — is not a closure literal.
+    //
+    // Example (`LibApply` lives in a library, i.e. a foreign package; the
+    // no-capture closure `x => H(x)` is threaded into it):
+    //
+    //     // library package
+    //     operation LibApply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+    //     operation LibCaller(q : Qubit) : Unit { LibApply(x => H(x), q); }
+    //
+    // Specializing `LibApply` for `x => H(x)` clones its body into the library
+    // package and turns the forwarded `op(q)` into a `Closure([], target)(q)`
+    // callee. Walking that foreign clone, this is the single direct call kept:
+    // the rewrite lowers it to the item call `H(q)`. Any other call in a foreign
+    // body — an internal helper call, or an `op(q)` whose callee is still an
+    // arrow-typed parameter — is skipped.
     if !record_direct_calls {
-        // Foreign bodies are walked only to discover closures passed to a HOF
-        // *inside* them (see `CallRecorder::record_direct_calls` for why their
-        // already-direct calls are skipped). The single direct call site a
-        // foreign body genuinely needs is the empty-capture `Closure([],
-        // target)` callee that specialization itself materializes when a
-        // no-capture closure is threaded into a HOF specialized in place; the
-        // direct-call rewrite must convert it into a direct item call to
-        // satisfy `PostDefunc` and let the convergence metric reach zero.
+        // Skip unless the (functor-peeled) callee is a closure literal.
         let (base_id, _) = peel_body_functors(pkg, *callee_expr_id);
         if !matches!(pkg.get_expr(base_id).kind, ExprKind::Closure(_, _)) {
             return;
