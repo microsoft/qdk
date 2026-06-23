@@ -2,7 +2,13 @@
 // Licensed under the MIT License.
 
 use num_bigint::BigInt;
-use qsc_data_structures::span::Span;
+use qsc_data_structures::{
+    display::{
+        write_field, write_header, write_indented_list, write_list_field, write_opt_field,
+        writeln_field, writeln_header, writeln_list_field, writeln_opt_field,
+    },
+    span::Span,
+};
 use std::{
     collections::VecDeque,
     fmt::{self, Display, Formatter},
@@ -10,10 +16,6 @@ use std::{
 };
 
 use crate::{
-    display_utils::{
-        write_field, write_header, write_indented_list, write_list_field, write_opt_field,
-        writeln_field, writeln_header, writeln_list_field, writeln_opt_field,
-    },
     parser::ast::{List, PathKind},
     semantic::{
         symbols::SymbolId,

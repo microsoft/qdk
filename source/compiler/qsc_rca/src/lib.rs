@@ -18,9 +18,9 @@ pub mod errors;
 mod invariants;
 mod scaffolding;
 
-use crate::common::set_indentation;
 use bitflags::bitflags;
 use indenter::indented;
+use qsc_data_structures::display::core::set_indentation;
 use qsc_data_structures::{
     index_map::{IndexMap, Iter},
     target::TargetCapabilityFlags,

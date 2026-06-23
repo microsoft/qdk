@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::display_utils::{
+use qsc_data_structures::display::{
     write_field, write_header, write_indented_list, write_list_field, write_opt_field,
     write_opt_list_field, writeln_field, writeln_header, writeln_list_field, writeln_opt_field,
 };

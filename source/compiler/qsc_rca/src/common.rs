@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use indenter::Indented;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::{
     extensions::{InputParam, InputParamIndex},
@@ -13,10 +12,7 @@ use qsc_fir::{
     visit::{Visitor, walk_expr, walk_stmt},
 };
 use rustc_hash::FxHashMap;
-use std::{
-    cmp::max,
-    fmt::{Debug, Formatter},
-};
+use std::{cmp::max, fmt::Debug};
 
 /// A representation of a local symbol.
 #[derive(Clone, Debug)]
@@ -282,17 +278,5 @@ impl<'a> Visitor<'a> for AssignmentStmtCounter<'a> {
         if self.assignment_expr_count > initial_assigment_expr_count {
             self.assignment_stmt_count += 1;
         }
-    }
-}
-
-pub fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
     }
 }
