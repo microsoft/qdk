@@ -476,7 +476,7 @@ pub(crate) fn compile_stim_to_qir(
         |noise_config| unbind_noise_config(py, noise_config),
     );
 
-    let qir = qsc_stim_parser::compile(source, &mut noise_config).map_err(|errors| {
+    let qir = stim_compiler::compile(source, &mut noise_config).map_err(|errors| {
         StimError::new_err(
             errors
                 .iter()

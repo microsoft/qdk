@@ -1,5 +1,5 @@
 [package]
-name = "qsc_stim_parser"
+name = "stim_compiler"
 edition.workspace = true
 version.workspace = true
 
