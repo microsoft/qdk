@@ -19,6 +19,8 @@ enum Operand {
     Qubit(u32),
     /// A result operand — the writer allocates the next result ID.
     Result,
+    /// A reference to an already-allocated result, carrying its QIR result ID.
+    ExistingResult(u32),
 }
 
 struct QirWriter {
@@ -103,6 +105,7 @@ impl QirWriter {
         let id = match operand {
             Operand::Qubit(stim_index) => self.map_qubit(stim_index),
             Operand::Result => self.next_result(),
+            Operand::ExistingResult(result_id) => result_id,
         };
         write!(self, "ptr inttoptr (i64 {id} to ptr)");
     }
@@ -873,18 +876,28 @@ impl<'noise> Compiler<'noise> {
         let reg = format!("preselect_r{}", self.num_preselect_expects);
         self.num_preselect_expects += 1;
 
-        // First target: which result to read
-        let Some(result_id) = self.expect_qubit(instruction, &instruction.targets[0]) else {
+        // First target: a measurement record (`rec[-N]`) selecting which result to read.
+        let Some(offset) = self.expect_measurement_record(instruction, &instruction.targets[0])
+        else {
             return;
         };
-        // Second target: expected value (0 or 1)
+        // Second target: the expected value (0 or 1) as a plain uint.
         let Some(expected) = self.expect_qubit(instruction, &instruction.targets[1]) else {
+            return;
+        };
+
+        // `rec[-N]` references the N-th most recent measurement; guard against integer underflow
+        let Some(result_id) = self.writer.num_results.checked_sub(offset) else {
+            self.emit_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction.targets[0].span,
+            });
             return;
         };
 
         // Read the result into %reg
         self.writer
-            .write_read_result(&reg, Operand::Qubit(result_id));
+            .write_read_result(&reg, Operand::ExistingResult(result_id));
 
         let begin_label = format!("preselect_begin_{id}");
         let continue_label = format!("preselect_continue_{id}");
@@ -990,6 +1003,21 @@ impl<'noise> Compiler<'noise> {
             negated: false,
         } = target.kind
         else {
+            self.emit_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: target.span,
+            });
+            return None;
+        };
+        Some(value)
+    }
+
+    fn expect_measurement_record(
+        &mut self,
+        instruction: &Instruction,
+        target: &Target,
+    ) -> Option<u32> {
+        let TargetKind::MeasurementRecord { value } = target.kind else {
             self.emit_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
