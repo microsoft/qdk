@@ -101,15 +101,41 @@ impl<'a> Lexer<'a> {
         self.eat_while(|c| c != '\n');
     }
 
-    fn scan_number(&mut self) -> TokenKind {
+    fn eat_one_or_more_digits(&mut self) -> bool {
+        if self.chars.next_if(|(_, c)| c.is_ascii_digit()).is_none() {
+            return false;
+        }
         self.eat_while(|c| c.is_ascii_digit());
+        true
+    }
+
+    fn scan_number(&mut self, signed: bool) -> TokenKind {
+        // Lexes a number: an optional sign, an integer part, an optional
+        // fractional part, and an optional exponent.
+
         let mut is_double = false;
-        if self.chars.next_if(|(_, c)| *c == '.').is_some() {
-            // A decimal point must be followed by at least one digit.
-            if self.chars.next_if(|(_, c)| c.is_ascii_digit()).is_none() {
+        if signed {
+            // The leading sign was already consumed by the caller:
+            //   "<+>1", "<->42", "<+>3.5e-2"
+            // This block consumes the integer digits: "+<1>", "-<42>"
+            if !self.eat_one_or_more_digits() {
                 return TokenKind::Unknown;
             }
+            is_double = true; // A signed number is always a double.
+        } else {
+            // The first digit was already consumed by the caller:
+            //   "<4>2", "<3>.14"
+            // This block consumes the remaining integer digits: "4<2>"
             self.eat_while(|c| c.is_ascii_digit());
+        }
+
+        if self.chars.next_if(|(_, c)| *c == '.').is_some() {
+            // Optional fractional part: a '.' followed by one or more digits.
+            //   "3<.14>", "0<.5>"
+            // A '.' with no digits after it ("3.") => Unknown.
+            if !self.eat_one_or_more_digits() {
+                return TokenKind::Unknown;
+            }
             is_double = true;
         }
         if self
@@ -117,15 +143,18 @@ impl<'a> Lexer<'a> {
             .next_if(|(_, c)| *c == 'e' || *c == 'E')
             .is_some()
         {
-            // scientific notation
+            // Optional exponent: 'e'/'E', an optional sign, then one or more digits.
+            //   "1<e9>", "2.5<E-3>", "6<e+2>"
+            // A bare "1e" or "1e-" (no exponent digits) => Unknown.
             self.chars.next_if(|(_, c)| *c == '+' || *c == '-');
-            // An exponent must contain at least one digit.
-            if self.chars.next_if(|(_, c)| c.is_ascii_digit()).is_none() {
+            if !self.eat_one_or_more_digits() {
                 return TokenKind::Unknown;
             }
-            self.eat_while(|c| c.is_ascii_digit());
             is_double = true;
         }
+
+        // No '.' and no exponent => an unsigned integer ("42" => Uint);
+        // a sign, '.', or exponent makes it a Double ("-42", "3.14", "1e9").
         if is_double {
             TokenKind::Double
         } else {
@@ -188,7 +217,8 @@ impl Iterator for Lexer<'_> {
             '*' => TokenKind::Star,
             '!' => TokenKind::Bang,
             ',' => TokenKind::Comma,
-            '0'..='9' => self.scan_number(),
+            '+' | '-' => self.scan_number(true),
+            '0'..='9' => self.scan_number(false),
             'A'..='Z' | 'a'..='z' => self.scan_identifier(lo as usize),
             '[' => {
                 self.eat_while(|c| c != ']');
