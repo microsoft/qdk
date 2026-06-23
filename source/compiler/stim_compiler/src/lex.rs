@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use enum_iterator::Sequence;
 use qsc_data_structures::span::Span;
 use std::str::CharIndices;

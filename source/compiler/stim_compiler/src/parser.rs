@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use crate::lex::{Delim::Brace, Delim::Paren, Lexer, Token, TokenKind};
 use qsc_data_structures::{
     display::{
