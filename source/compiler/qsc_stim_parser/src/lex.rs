@@ -105,6 +105,10 @@ impl<'a> Lexer<'a> {
         self.eat_while(|c| c.is_ascii_digit());
         let mut is_double = false;
         if self.chars.next_if(|(_, c)| *c == '.').is_some() {
+            // A decimal point must be followed by at least one digit.
+            if self.chars.next_if(|(_, c)| c.is_ascii_digit()).is_none() {
+                return TokenKind::Unknown;
+            }
             self.eat_while(|c| c.is_ascii_digit());
             is_double = true;
         }
@@ -115,6 +119,10 @@ impl<'a> Lexer<'a> {
         {
             // scientific notation
             self.chars.next_if(|(_, c)| *c == '+' || *c == '-');
+            // An exponent must contain at least one digit.
+            if self.chars.next_if(|(_, c)| c.is_ascii_digit()).is_none() {
+                return TokenKind::Unknown;
+            }
             self.eat_while(|c| c.is_ascii_digit());
             is_double = true;
         }
