@@ -121,7 +121,7 @@ fn process_block(
             Operation::BlockOperation(inner) => {
                 let out_inner = output.add_block(inner.repetitions);
 
-                if inner.repetitions > 1 {
+                if inner.repetitions > 1.0 {
                     // Repeated blocks maintain a consistent mapping across
                     // iterations.  Save the entry state and restore it after
                     // processing so the parent context is unaffected.

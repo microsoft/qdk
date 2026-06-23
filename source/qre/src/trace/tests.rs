@@ -17,15 +17,15 @@ fn test_trace_iteration() {
 fn test_nested_blocks() {
     let mut trace = Trace::new(3);
     trace.add_operation(1, vec![0], vec![]);
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(2, vec![1], vec![]);
-    let block = block.add_block(3);
+    let block = block.add_block(3.0);
     block.add_operation(3, vec![2], vec![]);
     trace.add_operation(1, vec![0], vec![]);
 
     let repetitions = trace.deep_iter().map(|(_, rep)| rep).collect::<Vec<_>>();
     assert_eq!(repetitions.len(), 4);
-    assert_eq!(repetitions, vec![1, 2, 6, 1]);
+    assert_eq!(repetitions, vec![1.0, 2.0, 6.0, 1.0]);
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn test_walk_iter_simple() {
 fn test_walk_iter_with_block() {
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]);
-    let block = trace.add_block(3);
+    let block = trace.add_block(3.0);
     block.add_operation(2, vec![1], vec![]);
     trace.add_operation(3, vec![0], vec![]);
 
@@ -54,9 +54,9 @@ fn test_walk_iter_with_block() {
 fn test_walk_iter_nested_blocks() {
     let mut trace = Trace::new(3);
     trace.add_operation(1, vec![0], vec![]);
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(2, vec![1], vec![]);
-    let inner = block.add_block(3);
+    let inner = block.add_block(3.0);
     inner.add_operation(3, vec![2], vec![]);
     trace.add_operation(4, vec![0], vec![]);
 
@@ -70,15 +70,15 @@ fn test_walk_iter_nested_blocks() {
 fn test_walk_iter_count_matches_deep_iter() {
     let mut trace = Trace::new(3);
     trace.add_operation(1, vec![0], vec![]);
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(2, vec![1], vec![]);
-    let inner = block.add_block(3);
+    let inner = block.add_block(3.0);
     inner.add_operation(3, vec![2], vec![]);
     trace.add_operation(4, vec![0], vec![]);
 
     let walk_count = trace.walk_iter().count();
-    let deep_count: u64 = trace.deep_iter().map(|(_, m)| m).sum();
-    assert_eq!(walk_count as u64, deep_count);
+    let deep_count: f64 = trace.deep_iter().map(|(_, m)| m).sum();
+    assert_eq!(walk_count as f64, deep_count);
 }
 
 #[test]
@@ -88,11 +88,11 @@ fn test_depth_simple() {
     trace.add_operation(2, vec![1], vec![]);
 
     // Operations are parallel
-    assert_eq!(trace.depth(), 1);
+    assert_eq!(trace.depth(), 1.0);
 
     trace.add_operation(3, vec![0], vec![]);
     // Operation on qubit 0 is sequential to first one
-    assert_eq!(trace.depth(), 2);
+    assert_eq!(trace.depth(), 2.0);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn test_depth_with_blocks() {
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]); // Depth 1 on q0
 
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(2, vec![1], vec![]); // Depth 1 on q1 * 2 reps = 2
 
     // Block acts as barrier *only on qubits it touches*.
@@ -111,26 +111,26 @@ fn test_depth_with_blocks() {
     trace.add_operation(3, vec![0], vec![]);
     // Next op starts at depth 1 (after op 1). Ends at 2.
 
-    assert_eq!(trace.depth(), 2);
+    assert_eq!(trace.depth(), 2.0);
 }
 
 #[test]
 fn test_depth_parallel_blocks() {
     let mut trace = Trace::new(4);
 
-    let block1 = trace.add_block(1);
+    let block1 = trace.add_block(1.0);
     block1.add_operation(1, vec![0], vec![]); // q0: 1
 
-    let block2 = trace.add_block(1);
+    let block2 = trace.add_block(1.0);
     block2.add_operation(2, vec![1], vec![]); // q1: 1
 
     // Blocks are parallel
-    assert_eq!(trace.depth(), 1);
+    assert_eq!(trace.depth(), 1.0);
 
     trace.add_operation(3, vec![0, 1], vec![]);
     // Dependent on q0 (1) and q1 (1). Start at 1. End at 2.
 
-    assert_eq!(trace.depth(), 2);
+    assert_eq!(trace.depth(), 2.0);
 }
 
 #[test]
@@ -141,10 +141,10 @@ fn test_depth_entangled() {
 
     trace.add_operation(3, vec![0, 1], vec![]); // q0, q1 synced at 1 -> end at 2
 
-    assert_eq!(trace.depth(), 2);
+    assert_eq!(trace.depth(), 2.0);
 
     trace.add_operation(4, vec![0], vec![]); // q0: 3
-    assert_eq!(trace.depth(), 3);
+    assert_eq!(trace.depth(), 3.0);
 }
 
 #[test]
@@ -166,10 +166,10 @@ fn test_psspc_transform() {
     let transformed = psspc.transform(&trace).expect("Transformation failed");
 
     assert_eq!(transformed.compute_qubits(), 12);
-    assert_eq!(transformed.depth(), 47);
+    assert_eq!(transformed.depth(), 47.0);
 
-    assert_eq!(transformed.get_resource_state_count(T), 41);
-    assert_eq!(transformed.get_resource_state_count(CCX), 1);
+    assert_eq!(transformed.get_resource_state_count(T), 41.0);
+    assert_eq!(transformed.get_resource_state_count(CCX), 1.0);
 
     assert!(transformed.base_error() > 0.0);
     // Error is roughly 5e-9 for 20 Ts
@@ -186,13 +186,13 @@ fn test_lattice_surgery_transform() {
     trace.add_operation(CX, vec![1, 2], vec![]);
     trace.add_operation(T, vec![0], vec![]);
 
-    assert_eq!(trace.depth(), 2);
+    assert_eq!(trace.depth(), 2.0);
 
     let ls = LatticeSurgery::default();
     let transformed = ls.transform(&trace).expect("Transformation failed");
 
     assert_eq!(transformed.compute_qubits(), 3);
-    assert_eq!(transformed.depth(), 2);
+    assert_eq!(transformed.depth(), 2.0);
 
     // Check that we have a LATTICE_SURGERY operation
     // TraceIterator visits the operation definition once, but with a multiplier.
@@ -205,7 +205,7 @@ fn test_lattice_surgery_transform() {
 
     let (gate, mult) = ls_ops[0];
     assert_eq!(gate.id, LATTICE_SURGERY);
-    assert_eq!(mult, 2); // Multiplier should carry the repetition count (depth)
+    assert_eq!(mult, 2.0); // Multiplier should carry the repetition count (depth)
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn test_estimate_simple() {
     let result = trace.estimate(&isa, None).expect("Estimation failed");
 
     assert!((result.error() - 0.001).abs() <= f64::EPSILON);
-    assert_eq!(result.runtime(), 100);
+    assert_eq!(result.runtime(), 100.0);
     assert_eq!(result.qubits(), 50);
 }
 
@@ -236,7 +236,7 @@ fn test_estimate_simple() {
 fn test_estimate_with_factory() {
     let mut trace = Trace::new(1);
     // Algorithm needs 1000 T states
-    trace.increment_resource_state(T, 1000);
+    trace.increment_resource_state(T, 1000.0);
 
     // Some compute runtime to allow factories to run
     trace.add_operation(GENERIC, vec![0], vec![]);
@@ -267,13 +267,13 @@ fn test_estimate_with_factory() {
 
     let result = trace.estimate(&isa, None).expect("Estimation failed");
 
-    assert_eq!(result.runtime(), 1000);
+    assert_eq!(result.runtime(), 1000.0);
     assert_eq!(result.qubits(), 700);
 
     // Check factory result
     let factory_res = result.factories().get(&T).expect("Factory missing");
-    assert_eq!(factory_res.copies(), 10);
-    assert_eq!(factory_res.runs(), 100);
+    assert_eq!(factory_res.copies(), 10.0);
+    assert_eq!(factory_res.runs(), 100.0);
     assert_eq!(result.factories().len(), 1);
 }
 
@@ -316,7 +316,7 @@ fn test_trace_display_unknown_instruction() {
 #[test]
 fn test_block_display_with_repetitions() {
     let mut trace = Trace::new(1);
-    let block = trace.add_block(10);
+    let block = trace.add_block(10.0);
     block.add_operation(H, vec![0], vec![]);
 
     let display = format!("{trace}");
@@ -326,6 +326,25 @@ fn test_block_display_with_repetitions() {
         "Expected 'repeat 10' in: {display}"
     );
     assert!(display.contains('H'), "Expected 'H' in block: {display}");
+}
+
+#[test]
+fn test_fractional_block_repetitions_compose_before_rounding() {
+    let mut trace = Trace::new(1);
+    let outer = trace.add_block(0.5);
+    let inner = outer.add_block(0.5);
+    inner.add_operation(T, vec![0], vec![]);
+
+    let repetitions = trace.deep_iter().map(|(_, rep)| rep).collect::<Vec<_>>();
+    assert_eq!(repetitions, vec![0.25]);
+    assert_eq!(trace.depth(), 0.25);
+    assert_eq!(trace.num_gates(), 0.25);
+
+    let display = format!("{trace}");
+    assert!(
+        display.contains("repeat 0.5"),
+        "Expected 'repeat 0.5' in: {display}"
+    );
 }
 
 /// Helper to create an ISA with instructions that have known time values.
@@ -356,7 +375,7 @@ fn test_runtime_single_operation() {
 
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        100
+        100.0
     );
 }
 
@@ -372,7 +391,7 @@ fn test_runtime_parallel_operations() {
     // Parallel: runtime is the max of the two = 100
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        100
+        100.0
     );
 }
 
@@ -388,14 +407,14 @@ fn test_runtime_sequential_operations() {
     // Sequential on qubit 0: 100 + 50 = 150
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        150
+        150.0
     );
 }
 
 #[test]
 fn test_runtime_with_repeated_block() {
     let mut trace = Trace::new(1);
-    let block = trace.add_block(5);
+    let block = trace.add_block(5.0);
     block.add_operation(T, vec![0], vec![]);
 
     let isa = isa_with_times(&[(T, 1, 100)]);
@@ -404,15 +423,15 @@ fn test_runtime_with_repeated_block() {
     // Block depth = 100, repeated 5 times = 500
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        500
+        500.0
     );
 }
 
 #[test]
 fn test_runtime_nested_blocks() {
     let mut trace = Trace::new(1);
-    let outer = trace.add_block(3);
-    let inner = outer.add_block(2);
+    let outer = trace.add_block(3.0);
+    let inner = outer.add_block(2.0);
     inner.add_operation(H, vec![0], vec![]);
 
     let isa = isa_with_times(&[(H, 1, 10)]);
@@ -421,7 +440,7 @@ fn test_runtime_nested_blocks() {
     // Inner: 10 * 2 = 20, outer: 20 * 3 = 60
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        60
+        60.0
     );
 }
 
@@ -435,7 +454,7 @@ fn test_runtime_multi_qubit_gate() {
 
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        200
+        200.0
     );
 }
 
@@ -455,7 +474,7 @@ fn test_runtime_sequential_after_multi_qubit() {
     // max = 300
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        300
+        300.0
     );
 }
 
@@ -468,7 +487,7 @@ fn test_runtime_empty_trace() {
 
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        0
+        0.0
     );
 }
 
@@ -476,7 +495,7 @@ fn test_runtime_empty_trace() {
 fn test_runtime_block_parallel_to_operation() {
     let mut trace = Trace::new(2);
     // Block on q0
-    let block = trace.add_block(4);
+    let block = trace.add_block(4.0);
     block.add_operation(T, vec![0], vec![]);
     // Operation on q1 (parallel to block)
     trace.add_operation(H, vec![1], vec![]);
@@ -489,7 +508,7 @@ fn test_runtime_block_parallel_to_operation() {
     // max = 50
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        50
+        50.0
     );
 }
 
@@ -525,6 +544,6 @@ fn test_runtime_mixed_sequential_and_parallel() {
     // max = 300
     assert_eq!(
         trace.runtime(&locked).expect("runtime computation failed"),
-        300
+        300.0
     );
 }

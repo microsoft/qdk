@@ -270,7 +270,7 @@ fn block_with_single_repetition_no_restore() {
     // A block with repetitions=1 behaves like a flat sequence.
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]);
-    let block = trace.add_block(1);
+    let block = trace.add_block(1.0);
     block.add_operation(H, vec![1], vec![]);
     block.add_operation(H, vec![2], vec![]); // evicts q0
 
@@ -282,7 +282,7 @@ fn block_with_single_repetition_no_restore() {
     // Block structure is preserved: root has one child block with reps=1.
     let blocks = child_blocks(&result.block);
     assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 1);
+    assert_eq!(blocks[0].repetitions, 1.0);
 
     let gates = collect_gates(&result);
     assert_eq!(gates.iter().filter(|(id, _, _)| *id == H).count(), 3);
@@ -298,7 +298,7 @@ fn repeated_block_adds_restore_ops() {
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]); // lazy place q0
     trace.add_operation(H, vec![1], vec![]); // lazy place q1
-    let block = trace.add_block(5);
+    let block = trace.add_block(5.0);
     block.add_operation(H, vec![2], vec![]); // evicts q0, lazy places q2
 
     let transform = DynamicMemoryCompute::new(2);
@@ -311,7 +311,7 @@ fn repeated_block_adds_restore_ops() {
     // Block structure preserved: root has one child block with reps=5.
     let blocks = child_blocks(&result.block);
     assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 5);
+    assert_eq!(blocks[0].repetitions, 5.0);
     // The block body contains the eviction, the H, and the restore ops.
     assert!(blocks[0].operations.len() >= 3);
 
@@ -335,7 +335,7 @@ fn repeated_block_no_change_no_restore() {
     // operations are needed.
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]);
-    let block = trace.add_block(10);
+    let block = trace.add_block(10.0);
     block.add_operation(H, vec![0], vec![]); // q0 already in compute
 
     let transform = DynamicMemoryCompute::new(2);
@@ -346,7 +346,7 @@ fn repeated_block_no_change_no_restore() {
     // Block structure preserved with reps=10.
     let blocks = child_blocks(&result.block);
     assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 10);
+    assert_eq!(blocks[0].repetitions, 10.0);
     // Body has only the H gate (no restore ops since state unchanged).
     assert_eq!(blocks[0].operations.len(), 1);
 
@@ -363,7 +363,7 @@ fn repeated_block_state_restored_for_subsequent_ops() {
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]);
     trace.add_operation(H, vec![1], vec![]);
-    let block = trace.add_block(3);
+    let block = trace.add_block(3.0);
     block.add_operation(H, vec![2], vec![]); // evicts q0 inside block
     // After the block, q0 should be back in compute (restored).
     trace.add_operation(H, vec![0], vec![]); // should NOT need a read
@@ -376,7 +376,7 @@ fn repeated_block_state_restored_for_subsequent_ops() {
     // Block structure preserved with reps=3.
     let blocks = child_blocks(&result.block);
     assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 3);
+    assert_eq!(blocks[0].repetitions, 3.0);
 
     let gates = collect_gates(&result);
     let h_gates = gates.iter().filter(|(id, _, _)| *id == H).count();
@@ -390,8 +390,8 @@ fn nested_repeated_blocks() {
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]);
     trace.add_operation(H, vec![1], vec![]);
-    let outer = trace.add_block(2);
-    let inner = outer.add_block(3);
+    let outer = trace.add_block(2.0);
+    let inner = outer.add_block(3.0);
     inner.add_operation(H, vec![2], vec![]); // evicts q0
 
     let transform = DynamicMemoryCompute::new(2);
@@ -404,12 +404,12 @@ fn nested_repeated_blocks() {
     // Outer block (reps=2) preserved in root.
     let outer_blocks = child_blocks(&result.block);
     assert_eq!(outer_blocks.len(), 1);
-    assert_eq!(outer_blocks[0].repetitions, 2);
+    assert_eq!(outer_blocks[0].repetitions, 2.0);
 
     // Inner block (reps=3) preserved inside outer.
     let inner_blocks = child_blocks(outer_blocks[0]);
     assert_eq!(inner_blocks.len(), 1);
-    assert_eq!(inner_blocks[0].repetitions, 3);
+    assert_eq!(inner_blocks[0].repetitions, 3.0);
 
     let gates = collect_gates(&result);
     let h_count = gates.iter().filter(|(id, _, _)| *id == H).count();
@@ -431,7 +431,7 @@ fn restore_does_not_clobber_memory() {
     trace.add_operation(H, vec![2], vec![]); // evicts q0, places q2 lazily
     // Now state: slot[0]=q2, slot[1]=q1, q0 in memory
 
-    let block = trace.add_block(2);
+    let block = trace.add_block(2.0);
     block.add_operation(H, vec![0], vec![]);
     block.add_operation(CX, vec![0, 1], vec![]); // uses q2 and q1 (both in compute)
 
@@ -443,7 +443,7 @@ fn restore_does_not_clobber_memory() {
     // Block structure preserved with reps=2.
     let blocks = child_blocks(&result.block);
     assert_eq!(blocks.len(), 1);
-    assert_eq!(blocks[0].repetitions, 2);
+    assert_eq!(blocks[0].repetitions, 2.0);
 
     // Verify it produces a valid trace with operations.
     let gates = collect_gates(&result);

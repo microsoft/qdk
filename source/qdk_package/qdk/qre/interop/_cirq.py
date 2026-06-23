@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from enum import Enum
 from math import pi
@@ -163,7 +162,7 @@ class _CirqTraceBuilder:
             )
         )
 
-    def push_block(self, repetitions: int):
+    def push_block(self, repetitions: float):
         """Open a new repeated block with the given number of repetitions."""
         block = self.block.add_block(repetitions)
         self._blocks.append(block)
@@ -279,7 +278,9 @@ class _CirqTraceBuilder:
                     for sub_op in gate._to_trace(self, op):  # type: ignore
                         self.handle_op(sub_op)
                 elif hasattr(gate, "_decompose_with_context_"):
-                    for sub_op in gate._decompose_with_context_(op.qubits, self.decomp_context):  # type: ignore
+                    for sub_op in gate._decompose_with_context_(
+                        op.qubits, self.decomp_context
+                    ):  # type: ignore
                         self.handle_op(sub_op)
                 elif hasattr(gate, "_decompose_"):
                     # decompose the gate and handle the resulting operations recursively
@@ -289,8 +290,9 @@ class _CirqTraceBuilder:
                     for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
                         self.handle_op(sub_op)
             elif isinstance(op, ClassicallyControlledOperation):
-                if random.random() < self.classical_control_probability:
-                    self.handle_op(op.without_classical_controls())
+                self.push_block(self.classical_control_probability)
+                self.handle_op(op.without_classical_controls())
+                self.pop_block()
             elif isinstance(op, cirq.CircuitOperation):
                 if isinstance(op.repetitions, int):
                     self.push_block(op.repetitions)
@@ -318,7 +320,7 @@ class PushBlock:
         repetitions: Number of times the block is repeated.
     """
 
-    repetitions: int
+    repetitions: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -595,9 +597,9 @@ def assert_qubits_type(qs: Sequence[cirq.Qid], qubit_type: QubitType) -> None:
 
     for q in qs:
         actual_type = _as_typed_qubit(q).qubit_type
-        assert (
-            actual_type == qubit_type
-        ), f"{q} expected to be {qubit_type}, was {actual_type}."
+        assert actual_type == qubit_type, (
+            f"{q} expected to be {qubit_type}, was {actual_type}."
+        )
 
 
 class _TypedQubitManager(cirq.GreedyQubitManager):

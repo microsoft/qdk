@@ -79,6 +79,18 @@ def test_trace_properties():
     assert isinstance(trace.get_property(STR), str)
 
 
+def test_trace_accepts_fractional_block_repetitions():
+    """Test that fractional block repetitions compose through the public Python API."""
+    trace = Trace(1)
+    outer = trace.add_block(0.5)
+    inner = outer.add_block(0.5)
+    inner.add_operation(T, [0])
+
+    assert trace.depth == 1
+    assert trace.num_gates == 1
+    assert "repeat 0.5" in str(trace)
+
+
 def test_qsharp_application():
     """Test QSharpApplication trace generation and estimation from a Q# program."""
     code = """

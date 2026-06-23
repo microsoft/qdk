@@ -155,15 +155,15 @@ fn test_update_frontier_3d() {
 fn test_estimation_results() {
     let mut result_worst = EstimationResult::new();
     result_worst.add_qubits(994_570);
-    result_worst.add_runtime(346_196_523_750);
+    result_worst.add_runtime(346_196_523_750.0);
 
     let mut result_mid = EstimationResult::new();
     result_mid.add_qubits(994_570);
-    result_mid.add_runtime(346_191_476_400);
+    result_mid.add_runtime(346_191_476_400.0);
 
     let mut result_best = EstimationResult::new();
     result_best.add_qubits(994_570);
-    result_best.add_runtime(346_181_381_700);
+    result_best.add_runtime(346_181_381_700.0);
 
     let results = [result_worst, result_mid, result_best];
     let permutations = [
@@ -186,7 +186,7 @@ fn test_estimation_results() {
         let item = frontier.iter().next().expect("has item");
         assert_eq!(
             item.runtime(),
-            346_181_381_700,
+            346_181_381_700.0,
             "Wrong item retained for permutation {p:?}",
         );
     }

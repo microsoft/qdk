@@ -38,7 +38,7 @@ pub struct Trace {
     base_error: f64,
     compute_qubits: u64,
     memory_qubits: Option<u64>,
-    resource_states: Option<FxHashMap<u64, u64>>,
+    resource_states: Option<FxHashMap<u64, f64>>,
     properties: FxHashMap<u64, Property>,
 }
 
@@ -76,7 +76,7 @@ impl Trace {
         self.block.add_operation(id, qubits, params);
     }
 
-    pub fn add_block(&mut self, repetitions: u64) -> &mut Block {
+    pub fn add_block(&mut self, repetitions: f64) -> &mut Block {
         self.block.add_block(repetitions)
     }
 
@@ -120,8 +120,8 @@ impl Trace {
         self.compute_qubits + self.memory_qubits.unwrap_or(0)
     }
 
-    pub fn increment_resource_state(&mut self, resource_id: u64, amount: u64) {
-        if amount == 0 {
+    pub fn increment_resource_state(&mut self, resource_id: u64, amount: f64) {
+        if amount <= 0.0 {
             return;
         }
         let states = self.resource_states.get_or_insert_with(FxHashMap::default);
@@ -129,18 +129,18 @@ impl Trace {
     }
 
     #[must_use]
-    pub fn get_resource_states(&self) -> Option<&FxHashMap<u64, u64>> {
+    pub fn get_resource_states(&self) -> Option<&FxHashMap<u64, f64>> {
         self.resource_states.as_ref()
     }
 
     #[must_use]
-    pub fn get_resource_state_count(&self, resource_id: u64) -> u64 {
+    pub fn get_resource_state_count(&self, resource_id: u64) -> f64 {
         if let Some(states) = &self.resource_states
             && let Some(count) = states.get(&resource_id)
         {
             return *count;
         }
-        0
+        0.0
     }
 
     pub fn set_property(&mut self, key: u64, value: Property) {
@@ -177,9 +177,9 @@ impl Trace {
     #[allow(clippy::cast_precision_loss)]
     #[must_use]
     pub fn required_instruction_ids(&self, max_error: Option<f64>) -> ISARequirements {
-        let mut constraints = FxHashMap::<u64, (InstructionConstraint, u64)>::default();
+        let mut constraints = FxHashMap::<u64, (InstructionConstraint, f64)>::default();
 
-        let mut update_constraints = |id: u64, arity: u64, added_volume: u64| {
+        let mut update_constraints = |id: u64, arity: u64, added_volume: f64| {
             constraints
                 .entry(id)
                 .and_modify(|(constraint, volume)| {
@@ -199,7 +199,7 @@ impl Trace {
 
         for (gate, mult) in self.deep_iter() {
             let arity = gate.qubits.len() as u64;
-            update_constraints(gate.id, arity, mult * arity);
+            update_constraints(gate.id, arity, mult * arity as f64);
         }
         if let Some(ref rs) = self.resource_states {
             for (res_id, count) in rs {
@@ -207,16 +207,14 @@ impl Trace {
             }
         }
         if let Some(memory_qubits) = self.memory_qubits {
-            update_constraints(instruction_ids::MEMORY, memory_qubits, memory_qubits);
+            update_constraints(instruction_ids::MEMORY, memory_qubits, memory_qubits as f64);
         }
 
         if let Some(max_error) = max_error {
             constraints
                 .into_values()
                 .map(|(mut c, volume)| {
-                    c.set_error_rate(Some(ConstraintBound::less_equal(
-                        max_error / (volume as f64),
-                    )));
+                    c.set_error_rate(Some(ConstraintBound::less_equal(max_error / volume)));
                     c
                 })
                 .collect()
@@ -226,17 +224,19 @@ impl Trace {
     }
 
     #[must_use]
-    pub fn depth(&self) -> u64 {
+    pub fn depth(&self) -> f64 {
         self.block.depth()
     }
 
     #[must_use]
-    pub fn num_gates(&self) -> u64 {
-        self.deep_iter().map(|(_, m)| m).sum()
+    pub fn num_gates(&self) -> f64 {
+        self.deep_iter()
+            .map(|(_, multiplier)| multiplier)
+            .sum::<f64>()
     }
 
     #[must_use]
-    pub fn gate_counts(&self) -> FxHashMap<u64, u64> {
+    pub fn gate_counts(&self) -> FxHashMap<u64, f64> {
         let mut counts = FxHashMap::default();
         for (gate, mult) in self.deep_iter() {
             *counts.entry(gate.id).or_default() += mult;
@@ -244,7 +244,7 @@ impl Trace {
         counts
     }
 
-    pub fn runtime(&self, locked: &LockedISA) -> Result<u64, Error> {
+    pub fn runtime(&self, locked: &LockedISA) -> Result<f64, Error> {
         Ok(self
             .block
             .depth_and_used(Some(&|op: &Gate| {
@@ -277,7 +277,7 @@ impl Trace {
         result.add_error(self.base_error);
 
         // Counts how many magic state factories are needed per resource state ID
-        let mut factories: FxHashMap<u64, u64> = FxHashMap::default();
+        let mut factories: FxHashMap<u64, f64> = FxHashMap::default();
 
         // This will track the number of physical qubits per logical qubit while
         // processing all the instructions.  Normally, we assume that the number
@@ -290,7 +290,7 @@ impl Trace {
         if let Some(resource_states) = &self.resource_states {
             for (state_id, count) in resource_states {
                 let rate = get_error_rate_by_id(&locked, *state_id)?;
-                let actual_error = result.add_error(rate * (*count as f64));
+                let actual_error = result.add_error(rate * *count);
                 if actual_error > max_error {
                     return Err(Error::MaximumErrorExceeded {
                         actual_error,
@@ -319,7 +319,7 @@ impl Trace {
                 qubit_counts.insert(i, qubit_count);
             }
 
-            let actual_error = result.add_error(rate * (mult as f64));
+            let actual_error = result.add_error(rate * mult);
             if actual_error > max_error {
                 return Err(Error::MaximumErrorExceeded {
                     actual_error,
@@ -349,9 +349,9 @@ impl Trace {
             let factory_time = get_time(instr)?;
             let factory_space = get_space(instr)?;
             let factory_error_rate = get_error_rate(instr)?;
-            let runs = result.runtime() / factory_time;
+            let runs = result.runtime() / factory_time as f64;
 
-            if runs == 0 {
+            if runs <= 0.0 {
                 return Err(Error::FactoryTimeExceedsAlgorithmRuntime {
                     id: *factory,
                     factory_time,
@@ -359,9 +359,9 @@ impl Trace {
                 });
             }
 
-            let copies = count.div_ceil(runs);
+            let copies = count / runs;
 
-            total_factory_qubits += copies * factory_space;
+            total_factory_qubits += (copies * factory_space as f64).ceil() as u64;
             result.add_factory_result(
                 *factory,
                 FactoryResult::new(copies, runs, *count, factory_error_rate),
@@ -389,9 +389,8 @@ impl Trace {
 
             // The number of rounds for the memory qubits to stay alive with
             // respect to the total runtime of the algorithm.
-            let rounds = result
-                .runtime()
-                .div_ceil(memory.expect_time(Some(memory_qubits)));
+            let rounds =
+                (result.runtime() / memory.expect_time(Some(memory_qubits)) as f64).ceil() as u64;
 
             let actual_error =
                 result.add_error(rounds as f64 * memory.expect_error_rate(Some(memory_qubits)));
@@ -478,14 +477,14 @@ impl Gate {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block {
     operations: Vec<Operation>,
-    repetitions: u64,
+    repetitions: f64,
 }
 
 impl Default for Block {
     fn default() -> Self {
         Self {
             operations: Vec::new(),
-            repetitions: 1,
+            repetitions: 1.0,
         }
     }
 }
@@ -496,7 +495,7 @@ impl Block {
             .push(Operation::gate_operation(id, qubits, params));
     }
 
-    pub fn add_block(&mut self, repetitions: u64) -> &mut Block {
+    pub fn add_block(&mut self, repetitions: f64) -> &mut Block {
         self.operations
             .push(Operation::block_operation(repetitions));
 
@@ -508,7 +507,7 @@ impl Block {
 
     pub fn write(&self, f: &mut Formatter<'_>, indent: usize) -> std::fmt::Result {
         let indent_str = " ".repeat(indent);
-        if self.repetitions == 1 {
+        if self.repetitions == 1.0 {
             writeln!(f, "{indent_str}{{")?;
         } else {
             writeln!(f, "{indent_str}repeat {} {{", self.repetitions)?;
@@ -551,8 +550,8 @@ impl Block {
     fn depth_and_used<FnDuration: Fn(&Gate) -> Result<u64, Error>>(
         &self,
         duration_fn: Option<&FnDuration>,
-    ) -> Result<(u64, FxHashSet<u64>), Error> {
-        let mut qubit_depths: FxHashMap<u64, u64> = FxHashMap::default();
+    ) -> Result<(f64, FxHashSet<u64>), Error> {
+        let mut qubit_depths: FxHashMap<u64, f64> = FxHashMap::default();
         let mut all_used = FxHashSet::default();
 
         for op in &self.operations {
@@ -562,13 +561,13 @@ impl Block {
                         .qubits
                         .iter()
                         .filter_map(|q| qubit_depths.get(q))
-                        .max()
+                        .max_by(|left, right| left.total_cmp(right))
                         .copied()
-                        .unwrap_or(0);
+                        .unwrap_or(0.0);
 
                     let duration = match duration_fn {
-                        Some(f) => f(gate)?,
-                        _ => 1,
+                        Some(f) => f(gate)? as f64,
+                        _ => 1.0,
                     };
 
                     let end_time = start_time + duration;
@@ -586,9 +585,9 @@ impl Block {
                     let start_time = used
                         .iter()
                         .filter_map(|q| qubit_depths.get(q))
-                        .max()
+                        .max_by(|left, right| left.total_cmp(right))
                         .copied()
-                        .unwrap_or(0);
+                        .unwrap_or(0.0);
 
                     let end_time = start_time + duration;
                     for q in &used {
@@ -599,12 +598,17 @@ impl Block {
             }
         }
 
-        let max_depth = qubit_depths.values().max().copied().unwrap_or(0);
-        Ok((max_depth * self.repetitions, all_used))
+        let max_depth = qubit_depths
+            .values()
+            .max_by(|left, right| left.total_cmp(right));
+        Ok((
+            max_depth.copied().unwrap_or(0.0) * self.repetitions,
+            all_used,
+        ))
     }
 
     #[must_use]
-    pub fn depth(&self) -> u64 {
+    pub fn depth(&self) -> f64 {
         self.depth_and_used::<fn(&Gate) -> Result<u64, Error>>(None)
             .expect("Duration function is None")
             .0
@@ -622,7 +626,7 @@ impl Operation {
         Operation::GateOperation(Gate { id, qubits, params })
     }
 
-    fn block_operation(repetitions: u64) -> Self {
+    fn block_operation(repetitions: f64) -> Self {
         Operation::BlockOperation(Block {
             operations: Vec::new(),
             repetitions,
@@ -631,19 +635,19 @@ impl Operation {
 }
 
 pub struct TraceIterator<'a> {
-    stack: Vec<(std::slice::Iter<'a, Operation>, u64)>,
+    stack: Vec<(std::slice::Iter<'a, Operation>, f64)>,
 }
 
 impl<'a> TraceIterator<'a> {
     fn new(block: &'a Block) -> Self {
         Self {
-            stack: vec![(block.operations.iter(), 1)],
+            stack: vec![(block.operations.iter(), 1.0)],
         }
     }
 }
 
 impl<'a> Iterator for TraceIterator<'a> {
-    type Item = (&'a Gate, u64);
+    type Item = (&'a Gate, f64);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -666,7 +670,7 @@ impl<'a> Iterator for TraceIterator<'a> {
 
 pub struct WalkIterator<'a> {
     // Each frame: (operations slice, current index, remaining repetitions)
-    stack: Vec<(&'a [Operation], usize, u64)>,
+    stack: Vec<(&'a [Operation], usize, f64)>,
 }
 
 impl<'a> WalkIterator<'a> {
@@ -693,8 +697,8 @@ impl<'a> Iterator for WalkIterator<'a> {
                     }
                 }
             } else {
-                *remaining -= 1;
-                if *remaining > 0 {
+                *remaining -= 1.0;
+                if *remaining > 0.0 {
                     *idx = 0;
                 } else {
                     self.stack.pop();

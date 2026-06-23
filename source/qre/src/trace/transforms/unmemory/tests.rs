@@ -170,7 +170,7 @@ fn round_trip_with_repeated_block() {
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]);
     trace.add_operation(H, vec![1], vec![]);
-    let block = trace.add_block(5);
+    let block = trace.add_block(5.0);
     block.add_operation(H, vec![2], vec![]);
 
     let memorized = DynamicMemoryCompute::new(2)
@@ -196,7 +196,7 @@ fn preserves_block_structure() {
     // Verify that block structure is preserved through round-trip.
     let mut trace = Trace::new(3);
     trace.add_operation(H, vec![0], vec![]);
-    let block = trace.add_block(10);
+    let block = trace.add_block(10.0);
     block.add_operation(H, vec![1], vec![]);
 
     let memorized = DynamicMemoryCompute::new(2)
@@ -218,5 +218,5 @@ fn preserves_block_structure() {
         })
         .collect();
     assert_eq!(child_blocks.len(), 1);
-    assert_eq!(child_blocks[0].repetitions, 10);
+    assert_eq!(child_blocks[0].repetitions, 10.0);
 }
