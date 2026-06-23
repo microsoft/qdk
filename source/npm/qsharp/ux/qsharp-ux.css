@@ -864,6 +864,34 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   font-size: 1.2em;
   white-space: nowrap;
 }
+/* Editable angle field embedded in the readout. Styled as inline text with
+   just a subtle underline so it reads as part of the "Rz( ... rad)" label
+   rather than a boxy input. Users type an angle (radians) and the dial +
+   decomposition snap to the nearest grid value. */
+.qs-bloch-rz-input {
+  width: 3.5em;
+  font: inherit;
+  font-style: italic;
+  color: inherit;
+  text-align: center;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--qdk-widget-outline);
+  border-radius: 0;
+  padding: 0 2px;
+  cursor: text;
+}
+.qs-bloch-rz-input:hover:not(:disabled) {
+  border-bottom-color: var(--qdk-host-foreground);
+}
+.qs-bloch-rz-input:focus {
+  outline: none;
+  border-bottom: 1px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+}
+.qs-bloch-rz-input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .qs-bloch-rz-apply {
   height: 25px;
   padding: 0 12px;

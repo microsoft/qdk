@@ -67,6 +67,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const [past, setPast] = useState<string[][]>([]);
   const [future, setFuture] = useState<string[][]>([]);
   const [rzAngle, setRzAngle] = useState(0);
+  // While the user is typing in the Rz readout, this holds the in-progress
+  // text; null means the field mirrors the live (snapped) angle instead.
+  const [rzInputDraft, setRzInputDraft] = useState<string | null>(null);
 
   // Whether the gate controls are collapsed to a compact read-only view,
   // for users who just want to scrub the trace without the editing chrome.
@@ -819,6 +822,30 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setRzAngle(snapAngle(next));
   }
 
+  // The Rz readout doubles as a text field: users can type an angle in
+  // radians and the dial + decomposition snap to the nearest grid value
+  // the lookup table can produce. Parse, snap, and drop the draft so the
+  // field reverts to showing the live (snapped) angle.
+  function commitRzInput() {
+    if (rzInputDraft === null) return;
+    const parsed = Number.parseFloat(rzInputDraft);
+    if (Number.isFinite(parsed)) setRzAngle(snapAngle(parsed));
+    setRzInputDraft(null);
+  }
+
+  function rzInputKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitRzInput();
+      (e.currentTarget as HTMLInputElement).blur();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      // Abandon the edit and restore the live angle.
+      setRzInputDraft(null);
+      (e.currentTarget as HTMLInputElement).blur();
+    }
+  }
+
   // Map the current Rz angle to its precomputed Clifford+T decomposition
   // (empty string at angle 0 = identity).
   const rzAngleIdx = Math.round(rzAngle * 200) % rzOps.length;
@@ -952,7 +979,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                       aria-valuemin={0}
                       aria-valuemax={(RZ_STEPS - 1) * RZ_STEP}
                       aria-valuenow={rzAngle}
-                      aria-valuetext={`${rzAngle.toFixed(2)} radians`}
+                      aria-valuetext={`${rzAngle.toFixed(3)} radians`}
                       onPointerDown={dialPointerDown}
                       onPointerMove={dialPointerMove}
                       onPointerUp={dialPointerUp}
@@ -999,7 +1026,31 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 })()}
                 <div class="qs-bloch-rz-info">
                   <span class="qs-bloch-rz-readout">
-                    Rz({rzAngle.toFixed(2)} rad)
+                    {"Rz("}
+                    <input
+                      class="qs-bloch-rz-input"
+                      type="text"
+                      inputMode="decimal"
+                      aria-label="Rz angle in radians"
+                      value={
+                        rzInputDraft !== null
+                          ? rzInputDraft
+                          : rzAngle.toFixed(3)
+                      }
+                      disabled={isPlaying}
+                      onFocus={(e) => {
+                        setRzInputDraft(rzAngle.toFixed(3));
+                        (e.currentTarget as HTMLInputElement).select();
+                      }}
+                      onInput={(e) =>
+                        setRzInputDraft(
+                          (e.currentTarget as HTMLInputElement).value,
+                        )
+                      }
+                      onKeyDown={rzInputKeyDown}
+                      onBlur={commitRzInput}
+                    />
+                    {" rad)"}
                   </span>
                   <button
                     type="button"
