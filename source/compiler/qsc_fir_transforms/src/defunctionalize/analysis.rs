@@ -63,7 +63,7 @@ pub(super) struct LocalState {
     /// Mutable locals may still exist and are tracked for flow in `callable`;
     /// they are simply never recorded here because a closure can never capture
     /// one.
-    var_types: FxHashMap<LocalVarId, Ty>,
+    closure_capturable_var_types: FxHashMap<LocalVarId, Ty>,
 }
 
 /// Maximum recursion depth when resolving callee expressions to prevent
@@ -312,7 +312,7 @@ fn collect_call_sites(
             callable: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
-            var_types: FxHashMap::default(),
+            closure_capturable_var_types: FxHashMap::default(),
         };
         let mut recorder = CallRecorder {
             hof_params,
@@ -965,7 +965,7 @@ fn resolve_callee(
                 callable: locals.callable.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
-                var_types: locals.var_types.clone(),
+                closure_capturable_var_types: locals.closure_capturable_var_types.clone(),
             };
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
             let block_scoped_vars = if allow_scoped_capture_exprs {
@@ -1116,7 +1116,7 @@ fn resolve_callee_projection(
                 callable: locals.callable.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
-                var_types: locals.var_types.clone(),
+                closure_capturable_var_types: locals.closure_capturable_var_types.clone(),
             };
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
             let block_scoped_vars = if allow_scoped_capture_exprs {
@@ -1363,7 +1363,7 @@ fn resolve_callable_return(
         callable: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
-        var_types: collect_binding_types_from_pat(callee_pkg, body_input),
+        closure_capturable_var_types: collect_binding_types_from_pat(callee_pkg, body_input),
     };
     seed_param_bindings_from_call(
         pkg,
@@ -2069,7 +2069,7 @@ fn collect_pat_local_bindings(pkg: &Package, pat_id: PatId, bound: &mut FxHashSe
 fn find_local_var_type(pkg: &Package, locals: &LocalState, var: LocalVarId) -> Option<Ty> {
     if let Some(&init_expr_id) = locals.exprs.get(&var) {
         Some(pkg.get_expr(init_expr_id).ty.clone())
-    } else if let Some(ty) = locals.var_types.get(&var) {
+    } else if let Some(ty) = locals.closure_capturable_var_types.get(&var) {
         // Enclosing-callable parameter or immutable `let` binding. Resolve
         // against the per-callable variable map; `LocalVarId`s collide across
         // callables, so a package-wide pattern scan would return an unrelated
@@ -2190,7 +2190,7 @@ fn build_callable_flow_state(
         callable: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
-        var_types: collect_callable_param_types(pkg, callable_impl, input_pat),
+        closure_capturable_var_types: collect_callable_param_types(pkg, callable_impl, input_pat),
     };
     match callable_impl {
         CallableImpl::Intrinsic => {}
@@ -2285,7 +2285,11 @@ fn analyze_stmt_flow(
             // Only immutable bindings need recording: the frontend forbids
             // closures from capturing mutable variables so a mutable binding can never
             // appear as a capture whose type needs resolving here.
-            collect_binding_types_from_pat_into(pkg, *pat_id, &mut state.var_types);
+            collect_binding_types_from_pat_into(
+                pkg,
+                *pat_id,
+                &mut state.closure_capturable_var_types,
+            );
             // For callable-typed bindings, resolve and store in lattice.
             bind_callable_pat(pkg, store, state, *pat_id, *init_expr_id, package_id);
             analyze_expr_flow(pkg, store, *init_expr_id, state, package_id, recorder);
