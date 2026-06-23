@@ -1254,9 +1254,9 @@ fn arrow_typed_return_simplifies_to_if() {
         &expect![[r#"
             function Choose(flag : Bool) : (Int -> Int) {
                 if flag {
-                    / * closure item = 3 captures = [] * / _lambda_
+                    / * closure item = 3 captures = [] * / _lambda__3
                 } else {
-                    / * closure item = 4 captures = [] * / _lambda_
+                    / * closure item = 4 captures = [] * / _lambda__4
                 }
 
             }
@@ -1264,10 +1264,10 @@ fn arrow_typed_return_simplifies_to_if() {
                 let f : (Int -> Int) = Choose(true);
                 f(10)
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda__3(x : Int, ) : Int {
                 x + 1
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda__4(x : Int, ) : Int {
                 x * 2
             }
             function __return_unify_fail_5(_ : Int) : Int {

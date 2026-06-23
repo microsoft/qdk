@@ -1842,25 +1842,25 @@ fn grouped_scopes_match_for_user_defined_adjoint_specialization() {
             q_2    ─ EncodeAsLogicalQubit[2] ── EncodeAsLogicalQubit'[3] ──
 
         [2] EncodeAsLogicalQubit:
-            q_0    ─ <lambda>[4] ─
-                          ┆
-            q_1    ─ <lambda>[4] ─
-                          ┆
-            q_2    ─ <lambda>[4] ─
+            q_0    ─ <lambda>_3[4] ─
+                           ┆
+            q_1    ─ <lambda>_3[4] ─
+                           ┆
+            q_2    ─ <lambda>_3[4] ─
 
         [3] EncodeAsLogicalQubit:
-            q_0    ─ <lambda>'[5] ──
-                           ┆
-            q_1    ─ <lambda>'[5] ──
-                           ┆
-            q_2    ─ <lambda>'[5] ──
+            q_0    ─ <lambda>_3'[5] ──
+                            ┆
+            q_1    ─ <lambda>_3'[5] ──
+                            ┆
+            q_2    ─ <lambda>_3'[5] ──
 
-        [4] <lambda>:
+        [4] <lambda>_3:
             q_0    ── ● ──── ● ──
             q_1    ── X ─────┼───
             q_2    ───────── X ──
 
-        [5] <lambda>:
+        [5] <lambda>_3:
             q_0    ── ● ──── ● ──
             q_1    ───┼───── X ──
             q_2    ── X ─────────

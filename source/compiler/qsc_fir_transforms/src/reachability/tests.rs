@@ -123,7 +123,7 @@ fn closure_inside_reachable_callable_followed() {
                 }
             "},
         &expect![[r#"
-            <lambda>
+            <lambda>_2
             Main"#]],
     );
 }
@@ -201,7 +201,7 @@ fn callable_only_in_closure_body() {
                 }
             "},
         &expect![[r#"
-            <lambda>
+            <lambda>_3
             Main
             Other"#]],
     );
@@ -221,7 +221,7 @@ fn lambda_in_entry_expression() {
                 }
             "},
         &expect![[r#"
-            <lambda>
+            <lambda>_2
             Main"#]],
     );
 }

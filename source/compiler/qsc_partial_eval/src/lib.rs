@@ -58,7 +58,7 @@ pub use qsc_rir::{
         Literal, Operand, Program, VariableId,
     },
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::hash_map::Entry, rc::Rc, result::Result};
 use thiserror::Error;
 
@@ -193,9 +193,12 @@ struct PartialEvaluator<'a> {
     /// generated from. Distinct control counts (e.g. `Controlled` with 1 vs 3 controls) collapse to
     /// the same `FunctorSetValue` and therefore share a single emitted callable.
     ir_function_callables: FxHashMap<(StoreItemId, FunctorSetValue), CallableId>,
-    /// The package id of the program being partially evaluated (the "user"/target package). Used to
-    /// distinguish user-package callables (IR-function candidates) from cross-package callees.
-    target_package_id: PackageId,
+    /// Every QIR symbol name already assigned to an emitted IR function. Each callable
+    /// specialization is resolved exactly once, so the first identity to claim a given bare name
+    /// keeps it and any later collider is given a deterministic discriminating suffix. This keeps
+    /// emitted names globally unique because QIR rendering emits `callable.name` verbatim with no
+    /// further deduplication.
+    emitted_names: FxHashSet<String>,
     /// The entry-point callable resolved from the program entry expression, when the entry is a
     /// direct `Call` to a global item. The entry callable is the body of the entry function itself
     /// and must never be emitted as a separate IR function, so it is excluded from IR-function
@@ -309,7 +312,7 @@ impl<'a> PartialEvaluator<'a> {
             backend: QuantumIntrinsicsChecker::default(),
             callables_map: FxHashMap::default(),
             ir_function_callables: FxHashMap::default(),
-            target_package_id,
+            emitted_names: FxHashSet::default(),
             entry_callable_item: resolve_entry_callable_item(package_store, entry),
             ir_function_emission_depth: 0,
             program,
@@ -1610,6 +1613,23 @@ impl<'a> PartialEvaluator<'a> {
                         self.map_eval_value_to_rir_operand(value)
                     })
                     .collect::<Vec<Operand>>()
+            })
+            .filter(|arg_operands| {
+                // Only emit the call as an IR function when it genuinely produces a runtime value.
+                // A purely-classical callable (one whose inherent compute kind is `Static`) invoked
+                // with all compile-time-constant arguments evaluates to a compile-time constant, and
+                // that constant may be required by later static control flow (for example an array
+                // length check or a `use qs = Qubit[n]` size). Emitting such a call would replace the
+                // known constant with an opaque IR variable, turning statically-decidable branches
+                // into dynamic ones and breaking constant-dependent evaluation. In that case fall
+                // through to the inline path, which constant-folds the body. The call is still
+                // emitted when the callable carries quantum/runtime content (`Dynamic` inherent) or
+                // when at least one argument is a runtime variable, so classical callables are still
+                // emitted as functions whenever they are actually invoked with runtime values.
+                self.spec_inherent_is_dynamic(store_item_id, functor_app)
+                    || arg_operands
+                        .iter()
+                        .any(|operand| matches!(operand, Operand::Variable(_)))
             });
         let call_scope = Scope::new(
             store_item_id.package,
@@ -2053,6 +2073,17 @@ impl<'a> PartialEvaluator<'a> {
         Ok(block_value)
     }
 
+    /// QIR symbols emitted by code generation independently of IR-function emission. An emitted
+    /// IR function must never be named one of these, or it would shadow the entry point or a
+    /// runtime/quantum intrinsic at link time. `ENTRYPOINT__main` is the codegen entry literal;
+    /// the two prefixes cover the runtime/quantum intrinsic families created lazily during
+    /// evaluation, whose exact set is program-dependent and not enumerable up front.
+    fn is_reserved_qir_symbol(name: &str) -> bool {
+        name == "ENTRYPOINT__main"
+            || name.starts_with("__quantum__qis__")
+            || name.starts_with("__quantum__rt__")
+    }
+
     /// Determines whether a resolved callable specialization is eligible to be emitted as a QIR
     /// "IR function" (a `Regular` RIR callable with a body, called via `Instruction::Call`) instead
     /// of being inlined. The base phase emits VOID (Unit-returning) and scalar-returning
@@ -2075,12 +2106,13 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // Only reachable, non-entry callables in the user (target) package are candidates.
-        // Cross-package (e.g. standard library) callees retain residual FIR `Return`s after the
-        // `return_unify` FIR transform (which only processes the target package) and must be inlined.
-        if store_item_id.package != self.target_package_id {
-            return false;
-        }
+        // Reachable callables in any package are candidates, not just the user (target) package.
+        // The `return_unify` FIR transform now runs across packages, so foreign callees (e.g. the
+        // standard library) no longer retain residual FIR `Return`s and can be emitted as IR
+        // functions too. The entry callable is still excluded by the check immediately below, and
+        // every remaining eligibility gate carries its own correctness on the owning callable
+        // regardless of which package owns it. Foreign `SimulatableIntrinsic`/`Intrinsic` callables
+        // are never reached here (they take the opaque-call path with no body specialization).
 
         // The entry-point callable is the body of the entry function itself; emitting it as a
         // separate IR function would wrongly duplicate it. Exclude it so its body inlines into
@@ -2092,7 +2124,9 @@ impl<'a> PartialEvaluator<'a> {
         // Controlled specializations (`ctl`/`ctl_adj`) are not supported for IR-function emission
         // yet. They carry a synthesized dynamic-length `Qubit[]` control register (signalled by
         // `spec_decl.input`), and that dynamic array parameter has no base-phase RIR representation,
-        // so they are always inlined.
+        // so they are always inlined. Foreign `ctl`/`ctl_adj` specs hit this same gate and inline
+        // exactly like user-package controlled specs; emitting them is deferred future work because
+        // the controls register is a runtime-sized `Qubit[]` with no flat-RIR representation.
         if spec_decl.input.is_some() {
             return false;
         }
@@ -2179,6 +2213,35 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
+    /// Reports whether the resolved specialization has a `Dynamic` inherent compute kind, i.e.
+    /// whether it carries quantum or other runtime content even when all of its parameters are
+    /// bound to static values. A `Static` inherent compute kind means the callable is purely
+    /// classical and can be constant-folded whenever its arguments are compile-time constants.
+    /// This is used to decide whether a call should be emitted as an IR function: emitting a
+    /// purely-classical callable with all-constant arguments would discard its statically-known
+    /// result as an opaque IR variable, so such calls must be folded instead.
+    fn spec_inherent_is_dynamic(
+        &self,
+        store_item_id: StoreItemId,
+        functor_app: FunctorApp,
+    ) -> bool {
+        let ItemComputeProperties::Callable(callable_compute_properties) =
+            self.compute_properties.get_item(store_item_id)
+        else {
+            return false;
+        };
+        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
+            (false, 0) => Some(&callable_compute_properties.body),
+            (false, _) => callable_compute_properties.ctl.as_ref(),
+            (true, 0) => callable_compute_properties.adj.as_ref(),
+            (true, _) => callable_compute_properties.ctl_adj.as_ref(),
+        };
+        matches!(
+            generator_set.map(|gen_set| gen_set.inherent),
+            Some(ComputeKind::Dynamic { .. })
+        )
+    }
+
     /// Scans a specialization block for any residual FIR `Return` expression. After the
     /// `return_unify` FIR transform, only `return_unify` skip-set callables (and cross-package
     /// callables) retain a `Return`; such callables cannot be emitted as single-exit IR functions.
@@ -2247,6 +2310,7 @@ impl<'a> PartialEvaluator<'a> {
 
     /// Builds and registers the `Regular` callable for an IR function and evaluates its
     /// specialization body into a fresh body block. Returns the id of the emitted callable.
+    #[allow(clippy::too_many_lines)]
     fn emit_ir_function(
         &mut self,
         store_item_id: StoreItemId,
@@ -2313,14 +2377,57 @@ impl<'a> PartialEvaluator<'a> {
         };
         let returns_value = output_type.is_some();
 
-        // Build the emitted callable name following the `<callable>__<FunctorSetValue>` convention
-        // (the body specialization keeps the bare callable name).
+        // Resolve the emitted callable name. In the common case the body specialization keeps the
+        // bare callable name (with the `<callable>__<FunctorSetValue>` suffix for non-empty functor
+        // sets). Two distinct specializations can map to the same bare name, however: callables in
+        // different namespaces of the same package can share an unqualified name, and foreign
+        // callables can collide with user-package ones. Because QIR rendering emits `callable.name`
+        // verbatim with no deduplication, a colliding name is given a deterministic discriminating
+        // suffix derived from its owning package (and item, if still ambiguous) so that emitted
+        // names stay globally unique. The first identity to claim a bare name keeps it.
         let base_name = callable_decl.name.name.to_string();
-        let name = if functor_set_value == FunctorSetValue::Empty {
-            base_name
-        } else {
-            format!("{base_name}__{}", functor_set_value.mangle_name())
+        let with_functor = |stem: &str| {
+            if functor_set_value == FunctorSetValue::Empty {
+                stem.to_string()
+            } else {
+                format!("{stem}__{}", functor_set_value.mangle_name())
+            }
         };
+        let name = {
+            let pkg = usize::from(store_item_id.package);
+            let item = usize::from(store_item_id.item);
+            let is_free = |candidate: &str, this: &Self| {
+                !Self::is_reserved_qir_symbol(candidate) && !this.emitted_names.contains(candidate)
+            };
+
+            let bare = with_functor(&base_name);
+            if is_free(&bare, self) {
+                bare
+            } else {
+                let by_pkg = with_functor(&format!("{base_name}__p{pkg}"));
+                if is_free(&by_pkg, self) {
+                    by_pkg
+                } else {
+                    let by_item = with_functor(&format!("{base_name}__p{pkg}_i{item}"));
+                    if is_free(&by_item, self) {
+                        by_item
+                    } else {
+                        // Guaranteed-termination safety net against adversarial real names that
+                        // already occupy the discriminated forms above.
+                        let mut counter = 0u32;
+                        loop {
+                            let candidate =
+                                with_functor(&format!("{base_name}__p{pkg}_i{item}_{counter}"));
+                            if is_free(&candidate, self) {
+                                break candidate;
+                            }
+                            counter += 1;
+                        }
+                    }
+                }
+            }
+        };
+        self.emitted_names.insert(name.clone());
 
         // Create the body block and reserve the callable id up front so that recursive structural
         // references (e.g. nested IR-function emission) observe a consistent program state.

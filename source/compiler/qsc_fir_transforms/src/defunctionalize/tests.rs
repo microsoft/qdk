@@ -134,6 +134,62 @@ fn callable_decl<'a>(package: &'a fir::Package, callable_name: &str) -> &'a fir:
         .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
 }
 
+/// Lifted lambdas are renamed `<lambda>_<item>`, embedding the defining item id
+/// so distinct lambdas in the same package receive distinct names. This guards
+/// the prefix-preserving lambda rename at the FIR layer.
+#[test]
+fn lifted_lambda_names_embed_item_id_and_are_distinct() {
+    let (store, pkg_id) = compile_to_monomorphized_fir(
+        r#"
+        operation ApplyOp(f : Qubit => Unit, q : Qubit) : Unit {
+            f(q);
+        }
+        operation Parametrized(angle : Double, q : Qubit) : Unit {
+            Rz(angle, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let op1 = Parametrized(0.5, _);
+            let op2 = Parametrized(1.5, _);
+            ApplyOp(op1, q);
+            ApplyOp(op2, q);
+        }
+        "#,
+    );
+    let package = store.get(pkg_id);
+    let lambda_names: Vec<String> = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("<lambda>") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        lambda_names.len(),
+        2,
+        "expected two lifted lambdas; got: {lambda_names:?}"
+    );
+    // Each lifted lambda keeps the `<lambda>_` prefix and embeds a numeric item id.
+    for name in &lambda_names {
+        let suffix = name.strip_prefix("<lambda>_").unwrap_or_else(|| {
+            panic!("lambda name must keep the `<lambda>_` prefix; got {name:?}")
+        });
+        assert!(
+            !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()),
+            "lambda name must embed a numeric item id; got {name:?}"
+        );
+    }
+    // The two lifted lambdas receive distinct names.
+    assert_ne!(
+        lambda_names[0], lambda_names[1],
+        "expected distinct lambda names; got {lambda_names:?}"
+    );
+}
+
 fn call_arg_tuple_lengths_after_defunc(source: &str, callee_name: &str) -> Vec<usize> {
     let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
     let package = fir_store.get(fir_pkg_id);

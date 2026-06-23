@@ -229,10 +229,10 @@ fn specialize_closure_no_captures() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -250,7 +250,7 @@ fn specialize_closure_no_captures() {
                 ApplyOp_Empty__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -286,10 +286,10 @@ fn specialize_closure_with_captures() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let angle : Double = 1.;
-                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda__3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -308,14 +308,14 @@ fn specialize_closure_with_captures() {
                 ApplyOp_Empty__closure_(q, angle);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
-                _lambda_(__capture_0, q);
+                _lambda__3(__capture_0, q);
             }
             // entry
             Main()
@@ -344,10 +344,10 @@ fn specialize_closure_capture_types_preserved() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 3;
-                ApplyOp_Empty_(/ * closure item = 3 captures = [n] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [n] * / _lambda__3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(n : Int, q1 : Qubit) : Unit {
+            operation _lambda__3(n : Int, q1 : Qubit) : Unit {
                 {
                     {
                         let _range_id_59 : Range = 0..n;
@@ -381,7 +381,7 @@ fn specialize_closure_capture_types_preserved() {
                 ApplyOp_Empty__closure_(q, n);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(n : Int, q1 : Qubit) : Unit {
+            operation _lambda__3(n : Int, q1 : Qubit) : Unit {
                 {
                     {
                         let _range_id_59 : Range = 0..n;
@@ -403,7 +403,7 @@ fn specialize_closure_capture_types_preserved() {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Int) : Unit {
-                _lambda_(__capture_0, q);
+                _lambda__3(__capture_0, q);
             }
             // entry
             Main()
@@ -1129,10 +1129,10 @@ fn rewrite_closure_capture_args_inserted() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let angle : Double = 1.;
-                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda__3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1151,14 +1151,14 @@ fn rewrite_closure_capture_args_inserted() {
                 ApplyOp_Empty__closure_(q, angle);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
-                _lambda_(__capture_0, q);
+                _lambda__3(__capture_0, q);
             }
             // entry
             Main()
@@ -1471,10 +1471,10 @@ fn specialize_closure_capturing_immutable_variable() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let angle : Double = 1.;
-                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [angle] * / _lambda__3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1493,14 +1493,14 @@ fn specialize_closure_capturing_immutable_variable() {
                 ApplyOp_Empty__closure_(q, angle);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__3(angle : Double, q1 : Qubit) : Unit {
                 Rx(angle, q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Double) : Unit {
-                _lambda_(__capture_0, q);
+                _lambda__3(__capture_0, q);
             }
             // entry
             Main()
@@ -1531,13 +1531,13 @@ fn specialize_closure_in_while_loop_body() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable n : Int = 3;
                 let _generated_ident_62 : Unit = while n > 0 {
-                    ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_, q);
+                    ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
                     n -= 1;
                 };
                 __quantum__rt__qubit_release(q);
                 _generated_ident_62
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1560,7 +1560,7 @@ fn specialize_closure_in_while_loop_body() {
                 __quantum__rt__qubit_release(q);
                 _generated_ident_62
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1593,14 +1593,14 @@ fn specialize_multiple_closures_same_signature() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_, q);
-                ApplyOp_Empty_(/ * closure item = 4 captures = [] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
+                ApplyOp_Empty_(/ * closure item = 4 captures = [] * / _lambda__4, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__4(q1 : Qubit, ) : Unit {
                 X(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -1619,10 +1619,10 @@ fn specialize_multiple_closures_same_signature() {
                 ApplyOp_Empty__X_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__3(q1 : Qubit, ) : Unit {
                 H(q1)
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__4(q1 : Qubit, ) : Unit {
                 X(q1)
             }
             operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -2369,11 +2369,11 @@ fn closure_with_multiple_captures_threads_all_captures() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let angle1 : Double = 1.;
                 let angle2 : Double = 2.;
-                let myOp : (Qubit => Unit) = / * closure item = 3 captures = [angle1, angle2] * / _lambda_;
+                let myOp : (Qubit => Unit) = / * closure item = 3 captures = [angle1, angle2] * / _lambda__3;
                 Apply_Empty_(myOp, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(angle1 : Double, angle2 : Double, q : Qubit) : Unit {
+            operation _lambda__3(angle1 : Double, angle2 : Double, q : Qubit) : Unit {
                 {
                     Rx(angle1, q);
                     Ry(angle2, q);
@@ -2397,7 +2397,7 @@ fn closure_with_multiple_captures_threads_all_captures() {
                 Apply_Empty__closure_(q, angle1, angle2);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(angle1 : Double, angle2 : Double, q : Qubit) : Unit {
+            operation _lambda__3(angle1 : Double, angle2 : Double, q : Qubit) : Unit {
                 {
                     Rx(angle1, q);
                     Ry(angle2, q);
@@ -2408,7 +2408,7 @@ fn closure_with_multiple_captures_threads_all_captures() {
                 op(q);
             }
             operation Apply_Empty__closure_(q : Qubit, __capture_0 : Double, __capture_1 : Double) : Unit {
-                _lambda_(__capture_0, __capture_1, q);
+                _lambda__3(__capture_0, __capture_1, q);
             }
             // entry
             Main()
@@ -2633,14 +2633,14 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             }
             operation Wrapper(bundle : ((((Qubit => Unit), Int), Double), Qubit)) : Unit {
                 let (((op : (Qubit => Unit), n : Int), angle : Double), q : Qubit) = bundle;
-                ApplyOp_Empty_(/ * closure item = 4 captures = [op, n, angle] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 4 captures = [op, n, angle] * / _lambda__4, q);
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 Wrapper_AdjCtl_(((H, 0), 1.), q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(op : (Qubit => Unit), n : Int, angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__4(op : (Qubit => Unit), n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
                     if n == 0 {
                         Rx(angle, q1);
@@ -2655,9 +2655,9 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             }
             operation Wrapper_AdjCtl_(bundle : ((((Qubit => Unit is Adj + Ctl), Int), Double), Qubit)) : Unit {
                 let (((op : (Qubit => Unit is Adj + Ctl), n : Int), angle : Double), q : Qubit) = bundle;
-                ApplyOp_Empty_(/ * closure item = 7 captures = [op, n, angle] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 7 captures = [op, n, angle] * / _lambda__4, q);
             }
-            operation _lambda_(op : (Qubit => Unit is Adj + Ctl), n : Int, angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__4(op : (Qubit => Unit is Adj + Ctl), n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
                     if n == 0 {
                         Rx(angle, q1);
@@ -2676,14 +2676,14 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             }
             operation Wrapper(bundle : ((((Qubit => Unit), Int), Double), Qubit)) : Unit {
                 let (((op : (Qubit => Unit), n : Int), angle : Double), q : Qubit) = bundle;
-                ApplyOp_Empty_(/ * closure item = 4 captures = [op, n, angle] * / _lambda_, q);
+                ApplyOp_Empty_(/ * closure item = 4 captures = [op, n, angle] * / _lambda__4, q);
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 Wrapper_AdjCtl__H_((0, 1.), q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(op : (Qubit => Unit), n : Int, angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__4(op : (Qubit => Unit), n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
                     if n == 0 {
                         Rx(angle, q1);
@@ -2700,7 +2700,7 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
                 let (((op : (Qubit => Unit is Adj + Ctl), n : Int), angle : Double), q : Qubit) = bundle;
                 ApplyOp_Empty__closure_(q, op, n, angle);
             }
-            operation _lambda_(op : (Qubit => Unit is Adj + Ctl), n : Int, angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__4(op : (Qubit => Unit is Adj + Ctl), n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
                     if n == 0 {
                         Rx(angle, q1);
@@ -2714,7 +2714,7 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
                 let ((n : Int, angle : Double), q : Qubit) = bundle;
                 ApplyOp_Empty__closure_(q, n, angle);
             }
-            operation _lambda_(n : Int, angle : Double, q1 : Qubit) : Unit {
+            operation _lambda__4(n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
                     if n == 0 {
                         Rx(angle, q1);
@@ -2725,10 +2725,10 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
 
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : (Qubit => Unit is Adj + Ctl), __capture_1 : Int, __capture_2 : Double) : Unit {
-                _lambda_(__capture_0, __capture_1, __capture_2, q);
+                _lambda__4(__capture_0, __capture_1, __capture_2, q);
             }
             operation ApplyOp_Empty__closure_(q : Qubit, __capture_0 : Int, __capture_1 : Double) : Unit {
-                _lambda_(__capture_0, __capture_1, q);
+                _lambda__4(__capture_0, __capture_1, q);
             }
             // entry
             Main()
@@ -2857,11 +2857,11 @@ fn identity_closure_peephole_replaces_wrapper() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let wrapper : (Qubit => Unit) = / * closure item = 3 captures = [] * / _lambda_;
+                let wrapper : (Qubit => Unit) = / * closure item = 3 captures = [] * / _lambda__3;
                 Apply_Empty_(wrapper, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(q : Qubit, ) : Unit {
+            operation _lambda__3(q : Qubit, ) : Unit {
                 H(q)
             }
             operation Apply_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -2879,7 +2879,7 @@ fn identity_closure_peephole_replaces_wrapper() {
                 Apply_Empty__H_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(q : Qubit, ) : Unit {
+            operation _lambda__3(q : Qubit, ) : Unit {
                 H(q)
             }
             operation Apply_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
@@ -2959,18 +2959,18 @@ fn below_threshold_no_excessive_specializations_warning() {
                 Apply_AdjCtl_(S, q);
                 Apply_AdjCtl_(T, q);
                 Apply_AdjCtl_(I, q);
-                Apply_Empty_(/ * closure item = 3 captures = [] * / _lambda_, q);
-                Apply_Empty_(/ * closure item = 4 captures = [] * / _lambda_, q);
-                Apply_Empty_(/ * closure item = 5 captures = [] * / _lambda_, q);
+                Apply_Empty_(/ * closure item = 3 captures = [] * / _lambda__3, q);
+                Apply_Empty_(/ * closure item = 4 captures = [] * / _lambda__4, q);
+                Apply_Empty_(/ * closure item = 5 captures = [] * / _lambda__5, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__3(q1 : Qubit, ) : Unit {
                 Rx(1., q1)
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__4(q1 : Qubit, ) : Unit {
                 Rx(2., q1)
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__5(q1 : Qubit, ) : Unit {
                 Rx(3., q1)
             }
             operation Apply_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
@@ -3000,13 +3000,13 @@ fn below_threshold_no_excessive_specializations_warning() {
                 Apply_Empty__closure_(q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__3(q1 : Qubit, ) : Unit {
                 Rx(1., q1)
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__4(q1 : Qubit, ) : Unit {
                 Rx(2., q1)
             }
-            operation _lambda_(q1 : Qubit, ) : Unit {
+            operation _lambda__5(q1 : Qubit, ) : Unit {
                 Rx(3., q1)
             }
             operation Apply_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
@@ -3037,13 +3037,13 @@ fn below_threshold_no_excessive_specializations_warning() {
                 I(q);
             }
             operation Apply_Empty__closure_(q : Qubit) : Unit {
-                _lambda_(q, );
+                _lambda__3(q, );
             }
             operation Apply_Empty__closure_(q : Qubit) : Unit {
-                _lambda_(q, );
+                _lambda__4(q, );
             }
             operation Apply_Empty__closure_(q : Qubit) : Unit {
-                _lambda_(q, );
+                _lambda__5(q, );
             }
             // entry
             Main()
@@ -3230,7 +3230,7 @@ fn cross_function_closure_capture_threads_correct_value() {
             function MakeRotation(base : Int) : (Qubit => Unit) {
                 return {
                     let arg : Int = base;
-                    / * closure item = 5 captures = [arg] * / _lambda_
+                    / * closure item = 5 captures = [arg] * / _lambda__5
                 };
             }
             operation Main() : Unit {
@@ -3240,7 +3240,7 @@ fn cross_function_closure_capture_threads_correct_value() {
                 Apply_Empty_(rotation, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(arg : Int, hole : Qubit) : Unit {
+            operation _lambda__5(arg : Int, hole : Qubit) : Unit {
                 ApplyRotation(arg, hole)
             }
             operation Apply_Empty_(f : (Qubit => Unit), q : Qubit) : Unit {
@@ -3268,14 +3268,14 @@ fn cross_function_closure_capture_threads_correct_value() {
                 Apply_Empty__closure_(q, amount);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(arg : Int, hole : Qubit) : Unit {
+            operation _lambda__5(arg : Int, hole : Qubit) : Unit {
                 ApplyRotation(arg, hole)
             }
             operation Apply_Empty_(f : (Qubit => Unit), q : Qubit) : Unit {
                 f(q);
             }
             operation Apply_Empty__closure_(q : Qubit, __capture_0 : Int) : Unit {
-                _lambda_(__capture_0, q);
+                _lambda__5(__capture_0, q);
             }
             // entry
             Main()
@@ -3309,10 +3309,10 @@ fn inline_closure_capture_threads_correct_value() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let amount : Int = 5;
-                Apply_Empty_(/ * closure item = 3 captures = [amount] * / _lambda_, q);
+                Apply_Empty_(/ * closure item = 3 captures = [amount] * / _lambda__3, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(amount : Int, qubit : Qubit) : Unit {
+            operation _lambda__3(amount : Int, qubit : Qubit) : Unit {
                 Rx(IntAsDouble(amount), qubit)
             }
             operation Apply_Empty_(f : (Qubit => Unit), q : Qubit) : Unit {
@@ -3331,14 +3331,14 @@ fn inline_closure_capture_threads_correct_value() {
                 Apply_Empty__closure_(q, amount);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(amount : Int, qubit : Qubit) : Unit {
+            operation _lambda__3(amount : Int, qubit : Qubit) : Unit {
                 Rx(IntAsDouble(amount), qubit)
             }
             operation Apply_Empty_(f : (Qubit => Unit), q : Qubit) : Unit {
                 f(q);
             }
             operation Apply_Empty__closure_(q : Qubit, __capture_0 : Int) : Unit {
-                _lambda_(__capture_0, q);
+                _lambda__3(__capture_0, q);
             }
             // entry
             Main()

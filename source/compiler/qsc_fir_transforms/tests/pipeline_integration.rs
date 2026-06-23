@@ -151,6 +151,16 @@ fn store_with_removed_pinned_callable() -> (
     (store, pkg_id, pinned_store_id)
 }
 
+fn callable_name_matches(actual: &str, requested: &str) -> bool {
+    if requested == "<lambda>" {
+        // Lifted lambdas are named `<lambda>_<item-id>`; the `<lambda>` sentinel
+        // matches any lifted lambda regardless of its volatile item-id suffix.
+        actual.starts_with("<lambda>")
+    } else {
+        actual == requested
+    }
+}
+
 fn expr_targets_callable(
     package: &qsc_fir::fir::Package,
     pkg_id: qsc_fir::fir::PackageId,
@@ -163,7 +173,7 @@ fn expr_targets_callable(
             if item_id.package == pkg_id
                 && matches!(
                     &package.get_item(item_id.item).kind,
-                    ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name
+                    ItemKind::Callable(decl) if callable_name_matches(decl.name.name.as_ref(), callable_name)
                 ) =>
         {
             true

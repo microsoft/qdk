@@ -595,8 +595,7 @@ fn collapse_if_unnecessary(
             && source_lookup
                 .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
                 .name
-                .as_ref()
-                == "<lambda>"
+                .starts_with("<lambda>")
         {
             // remove the lambda scope
             return Some(take(children));

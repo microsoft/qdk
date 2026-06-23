@@ -1457,7 +1457,7 @@ fn higher_order_tuple_field_projection_still_decomposes() {
     check(
         source,
         &expect![[r#"
-            Callable <lambda>: input=Tuple(Tuple(Bind(a: Int), Bind(b: Int)))
+            Callable <lambda>_4: input=Tuple(Tuple(Bind(a: Int), Bind(b: Int)))
             Callable Apply{closure}: input=Tuple(Bind(x: Int), Bind(y: Int))
             Callable Main: input=Tuple()
               local: Tuple(Bind(p.0: Int), Bind(p.1: Int))"#]],
@@ -1474,11 +1474,11 @@ fn higher_order_tuple_field_projection_still_decomposes() {
                 let p : (Int, Int) = (1, 2);
                 Apply_closure_(p::Item < 0 >, p::Item < 1 >)
             }
-            function _lambda_((a : Int, b : Int), ) : Int {
+            function _lambda__4((a : Int, b : Int), ) : Int {
                 a + b
             }
             function Apply_closure_(x : Int, y : Int) : Int {
-                _lambda_((x, y), )
+                _lambda__4((x, y), )
             }
             // entry
             Main()
@@ -1492,11 +1492,11 @@ fn higher_order_tuple_field_projection_still_decomposes() {
                 let (p_0 : Int, p_1 : Int) = (1, 2);
                 Apply_closure_(p_0, p_1)
             }
-            function _lambda_((a : Int, b : Int), ) : Int {
+            function _lambda__4((a : Int, b : Int), ) : Int {
                 a + b
             }
             function Apply_closure_(x : Int, y : Int) : Int {
-                _lambda_((x, y), )
+                _lambda__4((x, y), )
             }
             // entry
             Main()
