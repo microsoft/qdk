@@ -20,7 +20,7 @@ where
 ///
 /// Note: This function is a very low level primitive. It's only
 ///       public to mantain backwards compatibility with existing code.
-///       Prefer using
+///       Prefer using the functions in [`crate::display`] instead.
 #[must_use]
 pub fn set_indentation<T>(
     indent: indenter::Indented<'_, T>,

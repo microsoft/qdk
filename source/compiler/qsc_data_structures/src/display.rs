@@ -58,14 +58,14 @@ pub fn writeln_header(f: &mut impl Write, name: &str, span: Span) -> fmt::Result
 }
 
 /// Writes a field of a structure to the given buffer
-/// or stream with an additional indententation level.
+/// or stream with an additional indentation level.
 pub fn write_field<T: Display>(f: &mut impl Write, field_name: &str, val: &T) -> fmt::Result {
     let mut indent = with_indentation(f);
     write!(indent, "{field_name}: {val}")
 }
 
 /// Writes a field of a structure to the given buffer
-/// or stream with an additional indententation level.
+/// or stream with an additional indentation level.
 /// Inserts a newline afterwards.
 pub fn writeln_field<T: Display>(f: &mut impl Write, field_name: &str, val: &T) -> fmt::Result {
     write_field(f, field_name, val)?;
@@ -73,7 +73,7 @@ pub fn writeln_field<T: Display>(f: &mut impl Write, field_name: &str, val: &T) 
 }
 
 /// Writes an optional field of a structure to the given buffer
-/// or stream with an additional indententation level.
+/// or stream with an additional indentation level.
 pub fn write_opt_field<T: Display>(
     f: &mut impl Write,
     field_name: &str,
@@ -87,7 +87,7 @@ pub fn write_opt_field<T: Display>(
 }
 
 /// Writes an optional field of a structure to the given buffer
-/// or stream with an additional indententation level.
+/// or stream with an additional indentation level.
 /// Inserts a newline afterwards.
 pub fn writeln_opt_field<T: Display>(
     f: &mut impl Write,
@@ -99,7 +99,7 @@ pub fn writeln_opt_field<T: Display>(
 }
 
 /// Writes a field of a structure to the given buffer
-/// or stream with an additional indententation level.
+/// or stream with an additional indentation level.
 /// The field must be an iterable.
 pub fn write_list_field<'write, 'itemref, 'item, T, I>(
     f: &mut impl Write,
@@ -118,7 +118,7 @@ where
 }
 
 /// Writes a field of a structure to the given buffer
-/// or stream with an additional indententation level.
+/// or stream with an additional indentation level.
 /// The field must be an iterable.
 /// Inserts a newline afterwards.
 pub fn writeln_list_field<'write, 'itemref, 'item, T, I>(
@@ -136,7 +136,7 @@ where
 }
 
 /// Writes an optional field of a structure to the given buffer
-/// or stream with an additional indententation level.
+/// or stream with an additional indentation level.
 /// The field must be an iterable.
 pub fn write_opt_list_field<'write, 'itemref, 'item, T, I>(
     f: &mut impl Write,
@@ -157,7 +157,7 @@ where
 }
 
 /// Writes an optional field of a structure to the given buffer
-/// or stream with an additional indententation level.
+/// or stream with an additional indentation level.
 /// The field must be an iterable.
 /// Inserts a newline afterwards.
 pub fn writeln_opt_list_field<'write, 'itemref, 'item, T, I>(
