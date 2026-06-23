@@ -356,18 +356,18 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         shot.unitary[1] = op.unitary[5];
         shot.unitary[4] = op.unitary[0];
         shot.unitary[5] = op.unitary[1];
-    } else if (rand < (p_x + p_z)) {
-        // Apply Z error (negate |1> state)
-        shot.unitary[0] = op.unitary[0];
-        shot.unitary[1] = op.unitary[1];
-        shot.unitary[4] = cplxNeg(op.unitary[4]);
-        shot.unitary[5] = cplxNeg(op.unitary[5]);
-    } else if (rand < (p_x + p_z + p_y)) {
+    } else if (rand < (p_x + p_y)) {
         // Apply the Y permutation (swap rows with negated |0> state)
         shot.unitary[0] = cplxNeg(op.unitary[4]);
         shot.unitary[1] = cplxNeg(op.unitary[5]);
         shot.unitary[4] = op.unitary[0];
         shot.unitary[5] = op.unitary[1];
+    } else if (rand < (p_x + p_y + p_z)) {
+        // Apply Z error (negate |1> state)
+        shot.unitary[0] = op.unitary[0];
+        shot.unitary[1] = op.unitary[1];
+        shot.unitary[4] = cplxNeg(op.unitary[4]);
+        shot.unitary[5] = cplxNeg(op.unitary[5]);
     } else {
         // Either loss or no noise: the gate executes unmodified. If loss was
         // sampled, schedule a loss commit for this qubit; a following
