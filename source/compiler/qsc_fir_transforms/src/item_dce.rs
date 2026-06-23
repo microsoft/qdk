@@ -97,7 +97,6 @@ pub fn eliminate_dead_items(
 /// library package's unreachable surface cannot affect any other compilation.
 ///
 /// Returns the total number of items removed across all foreign packages.
-#[allow(clippy::implicit_hasher)]
 pub fn eliminate_unreachable_foreign_items(
     store: &mut PackageStore,
     entry_package_id: PackageId,
