@@ -17,7 +17,7 @@ use crate::interpreter::{
     CircuitConfig, OptionalCallbackReceiver, OutputSemantics, ProgramType, QSharpError, QasmError,
     StimError, TargetProfile, format_error, format_errors,
 };
-use crate::qir_simulation::{NoiseConfig, bind_noise_config, unbind_noise_config};
+use crate::qir_simulation::{NoiseConfig, bind_stim_noise_config, unbind_noise_config};
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -485,7 +485,7 @@ pub(crate) fn compile_stim_to_qir(
                 .join("\n"),
         )
     })?;
-    Ok((qir, bind_noise_config(py, &noise_config)?))
+    Ok((qir, bind_stim_noise_config(py, &noise_config)?))
 }
 
 /// Enriches the compilation errors to provide more helpful messages

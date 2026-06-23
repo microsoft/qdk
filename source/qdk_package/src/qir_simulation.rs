@@ -240,7 +240,7 @@ fn generic_float_cast<T: Float, Q: Float>(value: T) -> Q {
     num_traits::NumCast::from(value).expect("casting f64 to f32 should succeed")
 }
 
-pub(crate) fn bind_noise_config<T: Float, Q: Float>(
+fn bind_noise_config<T: Float, Q: Float>(
     py: Python,
     value: &qdk_simulators::noise_config::NoiseConfig<T, Q>,
 ) -> PyResult<NoiseConfig> {
@@ -271,14 +271,27 @@ pub(crate) fn bind_noise_config<T: Float, Q: Float>(
         mz: Py::new(py, NoiseTable::from(value.mz.clone()))?,
         mresetz: Py::new(py, NoiseTable::from(value.mresetz.clone()))?,
         // idle: Py::new(py, IdleNoiseParams::from(value.idle))?,
-        intrinsics: Py::new(py, to_intrinsics_table(py, &value.intrinsics)?)?,
+        intrinsics: Py::new(py, NoiseIntrinsicsTable::default())?,
     })
+}
+
+/// Builds a Python [`NoiseConfig`] for the Stim-to-QIR path, populating the
+/// intrinsics table from the Rust intrinsics map. The intrinsics handling is
+/// specific to Stim, so it lives here rather than in the general
+/// [`bind_noise_config`].
+pub(crate) fn bind_stim_noise_config<T: Float, Q: Float>(
+    py: Python,
+    value: &qdk_simulators::noise_config::NoiseConfig<T, Q>,
+) -> PyResult<NoiseConfig> {
+    let mut config = bind_noise_config(py, value)?;
+    config.intrinsics = Py::new(py, to_stim_intrinsics_table(py, &value.intrinsics)?)?;
+    Ok(config)
 }
 
 /// Builds a Python [`NoiseIntrinsicsTable`] from the Rust intrinsics map,
 /// preserving each intrinsic's id and naming it `noise_intrinsic_{id}` so the
 /// name matches the call emitted by the Stim-to-QIR compiler.
-fn to_intrinsics_table<Q: Float>(
+fn to_stim_intrinsics_table<Q: Float>(
     py: Python,
     intrinsics: &FxHashMap<u32, qdk_simulators::noise_config::NoiseTable<Q>>,
 ) -> PyResult<NoiseIntrinsicsTable> {
