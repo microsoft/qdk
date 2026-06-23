@@ -2,13 +2,26 @@
 // Licensed under the MIT License.
 
 use crate::lex::{Delim::Brace, Delim::Paren, Lexer, Token, TokenKind};
-use qsc_data_structures::span::Span;
-use std::{iter::Peekable, str::FromStr};
+use qsc_data_structures::{
+    display::{
+        write_field, write_list_field, writeln_field, writeln_header, writeln_list_field,
+        writeln_opt_field,
+    },
+    span::Span,
+};
+use std::{fmt::Display, iter::Peekable, str::FromStr};
 
 #[derive(Debug)]
 pub struct Circuit {
     pub span: Span,
     pub items: Vec<Item>,
+}
+
+impl Display for Circuit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln_header(f, "Circuit", self.span)?;
+        write_list_field(f, "items", &self.items)
+    }
 }
 
 #[derive(Debug)]
@@ -17,9 +30,24 @@ pub enum Item {
     Block(Block),
 }
 
+impl Display for Item {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Item::Line(line) => write!(f, "{line}"),
+            Item::Block(block) => write!(f, "{block}"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Line {
     pub instruction: Instruction,
+}
+
+impl Display for Line {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.instruction.fmt(f)
+    }
 }
 
 #[derive(Debug)]
@@ -27,6 +55,14 @@ pub struct Block {
     pub span: Span,
     pub block_instruction: Instruction, // currently, only the "REPEAT" instruction is supported
     pub items: Vec<Item>,
+}
+
+impl Display for Block {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln_header(f, "Block", self.span)?;
+        writeln_field(f, "block_instruction", &self.block_instruction)?;
+        write_list_field(f, "items", &self.items)
+    }
 }
 
 #[derive(Debug)]
@@ -38,10 +74,27 @@ pub struct Instruction {
     pub targets: Vec<Target>,
 }
 
+impl Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln_header(f, "Instruction", self.span)?;
+        writeln_field(f, "name", &self.name)?;
+        writeln_opt_field(f, "tag", self.tag.as_ref())?;
+        writeln_list_field(f, "args", &self.args)?;
+        write_list_field(f, "targets", &self.targets)
+    }
+}
+
 #[derive(Debug)]
 pub struct Target {
     pub span: Span,
     pub kind: TargetKind,
+}
+
+impl Display for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln_header(f, "Target", self.span)?;
+        write_field(f, "kind", &self.kind)
+    }
 }
 
 #[derive(Debug)]
@@ -67,11 +120,50 @@ pub enum TargetKind {
     Combiner,
 }
 
+impl Display for TargetKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TargetKind::Qubit { negated, value } => {
+                if *negated {
+                    write!(f, "Qubit(-{value})")
+                } else {
+                    write!(f, "Qubit({value})")
+                }
+            }
+            TargetKind::MeasurementRecord { value } => write!(f, "MeasurementRecord({value})"),
+            TargetKind::SweepBit { value } => write!(f, "SweepBit({value})"),
+            TargetKind::Pauli {
+                negated,
+                pauli,
+                value,
+            } => {
+                if *negated {
+                    write!(f, "Pauli(-{pauli}{value})")
+                } else {
+                    write!(f, "Pauli({pauli}{value})")
+                }
+            }
+            TargetKind::Loss { value } => write!(f, "Loss({value})"),
+            TargetKind::Combiner => write!(f, "Combiner"),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum Pauli {
     X,
     Y,
     Z,
+}
+
+impl Display for Pauli {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Pauli::X => write!(f, "X"),
+            Pauli::Y => write!(f, "Y"),
+            Pauli::Z => write!(f, "Z"),
+        }
+    }
 }
 
 impl FromStr for Pauli {
