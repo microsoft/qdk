@@ -2206,92 +2206,92 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
         panic!("expected raw and transformed RIR programs");
     };
     expect![[r#"
-            Program:
-                entry: 0
-                callables:
-                    Callable 0: Callable:
-                        name: main
-                        call_type: Regular
-                        input_type: <VOID>
-                        output_type: Integer
-                        body: 0
-                    Callable 1: Callable:
-                        name: __quantum__rt__initialize
-                        call_type: Regular
-                        input_type:
-                            [0]: Pointer
-                        output_type: <VOID>
-                        body: <NONE>
-                    Callable 2: Callable:
-                        name: Foo
-                        call_type: Regular
-                        input_type:
-                            [0]: Qubit
-                        input_vars:
-                            [0]: 2
-                        output_type: Integer
-                        body: 1
-                    Callable 3: Callable:
-                        name: __quantum__qis__mresetz__body
-                        call_type: Measurement
-                        input_type:
-                            [0]: Qubit
-                            [1]: Result
-                        output_type: <VOID>
-                        body: <NONE>
-                    Callable 4: Callable:
-                        name: __quantum__rt__read_result
-                        call_type: Readout
-                        input_type:
-                            [0]: Result
-                        output_type: Boolean
-                        body: <NONE>
-                    Callable 5: Callable:
-                        name: __quantum__rt__int_record_output
-                        call_type: OutputRecording
-                        input_type:
-                            [0]: Integer
-                            [1]: Pointer
-                        output_type: <VOID>
-                        body: <NONE>
-                blocks:
-                    Block 0: Block:
-                        Call id(1), args( Pointer, )
-                        Variable(8, Integer) = Call id(2), args( Qubit(0), ) !dbg dbg_location=1
-                        Call id(5), args( Variable(8, Integer), Tag(0, 3), )
-                        Return Integer(0)
-                    Block 1: Block:
-                        Variable(3, Integer) = Alloca
-                        Variable(3, Integer) = Store Integer(0)
-                        Call id(3), args( Variable(2, Qubit), Result(0), ) !dbg dbg_location=3
-                        Variable(4, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=2
-                        Branch Variable(4, Boolean), 2, 3 !dbg dbg_location=4
-                    Block 2: Block:
-                        Variable(3, Integer) = Store Integer(5)
-                        Jump(3)
-                    Block 3: Block:
-                        Variable(10, Integer) = Load Variable(3, Integer)
-                        Variable(7, Integer) = Add Variable(10, Integer), Integer(1)
-                        Variable(3, Integer) = Store Variable(7, Integer)
-                        Variable(12, Integer) = Load Variable(3, Integer)
-                        Return Variable(12, Integer)
-                config: Config:
-                    capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
-                num_qubits: 1
-                num_results: 1
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: Foo
+                    call_type: Regular
+                    input_type:
+                        [0]: Qubit
+                    input_vars:
+                        [0]: 2
+                    output_type: Integer
+                    body: 1
+                Callable 3: Callable:
+                    name: __quantum__qis__mresetz__body
+                    call_type: Measurement
+                    input_type:
+                        [0]: Qubit
+                        [1]: Result
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 4: Callable:
+                    name: __quantum__rt__read_result
+                    call_type: Readout
+                    input_type:
+                        [0]: Result
+                    output_type: Boolean
+                    body: <NONE>
+                Callable 5: Callable:
+                    name: __quantum__rt__int_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Call id(1), args( Pointer, )
+                    Variable(8, Integer) = Call id(2), args( Qubit(0), ) !dbg dbg_location=1
+                    Call id(5), args( Variable(8, Integer), Tag(0, 3), )
+                    Return Integer(0)
+                Block 1: Block:
+                    Variable(3, Integer) = Alloca
+                    Variable(3, Integer) = Store Integer(0)
+                    Call id(3), args( Variable(2, Qubit), Result(0), ) !dbg dbg_location=3
+                    Variable(4, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=2
+                    Branch Variable(4, Boolean), 2, 3 !dbg dbg_location=4
+                Block 2: Block:
+                    Variable(3, Integer) = Store Integer(5)
+                    Jump(3)
+                Block 3: Block:
+                    Variable(10, Integer) = Load Variable(3, Integer)
+                    Variable(7, Integer) = Add Variable(10, Integer), Integer(1)
+                    Variable(3, Integer) = Store Variable(7, Integer)
+                    Variable(12, Integer) = Load Variable(3, Integer)
+                    Return Variable(12, Integer)
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
+            num_qubits: 1
+            num_results: 1
 
-                dbg_scopes:
-                    0 = SubProgram name=Main location=(2-282)
-                    1 = SubProgram name=Foo location=(2-29)
-                    2 = SubProgram name=MResetZ location=(1-182274)
-                dbg_locations:
-                    [1]: scope=0 location=(2-363)
-                    [2]: scope=1 location=(2-112) inlined_at=1
-                    [3]: scope=2 location=(1-182323) inlined_at=2
-                    [4]: scope=1 location=(2-109) inlined_at=1
-                tags:
-                    [0]: 0_i
-        "#]]
+            dbg_scopes:
+                0 = SubProgram name=Main location=(2-282)
+                1 = SubProgram name=Foo location=(2-29)
+                2 = SubProgram name=MResetZ location=(1-182278)
+            dbg_locations:
+                [1]: scope=0 location=(2-363)
+                [2]: scope=1 location=(2-112) inlined_at=1
+                [3]: scope=2 location=(1-182327) inlined_at=2
+                [4]: scope=1 location=(2-109) inlined_at=1
+            tags:
+                [0]: 0_i
+    "#]]
         .assert_eq(ssa);
 }
 
