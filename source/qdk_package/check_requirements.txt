@@ -1,4 +1,4 @@
-# Libraries that needs to be installed to run Python static checks.
+# Libraries that need to be installed to run Python static checks.
 matplotlib
 mypy==2.1.0
 pandas-stubs
