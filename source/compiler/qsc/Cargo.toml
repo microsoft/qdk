@@ -33,7 +33,7 @@ qsc_parse = { path = "../qsc_parse" }
 qsc_partial_eval = { path = "../qsc_partial_eval" }
 qsc_project = { path = "../qsc_project", features = ["fs"] }
 qsc_openqasm_compiler = { path = "../qsc_openqasm_compiler" }
-qsc_openqasm_parser = { path = "../qsc_openqasm_parser" }
+qdk_openqasm_parser = { path = "../../qdk_openqasm_parser", features = ["internal"] }
 qsc_rca = { path = "../qsc_rca" }
 qsc_circuit = { path = "../qsc_circuit" }
 rustc-hash = { workspace = true }
