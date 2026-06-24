@@ -13,7 +13,7 @@ use qsc_ast::ast::{
 };
 use qsc_data_structures::span::Span;
 
-use qsc_openqasm_parser::{
+use qdk_openqasm_parser::{
     parser::ast::{List, list_from_iter},
     semantic::types::Type,
     stdlib::angle::Angle,
