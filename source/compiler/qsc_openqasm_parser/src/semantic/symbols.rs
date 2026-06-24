@@ -163,7 +163,7 @@ impl Symbol {
 impl std::fmt::Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         use qsc_data_structures::display;
-        display::writeln_header(f, "Symbol", self.span)?;
+        display::writeln_header_with_span(f, "Symbol", self.span)?;
         display::writeln_field(f, "name", &self.name)?;
         display::writeln_field(f, "type", &self.ty)?;
         display::writeln_field(f, "ty_span", &self.ty_span)?;
