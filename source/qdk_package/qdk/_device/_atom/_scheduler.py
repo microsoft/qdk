@@ -41,13 +41,13 @@ class Move:
     src_loc: Location
     dst_loc: Location
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.qubit_id_ptr)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Move Qubit({self.qubit_id}): {self.src_loc} -> {self.dst_loc}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.__str__()
 
     @property
@@ -56,10 +56,10 @@ class Move:
         assert q_id is not None, "Qubit id should be known"
         return q_id
 
-    def parity(self):
+    def parity(self) -> tuple[int, int]:
         return move_parity(self.src_loc, self.dst_loc)
 
-    def direction(self):
+    def direction(self) -> tuple[int, int]:
         return move_direction(self.src_loc, self.dst_loc)
 
 
@@ -120,11 +120,14 @@ def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
 
 
 @lru_cache(maxsize=1 << 14)
-def scale_factor_helper(source_diff, destination_diff):
+def scale_factor_helper(
+    source_diff: int, destination_diff: int
+) -> Optional[bool | Fraction]:
     if destination_diff == 0:
         return True
     if (s := Fraction(source_diff, destination_diff)) >= 0:
         return s
+    return None
 
 
 def scale_factor(move1: Move, move2: Move) -> Optional[MoveGroupScaleFactor]:
@@ -162,7 +165,7 @@ class MoveGroup:
 
     __slots__ = ("moves", "scale_factor", "ref_move")
 
-    def __init__(self, moves: Iterable[Move]):
+    def __init__(self, moves: Iterable[Move]) -> None:
         self.moves = set(moves)
         self.scale_factor = scale_factor(*moves) if len(self.moves) > 1 else None
         self.ref_move = next(iter(moves))
@@ -170,7 +173,7 @@ class MoveGroup:
     def __len__(self) -> int:
         return len(self.moves)
 
-    def add(self, move: Move):
+    def add(self, move: Move) -> None:
         """
         Adds a move to this move group.
 
@@ -185,10 +188,10 @@ class MoveGroup:
         )
         self.moves.add(move)
 
-    def remove(self, move: Move):
+    def remove(self, move: Move) -> None:
         self.moves.remove(move)
 
-    def discard(self, move: Move):
+    def discard(self, move: Move) -> None:
         self.moves.discard(move)
 
 
@@ -230,7 +233,7 @@ class MoveGroupPool:
         except ValueError:
             return None
 
-    def add(self, move: Move):
+    def add(self, move: Move) -> None:
         """Adds a move to the move-group pool.
 
         :param move: The move to add. It must be of the same parity and direction as
@@ -360,7 +363,7 @@ class MoveScheduler:
         device: Device,
         zone: Zone,
         qubits_to_move: list[QubitId | tuple[QubitId, QubitId]],
-    ):
+    ) -> None:
         """Initializes the move scheduler from a device, a target zone,
         and a list of qubits to move to that target zone.
 
@@ -413,7 +416,7 @@ class MoveScheduler:
                 mov = PartialMove(elt, self.device.get_home_loc(q_id))
                 partial_moves.append(mov)
 
-        def sort_key(partial_move: PartialMove | PartialMovePair):
+        def sort_key(partial_move: PartialMove | PartialMovePair) -> int:
             if isinstance(partial_move, PartialMove):
                 return self.device.get_ordering(partial_move.qubit_id)
             else:
@@ -421,7 +424,7 @@ class MoveScheduler:
 
         return sorted(partial_moves, key=sort_key)
 
-    def is_empty(self):
+    def is_empty(self) -> bool:
         """
         Returns `True` if all moves were scheduled.
         That is, there are no partial moves and all disjoint pools are empty.
@@ -547,7 +550,7 @@ class MoveScheduler:
         self,
         pool: MoveGroupPool,
         partial_move: PartialMove,
-        is_pair=False,
+        is_pair: bool = False,
     ) -> Optional[Move]:
         # First, try finding a large enough group to place the partial move in.
         if self.zone.type != ZoneType.MEAS:
@@ -577,7 +580,7 @@ class MoveScheduler:
 
         return None
 
-    def __iter__(self):
+    def __iter__(self) -> "MoveScheduler":
         return self
 
     def __next__(self) -> list[Move]:
@@ -598,13 +601,13 @@ class Schedule(QirModuleVisitor):
     end_func: Function
     move_funcs: list[Function]
 
-    def __init__(self, device: Device):
+    def __init__(self, device: Device) -> None:
         super().__init__()
         self.device = device
         self.num_qubits = len(self.device.home_locs)
         self.pending_moves: list[list[Move]] = []
 
-    def _on_module(self, module: Module):
+    def _on_module(self, module: Module) -> None:
         i64_ty = IntType(module.context, 64)
         # Find or create the necessary runtime functions.
         for func in module.functions:
@@ -761,23 +764,23 @@ class Schedule(QirModuleVisitor):
                 while self.any_pending_ops():
                     self.flush_pending(instr)
 
-    def any_pending_single_qubit_ops(self):
+    def any_pending_single_qubit_ops(self) -> bool:
         return any(ops for ops in self.single_qubit_ops)
 
-    def any_pending_czs(self):
+    def any_pending_czs(self) -> bool:
         return bool(self.curr_cz_ops)
 
-    def any_pending_measurements(self):
+    def any_pending_measurements(self) -> bool:
         return bool(self.measurements)
 
-    def any_pending_ops(self):
+    def any_pending_ops(self) -> bool:
         return (
             self.any_pending_czs()
             or self.any_pending_single_qubit_ops()
             or self.any_pending_measurements()
         )
 
-    def flush_pending(self, insert_before: Instruction):
+    def flush_pending(self, insert_before: Instruction) -> None:
         interaction_zone = self.device.get_interaction_zones()[0]
         self.builder.insert_before(insert_before)
         # If cz ops pending, insert accumulated moves, single qubits ops matching cz rows, then the cz ops, then move back.
@@ -852,14 +855,14 @@ class Schedule(QirModuleVisitor):
             row.sort()
         return qubits_by_row
 
-    def schedule_pending_moves(self, zone: Zone):
+    def schedule_pending_moves(self, zone: Zone) -> None:
         move_scheduler = MoveScheduler(self.device, zone, self.pending_qubits_to_move)
         for move_group in move_scheduler:
             self.pending_moves.append(move_group)
         # self.verify_that_all_moves_were_scheduled()
         self.pending_qubits_to_move = []
 
-    def verify_that_all_moves_were_scheduled(self):
+    def verify_that_all_moves_were_scheduled(self) -> None:
         moves_to_schedule = sum(
             len(x) if isinstance(x, tuple) else 1 for x in self.pending_qubits_to_move
         )
@@ -868,7 +871,7 @@ class Schedule(QirModuleVisitor):
             f"{moves_to_schedule} != {scheduled_moves}"
         )
 
-    def insert_moves(self):
+    def insert_moves(self) -> None:
         """
         For each pending move, insert a call to the move function that moves the
         given qubit to the given (row, col) location.
@@ -897,7 +900,7 @@ class Schedule(QirModuleVisitor):
         if move_group_id != 0:
             self.builder.call(self.end_func, [])
 
-    def insert_moves_back(self):
+    def insert_moves_back(self) -> None:
         move_group_id = 0
         for move_group in self.pending_moves:
             # We can execute `MOVE_GROUPS_PER_PARALLEL_SECTION`, if
@@ -925,7 +928,7 @@ class Schedule(QirModuleVisitor):
         # Clear pending moves.
         self.pending_moves = []
 
-    def flush_single_qubit_ops(self, target_qubits):
+    def flush_single_qubit_ops(self, target_qubits: list[int]) -> None:
         # Flush all pending single qubit ops for the given target qubits, combining
         # consecutive ops of the same type into a single parallel region by row in
         # the interaction zone.
