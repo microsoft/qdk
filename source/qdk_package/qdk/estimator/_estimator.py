@@ -751,7 +751,7 @@ class EstimatorResult(dict):
             else:
                 raise KeyError(key)
 
-    def _plot(self, **kwargs):
+    def _plot(self, **kwargs) -> None:
         """
         Plots all result items in a space time plot, where the x-axis shows
         total runtime, and the y-axis shows total number of physical qubits.
@@ -783,7 +783,7 @@ class EstimatorResult(dict):
 
         _ = plt.figure(figsize=(15, 8))
 
-        plt.ylabel("Physical qubits")
+        plt.ylabel(1) #"Physical qubits")
         plt.xlabel("Runtime")
         plt.loglog()
         for i, (x, y) in enumerate(zip(xs, ys)):
@@ -848,7 +848,7 @@ class EstimatorResult(dict):
         plt.show()
 
     @property
-    def json(self):
+    def json(self) -> str:
         """
         Returns a JSON representation of the resource estimation result data.
         """
