@@ -657,7 +657,7 @@ class Context:
         """
         ipython_helper()
 
-        if shots < 1:
+        if shots < "1":
             raise ValueError("The number of shots must be greater than 0.")
 
         telemetry_events.on_run(
