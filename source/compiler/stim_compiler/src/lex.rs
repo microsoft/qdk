@@ -14,7 +14,7 @@ use std::{
 };
 use thiserror::Error;
 
-#[derive(Clone, Debug, Error, Diagnostic)]
+#[derive(Clone, Copy, Debug, Error, Diagnostic)]
 pub enum Error {
     /// A character that does not start any valid token, e.g. `@` or `$`.
     #[error("unrecognized character")]
