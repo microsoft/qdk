@@ -64,6 +64,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--check-py",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Run static checks (linting, formatting and typing) for Python and nothing else",
+)
+
+parser.add_argument(
     "--integration-tests",
     action=argparse.BooleanOptionalAction,
     default=False,
@@ -269,6 +276,49 @@ def use_python_env(folder):
     return (python_bin, pip_env)
 
 
+# Static checks for Python code in source/qdk_package.
+# Currently only includes type checking with mypy.
+# Runs ifs:
+#   1. Enabled explicilty (will run these checks only): build.py --check-py.
+#   2. Or if this build builds qdk package and checks are not disabled.
+def run_python_checks():
+    python_bin, env = use_python_env(qdk_python_src)
+
+    step_start("Install requirments for Python static checks")
+    run(
+        [
+            python_bin,
+            "-m",
+            "pip",
+            "install",
+            "-r",
+            "check_requirements.txt",
+            "-q",
+        ],
+        cwd=qdk_python_src,
+        env=env,
+    )
+    step_end()
+
+    step_start("Running mypy checks")
+    run(
+        [
+            python_bin,
+            "-m",
+            "mypy",
+            "qdk",
+        ],
+        cwd=qdk_python_src,
+        env=env,
+    )
+    step_end()
+
+
+if args.check_py:
+    run_python_checks()
+    exit(0)
+
+
 if npm_install_needed:
     command = [npm_cmd, "install"]
     if not args.optional_dependencies:
@@ -329,6 +379,10 @@ if args.check:
             cwd=root_dir,
         )
     step_end()
+
+    if build_qdk:
+        run_python_checks()
+
 
 if build_cli:
     if run_tests:

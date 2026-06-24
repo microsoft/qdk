@@ -93,6 +93,19 @@ jobs:
       - name: npm check
         run: npm run check
 
+  python-check:
+    name: Python static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: "true"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Run python static checks
+        run: python ./build.py --check-py
+
   build:
     name: Build and test
     runs-on: ubuntu-latest
@@ -203,6 +216,7 @@ jobs:
         format,
         clippy,
         web-check,
+        python-check,
         build,
         unit-tests,
         format-qsc,

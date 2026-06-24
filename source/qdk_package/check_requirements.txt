@@ -1,0 +1,3 @@
+# Libraries that needs to be installed to run Python static checks.
+mypy==2.1.0
+pandas-stubs

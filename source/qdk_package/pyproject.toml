@@ -50,3 +50,11 @@ testpaths = ["tests"]
 [tool.maturin]
 module-name = "qdk._native"
 
+[tool.mypy]
+exclude = [
+  "^qdk/applications/",
+  "^qdk/azure/",
+  "^qdk/cirq/",
+  "^qdk/qiskit/",
+  "^qdk/qre/",
+]
