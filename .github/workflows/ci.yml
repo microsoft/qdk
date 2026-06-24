@@ -104,7 +104,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Run python static checks
-        run: python ./build.py --check-py
+        run: python ./build.py --check-py --no-check-prereqs
 
   build:
     name: Build and test
