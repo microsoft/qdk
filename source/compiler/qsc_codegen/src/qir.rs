@@ -7,7 +7,10 @@ use qsc_partial_eval::{
     PartialEvalConfig, Program, ProgramEntry, partially_evaluate, partially_evaluate_call,
 };
 use qsc_rca::PackageStoreComputeProperties;
-use qsc_rir::{passes::check_and_transform, rir};
+use qsc_rir::{
+    passes::{check_and_transform, has_result_one_literal},
+    rir,
+};
 
 pub mod name;
 pub mod v1;
@@ -50,6 +53,7 @@ pub fn fir_to_qir(
         },
     )?;
     check_and_transform(&mut program);
+    verify_program(&program)?;
     if capabilities <= Profile::AdaptiveRIF.into() {
         Ok(v1::ToQir::<String>::to_qir(&program, &program))
     } else {
@@ -81,6 +85,16 @@ pub fn fir_to_qir_from_callable(
     } else {
         Ok(v2::ToQir::<String>::to_qir(&program, &program))
     }
+}
+
+fn verify_program(program: &Program) -> Result<(), qsc_partial_eval::Error> {
+    // Check the program for the presence of any result `One` literals, which QIR cannot support
+    has_result_one_literal(program).map_or(Ok(()), |span| {
+        Err(qsc_partial_eval::Error::Unimplemented(
+            "emission of a `Result` literal in QIR".into(),
+            span,
+        ))
+    })
 }
 
 /// converts the given callable to RIR using the given arguments and language features.

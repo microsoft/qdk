@@ -322,17 +322,23 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn bind_value_to_pat(&mut self, mutability: Mutability, pat_id: PatId, value: Value) {
+    fn bind_value_to_pat(
+        &mut self,
+        mutability: Mutability,
+        pat_id: PatId,
+        value: Value,
+        span: PackageSpan,
+    ) {
         let pat = self.get_pat(pat_id);
         match &pat.kind {
             PatKind::Bind(ident) => {
-                self.bind_value_to_ident(mutability, ident, value);
+                self.bind_value_to_ident(mutability, ident, value, span);
             }
             PatKind::Tuple(pats) => {
                 let tuple = value.unwrap_tuple();
                 assert!(pats.len() == tuple.len());
                 for (pat_id, value) in pats.iter().zip(tuple.iter()) {
-                    self.bind_value_to_pat(mutability, *pat_id, value.clone());
+                    self.bind_value_to_pat(mutability, *pat_id, value.clone(), span);
                 }
             }
             PatKind::Discard => {
@@ -341,17 +347,23 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn bind_value_to_ident(&mut self, mutability: Mutability, ident: &Ident, value: Value) {
+    fn bind_value_to_ident(
+        &mut self,
+        mutability: Mutability,
+        ident: &Ident,
+        value: Value,
+        span: PackageSpan,
+    ) {
         // We do slightly different things depending on the mutability of the identifier.
         match mutability {
-            Mutability::Mutable => self.bind_value_to_mutable_ident(ident, value),
+            Mutability::Mutable => self.bind_value_to_mutable_ident(ident, value, span),
             Mutability::Immutable => {
                 let current_scope = self.eval_context.get_current_scope();
                 if matches!(value, Value::Var(var) if current_scope.get_static_value(var.id.into()).is_none())
                 {
                     // An immutable identifier is being bound to a dynamic value, so treat the identifier as mutable.
                     // This allows it to represent a point-in-time copy of the mutable value during evaluation.
-                    self.bind_value_to_mutable_ident(ident, value);
+                    self.bind_value_to_mutable_ident(ident, value, span);
                 } else {
                     // The value is static, so bind it to the classical map.
                     self.bind_value_to_immutable_ident(ident, value);
@@ -370,14 +382,14 @@ impl<'a> PartialEvaluator<'a> {
         self.bind_value_in_hybrid_map(ident, value);
     }
 
-    fn bind_value_to_mutable_ident(&mut self, ident: &Ident, value: Value) {
+    fn bind_value_to_mutable_ident(&mut self, ident: &Ident, value: Value, span: PackageSpan) {
         // If the value is not a variable, bind it to the classical map.
         if !matches!(value, Value::Var(_)) {
             self.bind_value_in_classical_map(ident, &value);
         }
 
         // Always bind the value to the hybrid map but do it differently depending of the value type.
-        if let Some((var_id, literal)) = self.try_create_mutable_variable(ident.id, &value) {
+        if let Some((var_id, literal)) = self.try_create_mutable_variable(ident.id, &value, span) {
             // If the variable maps to a know static literal, track that mapping.
             if let Some(literal) = literal {
                 self.eval_context
@@ -641,6 +653,12 @@ impl<'a> PartialEvaluator<'a> {
                 rhs_expr_id,
                 bin_op_expr_span,
             ),
+            Value::Var(v) if v.ty == VarTy::Result => self.eval_bin_op_with_lhs_result_operand(
+                bin_op,
+                &lhs_value,
+                rhs_expr_id,
+                bin_op_expr_span,
+            ),
             Value::Bool(lhs_bool) => {
                 self.eval_bin_op_with_lhs_classical_bool_operand(bin_op, lhs_bool, rhs_expr_id)
             }
@@ -871,7 +889,10 @@ impl<'a> PartialEvaluator<'a> {
 
                 // Create the operands.
                 let lhs_operand = Operand::Literal(Literal::Bool(lhs_bool));
-                let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
+                let rhs_operand = self.map_eval_value_to_rir_operand(
+                    &rhs_value,
+                    self.get_expr_package_span(rhs_expr_id),
+                );
 
                 // If both operands are literals, evaluate the binary operation and return its value.
                 if let (Operand::Literal(lhs_literal), Operand::Literal(rhs_literal)) =
@@ -960,7 +981,8 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(rhs_expr_id),
             ));
         };
-        let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
+        let rhs_operand =
+            self.map_eval_value_to_rir_operand(&rhs_value, self.get_expr_package_span(rhs_expr_id));
 
         // Get the comparison result depending on the operator and the RHS value.
         let result_var = match (bin_op, rhs_operand) {
@@ -1036,7 +1058,8 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(rhs_expr_id),
             ));
         };
-        let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
+        let rhs_operand =
+            self.map_eval_value_to_rir_operand(&rhs_value, self.get_expr_package_span(rhs_expr_id));
 
         // Store the RHS value into the the variable that represents the result of the Boolean operation.
         let store_ins = Instruction::Store(rhs_operand, result_rir_var);
@@ -1089,7 +1112,8 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(rhs_expr_id),
             ));
         };
-        let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
+        let rhs_operand =
+            self.map_eval_value_to_rir_operand(&rhs_value, self.get_expr_package_span(rhs_expr_id));
         assert!(
             matches!(rhs_operand.get_type(), rir::Ty::Prim(rir::Prim::Double)),
             "LHS value is expected to be of double type"
@@ -1145,7 +1169,8 @@ impl<'a> PartialEvaluator<'a> {
                 self.get_expr_package_span(rhs_expr_id),
             ));
         };
-        let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
+        let rhs_operand =
+            self.map_eval_value_to_rir_operand(&rhs_value, self.get_expr_package_span(rhs_expr_id));
         assert!(
             matches!(rhs_operand.get_type(), rir::Ty::Prim(rir::Prim::Integer)),
             "LHS value is expected to be of integer type"
@@ -1212,7 +1237,7 @@ impl<'a> PartialEvaluator<'a> {
                     bin_op_expr_span,
                 )
             }
-            VarTy::Qubit => Err(Error::Unexpected(
+            VarTy::Qubit | VarTy::Result => Err(Error::Unexpected(
                 format!(
                     "unsupported LHS variable type {} in binary operation",
                     lhs_eval_var.ty
@@ -1610,7 +1635,7 @@ impl<'a> PartialEvaluator<'a> {
                             Arg::Discard(value) => value,
                             Arg::Var(_, var) => &var.value,
                         };
-                        self.map_eval_value_to_rir_operand(value)
+                        self.map_eval_value_to_rir_operand(value, args_span)
                     })
                     .collect::<Vec<Operand>>()
             })
@@ -1849,7 +1874,7 @@ impl<'a> PartialEvaluator<'a> {
         }
 
         if callable_decl.attrs.contains(&fir::Attr::Measurement) {
-            return Ok(self.measure_qubits(callable_decl, args_value));
+            return Ok(self.measure_qubits(callable_decl, args_value, args_span));
         }
         if callable_decl.attrs.contains(&fir::Attr::Reset) {
             return self.eval_expr_call_to_intrinsic_qis(
@@ -1857,6 +1882,7 @@ impl<'a> PartialEvaluator<'a> {
                 callable_decl,
                 args_value,
                 callee_expr_span,
+                args_span,
                 CallableType::Reset,
             );
         }
@@ -1867,6 +1893,7 @@ impl<'a> PartialEvaluator<'a> {
                 callable_decl,
                 args_value,
                 callee_expr_span,
+                args_span,
                 CallableType::NoiseIntrinsic,
             );
         }
@@ -1894,9 +1921,11 @@ impl<'a> PartialEvaluator<'a> {
                 })
             }
             .map_err(std::convert::Into::into),
-            "__quantum__qis__m__body" => Ok(self.measure_qubit(builder::m_decl(), &args_value)),
+            "__quantum__qis__m__body" => {
+                Ok(self.measure_qubit(builder::m_decl(), &args_value, args_span))
+            }
             "__quantum__qis__mresetz__body" => {
-                Ok(self.measure_qubit(builder::mresetz_decl(), &args_value))
+                Ok(self.measure_qubit(builder::mresetz_decl(), &args_value, args_span))
             }
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),
@@ -1977,6 +2006,7 @@ impl<'a> PartialEvaluator<'a> {
                 callable_decl,
                 args_value,
                 callee_expr_span,
+                args_span,
                 CallableType::Regular,
             ),
         }
@@ -1988,6 +2018,7 @@ impl<'a> PartialEvaluator<'a> {
         callable_decl: &CallableDecl,
         args_value: Value,
         callee_expr_span: PackageSpan,
+        args_span: PackageSpan,
         call_type: CallableType,
     ) -> Result<Value, Error> {
         // Check if the callable is already in the program, and if not add it.
@@ -2018,7 +2049,7 @@ impl<'a> PartialEvaluator<'a> {
         );
         let args_operands = args
             .into_iter()
-            .map(|arg| self.map_eval_value_to_rir_operand(&arg.into_value()))
+            .map(|arg| self.map_eval_value_to_rir_operand(&arg.into_value(), args_span))
             .collect();
 
         // Current debug location should be set to the call expression currently being evaluated.
@@ -2029,8 +2060,11 @@ impl<'a> PartialEvaluator<'a> {
         let ret_val = match output_var {
             None => Value::unit(),
             Some(output_var) => {
-                if output_var.ty == rir::Ty::Prim(rir::Prim::Qubit) {
-                    // We don't actually accept custom intrinsics that return qubits, so emit an error here.
+                if matches!(
+                    output_var.ty,
+                    rir::Ty::Prim(rir::Prim::Qubit | rir::Prim::Result)
+                ) {
+                    // We don't actually accept custom intrinsics that return qubits or results (unless marked as a measurement), so emit an error here.
                     return Err(Error::UnsupportedCustomIntrinsicType(
                         callable_decl.output.to_string(),
                         callee_expr_span,
@@ -2467,11 +2501,13 @@ impl<'a> PartialEvaluator<'a> {
         let eval_result = self.try_eval_block(spec_decl.block);
         self.ir_function_emission_depth -= 1;
         let body_value = eval_result?.into_value();
+        let final_stmt_span = self.get_block_final_stmt_package_span(spec_decl.block);
 
         // Terminate the function's final block. VOID (Unit-returning) IR functions emit a value-less
         // `Return`; scalar-returning IR functions materialize the trailing body value as the return
         // operand so the value is threaded back to the caller through the call-site output variable.
-        let return_operand = returns_value.then(|| self.map_eval_value_to_rir_operand(&body_value));
+        let return_operand =
+            returns_value.then(|| self.map_eval_value_to_rir_operand(&body_value, final_stmt_span));
         let final_block_id = self.eval_context.get_current_block_id();
         self.get_program_block_mut(final_block_id)
             .0
@@ -2633,7 +2669,10 @@ impl<'a> PartialEvaluator<'a> {
 
         // If there is a variable to save the value of the if expression to, add a store instruction.
         if let Some(if_expr_var) = if_expr_var {
-            let body_operand = self.map_eval_value_to_rir_operand(&body_control.into_value());
+            let body_operand = self.map_eval_value_to_rir_operand(
+                &body_control.into_value(),
+                self.get_expr_package_span(branch_body_expr_id),
+            );
             let store_ins = Instruction::Store(body_operand, if_expr_var);
             self.get_current_rir_block_mut().0.push(store_ins);
         }
@@ -2833,7 +2872,7 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         // Generate the instruction depending on the unary operator.
-        let value_operand = self.map_eval_value_to_rir_operand(&value);
+        let value_operand = self.map_eval_value_to_rir_operand(&value, unary_expr_span);
         let instruction = match un_op {
             UnOp::Neg => match rir_variable_type {
                 rir::Ty::Prim(rir::Prim::Integer) => {
@@ -2927,7 +2966,7 @@ impl<'a> PartialEvaluator<'a> {
                                 .capabilities
                                 .contains(TargetCapabilityFlags::BackwardsBranching))
                     {
-                        map_rir_literal_to_eval_value(*literal)
+                        map_rir_literal_to_eval_value(*literal, var.ty)
                     } else {
                         bound_value.clone()
                     }
@@ -3102,6 +3141,9 @@ impl<'a> PartialEvaluator<'a> {
                     .try_into()
                     .expect("could not convert result ID to u32"),
             )),
+            Value::Var(v) if v.ty == VarTy::Result => {
+                Operand::Variable(map_eval_var_to_rir_var(*v))
+            }
             Value::Result(val::Result::Val(bool)) => return Operand::Literal(Literal::Bool(*bool)),
             Value::Result(val::Result::Loss) => {
                 panic!("loss result should not occur in partial evaluation")
@@ -3438,6 +3480,18 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
+    fn get_block_final_stmt_package_span(&self, id: BlockId) -> PackageSpan {
+        let fir_package_id = self.get_current_package_id();
+        let block = self.package_store.get_block((fir_package_id, id).into());
+        let final_stmt = block.stmts.last();
+        let span = final_stmt.map_or(block.span, |stmt_id| self.get_stmt(*stmt_id).span);
+        let hir_package_id = map_fir_package_to_hir(fir_package_id);
+        PackageSpan {
+            package: hir_package_id,
+            span,
+        }
+    }
+
     fn get_pat(&self, id: PatId) -> &'a Pat {
         let pat_id = StorePatId::from((self.get_current_package_id(), id));
         self.package_store.get_pat(pat_id)
@@ -3540,6 +3594,7 @@ impl<'a> PartialEvaluator<'a> {
         &mut self,
         local_var_id: LocalVarId,
         value: &Value,
+        span: PackageSpan,
     ) -> Option<(rir::VariableId, Option<Literal>)> {
         // Check if we can create a mutable variable for this value.
         let var_ty = try_get_eval_var_type(value)?;
@@ -3555,7 +3610,7 @@ impl<'a> PartialEvaluator<'a> {
             .insert_hybrid_local_value(local_var_id, Value::Var(eval_var));
 
         // Insert a store instruction.
-        let value_operand = self.map_eval_value_to_rir_operand(value);
+        let value_operand = self.map_eval_value_to_rir_operand(value, span);
         let rir_var = map_eval_var_to_rir_var(eval_var);
         let store_ins = Instruction::Store(value_operand, rir_var);
         self.get_current_rir_block_mut().0.push(store_ins);
@@ -3651,7 +3706,12 @@ impl<'a> PartialEvaluator<'a> {
         Value::Qubit(qubit)
     }
 
-    fn measure_qubits(&mut self, callable_decl: &CallableDecl, args_value: Value) -> Value {
+    fn measure_qubits(
+        &mut self,
+        callable_decl: &CallableDecl,
+        args_value: Value,
+        span: PackageSpan,
+    ) -> Value {
         let mut input_type = Vec::new();
         let mut operands = Vec::new();
         let mut results_values = Vec::new();
@@ -3659,7 +3719,7 @@ impl<'a> PartialEvaluator<'a> {
         match args_value {
             Value::Qubit(_) | Value::Var(_) => {
                 input_type.push(qsc_rir::rir::Ty::Prim(rir::Prim::Qubit));
-                operands.push(self.map_eval_value_to_rir_operand(&args_value));
+                operands.push(self.map_eval_value_to_rir_operand(&args_value, span));
             }
             Value::Tuple(values, _) => {
                 for value in &*values {
@@ -3668,7 +3728,7 @@ impl<'a> PartialEvaluator<'a> {
                         "by this point a qsc_pass should have checked that all arguments are Qubits"
                     );
                     input_type.push(qsc_rir::rir::Ty::Prim(rir::Prim::Qubit));
-                    operands.push(self.map_eval_value_to_rir_operand(value));
+                    operands.push(self.map_eval_value_to_rir_operand(value, span));
                 }
             }
             _ => {
@@ -3680,7 +3740,7 @@ impl<'a> PartialEvaluator<'a> {
             qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Result) => {
                 input_type.push(qsc_rir::rir::Ty::Prim(rir::Prim::Result));
                 let result_value = Value::Result(self.resource_manager.next_result_register());
-                let result_operand = self.map_eval_value_to_rir_operand(&result_value);
+                let result_operand = self.map_eval_value_to_rir_operand(&result_value, span);
                 operands.push(result_operand);
                 results_values.push(result_value);
             }
@@ -3690,7 +3750,8 @@ impl<'a> PartialEvaluator<'a> {
                         input_type.push(qsc_rir::rir::Ty::Prim(rir::Prim::Result));
                         let result_value =
                             Value::Result(self.resource_manager.next_result_register());
-                        let result_operand = self.map_eval_value_to_rir_operand(&result_value);
+                        let result_operand =
+                            self.map_eval_value_to_rir_operand(&result_value, span);
                         operands.push(result_operand);
                         results_values.push(result_value);
                     } else {
@@ -3729,11 +3790,16 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn measure_qubit(&mut self, measure_callable: Callable, args_value: &Value) -> Value {
+    fn measure_qubit(
+        &mut self,
+        measure_callable: Callable,
+        args_value: &Value,
+        span: PackageSpan,
+    ) -> Value {
         // Get the qubit and result IDs to use in the qubit measure instruction.
-        let qubit_operand = self.map_eval_value_to_rir_operand(args_value);
+        let qubit_operand = self.map_eval_value_to_rir_operand(args_value, span);
         let result_value = Value::Result(self.resource_manager.next_result_register());
-        let result_operand = self.map_eval_value_to_rir_operand(&result_value);
+        let result_operand = self.map_eval_value_to_rir_operand(&result_value, span);
 
         // Check if the callable has already been added to the program and if not do so now.
         let measure_callable_id = self.get_or_insert_callable(measure_callable);
@@ -3940,7 +4006,12 @@ impl<'a> PartialEvaluator<'a> {
                 let control_flow = self.try_eval_expr(expr_id)?;
                 match control_flow {
                     EvalControlFlow::Continue(value) => {
-                        self.bind_value_to_pat(mutability, pat_id, value);
+                        self.bind_value_to_pat(
+                            mutability,
+                            pat_id,
+                            value,
+                            self.get_expr_package_span(expr_id),
+                        );
                         Ok(EvalControlFlow::Continue(Value::unit()))
                     }
                     EvalControlFlow::Return(_) => Ok(control_flow),
@@ -3971,8 +4042,10 @@ impl<'a> PartialEvaluator<'a> {
                         ));
                     }
                 };
-                let instruction =
-                    Instruction::Convert(self.map_eval_value_to_rir_operand(args_value), variable);
+                let instruction = Instruction::Convert(
+                    self.map_eval_value_to_rir_operand(args_value, args_span),
+                    variable,
+                );
                 let current_block = self.get_current_rir_block_mut();
                 current_block.0.push(instruction);
                 Ok(Value::Var(
@@ -4051,7 +4124,13 @@ impl<'a> PartialEvaluator<'a> {
             .get_hybrid_local_value(local_var_id);
         if let Value::Var(var) = bound_value {
             // Insert a store instruction when the value of a variable is updated.
-            let rhs_operand = self.map_eval_value_to_rir_operand(&value);
+            let rhs_operand = self.map_eval_value_to_rir_operand(
+                &value,
+                PackageSpan {
+                    package: map_fir_package_to_hir(self.get_current_package_id()),
+                    span: local_expr.span,
+                },
+            );
             let rir_var = map_eval_var_to_rir_var(*var);
             let store_ins = Instruction::Store(rhs_operand, rir_var);
             self.get_current_rir_block_mut().0.push(store_ins);
@@ -4212,6 +4291,7 @@ impl<'a> PartialEvaluator<'a> {
             Ty::Prim(Prim::Bool) => (self.get_bool_record_callable(), "b"),
             Ty::Prim(Prim::Int) => (self.get_int_record_callable(), "i"),
             Ty::Prim(Prim::Double) => (self.get_double_record_callable(), "d"),
+            Ty::Prim(Prim::Result) => (self.get_result_record_callable(), "r"),
             _ => panic!("unsupported variable type in output recording"),
         };
         let tag = format!("{idx}_{tag_root}{tag_ty}");
@@ -4415,7 +4495,7 @@ impl<'a> PartialEvaluator<'a> {
         callable_id
     }
 
-    fn map_eval_value_to_rir_operand(&self, value: &Value) -> Operand {
+    fn map_eval_value_to_rir_operand(&self, value: &Value, span: PackageSpan) -> Operand {
         match value {
             Value::Bool(b) => Operand::Literal(Literal::Bool(*b)),
             Value::Double(d) => Operand::Literal(Literal::Double(*d)),
@@ -4432,7 +4512,7 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("could not convert result ID to u32"),
                 )),
-                val::Result::Val(bool) => Operand::Literal(Literal::Bool(*bool)),
+                val::Result::Val(bool) => Operand::Literal(Literal::ResultLit(*bool, span)),
                 val::Result::Loss => panic!("loss result should not occur in partial evaluation"),
             },
             Value::Var(var) => Operand::Variable(map_eval_var_to_rir_var(*var)),
@@ -5059,6 +5139,7 @@ fn map_eval_var_type_to_rir_type(var_ty: VarTy) -> rir::Ty {
         VarTy::Integer => rir::Ty::Prim(rir::Prim::Integer),
         VarTy::Double => rir::Ty::Prim(rir::Prim::Double),
         VarTy::Qubit => rir::Ty::Prim(rir::Prim::Qubit),
+        VarTy::Result => rir::Ty::Prim(rir::Prim::Result),
     }
 }
 
@@ -5073,11 +5154,17 @@ fn map_fir_type_to_rir_type(ty: &Ty) -> Result<rir::Ty, String> {
     }
 }
 
-fn map_rir_literal_to_eval_value(literal: rir::Literal) -> Value {
+fn map_rir_literal_to_eval_value(literal: rir::Literal, var_ty: VarTy) -> Value {
     match literal {
-        rir::Literal::Bool(b) => Value::Bool(b),
+        rir::Literal::Bool(b) => match var_ty {
+            VarTy::Boolean => Value::Bool(b),
+            VarTy::Result => Value::Result(val::Result::Val(b)),
+            _ => panic!("Incompatible literal and variable types: {literal}, {var_ty}"),
+        },
         rir::Literal::Double(d) => Value::Double(d),
         rir::Literal::Integer(i) => Value::Int(i),
+        rir::Literal::Result(r) => Value::Result(val::Result::Id(r as usize)),
+        rir::Literal::ResultLit(r, _) => Value::Result(val::Result::Val(r)),
         _ => panic!("{literal:?} RIR literal cannot be mapped to evaluator value"),
     }
 }
@@ -5095,6 +5182,7 @@ fn map_rir_type_to_eval_var_type(ty: rir::Ty) -> Result<VarTy, ()> {
         rir::Ty::Prim(rir::Prim::Integer) => Ok(VarTy::Integer),
         rir::Ty::Prim(rir::Prim::Double) => Ok(VarTy::Double),
         rir::Ty::Prim(rir::Prim::Qubit) => Ok(VarTy::Qubit),
+        rir::Ty::Prim(rir::Prim::Result) => Ok(VarTy::Result),
         _ => Err(()),
     }
 }
@@ -5105,6 +5193,7 @@ fn try_get_eval_var_type(value: &Value) -> Option<VarTy> {
         Value::Int(_) => Some(VarTy::Integer),
         Value::Double(_) => Some(VarTy::Double),
         Value::Qubit(_) => Some(VarTy::Qubit),
+        Value::Result(_) => Some(VarTy::Result),
         Value::Var(var) => Some(var.ty),
         _ => None,
     }

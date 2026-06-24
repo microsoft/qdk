@@ -42,6 +42,7 @@ impl ToQir<String> for rir::Literal {
             rir::Literal::Result(r) => format!("ptr inttoptr (i64 {r} to ptr)"),
             rir::Literal::Tag(idx, _) => format!("ptr @{idx}"),
             rir::Literal::Array(idx) => format!("ptr @array{idx}"),
+            rir::Literal::ResultLit(..) => panic!("Result literals are not supported in QIR"),
         }
     }
 }
@@ -559,6 +560,7 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
             rir::Literal::Array(idx) => {
                 format!("@array{idx}")
             }
+            rir::Literal::ResultLit(..) => panic!("Result literals are not supported in QIR"),
             rir::Literal::Tag(..) => panic!(
                 "tag literals should not be used as string values outside of output recording"
             ),
@@ -575,6 +577,7 @@ fn get_value_ty(lhs: &rir::Operand) -> String {
             rir::Literal::Double(_) => get_f64_ty(),
             rir::Literal::Qubit(_)
             | rir::Literal::Result(_)
+            | rir::Literal::ResultLit(..)
             | rir::Literal::NullPointer
             | rir::Literal::Tag(..)
             | rir::Literal::Array(_) => "ptr",

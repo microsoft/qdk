@@ -32,7 +32,7 @@ pub const BITFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
     |111⟩: 0.8944+0.0000𝑖
     One"#]];
 pub const BITFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 8068"];
-pub const BITFLIPCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 3794"];
+pub const BITFLIPCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 3796"];
 pub const DEUTSCHJOZSA_EXPECT: Expect = expect!["[true, false, true, false]"];
 pub const DEUTSCHJOZSA_EXPECT_DEBUG: Expect = expect!["[true, false, true, false]"];
 pub const DEUTSCHJOZSA_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 197703"];
@@ -140,7 +140,7 @@ pub const PHASEFLIPCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 47
 pub const QRNG_EXPECT: Expect = expect!["7568811972615905454"];
 pub const QRNG_EXPECT_DEBUG: Expect = expect!["7568811972615905454"];
 pub const QRNG_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 232827"];
-pub const QRNG_EXPECT_QIR: Expect = expect!["generated QIR of length 36023"];
+pub const QRNG_EXPECT_QIR: Expect = expect!["generated QIR of length 36067"];
 pub const SHOR_EXPECT: Expect = expect![[r#"
     *** Factorizing 187, attempt 1.
     Estimating period of 182.

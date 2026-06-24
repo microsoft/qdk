@@ -10,6 +10,7 @@ version.workspace = true
 [dependencies]
 indenter = { workspace = true }
 qsc_data_structures = { path = "../qsc_data_structures" }
+qsc_eval = { path = "../qsc_eval" }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
