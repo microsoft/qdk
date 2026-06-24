@@ -6,8 +6,8 @@ import pathlib
 import time
 from typing import Literal
 
-import anywidget
-import traitlets
+import anywidget # type: ignore
+import traitlets # type: ignore
 
 
 try:
@@ -321,7 +321,7 @@ class Entanglement(anywidget.AnyWidget):
         """
         if wavefunction is not None:
             try:
-                from qdk_chemistry.data import Wavefunction as _Wavefunction
+                from qdk_chemistry.data import Wavefunction as _Wavefunction # type: ignore
             except ImportError:
                 raise ImportError(
                     "The 'qdk-chemistry' package is required when passing a "
