@@ -398,7 +398,7 @@ pub(crate) fn decompose_binding(
 }
 
 /// Fully decomposes a `PatKind::Bind` pattern of (possibly deeply nested)
-/// tuple type into a single FLAT `PatKind::Tuple` of scalar-leaf bindings.
+/// tuple type into a single flat `PatKind::Tuple` of scalar-leaf bindings.
 ///
 /// Unlike [`decompose_binding`], which peels a single tuple level into a
 /// tuple of per-element `Bind`s (leaving nested elements as further tuple
@@ -411,7 +411,7 @@ pub(crate) fn decompose_binding(
 /// same flat tuple.
 ///
 /// Each leaf is named cumulatively from `name` and its positional path in the
-/// ORIGINAL nested type, e.g. a leaf at original path `[1, 1, 0]` of parameter
+/// original nested type, e.g. a leaf at original path `[1, 1, 0]` of parameter
 /// `x` has the in-memory name `x.1.1.0`. The `.` path separator is a sentinel
 /// that is never a valid Q# identifier character; the Parseable render
 /// (`render_ident`) maps it back to `_`, so `x.1.1.0` renders to today's
@@ -420,7 +420,7 @@ pub(crate) fn decompose_binding(
 /// count.
 ///
 /// Returns one `(index_path, leaf_local, leaf_ty)` entry per leaf, where
-/// `index_path` is the positional path of the leaf in the ORIGINAL nested
+/// `index_path` is the positional path of the leaf in the original nested
 /// type relative to the decomposed parameter (used to project the leaf from
 /// the original argument value at call sites and to remap field reads in the
 /// body).
@@ -514,7 +514,7 @@ pub(crate) fn reachable_local_callables<'a>(
         let item = package.get_item(item_id.item);
         match &item.kind {
             ItemKind::Callable(decl) => Some((item_id.item, decl.as_ref())),
-            _ => None,
+            ItemKind::Ty(..) => None,
         }
     })
 }

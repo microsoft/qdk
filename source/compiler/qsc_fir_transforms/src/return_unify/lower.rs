@@ -122,6 +122,16 @@ pub(super) struct SynthSlots {
     pub(super) trailing_result: Option<LocalVarId>,
 }
 
+/// Transform phase of return unification: rewrites `block_id` so every
+/// `Return` is lowered into a write to a `__has_returned` flag plus a return
+/// slot, leaving the block with a single exit through its trailing expression.
+///
+/// Declares the flag and slot locals at the block head, threads them through
+/// the statement rewrite (every subsequent statement runs guarded by the flag,
+/// standing in for LLVM's PHI merge), and reads the slot back in a synthesized
+/// trailing expression. Returns the [`SynthSlots`] handles so the simplify
+/// phase can fold the canonical flag/slot shapes back into structured control
+/// flow.
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn transform_block_with_flags(

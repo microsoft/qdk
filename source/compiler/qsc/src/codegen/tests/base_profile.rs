@@ -408,3 +408,128 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
     "#]].assert_eq(&qir);
 }
+
+// Exercises a generic standard-library higher-order operation (`ApplyToEach`)
+// on the Base profile, which lacks call support. The library operation is
+// monomorphized and defunctionalized into its owning package by the FIR
+// transform pipeline, then fully inlined into the entry point during codegen.
+// This validates that a cross-package-transformed library callable lowers to
+// correct, stable QIR on a non-call-support profile.
+#[test]
+fn generic_library_operation_inlines_on_base_profile() {
+    let source = "namespace Test {
+            import Std.Canon.*;
+            import Std.Measurement.*;
+            @EntryPoint()
+            operation Main() : Result[] {
+                use qs = Qubit[3];
+                ApplyToEach(X, qs);
+                MeasureEachZ(qs)
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0r\00"
+        @2 = internal constant [6 x i8] c"2_a1r\00"
+        @3 = internal constant [6 x i8] c"3_a2r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+          call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
+          call void @__quantum__rt__array_record_output(i64 3, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
+
+        declare void @__quantum__rt__array_record_output(i64, i8*)
+
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="3" "required_num_results"="3" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+    "#]].assert_eq(&qir);
+}
+
+/// Specializing `Std.Arithmetic.ApplyIfEqualL` with a concrete operation drives
+/// defunctionalize to relocate the library body's nested lambda into the entry
+/// package.
+///
+/// Ignored for a separate reason unrelated to cross-package specialization:
+/// `ApplyIfEqualL` compares a `BigInt` via `BitSizeL`, and partial evaluation
+/// cannot fold a `BigInt` binary op on the dynamic path. The same failure
+/// occurs same-package without any closures. `ApplyIfGreaterLE` below covers the
+/// cross-package path without touching the `BigInt` gap.
+#[ignore = "partial-eval cannot fold a BigInt binary op on the dynamic path, which ApplyIfEqualL \
+            hits via BitSizeL; unrelated to cross-package specialization"]
+#[test]
+fn cross_package_apply_if_equal_l_generates_qir() {
+    let source = "namespace Test {
+            import Std.Arithmetic.*;
+            @EntryPoint()
+            operation Main() : Result {
+                use xs = Qubit[3];
+                use target = Qubit();
+                ApplyIfEqualL(X, 5L, xs, target);
+                MResetZ(target)
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()") && qir.contains("\"entry_point\""),
+        "expected valid Base-profile QIR for the cross-package ApplyIfEqualL program; got:\n{qir}"
+    );
+}
+
+/// Specializing `Std.Arithmetic.ApplyIfGreaterLE` with a concrete operation
+/// relocates the library body's nested lambda into the entry package and lowers
+/// to valid Base-profile QIR. Mirrors the `signed` library's comparison calls,
+/// which previously failed to generate QIR before FIR transorms were applied.
+#[test]
+fn cross_package_apply_if_greater_le_generates_qir() {
+    let source = "namespace Test {
+            import Std.Arithmetic.*;
+            @EntryPoint()
+            operation Main() : Result {
+                use xs = Qubit[3];
+                use ys = Qubit[3];
+                use target = Qubit();
+                ApplyIfGreaterLE(X, xs, ys, target);
+                MResetZ(target)
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()") && qir.contains("\"entry_point\""),
+        "expected valid Base-profile QIR for the cross-package ApplyIfGreaterLE program; got:\n{qir}"
+    );
+}

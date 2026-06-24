@@ -131,7 +131,7 @@ fn item_name(store: &qsc_fir::fir::PackageStore, item_id: &qsc_fir::fir::ItemId)
     let package = store.get(item_id.package);
     match &package.get_item(item_id.item).kind {
         ItemKind::Callable(decl) => decl.name.name.to_string(),
-        _ => format!("{item_id:?}"),
+        ItemKind::Ty(..) => format!("{item_id:?}"),
     }
 }
 
@@ -311,12 +311,13 @@ fn assert_callable_exec_graph_is_empty(
     );
 }
 
-fn assert_rebuild_restores_only_local_callable(
+fn assert_rebuild_restores_reachable_callables(
     store: &mut qsc_fir::fir::PackageStore,
     pkg_id: qsc_fir::fir::PackageId,
     local_callable: StoreItemId,
     cross_package_callable: StoreItemId,
     expected_local_graph: &str,
+    expected_cross_graph: &str,
 ) {
     clear_store_callable_exec_graph(store, local_callable);
     clear_store_callable_exec_graph(store, cross_package_callable);
@@ -335,10 +336,10 @@ fn assert_rebuild_restores_only_local_callable(
         expected_local_graph,
         "reachable local specialization should be rebuilt"
     );
-    assert_callable_exec_graph_is_empty(
-        store,
-        cross_package_callable,
-        "reachable cross-package callable should not be rebuilt",
+    assert_eq!(
+        format_store_callable_exec_graph(store, cross_package_callable, ExecGraphConfig::NoDebug),
+        expected_cross_graph,
+        "reachable cross-package callable should be rebuilt to its original graph",
     );
 }
 
@@ -356,7 +357,7 @@ fn reachable_callable_names_with_packages(
                     "pkg={:?} {}",
                     store_item_id.package, decl.name.name
                 )),
-                _ => None,
+                ItemKind::Ty(..) => None,
             }
         })
         .collect::<Vec<_>>();
@@ -390,25 +391,37 @@ fn find_reachable_callable_by_name(
         })
 }
 
-fn assert_external_copy_update_field_range_rebuilt(
+fn assert_external_body_exec_graph_rebuilt(
     store: &qsc_fir::fir::PackageStore,
     external_callable: StoreItemId,
 ) {
     let package = store.get(external_callable.package);
-    let field_expr = package
-        .exprs
-        .values()
-        .find(|expr| {
-            matches!(
-                &expr.kind,
-                qsc_fir::fir::ExprKind::Field(_, Field::Path(path)) if path.indices.as_slice() == [1]
-            )
-        })
-        .expect("external UDT copy-update should synthesize a field read");
-
+    let item = package.get_item(external_callable.item);
+    let qsc_fir::fir::ItemKind::Callable(decl) = &item.kind else {
+        panic!("external item should be callable");
+    };
+    let qsc_fir::fir::CallableImpl::Spec(spec_impl) = &decl.implementation else {
+        panic!("external callable should have a body spec");
+    };
+    // Every live expression in the rebuilt external body must carry a non-empty
+    // exec-graph range — the whole-closure rebuild populates ranges for the
+    // (now decomposed) foreign body, not just entry-package specs.
+    let mut saw_expr = false;
+    crate::walk_utils::for_each_expr_in_block(
+        package,
+        spec_impl.body.block,
+        &mut |expr_id, expr| {
+            saw_expr = true;
+            let range = &expr.exec_graph_range;
+            assert!(
+                range.start != range.end,
+                "external body Expr {expr_id} has an un-rebuilt (empty) exec graph range"
+            );
+        },
+    );
     assert!(
-        field_expr.exec_graph_range.start != field_expr.exec_graph_range.end,
-        "synthesized external field read should receive a rebuilt exec graph range"
+        saw_expr,
+        "external body should contain at least one expression"
     );
 }
 
@@ -537,7 +550,7 @@ fn let_binding_stores_value_then_evaluates_body() {
 
 #[test]
 fn tuple_eq_lowered_to_element_wise_andl_chain() {
-    // KEY TEST: classical tuple eq is now decomposed and the exec graph
+    // Classical tuple eq is now decomposed and the exec graph
     // must contain the short-circuit AndL pattern instead of a single BinOp.
     check_exec_graph(
         "function Main() : Bool { (1, 2) == (1, 2) }",
@@ -675,6 +688,80 @@ fn exec_graph_unary_not() {
             0: Expr(ExprId(4)) [Lit(Bool(true))]
             1: Expr(ExprId(3)) [UnOp(NotL)]
             2: Ret"#]],
+    );
+}
+
+#[test]
+fn empty_unit_body_rebuilds_to_unit_ret() {
+    // A function with no statements has nothing to evaluate, so the rebuilt
+    // graph is just the implicit Unit value followed by Ret.
+    check_exec_graph(
+        "operation Main() : Unit {}",
+        &expect![[r#"
+            0: Unit
+            1: Ret"#]],
+    );
+}
+
+#[test]
+fn divergent_only_body_rebuilds_fail_without_trailing_value() {
+    // A non-Unit body whose sole statement diverges (`fail`) never yields a
+    // value; the rebuilt graph evaluates the message and the Fail expr, then
+    // terminates with Ret and no trailing value node.
+    check_exec_graph(
+        "function Main() : Int { fail \"boom\" }",
+        &expect![[r#"
+            0: Expr(ExprId(4)) [String(parts=1)]
+            1: Expr(ExprId(3)) [Fail]
+            2: Ret"#]],
+    );
+}
+
+#[test]
+fn nested_if_within_while_rebuilds_nested_control_flow() {
+    // Deeply nested control flow (an if/else nested inside a while loop) must
+    // reconstruct with correctly interleaved jump targets for both the loop
+    // back-edge and the inner branch.
+    check_exec_graph(
+        "function Main() : Unit {
+            mutable i = 0;
+            while i < 3 {
+                if i == 1 {
+                    i += 10;
+                } else {
+                    i += 1;
+                }
+            }
+        }",
+        &expect![[r#"
+            0: Expr(ExprId(3)) [Lit(Int(0))]
+            1: Bind(PatId(1))
+            2: Expr(ExprId(6)) [Var]
+            3: Store
+            4: Expr(ExprId(7)) [Lit(Int(3))]
+            5: Expr(ExprId(5)) [BinOp(Lt)]
+            6: JumpIfNot(26)
+            7: Expr(ExprId(10)) [Var]
+            8: Store
+            9: Expr(ExprId(11)) [Lit(Int(1))]
+            10: Expr(ExprId(9)) [BinOp(Eq)]
+            11: JumpIfNot(19)
+            12: Expr(ExprId(14)) [Var]
+            13: Store
+            14: Expr(ExprId(15)) [Lit(Int(10))]
+            15: Expr(ExprId(13)) [AssignOp(Add)]
+            16: Unit
+            17: Unit
+            18: Jump(25)
+            19: Expr(ExprId(18)) [Var]
+            20: Store
+            21: Expr(ExprId(19)) [Lit(Int(1))]
+            22: Expr(ExprId(17)) [AssignOp(Add)]
+            23: Unit
+            24: Unit
+            25: Jump(2)
+            26: Unit
+            27: Ret"#]],
     );
 }
 
@@ -832,8 +919,7 @@ fn exec_graph_rebuild_is_idempotent() {
 }
 
 #[test]
-fn reachable_cross_package_callables_keep_existing_exec_graphs_while_local_specializations_rebuild()
-{
+fn reachable_cross_package_callables_are_rebuilt_along_with_local_specializations() {
     let source = r#"
         open Std.Arrays;
         open Std.Math;
@@ -868,12 +954,16 @@ fn reachable_cross_package_callables_keep_existing_exec_graphs_while_local_speci
         "reachable cross-package callable should start with a lowered exec graph"
     );
 
-    assert_rebuild_restores_only_local_callable(
+    // Whole-closure rebuild: both the local specialization and the reachable
+    // cross-package callable are rebuilt, and rebuilding reproduces each spec's
+    // original graph byte-for-byte.
+    assert_rebuild_restores_reachable_callables(
         &mut store,
         pkg_id,
         local_specialization,
         cross_package_callable,
         &expected_local_graph,
+        &expected_cross_graph,
     );
 }
 
@@ -916,18 +1006,23 @@ fn external_udt_copy_update_exec_graph_rebuilds_mutated_external_spec() {
         qsc_fir::fir::ExecGraphConfig::NoDebug,
     );
     assert!(
-        graph.contains(".1"),
-        "external copy-update exec graph should include the synthesized untouched-field read:\n{graph}"
-    );
-    assert!(
         graph.contains("Tuple(len=2)"),
         "external copy-update exec graph should include the erased update tuple:\n{graph}"
     );
-    assert_external_copy_update_field_range_rebuilt(&store, external_callable);
+    // The external library body is transformed cross-package: UDT erasure
+    // lowers the copy-update into a tuple read, and tuple-decompose then
+    // scalar-replaces the untouched-field projection, so the rebuilt graph
+    // reads it through a decomposed local rather than a `.1` field path.
+    assert!(
+        graph.contains("Var(LocalVarId"),
+        "external copy-update exec graph should read the untouched field through a \
+         decomposed local after tuple-decompose:\n{graph}"
+    );
+    assert_external_body_exec_graph_rebuilt(&store, external_callable);
 }
 
 #[test]
-fn exec_graph_rebuild_preserves_invariants() {
+fn exec_graph_rebuild_passes_post_all_invariant() {
     let source = indoc! {"
         namespace Test {
             @EntryPoint()

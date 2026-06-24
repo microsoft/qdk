@@ -8,6 +8,11 @@
 //! by zero, indexing out of range, or running a sibling operand's quantum
 //! effects. These value and trace locks assert the lifted program matches the
 //! untransformed one, which short-circuits at the buried `return`.
+//!
+//! This file pairs value *and* trace checks on fault-prone fixtures to witness
+//! the short-circuit property end to end; the sibling files isolate one axis
+//! each — [`super::semantic`] pins value equality and [`super::trace`] pins the
+//! ordered quantum-effect sequence.
 
 use super::*;
 

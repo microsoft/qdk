@@ -68,7 +68,7 @@ fn if_then_return_else_return_at_end_records_flag_lowered_shape() {
 #[test]
 fn nested_while_inner_only_exit_is_return_terminates() {
     // The inner `while true` only exits via `return 1`. After return
-    // unification its condition MUST be conjoined with `not __has_returned`
+    // unification its condition must be conjoined with `not __has_returned`
     // so the rewrite preserves termination.
     check_no_returns_q(
         indoc! {r#"
@@ -90,7 +90,6 @@ fn nested_while_inner_only_exit_is_return_terminates() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -130,12 +129,6 @@ fn nested_while_inner_only_exit_is_return_terminates() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -166,7 +159,6 @@ fn nested_for_inner_body_hits_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -227,12 +219,6 @@ fn nested_for_inner_body_hits_return() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -262,7 +248,6 @@ fn continuation_value_is_observed_when_inner_return_not_taken() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -300,12 +285,6 @@ fn continuation_value_is_observed_when_inner_return_not_taken() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -338,7 +317,6 @@ fn four_level_if_if_if_if_return_deepest() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -382,12 +360,6 @@ fn four_level_if_if_if_if_return_deepest() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -428,7 +400,6 @@ fn four_level_while_while_while_while_return_deepest() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -489,12 +460,6 @@ fn four_level_while_while_while_while_return_deepest() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -527,7 +492,6 @@ fn four_level_if_while_for_if_return_deepest() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -586,12 +550,6 @@ fn four_level_if_while_for_if_return_deepest() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -620,7 +578,6 @@ fn use_scope_wraps_nested_if_return_deep() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -658,12 +615,6 @@ fn use_scope_wraps_nested_if_return_deep() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -693,7 +644,6 @@ fn if_elseif_elseif_else_return_in_last_arm() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -728,12 +678,6 @@ fn if_elseif_elseif_else_return_in_last_arm() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -761,7 +705,6 @@ fn nested_use_scope_return_in_inner_body() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -803,12 +746,6 @@ fn nested_use_scope_return_in_inner_body() {
                     }
                 }
 
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

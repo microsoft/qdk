@@ -294,7 +294,6 @@ fn guard_clause_via_run_to_fixpoint() {
         run_to_fixpoint_bool,
         &expect![[r#"
             // before run_to_fixpoint (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -320,7 +319,6 @@ fn guard_clause_via_run_to_fixpoint() {
             Main()
 
             // after run_to_fixpoint
-            // namespace Test
             function Main() : Int {
                 if true {
                     1
@@ -359,7 +357,6 @@ fn both_branches_via_run_to_fixpoint() {
         run_to_fixpoint_bool,
         &expect![[r#"
             // before run_to_fixpoint (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -385,7 +382,72 @@ fn both_branches_via_run_to_fixpoint() {
             Main()
 
             // after run_to_fixpoint
-            // namespace Test
+            function Main() : Int {
+                if true {
+                    1
+                } else {
+                    2
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn single_branch_via_run_to_fixpoint() {
+    // Q# input: an asymmetric `if true { return 1; } else { 2 }` whose
+    // then-arm returns and whose else-arm yields a value. The lowerer
+    // emits the canonical single-branch flag-lowering shape (a `let
+    // __trailing_result` binding wrapping the asymmetric `if` plus a
+    // trailing merge). After `run_to_fixpoint`, `single_branch` folds
+    // the asymmetric `if` into an `if c { v } else { rest }` value
+    // expression and `dead_local` drops the now-unused slot decls.
+    //
+    // This is the fixpoint-level companion to the single-pass
+    // `single_branch::then_arm_return_collapses_to_if_else` test; the
+    // both-arms-return and guard-clause shapes are covered separately by
+    // `both_branches_via_run_to_fixpoint` and `guard_clause_via_run_to_fixpoint`.
+    check_simplify_rule_q(
+        indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                if true {
+                    return 1;
+                } else {
+                    2
+                }
+            }
+        }
+        "#},
+        "Main",
+        "run_to_fixpoint",
+        run_to_fixpoint_bool,
+        &expect![[r#"
+            // before run_to_fixpoint (fired=true)
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = if true {
+                    {
+                        __ret_val = 1;
+                        __has_returned = true;
+                    };
+                } else {
+                    2
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+
+            // after run_to_fixpoint
             function Main() : Int {
                 if true {
                     1
@@ -420,7 +482,6 @@ fn bare_return_via_run_to_fixpoint() {
         run_to_fixpoint_bool,
         &expect![[r#"
             // before run_to_fixpoint (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -438,7 +499,6 @@ fn bare_return_via_run_to_fixpoint() {
             Main()
 
             // after run_to_fixpoint
-            // namespace Test
             function Main() : Int {
                 42
             }
@@ -658,7 +718,6 @@ fn single_body_emit_shape_collapses_to_value() {
         run_to_fixpoint_bool,
         &expect![[r#"
             // before run_to_fixpoint (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -676,7 +735,6 @@ fn single_body_emit_shape_collapses_to_value() {
             Main()
 
             // after run_to_fixpoint
-            // namespace Test
             function Main() : Int {
                 17
             }

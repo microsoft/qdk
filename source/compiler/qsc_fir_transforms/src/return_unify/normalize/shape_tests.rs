@@ -3,12 +3,12 @@
 
 use crate::{
     PipelineStage,
+    package_assigners::PackageAssigners,
     return_unify::{tests::assert_no_reachable_returns, unify_returns},
     test_utils::compile_and_run_pipeline_to,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
 
 /// Compiles Q# source through `Mono`, captures a pretty-printed snapshot of
 /// the package, runs `unify_returns` directly, captures a second snapshot,
@@ -20,8 +20,8 @@ use qsc_fir::assigner::Assigner;
 fn check_before_after(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    let (errors, _skipped) = unify_returns(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    let (errors, _skipped) = unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),
         "return_unify shape test produced errors: {errors:?}"
@@ -50,7 +50,6 @@ fn hoist_return_in_call_argument_shape_snapshot() {
         "#},
         &expect![[r#"
             BEFORE:
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }
@@ -62,7 +61,6 @@ fn hoist_return_in_call_argument_shape_snapshot() {
             Main()
 
             AFTER:
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }
@@ -100,7 +98,6 @@ fn while_condition_return_shape_snapshot() {
         "#},
         &expect![[r#"
             BEFORE:
-            // namespace Test
             function Main() : Int {
                 while if true {
                     if true {
@@ -122,7 +119,6 @@ fn while_condition_return_shape_snapshot() {
             Main()
 
             AFTER:
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -182,7 +178,6 @@ fn while_local_initializer_return_shape_snapshot() {
         "#},
         &expect![[r#"
             BEFORE:
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }
@@ -201,7 +196,6 @@ fn while_local_initializer_return_shape_snapshot() {
             Main()
 
             AFTER:
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }

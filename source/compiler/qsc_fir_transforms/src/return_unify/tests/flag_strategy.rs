@@ -24,7 +24,6 @@ fn return_inside_while_loop() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -79,7 +78,6 @@ fn while_return_tuple_value_via_flag_transform() {
     check_no_returns_q(
         source,
         &expect![[r#"
-            // namespace Test
             function Main() : (Int, Bool) {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int, Bool) = (0, false);
@@ -210,7 +208,6 @@ fn while_return_array_value_via_flag_transform() {
     check_no_returns_q(
         source,
         &expect![[r#"
-            // namespace Test
             function Main() : Int[] {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int[] = [];
@@ -1332,7 +1329,6 @@ fn recursive_while_body_qubit_suffix_uses_lazy_continuation() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -1387,7 +1383,6 @@ fn recursive_nested_block_qubit_suffix_uses_lazy_continuation() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -1445,7 +1440,6 @@ fn recursive_qubit_suffix_after_defaultable_local_uses_single_lazy_continuation(
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -1554,7 +1548,6 @@ fn final_trailing_side_effect_after_flag_return_shape() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation MustNotRun() : Int {
                 fail $"final trailing expression executed";
                 0
@@ -1820,7 +1813,6 @@ fn tuple_return_in_while_with_nested_if() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : (Int, Bool) {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int, Bool) = (0, false);
@@ -1913,7 +1905,6 @@ fn all_four_specializations_with_return_in_loop() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Op(q : Qubit) : Unit is Adj + Ctl {
                 body ... {
                     mutable __has_returned : Bool = false;
@@ -2061,7 +2052,6 @@ fn qubit_alloc_scope_with_flag_lowering() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -2124,7 +2114,6 @@ fn repeat_until_with_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -2190,7 +2179,6 @@ fn while_body_side_effect_guarded_after_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -2252,7 +2240,6 @@ fn if_expr_init_with_while_return_uses_flag_lowering() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -2313,7 +2300,6 @@ fn flag_lowering_guards_local_after_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -2370,7 +2356,6 @@ fn split_suffix_includes_defaultable_local_before_qubit_local() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -2426,7 +2411,6 @@ fn split_suffix_return_rewrites_through_shared_flag_pair() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;

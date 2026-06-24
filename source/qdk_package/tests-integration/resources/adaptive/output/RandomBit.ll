@@ -3,18 +3,30 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(ptr null)
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+  call void @H(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
+  call void @Reset(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @0)
   ret i64 0
 }
 
 declare void @__quantum__rt__initialize(ptr)
 
+define void @H(ptr %var_1) {
+block_1:
+  call void @__quantum__qis__h__body(ptr %var_1)
+  ret void
+}
+
 declare void @__quantum__qis__h__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
+
+define void @Reset(ptr %var_2) {
+block_2:
+  call void @__quantum__qis__reset__body(ptr %var_2)
+  ret void
+}
 
 declare void @__quantum__qis__reset__body(ptr) #1
 

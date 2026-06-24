@@ -14,10 +14,10 @@
 //! - **Establishes [`crate::invariants::InvariantLevel::PostReturnUnify`]:**
 //!   no `Return` nodes and no non-Unit `Semi`-terminated block tails in
 //!   reachable code, with consistent `LocalVarId` binding.
-//! - **"Flag-lowering everywhere" design (LLVM `UnifyFunctionExitNodes` +
-//!   `SimplifyCFG`).** Because FIR is a tree IR, returns are lowered into a
-//!   `__has_returned` boolean flag plus a `__ret_val` slot (standing in for
-//!   LLVM's PHI nodes), then structure is recovered by named, individually
+//! - **"Flag-lowering everywhere" design.** Because FIR is a tree IR, returns
+//!   are lowered into a `__has_returned` boolean flag plus a `__ret_val` slot
+//!   (standing in for LLVM's PHI nodes), then structure is recovered by named,
+//!   individually
 //!   tested rewrite rules. Three phases per block: **Normalize** first hoists
 //!   compound-position returns to statement boundaries
 //!   ([`normalize::hoist_returns_to_statement_boundary`]), then lifts any
@@ -33,7 +33,7 @@
 //!   synthesized for unsupported types — defaultable types use a `T` slot,
 //!   resolvable non-defaultable types use a `T[]` slot). Processing continues
 //!   for the remaining callables.
-//! - **Qubit release is folded in** (the historical `release_hoist` pre-pass).
+//! - **Qubit release is folded in.**
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
 //!   [`crate::exec_graph_rebuild`] repairs exec graphs later.
 
@@ -52,6 +52,7 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::functored_specs;
+use crate::package_assigners::PackageAssigners;
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use qsc_fir::{
@@ -66,7 +67,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::RefCell;
 use thiserror::Error;
 
-use crate::reachability::collect_reachable_with_seeds;
+use crate::reachability::{collect_reachable_from_entry, collect_reachable_with_seeds};
 use detect::contains_return_in_block;
 use lower::transform_block_with_flags;
 use slot::{ArrowDefaultCache, is_type_defaultable, select_return_slot_strategy};
@@ -313,9 +314,9 @@ fn build_scoped_udt_pure_ty_cache(
 ///
 /// # Returns
 /// A `Vec<Error>` collecting per-callable diagnostics, paired with the set of
-/// [`LocalItemId`]s of callables that were deliberately left un-rewritten
+/// [`StoreItemId`]s of callables that were deliberately left un-rewritten
 /// (their bodies still contain a residual `Return`). An empty diagnostic
-/// vector means every reachable callable in `package_id` was rewritten
+/// vector means every reachable callable was rewritten
 /// successfully. Diagnostics are accumulated, not fatal: processing continues
 /// for remaining callables after each one is recorded. The unconvertible
 /// patterns surface as warnings, and the skipped-callable set lets later
@@ -329,8 +330,14 @@ fn build_scoped_udt_pure_ty_cache(
 /// an array-backed slot, including mixed Qubit/callable shapes; unresolved or
 /// otherwise unsupported shapes are left unchanged after the diagnostic.
 //
-// Only entry-reachable callables are unified. Unreachable callables retain
-// their `Return` nodes, which is safe because:
+// Every callable reachable from the entry expression is unified across the
+// whole reachable package closure. Synthesized flag/slot locals are minted into
+// each callable's owning package so foreign-package id arenas stay
+// collision-free. The shared arrow-default cache ([`slot::ArrowDefaultCache`])
+// is keyed by `PackageId` so a default synthesized for one package is never
+// handed back for another.
+//
+// Unreachable callables retain their `Return` nodes, which is safe because:
 // 1. `check_no_returns` walks the same reachable set from
 //    [`collect_reachable_from_entry`].
 // 2. Downstream passes recompute reachability via the same walker and never
@@ -343,12 +350,12 @@ fn build_scoped_udt_pure_ty_cache(
 pub fn unify_returns(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
-) -> (Vec<Error>, FxHashSet<LocalItemId>) {
-    unify_returns_impl(
+    assigners: &mut PackageAssigners,
+) -> (Vec<Error>, FxHashSet<StoreItemId>) {
+    unify_returns_impl_cross_package(
         store,
         package_id,
-        assigner,
+        assigners,
         &[],
         /* run_simplify */ true,
     )
@@ -359,17 +366,18 @@ pub fn unify_returns(
 ///
 /// In addition to entry-reachable callables, the `seeds` roots (pinned
 /// `ReinvokeOriginal` target bodies and their transitive callees) are
-/// transformed. Entry-reachable callables that have already been return-unified
-/// contain no `ExprKind::Return`, so re-walking them is a no-op; only the
-/// seeded pinned bodies still carry returns to rewrite.
+/// transformed. Each reachable callable, including seeds that live in foreign
+/// packages, is processed in its owning package via [`PackageAssigners`].
+/// Entry-reachable callables already return-unified contain no `ExprKind::Return`,
+/// so re-walking them is a no-op; only the seeded bodies still carry returns.
 pub fn unify_returns_with_seeds(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
     seeds: &[StoreItemId],
-) -> (Vec<Error>, FxHashSet<LocalItemId>) {
-    unify_returns_impl(
-        store, package_id, assigner, seeds, /* run_simplify */ true,
+) -> (Vec<Error>, FxHashSet<StoreItemId>) {
+    unify_returns_impl_cross_package(
+        store, package_id, assigners, seeds, /* run_simplify */ true,
     )
 }
 
@@ -384,7 +392,7 @@ pub(crate) fn unify_returns_without_simplify(
     package_id: PackageId,
     assigner: &mut Assigner,
 ) -> Vec<Error> {
-    unify_returns_impl(
+    unify_returns_impl_single(
         store,
         package_id,
         assigner,
@@ -394,14 +402,26 @@ pub(crate) fn unify_returns_without_simplify(
     .0
 }
 
-fn unify_returns_impl(
+/// Cross-package driver for [`unify_returns`].
+///
+/// Roots reachability once at the entry package, which already spans the whole
+/// reachable package closure, and processes every reachable callable in its
+/// owning package so each callable's synthesized flag/slot locals are minted
+/// into that package's id arena via [`PackageAssigners::get_mut`]. The shared
+/// [`ArrowDefaultCache`] is keyed by `PackageId` so reusing it across the loop
+/// never returns a package-local id synthesized for a different package.
+fn unify_returns_impl_cross_package(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
     seeds: &[StoreItemId],
     run_simplify: bool,
-) -> (Vec<Error>, FxHashSet<LocalItemId>) {
-    let reachable = collect_reachable_with_seeds(store, package_id, seeds);
+) -> (Vec<Error>, FxHashSet<StoreItemId>) {
+    let reachable = if seeds.is_empty() {
+        collect_reachable_from_entry(store, package_id)
+    } else {
+        collect_reachable_with_seeds(store, package_id, seeds)
+    };
     let udt_pure_tys = build_scoped_udt_pure_ty_cache(store, &reachable);
     let mut errors = Vec::new();
     // Callables deliberately left un-rewritten: a residual `Return` survives in
@@ -409,8 +429,48 @@ fn unify_returns_impl(
     // bypass exactly the post-return-unification checks a residual `Return`
     // would otherwise violate, while every other invariant still runs on them.
     let mut skipped = FxHashSet::default();
-
     let mut arrow_default_cache = ArrowDefaultCache::default();
+
+    let reachable_callables: Vec<StoreItemId> = reachable.iter().copied().collect();
+    for store_id in reachable_callables {
+        let owning_pkg = store_id.package;
+        let item_id = store_id.item;
+        let assigner = assigners.get_mut(store, owning_pkg);
+        process_callable_returns(
+            store,
+            owning_pkg,
+            assigner,
+            item_id,
+            &udt_pure_tys,
+            &mut arrow_default_cache,
+            run_simplify,
+            &mut errors,
+            &mut skipped,
+        );
+    }
+
+    (errors, skipped)
+}
+
+/// Single-package, seed-rooted driver used by the test-only
+/// [`unify_returns_without_simplify`].
+///
+/// Processes only the reachable callables that live in `package_id`, using the
+/// caller-supplied single [`Assigner`].
+#[cfg(test)]
+fn unify_returns_impl_single(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+    seeds: &[StoreItemId],
+    run_simplify: bool,
+) -> (Vec<Error>, FxHashSet<StoreItemId>) {
+    let reachable = collect_reachable_with_seeds(store, package_id, seeds);
+    let udt_pure_tys = build_scoped_udt_pure_ty_cache(store, &reachable);
+    let mut errors = Vec::new();
+    let mut skipped = FxHashSet::default();
+    let mut arrow_default_cache = ArrowDefaultCache::default();
+
     let local_reachable: Vec<_> = reachable
         .iter()
         .filter(|id| id.package == package_id)
@@ -418,104 +478,143 @@ fn unify_returns_impl(
         .collect();
 
     for item_id in local_reachable {
-        let callable = {
-            let package = store.get(package_id);
-            let item = package.get_item(item_id);
-            match &item.kind {
-                ItemKind::Callable(callable) => callable.clone(),
-                _ => continue,
-            }
-        };
-        let return_ty = callable.output.clone();
-        let body_blocks = get_callable_body_blocks(&callable);
-
-        // Pre-check: skip the whole callable if any body block holds a
-        // compound-position Return whose context needs a non-defaultable
-        // default, which would otherwise panic in normalize. This pre-check
-        // runs before any mutation, so a callable left un-rewritten here keeps
-        // its body byte-for-byte the monomorphized FIR.
-        let pre_check_diag_count = errors.len();
-        for &block_id in &body_blocks {
-            if !contains_return_in_block(store.get(package_id), block_id) {
-                continue;
-            }
-            check_normalize_supportable(store.get(package_id), package_id, block_id, &mut errors);
-        }
-        if errors.len() > pre_check_diag_count {
-            skipped.insert(item_id);
-            continue;
-        }
-
-        // Return-slot selection depends only on the callable's return type, so
-        // it is decided once, before any block is mutated. When no slot
-        // representation exists for a return-bearing callable, leave it
-        // un-rewritten with its body still byte-for-byte the monomorphized FIR
-        // (rather than partially hoisting and then bailing out).
-        let return_slot_strategy = {
-            let context = UdtResolutionContext::Store(store);
-            select_return_slot_strategy(&return_ty, &udt_pure_tys, &context)
-        };
-        let Some(return_slot_strategy) = return_slot_strategy else {
-            let has_return = body_blocks
-                .iter()
-                .any(|&block_id| contains_return_in_block(store.get(package_id), block_id));
-            if has_return {
-                errors.push(Error::UnsupportedEarlyReturnType(
-                    format!("{return_ty}"),
-                    callable.name.span,
-                ));
-                skipped.insert(item_id);
-            }
-            continue;
-        };
-
-        for block_id in body_blocks {
-            if !contains_return_in_block(store.get(package_id), block_id) {
-                continue;
-            }
-
-            // Pre-pass: hoist any compound-position Return to its enclosing
-            // statement boundary so flag lowering only sees bare returns or
-            // returns inside statement-carrying Block/If/While.
-            normalize::hoist_returns_to_statement_boundary(
-                store.get_mut(package_id),
-                assigner,
-                package_id,
-                block_id,
-                &mut errors,
-            );
-
-            // Normalize operand-buried returns: lift each `Return` sitting in an
-            // eagerly-evaluated operand position to a spine `let` temp so it
-            // reaches a statement boundary the flag lowering can consume. Runs
-            // after the compound-position hoist fixpoint, which mints the
-            // operand-lift candidates this phase removes.
-            normalize::run_anf_to_fixpoint(
-                store.get_mut(package_id),
-                assigner,
-                package_id,
-                block_id,
-                &mut errors,
-            );
-
-            let package = store.get_mut(package_id);
-            let slots = transform_block_with_flags(
-                package,
-                assigner,
-                package_id,
-                block_id,
-                &return_ty,
-                &udt_pure_tys,
-                &mut arrow_default_cache,
-                return_slot_strategy,
-            );
-            if run_simplify {
-                simplify::run_to_fixpoint(package, assigner, block_id, &mut errors, &slots);
-            }
-        }
+        process_callable_returns(
+            store,
+            package_id,
+            assigner,
+            item_id,
+            &udt_pure_tys,
+            &mut arrow_default_cache,
+            run_simplify,
+            &mut errors,
+            &mut skipped,
+        );
     }
 
     (errors, skipped)
+}
+
+/// Return-unifies a single callable `item_id` that lives in `owning_pkg`,
+/// minting synthesized nodes through `owning_pkg`'s `assigner`.
+///
+/// Shared by the cross-package and single-package drivers. A callable left
+/// un-rewritten (its body keeps a residual `Return`) is recorded in `skipped`
+/// keyed by its full [`StoreItemId`] so the invariant checker bypasses exactly
+/// the residual-`Return` checks on that callable in its owning package.
+#[allow(clippy::too_many_arguments)]
+fn process_callable_returns(
+    store: &mut PackageStore,
+    owning_pkg: PackageId,
+    assigner: &mut Assigner,
+    item_id: LocalItemId,
+    udt_pure_tys: &UdtPureTyCache,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    run_simplify: bool,
+    errors: &mut Vec<Error>,
+    skipped: &mut FxHashSet<StoreItemId>,
+) {
+    let callable = {
+        let package = store.get(owning_pkg);
+        let Some(item) = package.items.get(item_id) else {
+            return;
+        };
+        match &item.kind {
+            ItemKind::Callable(callable) => callable.clone(),
+            ItemKind::Ty(..) => return,
+        }
+    };
+    let return_ty = callable.output.clone();
+    let body_blocks = get_callable_body_blocks(&callable);
+
+    // Pre-check: skip the whole callable if any body block holds a
+    // compound-position Return whose context needs a non-defaultable
+    // default, which would otherwise panic in normalize. This pre-check
+    // runs before any mutation, so a callable left un-rewritten here keeps
+    // its body byte-for-byte the monomorphized FIR.
+    let pre_check_diag_count = errors.len();
+    for &block_id in &body_blocks {
+        if !contains_return_in_block(store.get(owning_pkg), block_id) {
+            continue;
+        }
+        check_normalize_supportable(store.get(owning_pkg), owning_pkg, block_id, errors);
+    }
+    if errors.len() > pre_check_diag_count {
+        skipped.insert(StoreItemId {
+            package: owning_pkg,
+            item: item_id,
+        });
+        return;
+    }
+
+    // Return-slot selection depends only on the callable's return type, so
+    // it is decided once, before any block is mutated. When no slot
+    // representation exists for a return-bearing callable, leave it
+    // un-rewritten rather than partially hoisting and then bailing out.
+    let return_slot_strategy = {
+        let context = UdtResolutionContext::Store(store);
+        select_return_slot_strategy(&return_ty, udt_pure_tys, &context)
+    };
+    let Some(return_slot_strategy) = return_slot_strategy else {
+        let has_return = body_blocks
+            .iter()
+            .any(|&block_id| contains_return_in_block(store.get(owning_pkg), block_id));
+        if has_return {
+            errors.push(Error::UnsupportedEarlyReturnType(
+                format!("{return_ty}"),
+                callable.name.span,
+            ));
+            skipped.insert(StoreItemId {
+                package: owning_pkg,
+                item: item_id,
+            });
+        }
+        return;
+    };
+
+    for block_id in body_blocks {
+        if !contains_return_in_block(store.get(owning_pkg), block_id) {
+            continue;
+        }
+
+        // Pre-pass: hoist any compound-position Return to its enclosing
+        // statement boundary so flag lowering only sees bare returns or
+        // returns inside statement-carrying Block/If/While.
+        normalize::hoist_returns_to_statement_boundary(
+            store.get_mut(owning_pkg),
+            assigner,
+            owning_pkg,
+            block_id,
+            errors,
+        );
+
+        // Normalize operand-buried returns: lift each `Return` sitting in an
+        // eagerly-evaluated operand position to a spine `let` temp so it
+        // reaches a statement boundary the flag lowering can consume. Runs
+        // after the compound-position hoist fixpoint, which mints the
+        // operand-lift candidates this phase removes.
+        normalize::run_anf_to_fixpoint(
+            store.get_mut(owning_pkg),
+            assigner,
+            owning_pkg,
+            block_id,
+            errors,
+        );
+
+        let package = store.get_mut(owning_pkg);
+        let slots = transform_block_with_flags(
+            package,
+            assigner,
+            owning_pkg,
+            block_id,
+            &return_ty,
+            udt_pure_tys,
+            arrow_default_cache,
+            return_slot_strategy,
+        );
+        if run_simplify {
+            simplify::run_to_fixpoint(package, assigner, block_id, errors, &slots);
+        }
+    }
 }
 
 /// Extract every explicit body block from a callable declaration.

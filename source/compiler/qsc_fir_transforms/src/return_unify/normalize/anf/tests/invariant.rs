@@ -21,8 +21,8 @@
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BlockId, CallableImpl, ExecGraphConfig, ExprKind, ItemKind, LocalItemId, Mutability, Package,
-    PackageId, PackageLookup, PackageStore, SpecDecl, StoreItemId,
+    BlockId, CallableImpl, ExecGraphConfig, ExprKind, ItemKind, Mutability, Package, PackageId,
+    PackageLookup, PackageStore, SpecDecl, StoreItemId,
 };
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
@@ -197,7 +197,7 @@ fn callables_with_residual_return(
     store: &PackageStore,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
-) -> FxHashSet<LocalItemId> {
+) -> FxHashSet<StoreItemId> {
     let mut skip = FxHashSet::default();
     for item_id in reachable {
         if item_id.package != package_id {
@@ -217,7 +217,7 @@ fn callables_with_residual_return(
                 },
             );
             if has_residual_return {
-                skip.insert(item_id.item);
+                skip.insert(*item_id);
             }
         }
     }

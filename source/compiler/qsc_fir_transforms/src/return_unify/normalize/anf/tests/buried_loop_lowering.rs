@@ -60,7 +60,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
 
     check_semantic_equivalence(source);
 
-    // Pin the before/after FIR so the snapshot witnesses that BOTH the spine
+    // Pin the before/after FIR so the snapshot witnesses that both the spine
     // loop and the buried operand-position loop are flag-lowered (each raw
     // `return` becomes a `__ret_val`/`__has_returned` write), with no raw
     // `Return` surviving in `Foo`.
@@ -68,7 +68,6 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
         source,
         &expect![[r#"
             // before fir transforms
-            // namespace Test
             operation Bar(x : Int) : Int {
                 x
             }
@@ -100,7 +99,6 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
             Main()
 
             // post return_unify
-            // namespace Test
             operation Bar(x : Int) : Int {
                 x
             }
@@ -118,7 +116,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                     let __operand_tmp_0 : (Int => Int) = if not __has_returned {
                         Bar
                     } else {
-                        __return_unify_fail_6
+                        __return_unify_fail_4
                     };
                     let __operand_tmp_1 : Int = if not __has_returned {
                         {
@@ -157,13 +155,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                 __quantum__rt__qubit_release(q);
                 _generated_ident_75
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            operation __return_unify_fail_6(_ : Int) : Int {
+            operation __return_unify_fail_4(_ : Int) : Int {
                 fail $"callable init expr"
             }
             // entry

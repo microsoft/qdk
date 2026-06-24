@@ -49,7 +49,6 @@ fn then_arm_return_collapses_to_if_else() {
         single_branch::apply,
         &expect![[r#"
             // before single_branch (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -71,7 +70,6 @@ fn then_arm_return_collapses_to_if_else() {
             Main()
 
             // after single_branch
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -109,7 +107,6 @@ fn else_arm_return_collapses_to_if_else() {
         single_branch::apply,
         &expect![[r#"
             // before single_branch (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -131,7 +128,6 @@ fn else_arm_return_collapses_to_if_else() {
             Main()
 
             // after single_branch
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;

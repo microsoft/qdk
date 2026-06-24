@@ -93,7 +93,6 @@ fn given_immutable_unused_let_with_literal_init_dead_local_drops_binding() {
         |p, a, b, _| dead_local::apply(p, a, b),
         &expect![[r#"
             // before dead_local (fired=true)
-            // namespace Test
             function Main() : Int {
                 let _x : Int = 7;
                 42
@@ -102,7 +101,6 @@ fn given_immutable_unused_let_with_literal_init_dead_local_drops_binding() {
             Main()
 
             // after dead_local
-            // namespace Test
             function Main() : Int {
                 42
             }
@@ -131,7 +129,6 @@ fn given_mutable_unused_let_with_literal_init_dead_local_drops_binding() {
         |p, a, b, _| dead_local::apply(p, a, b),
         &expect![[r#"
             // before dead_local (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable _x : Int = 7;
                 42
@@ -140,7 +137,6 @@ fn given_mutable_unused_let_with_literal_init_dead_local_drops_binding() {
             Main()
 
             // after dead_local
-            // namespace Test
             function Main() : Int {
                 42
             }
@@ -219,7 +215,6 @@ fn given_tuple_bind_dead_local_does_not_drop() {
         |p, a, b, _| dead_local::apply(p, a, b),
         &expect![[r#"
             // before dead_local (fired=false)
-            // namespace Test
             function Main() : Int {
                 let (_a : Int, _b : Int) = (1, 2);
                 42
@@ -228,7 +223,6 @@ fn given_tuple_bind_dead_local_does_not_drop() {
             Main()
 
             // after dead_local
-            // namespace Test
             function Main() : Int {
                 let (_a : Int, _b : Int) = (1, 2);
                 42
@@ -262,7 +256,6 @@ fn given_call_init_dead_local_does_not_drop() {
         |p, a, b, _| dead_local::apply(p, a, b),
         &expect![[r#"
             // before dead_local (fired=false)
-            // namespace Test
             function Helper() : Int {
                 0
             }
@@ -274,7 +267,6 @@ fn given_call_init_dead_local_does_not_drop() {
             Main()
 
             // after dead_local
-            // namespace Test
             function Helper() : Int {
                 0
             }

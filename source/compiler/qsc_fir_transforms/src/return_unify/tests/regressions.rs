@@ -24,10 +24,10 @@ fn triple_nested_if_return_with_else_return_value_semantic() {
 
 /// Simpler variant: return only in else branch with false condition.
 /// Checks whether the bug requires deep nesting or just else-return under
-/// a false condition.
+/// a false condition. Driven through `check_semantic_equivalence`.
 
 #[test]
-fn differential_else_return_false_condition() {
+fn else_return_under_false_condition_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -61,7 +61,6 @@ fn triple_nested_if_return_with_else_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -186,7 +185,6 @@ fn if_both_return_release_suffix_before_after_qsharp() {
         "#},
         &expect![[r#"
             // before fir transforms
-            // namespace Test
             operation Foo(flag : Bool) : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let _generated_ident_65 : Unit = if flag {
@@ -212,7 +210,6 @@ fn if_both_return_release_suffix_before_after_qsharp() {
             Main()
 
             // post return_unify
-            // namespace Test
             operation Foo(flag : Bool) : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -546,6 +543,30 @@ fn return_in_if_condition_with_else_skips_both_branches() {
                     set hit = 2;
                 }
                 return hit;
+            }
+        }
+    "#});
+}
+
+#[test]
+fn return_in_both_while_condition_and_body_short_circuits() {
+    // Interaction: a `while` whose condition block contains a conditional
+    // `return` *and* whose body contains a conditional `return`. The
+    // condition return must win when it fires first (loop iteration that
+    // re-evaluates the condition after the body bumped `i` past the guard),
+    // exercising the condition-guard and body-guard flag lowering together
+    // rather than in isolation.
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            operation Main() : Int {
+                mutable i = 0;
+                while { if i > 5 { return 99; } i < 10 } {
+                    if i == 3 {
+                        return i;
+                    }
+                    i += 2;
+                }
+                -1
             }
         }
     "#});

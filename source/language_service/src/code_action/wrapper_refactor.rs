@@ -43,7 +43,7 @@ pub(crate) fn operation_refactors(
         if let ItemKind::Callable(decl) = &item.kind {
             if decl.kind != CallableKind::Operation
                 || decl.input.ty == Ty::UNIT
-                || decl.name.name.as_ref() == "<lambda>"
+                || decl.name.name.starts_with(".lambda")
             {
                 continue; // only operations with non-empty params
             }

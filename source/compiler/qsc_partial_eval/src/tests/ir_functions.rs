@@ -59,6 +59,7 @@ fn eligible_void_operation_called_twice_emits_one_callable_and_two_calls() {
         &expect![[r#"
             [
                 "ApplyX",
+                "X",
             ]"#]],
     );
 
@@ -72,10 +73,13 @@ fn eligible_void_operation_called_twice_emits_one_callable_and_two_calls() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(0), )
-                Call id(4), args( Integer(0), Tag(0, 3), )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(0, Qubit), )
+                Return
+            Block 2:Block:
+                Call id(4), args( Variable(1, Qubit), )
                 Return"#]],
     );
 
@@ -117,6 +121,7 @@ fn scalar_and_qubit_parameters_are_threaded_as_variables() {
         &expect![[r#"
             [
                 "ApplyRz",
+                "Rz",
             ]"#]],
     );
 
@@ -144,10 +149,13 @@ fn scalar_and_qubit_parameters_are_threaded_as_variables() {
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Double(1), Qubit(0), )
-                Call id(4), args( Integer(0), Tag(0, 3), )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(0, Double), Variable(1, Qubit), )
+                Return
+            Block 2:Block:
+                Call id(4), args( Variable(2, Double), Variable(3, Qubit), )
                 Return"#]],
     );
 }
@@ -177,6 +185,8 @@ fn body_and_adjoint_specializations_emit_distinct_functions() {
             [
                 "ApplyS",
                 "ApplyS__Adj",
+                "S",
+                "S__Adj",
             ]"#]],
     );
 }
@@ -184,7 +194,9 @@ fn body_and_adjoint_specializations_emit_distinct_functions() {
 #[test]
 fn controlled_specialization_is_inlined() {
     // Controlled specializations take a synthesized dynamic-length `Qubit[]` control register which
-    // has no base-phase RIR representation, so they are always inlined (no IR function is emitted).
+    // has no base-phase RIR representation, so the `ApplyS` controlled specialization is always
+    // inlined (no IR function is emitted for it). The standard-library gate it calls is emitted
+    // separately as its own IR function.
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
@@ -200,7 +212,16 @@ fn controlled_specialization_is_inlined() {
         "#,
     );
 
-    assert_ir_function_names(&program, &expect!["[]"]);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "CNOT",
+            "CS",
+            "T",
+            "T__Adj",
+        ]"#]],
+    );
 }
 
 #[test]
@@ -234,6 +255,7 @@ fn entry_callable_is_not_emitted_as_ir_function() {
         &expect![[r#"
             [
                 "ApplyX",
+                "X",
             ]"#]],
     );
 }
@@ -257,7 +279,13 @@ fn un_promoted_tuple_parameter_callee_is_inlined() {
         "#,
     );
 
-    assert_ir_function_names(&program, &expect!["[]"]);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
 }
 
 #[test]
@@ -283,16 +311,19 @@ fn recursive_callee_is_emitted() {
     assert_ir_function_names(
         &program,
         &expect![[r#"
-        [
-            "Recurse",
-        ]"#]],
+            [
+                "Recurse",
+                "X",
+            ]"#]],
     );
 }
 
 #[test]
-fn cross_package_callee_is_inlined() {
-    // `Microsoft.Quantum.Intrinsic.X` is a standard-library (cross-package) operation, so it is
-    // inlined rather than emitted as an IR function.
+fn cross_package_callee_is_emitted() {
+    // `Microsoft.Quantum.Intrinsic.X` is a standard-library (cross-package) operation whose body
+    // wraps the `__quantum__qis__x__body` intrinsic. Reachable eligible callables from any package
+    // are emitted as standalone IR functions, so the cross-package `X` wrapper is emitted (and
+    // called) rather than inlined.
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
@@ -305,7 +336,13 @@ fn cross_package_callee_is_inlined() {
         "#,
     );
 
-    assert_ir_function_names(&program, &expect!["[]"]);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "X",
+            ]"#]],
+    );
 }
 
 #[test]
@@ -325,7 +362,13 @@ fn qubit_allocating_callee_is_inlined_when_dynamic_allocation_disabled() {
         "#,
     );
 
-    assert_ir_function_names(&program, &expect!["[]"]);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
 }
 
 #[test]
@@ -350,6 +393,7 @@ fn qubit_allocating_callee_is_emitted_when_dynamic_allocation_enabled() {
         &expect![[r#"
             [
                 "AllocAndX",
+                "X",
             ]"#]],
     );
 }
@@ -386,13 +430,16 @@ fn dynamic_qubit_allocation_inside_ir_function_emits_runtime_alloc_and_release_c
             Block 0:Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( )
-                Call id(6), args( Integer(0), Tag(0, 3), )
+                Call id(7), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Variable(0, Qubit) = Call id(3), args( )
                 Variable(1, Qubit) = Store Variable(0, Qubit)
                 Call id(4), args( Variable(1, Qubit), )
-                Call id(5), args( Variable(1, Qubit), )
+                Call id(6), args( Variable(1, Qubit), )
+                Return
+            Block 2:Block:
+                Call id(5), args( Variable(2, Qubit), )
                 Return"#]],
     );
 
@@ -413,7 +460,7 @@ fn dynamic_qubit_allocation_inside_ir_function_emits_runtime_alloc_and_release_c
         CallableId(5),
         &expect![[r#"
             Callable:
-                name: __quantum__rt__qubit_release
+                name: __quantum__qis__x__body
                 call_type: Regular
                 input_type:
                     [0]: Qubit
@@ -448,6 +495,7 @@ fn int_returning_callee_emits_typed_ir_function_and_binds_output_var() {
         &expect![[r#"
             [
                 "ApplyAndReturn",
+                "X",
             ]"#]],
     );
 
@@ -471,12 +519,15 @@ fn int_returning_callee_emits_typed_ir_function_and_binds_output_var() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(1, Integer) = Call id(2), args( Qubit(0), )
-                Call id(4), args( Integer(0), Tag(0, 3), )
+                Variable(2, Integer) = Call id(2), args( Qubit(0), )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(0, Qubit), )
-                Return Integer(42)"#]],
+                Return Integer(42)
+            Block 2:Block:
+                Call id(4), args( Variable(1, Qubit), )
+                Return"#]],
     );
 }
 
@@ -504,9 +555,10 @@ fn double_returning_callee_emits_typed_ir_function() {
     assert_ir_function_names(
         &program,
         &expect![[r#"
-        [
-            "ApplyAndAngle",
-        ]"#]],
+            [
+                "ApplyAndAngle",
+                "X",
+            ]"#]],
     );
     assert_callable(
         &program,
@@ -528,12 +580,15 @@ fn double_returning_callee_emits_typed_ir_function() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(1, Double) = Call id(2), args( Qubit(0), )
-                Call id(4), args( Integer(0), Tag(0, 3), )
+                Variable(2, Double) = Call id(2), args( Qubit(0), )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(0, Qubit), )
-                Return Double(1.5)"#]],
+                Return Double(1.5)
+            Block 2:Block:
+                Call id(4), args( Variable(1, Qubit), )
+                Return"#]],
     );
 }
 
@@ -561,9 +616,10 @@ fn bool_returning_callee_emits_typed_ir_function() {
     assert_ir_function_names(
         &program,
         &expect![[r#"
-        [
-            "ApplyAndFlag",
-        ]"#]],
+            [
+                "ApplyAndFlag",
+                "X",
+            ]"#]],
     );
     assert_callable(
         &program,
@@ -585,12 +641,15 @@ fn bool_returning_callee_emits_typed_ir_function() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(1, Boolean) = Call id(2), args( Qubit(0), )
-                Call id(4), args( Integer(0), Tag(0, 3), )
+                Variable(2, Boolean) = Call id(2), args( Qubit(0), )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(0, Qubit), )
-                Return Bool(true)"#]],
+                Return Bool(true)
+            Block 2:Block:
+                Call id(4), args( Variable(1, Qubit), )
+                Return"#]],
     );
 }
 
@@ -618,8 +677,9 @@ fn result_returning_callee_is_inlined() {
 
 #[test]
 fn qubit_returning_callee_is_inlined() {
-    // A `Qubit`-returning callable has no by-value single-exit RIR representation, so it continues
-    // to inline (no IR function is emitted).
+    // A `Qubit`-returning callable has no by-value single-exit RIR representation, so `Echo`
+    // continues to inline (no IR function is emitted for it). The standard-library gate called
+    // afterwards is emitted separately as its own IR function.
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
@@ -636,7 +696,13 @@ fn qubit_returning_callee_is_inlined() {
         "#,
     );
 
-    assert_ir_function_names(&program, &expect!["[]"]);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
 }
 
 #[test]
@@ -759,6 +825,7 @@ fn tuple_discarded_parameter_is_threaded_as_call_site_operand() {
         &expect![[r#"
             [
                 "Foo",
+                "Rz",
             ]"#]],
     );
 
@@ -791,12 +858,15 @@ fn tuple_discarded_parameter_is_threaded_as_call_site_operand() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(3, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
-                Call id(4), args( Integer(0), Tag(0, 3), )
+                Variable(5, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
-                Return Variable(1, Double)"#]],
+                Return Variable(1, Double)
+            Block 2:Block:
+                Call id(4), args( Variable(3, Double), Variable(4, Qubit), )
+                Return"#]],
     );
 }
 
@@ -828,6 +898,7 @@ fn discarded_parameter_is_threaded_as_call_site_operand() {
         &expect![[r#"
             [
                 "Foo",
+                "Rz",
             ]"#]],
     );
 
@@ -860,11 +931,74 @@ fn discarded_parameter_is_threaded_as_call_site_operand() {
             Blocks:
             Block 0:Block:
                 Call id(1), args( Pointer, )
-                Variable(3, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
-                Call id(4), args( Integer(0), Tag(0, 3), )
+                Variable(5, Double) = Call id(2), args( Integer(5), Double(1.5), Qubit(0), )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return Integer(0)
             Block 1:Block:
                 Call id(3), args( Variable(1, Double), Variable(2, Qubit), )
-                Return Variable(1, Double)"#]],
+                Return Variable(1, Double)
+            Block 2:Block:
+                Call id(4), args( Variable(3, Double), Variable(4, Qubit), )
+                Return"#]],
     );
+}
+
+/// Eligible callables whose names nothing else competes for are emitted under
+/// their bare source names. Both the user `ApplyX` operation and the foreign
+/// `X` intrinsic wrapper it calls are emitted, and the name registry keeps each
+/// bare name in the common (non-colliding) case rather than spuriously
+/// appending a package/item discriminator.
+#[test]
+fn non_colliding_callable_keeps_bare_name() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation ApplyX(q : Qubit) : Unit {
+                X(q);
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                ApplyX(q);
+            }
+        }
+        "#,
+    );
+
+    // Each emitted IR function uses its bare source name with no discriminator suffix.
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "ApplyX",
+                "X",
+            ]"#]],
+    );
+}
+
+/// Targeting the `AdaptiveRIF` profile (which does not enable the `CallSupport`
+/// capability) keeps every eligible callable inlined: no bodied `Regular`
+/// callables are emitted as IR functions. This is the baseline the
+/// `CallSupport`-gated emission relaxes.
+#[test]
+fn adaptive_rif_profile_inlines_all_callables() {
+    let program = get_rir_program(
+        r#"
+        namespace Test {
+            operation ApplyX(q : Qubit) : Unit {
+                X(q);
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                ApplyX(q);
+                ApplyX(q);
+            }
+        }
+        "#,
+    );
+
+    // With IR-function emission disabled, no standalone callables are emitted; the
+    // entry point inlines the body of `ApplyX` at every call site.
+    assert_ir_function_names(&program, &expect![[r#"[]"#]]);
 }

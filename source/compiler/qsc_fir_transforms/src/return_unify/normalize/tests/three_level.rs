@@ -13,7 +13,7 @@ use super::*;
 // (driven by `M(q)`) is legal during flag lowering.
 
 #[test]
-fn three_level_if_if_if_return_in_deepest_then() {
+fn if_if_if_return_in_deepest_then() {
     // if / if / if -> return at the innermost then
     check_no_returns_q(
         indoc! {r#"
@@ -34,7 +34,6 @@ fn three_level_if_if_if_return_in_deepest_then() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -75,12 +74,6 @@ fn three_level_if_if_if_return_in_deepest_then() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -88,7 +81,7 @@ fn three_level_if_if_if_return_in_deepest_then() {
 }
 
 #[test]
-fn three_level_if_else_chain_return_in_deepest_else() {
+fn if_else_chain_return_in_deepest_else() {
     // if { ... } else { if { ... } else { if c { x } else { return v } } }
     check_no_returns_q(
         indoc! {r#"
@@ -114,7 +107,6 @@ fn three_level_if_else_chain_return_in_deepest_else() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -155,12 +147,6 @@ fn three_level_if_else_chain_return_in_deepest_else() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -168,7 +154,7 @@ fn three_level_if_else_chain_return_in_deepest_else() {
 }
 
 #[test]
-fn three_level_while_while_while_return_deep() {
+fn while_while_while_return_deep() {
     // while / while / while -> return deep in the innermost body
     check_no_returns_q(
         indoc! {r#"
@@ -197,7 +183,6 @@ fn three_level_while_while_while_return_deep() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -251,12 +236,6 @@ fn three_level_while_while_while_return_deep() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -265,7 +244,7 @@ fn three_level_while_while_while_return_deep() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn three_level_for_for_for_return_deep() {
+fn for_for_for_return_deep() {
     // for / for / for -> return deep inside the innermost body
     check_no_returns_q(
         indoc! {r#"
@@ -288,7 +267,6 @@ fn three_level_for_for_for_return_deep() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -363,12 +341,6 @@ fn three_level_for_for_for_return_deep() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -376,7 +348,7 @@ fn three_level_for_for_for_return_deep() {
 }
 
 #[test]
-fn three_level_for_while_if_return_deep() {
+fn for_while_if_return_deep() {
     // for / while / if -> return inside the if
     check_no_returns_q(
         indoc! {r#"
@@ -399,7 +371,6 @@ fn three_level_for_while_if_return_deep() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -453,12 +424,6 @@ fn three_level_for_while_if_return_deep() {
                 }
 
             }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -466,7 +431,7 @@ fn three_level_for_while_if_return_deep() {
 }
 
 #[test]
-fn three_level_if_while_for_return_deep() {
+fn if_while_for_return_deep() {
     // if / while / for -> return inside the for
     check_no_returns_q(
         indoc! {r#"
@@ -491,7 +456,6 @@ fn three_level_if_while_for_return_deep() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -549,12 +513,6 @@ fn three_level_if_while_for_return_deep() {
                     }
                 }
 
-            }
-            function Length(a : Pauli[]) : Int {
-                body intrinsic;
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

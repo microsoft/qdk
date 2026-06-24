@@ -86,6 +86,63 @@ fn compile_source_to_qir_result(
     )
 }
 
+/// Compiles `lib_source` as a separate library package, then generates QIR for
+/// `user_source` with that library as a dependency. The library's namespaces are
+/// visible to the user program without an alias, so user code can reference them
+/// directly (for example `import Lib.*;`). This exercises emission of foreign
+/// (non-entry-package) callables as standalone IR functions.
+fn compile_source_to_qir_with_library(
+    lib_source: &str,
+    user_source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> String {
+    match compile_source_to_qir_with_library_result(lib_source, user_source, capabilities) {
+        Ok(qir) => qir,
+        Err(errors) => panic!(
+            "Failed to generate QIR for capabilities {capabilities:?}:\n{}",
+            format_interpret_errors(errors)
+        ),
+    }
+}
+
+fn compile_source_to_qir_with_library_result(
+    lib_source: &str,
+    user_source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> Result<String, Vec<crate::interpret::Error>> {
+    let language_features = LanguageFeatures::default();
+    let (std_id, mut store) = crate::compile::package_store_with_stdlib(capabilities);
+
+    // Compile the library as its own package depending on core + std.
+    let lib_sources = SourceMap::new([("lib.qs".into(), lib_source.into())], None);
+    let lib_dependencies: Vec<(PackageId, Option<Arc<str>>)> = vec![(std_id, None)];
+    let (lib_unit, lib_errors) = crate::compile::compile(
+        &store,
+        &lib_dependencies,
+        lib_sources,
+        qsc_passes::PackageType::Lib,
+        capabilities,
+        language_features,
+    );
+    assert!(
+        lib_errors.is_empty(),
+        "library compilation failed: {lib_errors:?}"
+    );
+    let lib_id = store.insert(lib_unit);
+
+    // Generate QIR for the user program, which depends on core + std + library.
+    let user_sources = source_map_from_source(user_source);
+    let user_dependencies: Vec<(PackageId, Option<Arc<str>>)> =
+        vec![(std_id, None), (lib_id, None)];
+    get_qir(
+        user_sources,
+        language_features,
+        capabilities,
+        store,
+        &user_dependencies,
+    )
+}
+
 fn compile_source_to_qir_from_ast(source: &str, capabilities: TargetCapabilityFlags) -> String {
     match compile_source_to_qir_from_ast_result(source, capabilities) {
         Ok(qir) => qir,
@@ -848,21 +905,21 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
         block_1:
           br label %block_2
         block_2:
-          %var_199 = phi i1 [true, %block_0], [false, %block_1]
+          %var_259 = phi i1 [true, %block_0], [false, %block_1]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
           %var_11 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
           br i1 %var_11, label %block_3, label %block_4
         block_3:
           br label %block_4
         block_4:
-          %var_200 = phi i1 [%var_199, %block_2], [false, %block_3]
+          %var_260 = phi i1 [%var_259, %block_2], [false, %block_3]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
           %var_13 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 2 to %Result*))
           br i1 %var_13, label %block_5, label %block_6
         block_5:
           br label %block_6
         block_6:
-          %var_201 = phi i1 [%var_200, %block_4], [false, %block_5]
+          %var_261 = phi i1 [%var_260, %block_4], [false, %block_5]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -879,21 +936,21 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
         block_7:
           br label %block_8
         block_8:
-          %var_202 = phi i1 [true, %block_6], [false, %block_7]
+          %var_262 = phi i1 [true, %block_6], [false, %block_7]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 4 to %Result*))
           %var_27 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 4 to %Result*))
           br i1 %var_27, label %block_9, label %block_10
         block_9:
           br label %block_10
         block_10:
-          %var_203 = phi i1 [%var_202, %block_8], [false, %block_9]
+          %var_263 = phi i1 [%var_262, %block_8], [false, %block_9]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 5 to %Result*))
           %var_29 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 5 to %Result*))
           br i1 %var_29, label %block_11, label %block_12
         block_11:
           br label %block_12
         block_12:
-          %var_204 = phi i1 [%var_203, %block_10], [false, %block_11]
+          %var_264 = phi i1 [%var_263, %block_10], [false, %block_11]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -952,26 +1009,26 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 6 to %Result*))
-          %var_130 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 6 to %Result*))
-          br i1 %var_130, label %block_13, label %block_14
+          %var_170 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 6 to %Result*))
+          br i1 %var_170, label %block_13, label %block_14
         block_13:
           br label %block_14
         block_14:
-          %var_205 = phi i1 [true, %block_12], [false, %block_13]
+          %var_265 = phi i1 [true, %block_12], [false, %block_13]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 7 to %Result*))
-          %var_132 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 7 to %Result*))
-          br i1 %var_132, label %block_15, label %block_16
+          %var_172 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 7 to %Result*))
+          br i1 %var_172, label %block_15, label %block_16
         block_15:
           br label %block_16
         block_16:
-          %var_206 = phi i1 [%var_205, %block_14], [false, %block_15]
+          %var_266 = phi i1 [%var_265, %block_14], [false, %block_15]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 8 to %Result*))
-          %var_134 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 8 to %Result*))
-          br i1 %var_134, label %block_17, label %block_18
+          %var_174 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 8 to %Result*))
+          br i1 %var_174, label %block_17, label %block_18
         block_17:
           br label %block_18
         block_18:
-          %var_207 = phi i1 [%var_206, %block_16], [false, %block_17]
+          %var_267 = phi i1 [%var_266, %block_16], [false, %block_17]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 3 to %Qubit*))
@@ -1010,32 +1067,32 @@ fn deutsch_jozsa_sample_shape_generates_qir() {
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 9 to %Result*))
-          %var_191 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 9 to %Result*))
-          br i1 %var_191, label %block_19, label %block_20
+          %var_251 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 9 to %Result*))
+          br i1 %var_251, label %block_19, label %block_20
         block_19:
           br label %block_20
         block_20:
-          %var_208 = phi i1 [true, %block_18], [false, %block_19]
+          %var_268 = phi i1 [true, %block_18], [false, %block_19]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 10 to %Result*))
-          %var_193 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 10 to %Result*))
-          br i1 %var_193, label %block_21, label %block_22
+          %var_253 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 10 to %Result*))
+          br i1 %var_253, label %block_21, label %block_22
         block_21:
           br label %block_22
         block_22:
-          %var_209 = phi i1 [%var_208, %block_20], [false, %block_21]
+          %var_269 = phi i1 [%var_268, %block_20], [false, %block_21]
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 11 to %Result*))
-          %var_195 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 11 to %Result*))
-          br i1 %var_195, label %block_23, label %block_24
+          %var_255 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 11 to %Result*))
+          br i1 %var_255, label %block_23, label %block_24
         block_23:
           br label %block_24
         block_24:
-          %var_210 = phi i1 [%var_209, %block_22], [false, %block_23]
+          %var_270 = phi i1 [%var_269, %block_22], [false, %block_23]
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 3 to %Qubit*))
           call void @__quantum__rt__array_record_output(i64 4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 %var_201, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 %var_204, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 %var_207, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
-          call void @__quantum__rt__bool_record_output(i1 %var_210, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 %var_261, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 %var_264, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 %var_267, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+          call void @__quantum__rt__bool_record_output(i1 %var_270, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
           ret i64 0
         }
 
@@ -2020,6 +2077,16 @@ fn callable_with_nested_udt_wrapped_arrow_generates_qir_via_callable_args() {
 // Synthetic-path and fallback-path coverage for callable-args codegen
 // ---------------------------------------------------------------------------
 
+/// Matches a callable's actual name against a requested lookup name. The `.lambda` sentinel
+/// matches any lifted lambda, whose real name carries a volatile `.lambda_<item-id>` suffix.
+fn callable_name_matches(actual: &str, requested: &str) -> bool {
+    if requested == ".lambda" {
+        actual.starts_with(".lambda")
+    } else {
+        actual == requested
+    }
+}
+
 /// Helper: compile a lib package, locate named items, and return (`store`, `package_id`, `items_map`).
 /// `item_names` maps display names to a bool: true = Callable, false = Ty (UDT).
 fn compile_and_locate_items(
@@ -2052,7 +2119,7 @@ fn compile_and_locate_items(
         match &item.kind {
             ItemKind::Callable(decl) => {
                 for &(name, is_callable) in item_names {
-                    if is_callable && decl.name.name.as_ref() == name {
+                    if is_callable && callable_name_matches(decl.name.name.as_ref(), name) {
                         found.insert(name.to_string(), local_id);
                     }
                 }
@@ -2462,7 +2529,7 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
     let caps = Profile::AdaptiveRIF.into();
     let (store, pkg, items) = compile_and_locate_items(
         source,
-        &[("RunOp", true), ("Shifted", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Shifted", true), (".lambda", true)],
         caps,
     );
 
@@ -2470,7 +2537,7 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
     // leaves the explicit `register` slot for the synthetic entry to supply.
     let shifted_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Int(1)].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
     let args = Value::Tuple(vec![shifted_closure, Value::Int(1)].into(), None);
@@ -2524,7 +2591,7 @@ fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() 
     let caps = Profile::AdaptiveRIF.into();
     let (store, pkg, items) = compile_and_locate_items(
         source,
-        &[("RunOp", true), ("Entangle", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Entangle", true), (".lambda", true)],
         caps,
     );
 
@@ -2532,7 +2599,7 @@ fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() 
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
 
@@ -2757,7 +2824,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     let synthetic_source = early_return_synthetic_entry_source();
     let (store, pkg, items) = compile_and_locate_items(
         &synthetic_source,
-        &[("RunOp", true), ("Rotate", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Rotate", true), (".lambda", true)],
         caps,
     );
 
@@ -2765,7 +2832,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     // explicit `target` slot for the closure invocation to supply.
     let rotation_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Int(1)].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
 
@@ -2792,7 +2859,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     let reinvoke_source = early_return_reinvoke_original_source();
     let (store, pkg, items) = compile_and_locate_items(
         &reinvoke_source,
-        &[("RunOp", true), ("Entangle", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Entangle", true), (".lambda", true)],
         caps,
     );
 
@@ -2800,7 +2867,7 @@ fn early_return_in_dynamic_branch_synthetic_and_reinvoke_both_compile_parity() {
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
 
@@ -2839,7 +2906,7 @@ fn early_return_in_dynamic_branch_reinvoke_original_compiles_parity_target() {
     let reinvoke_source = early_return_reinvoke_original_source();
     let (store, pkg, items) = compile_and_locate_items(
         &reinvoke_source,
-        &[("RunOp", true), ("Entangle", true), ("<lambda>", true)],
+        &[("RunOp", true), ("Entangle", true), (".lambda", true)],
         caps,
     );
 
@@ -2847,7 +2914,7 @@ fn early_return_in_dynamic_branch_reinvoke_original_compiles_parity_target() {
     let captured_qubit = Rc::new(qsc_eval::val::Qubit(0));
     let qubit_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
         fixed_args: vec![Value::Qubit((&captured_qubit).into())].into(),
-        id: fir_id_for(pkg, items["<lambda>"]),
+        id: fir_id_for(pkg, items[".lambda"]),
         functor: FunctorApp::default(),
     }));
 

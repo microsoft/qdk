@@ -37,22 +37,28 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::{alloc_bin_op_expr, alloc_field_expr, reachable_local_callables};
-use crate::reachability::collect_reachable_with_seeds;
-use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
+use crate::package_assigners::PackageAssigners;
+use crate::reachability::{
+    collect_reachable_from_entry, collect_reachable_package_closure, collect_reachable_with_seeds,
+};
+use crate::walk_utils::{
+    collect_expr_ids_in_entry_and_local_callables, collect_expr_ids_in_local_callables,
+};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BinOp, ExprId, ExprKind, Package, PackageId, PackageLookup, PackageStore, StoreItemId,
 };
 use qsc_fir::ty::{Prim, Ty};
+use rustc_hash::FxHashSet;
 
 /// Rewrites `BinOp(Eq/Neq)` on non-empty tuple-typed operands into
-/// element-wise comparisons in the entry-reachable portion of a package.
+/// element-wise comparisons across the entry-reachable package closure.
 ///
 /// Scope and idempotence:
 ///
-/// - Scans only callables whose item reference lives in the target
-///   package; cross-package items stay untouched.
-/// - Returns early without modification when the target package has no
+/// - Walks every reachable callable in its owning package, minting any fresh
+///   nodes from that package's own assigner.
+/// - Returns early without modification when the entry package has no
 ///   entry expression, since nothing is reachable to rewrite.
 /// - Rewrites each matched expression **in place**, preserving its
 ///   original `ExprId` so downstream references (including
@@ -60,47 +66,76 @@ use qsc_fir::ty::{Prim, Ty};
 pub fn lower_tuple_comparisons(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) {
-    lower_tuple_comparisons_with_seeds(store, package_id, assigner, &[]);
+    // Nothing is reachable to rewrite when the entry package has no entry
+    // expression. `collect_reachable_from_entry` asserts an entry exists, so
+    // guard before rooting reachability.
+    if store.get(package_id).entry.is_none() {
+        return;
+    }
+    let reachable = collect_reachable_from_entry(store, package_id);
+    lower_tuple_comparisons_in_reachable(store, package_id, assigners, &reachable);
 }
 
 /// Seed-rooted variant of [`lower_tuple_comparisons`] for the
 /// signature-preserving sub-pipeline.
 ///
-/// Lowers tuple comparisons in entry-reachable code **and** in the `seeds`
-/// roots (pinned target bodies and their transitive callees). Entry-reachable
-/// code that already ran through this pass holds no tuple comparisons, so the
-/// re-walk is a no-op there; only the seeded pinned bodies contribute fresh
-/// rewrites.
+/// Lowers tuple comparisons in entry-reachable code and in the `seeds` roots
+/// (pinned target bodies and their transitive callees), each in its owning
+/// package via [`PackageAssigners`]. Entry-reachable code already processed by
+/// this pass holds no tuple comparisons, so the re-walk is a no-op there; only
+/// the seeded bodies contribute fresh rewrites.
 pub fn lower_tuple_comparisons_with_seeds(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
     seeds: &[StoreItemId],
 ) {
-    let package = store.get(package_id);
-    // With an empty seed set this mirrors the original entry-only behavior:
-    // nothing is reachable to rewrite when the package has no entry. A
-    // seed-only invocation (codegen always supplies an entry) still proceeds.
-    if package.entry.is_none() && seeds.is_empty() {
+    // With an empty seed set this mirrors the entry-only behavior: nothing is
+    // reachable to rewrite when the package has no entry. A seed-only invocation
+    // (codegen always supplies an entry) still proceeds.
+    if store.get(package_id).entry.is_none() && seeds.is_empty() {
         return;
     }
-
     let reachable = collect_reachable_with_seeds(store, package_id, seeds);
-    let package = store.get(package_id);
+    lower_tuple_comparisons_in_reachable(store, package_id, assigners, &reachable);
+}
 
-    // Collect reachable local callable item IDs.
-    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
-        .map(|(item_id, _)| item_id)
+/// Lowers tuple comparisons across every package in `reachable`, minting fresh
+/// nodes from each package's own assigner. Shared by the entry-rooted and
+/// seed-rooted entry points.
+fn lower_tuple_comparisons_in_reachable(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+    reachable: &FxHashSet<StoreItemId>,
+) {
+    let pkg_ids: Vec<PackageId> = collect_reachable_package_closure(package_id, reachable)
+        .into_iter()
         .collect();
+    for pkg in pkg_ids {
+        let assigner = assigners.get_mut(store, pkg);
+        let package = store.get(pkg);
 
-    // Collect all ExprIds in entry expression + reachable callable bodies.
-    let expr_ids = collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+        // Collect reachable local callable item IDs for this package.
+        let local_item_ids: Vec<_> = reachable_local_callables(package, pkg, reachable)
+            .map(|(item_id, _)| item_id)
+            .collect();
 
-    let package = store.get_mut(package_id);
-    for expr_id in expr_ids {
-        lower_single_cmp(package, assigner, expr_id);
+        // The entry expression lives only in the entry package; foreign
+        // (library) packages have none, so only their callable bodies are
+        // walked.
+        let expr_ids = if pkg == package_id {
+            collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids)
+        } else {
+            collect_expr_ids_in_local_callables(package, &local_item_ids)
+        };
+
+        let package = store.get_mut(pkg);
+        for expr_id in expr_ids {
+            lower_single_cmp(package, assigner, expr_id);
+        }
     }
 }
 

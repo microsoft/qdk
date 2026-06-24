@@ -925,9 +925,9 @@ impl With<'_> {
     }
 
     fn lower_lambda(&mut self, lambda: Lambda, span: Span) -> hir::ExprKind {
-        let (args, callable) = closure::lift(self.assigner, &self.lowerer.locals, lambda, span);
-
         let id = self.assigner.next_item();
+        let (args, callable) = closure::lift(self.assigner, &self.lowerer.locals, lambda, id, span);
+
         self.lowerer.items.push(hir::Item {
             id,
             span,
