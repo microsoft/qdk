@@ -783,7 +783,7 @@ class EstimatorResult(dict):
 
         _ = plt.figure(figsize=(15, 8))
 
-        plt.ylabel(1) #"Physical qubits")
+        plt.ylabel("Physical qubits")
         plt.xlabel("Runtime")
         plt.loglog()
         for i, (x, y) in enumerate(zip(xs, ys)):
