@@ -4,6 +4,13 @@
 use miette::Diagnostic;
 use thiserror::Error;
 
+// In standalone (non-`internal`) builds the crate aliases itself as
+// `qsc_data_structures`, so `qsc_data_structures::error::WithSource` resolves to
+// `crate::error::WithSource`. Re-export the vendored type here to satisfy that
+// path without changing the imports used throughout the crate.
+#[cfg(not(feature = "internal"))]
+pub(crate) use crate::vendor::error::WithSource;
+
 #[derive(Clone, Debug, Diagnostic, Eq, Error, PartialEq)]
 #[diagnostic(transparent)]
 #[error(transparent)]
