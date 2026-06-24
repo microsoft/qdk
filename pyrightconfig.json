@@ -1,5 +1,15 @@
 {
   "pythonVersion": "3.10",
-  "extraPaths": ["source/pip", "source/widgets/src", "source/qdk_package/src"],
-  "typeCheckingMode": "basic"
+  "include": [
+    "source/qdk_package/qdk",
+  ],
+  "exclude": [
+    "source/qdk_package/qdk/applications",
+    "source/qdk_package/qdk/azure",
+    "source/qdk_package/qdk/cirq",
+    "source/qdk_package/qdk/simulation",
+    "source/qdk_package/qdk/qiskit",
+    "source/qdk_package/qdk/qre",
+  ],
+  "typeCheckingMode": "basic",
 }
