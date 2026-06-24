@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import json
+import builtins
 import warnings
 from time import monotonic
 from typing import Any, Callable, Dict, List, Optional, Union, cast
@@ -77,7 +78,7 @@ def estimate(
     param_str = json.dumps(params)
     telemetry_events.on_estimate_qasm()
     start = monotonic()
-    if isinstance(source, Callable) and hasattr(source, "__global_callable"):
+    if builtins.callable(source) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_str = get_interpreter().estimate(
             param_str, entry_expr=None, callable=source.__global_callable, args=args

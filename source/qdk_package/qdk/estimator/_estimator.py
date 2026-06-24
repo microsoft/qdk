@@ -11,8 +11,8 @@ import warnings
 try:
     # Both markdown and mdx_math (from python-markdown-math) must be present for our markdown
     # rendering logic to work. If either is missing, we'll fall back to plain text.
-    import markdown
-    import mdx_math
+    import markdown  # type: ignore[import-untyped]
+    import mdx_math  # type: ignore[import-not-found]
 
     has_markdown = True
 except ImportError:
@@ -138,7 +138,7 @@ def check_time(name, value):
     pat = r"^(\+?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)\s*(s|ms|μs|µs|us|ns)$"
     if re.match(pat, value) is None:
         raise ValueError(
-            f"{name} is not a valid time string; use a " "suffix s, ms, us, or ns"
+            f"{name} is not a valid time string; use a suffix s, ms, us, or ns"
         )
 
 
@@ -223,9 +223,7 @@ class EstimatorQubitParams(AutoValidatingParams):
 
         # instruction set must be set
         if self.instruction_set is None:
-            raise LookupError(
-                "instruction_set must be set for custom qubit " "parameters"
-            )
+            raise LookupError("instruction_set must be set for custom qubit parameters")
 
         # NOTE at this point, we know that instruction set must have valid
         # value
@@ -466,20 +464,18 @@ class EstimatorInputParamsItem:
     base class for batching via :class:`EstimatorParams`.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         self.qubit_params: EstimatorQubitParams = EstimatorQubitParams()
         self.qec_scheme: EstimatorQecScheme = EstimatorQecScheme()
-        self.distillation_unit_specifications = (
-            []
-        )  # type: List[DistillationUnitSpecification]
+        self.distillation_unit_specifications = []  # type: List[DistillationUnitSpecification]
         self.constraints: EstimatorConstraints = EstimatorConstraints()
         self.error_budget: Optional[Union[float, ErrorBudgetPartition]] = None
         self.estimate_type: Optional[str] = None
 
-    def as_dict(self, validate=True, additional_params=None) -> Dict[str, Any]:
-        result = {}
+    def as_dict(self, validate: bool = True, additional_params=None) -> Dict[str, Any]:
+        result: dict[str, Any] = {}
 
         qubit_params = self.qubit_params.as_dict(validate)
         if len(qubit_params) != 0:
@@ -602,7 +598,7 @@ class EstimatorParams(EstimatorInputParamsItem):
                 "make_params with num_items parameter"
             )
 
-    def as_dict(self, validate=True) -> Dict[str, Any]:
+    def as_dict(self, validate: bool = True, additional_params=None) -> Dict[str, Any]:
         """
         Constructs a dictionary from the input params.
 
@@ -646,11 +642,13 @@ class EstimatorResult(dict):
 
     def __init__(self, data: Union[Dict, List]):
         self._error = None
+        self._data: Union[Dict[Any, Any], List[Any]]
 
         if isinstance(data, list) and len(data) == 1:
-            data = data[0]
-            if not EstimatorResult._is_succeeded(data):
-                raise EstimatorError(data["code"], data["message"])
+            single_result = data[0]
+            if not EstimatorResult._is_succeeded(single_result):
+                raise EstimatorError(single_result["code"], single_result["message"])
+            data = single_result
 
         if isinstance(data, dict):
             self._data = data
@@ -915,9 +913,9 @@ class EstimatorResult(dict):
             md = markdown.Markdown(extensions=["mdx_math"])
         for group in self["reportData"]["groups"]:
             html += f"""
-                <details {"open" if group['alwaysVisible'] else ""}>
+                <details {"open" if group["alwaysVisible"] else ""}>
                     <summary style="display:list-item">
-                        <strong>{group['title']}</strong>
+                        <strong>{group["title"]}</strong>
                     </summary>
                     <table>"""
             for entry in group["entries"]:
@@ -932,7 +930,7 @@ class EstimatorResult(dict):
                     explanation = entry["explanation"]
                 html += f"""
                     <tr>
-                        <td style="font-weight: bold; vertical-align: top; white-space: nowrap">{entry['label']}</td>
+                        <td style="font-weight: bold; vertical-align: top; white-space: nowrap">{entry["label"]}</td>
                         <td style="vertical-align: top; white-space: nowrap">{val}</td>
                         <td style="text-align: left">
                             <strong>{entry["description"]}</strong>
@@ -996,9 +994,9 @@ class EstimatorResult(dict):
             md = markdown.Markdown(extensions=["mdx_math"])
         for group in self["reportData"]["groups"]:
             html += f"""
-                <details {"open" if group['alwaysVisible'] else ""}>
+                <details {"open" if group["alwaysVisible"] else ""}>
                     <summary style="display:list-item">
-                        <strong>{group['title']}</strong>
+                        <strong>{group["title"]}</strong>
                     </summary>
                     <table>"""
             for entry in group["entries"]:
@@ -1011,7 +1009,7 @@ class EstimatorResult(dict):
                     explanation = entry["explanation"]
                 html += f"""
                     <tr class="aqre-tooltip">
-                        <td style="font-weight: bold"><span class="aqre-tooltiptext">{explanation}</span>{entry['label']}</td>
+                        <td style="font-weight: bold"><span class="aqre-tooltiptext">{explanation}</span>{entry["label"]}</td>
                         <td>{val}</td>
                         <td style="text-align: left">{entry["description"]}</td>
                     </tr>
@@ -1047,9 +1045,9 @@ class EstimatorResult(dict):
             self[first_succeeded_item_index]["reportData"]["groups"]
         ):
             html += f"""
-                <details {"open" if group['alwaysVisible'] else ""}>
+                <details {"open" if group["alwaysVisible"] else ""}>
                     <summary style="display:list-item">
-                        <strong>{group['title']}</strong>
+                        <strong>{group["title"]}</strong>
                     </summary>
                     <table>
                         <thead><tr><th>Item</th>{item_headers}</tr></thead>"""
@@ -1098,10 +1096,6 @@ class EstimatorResult(dict):
         html += "</ul></details>"
 
         return html
-
-    @staticmethod
-    def _is_succeeded(obj):
-        return "status" in obj and obj["status"] == "success"
 
 
 class EstimatorResultDiagram:
@@ -1163,7 +1157,7 @@ class LogicalCounts(dict):
         return self._json
 
     def estimate(
-        self, params: Union[dict, List, EstimatorParams] = None
+        self, params: Union[dict, List, EstimatorParams, None] = None
     ) -> EstimatorResult:
         """
         Estimates resources for the current logical counts, using the

@@ -10,6 +10,7 @@ independent Q# environments to coexist.
 """
 
 import json
+import builtins
 import sys
 import types
 import weakref
@@ -66,7 +67,7 @@ from .estimator._estimator import LogicalCounts
 # Check if we are running in a Jupyter notebook to use the IPython display function
 _in_jupyter = False
 try:
-    from IPython.display import display
+    from IPython.display import display  # type: ignore[import-not-found]
 
     if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
         _in_jupyter = True  # Jupyter notebook or qtconsole
@@ -81,7 +82,7 @@ except:
 def ipython_helper():
     try:
         if __IPYTHON__:  # type: ignore
-            from IPython.display import display
+            from IPython.display import display  # type: ignore[import-not-found]
     except NameError:
         pass
 
@@ -106,9 +107,9 @@ def _visual_circuit_count(circuit_json: str) -> int:
 
 def make_class_rec(qsharp_type: TypeIR) -> type:
     class_name = qsharp_type.unwrap_udt().name
-    fields = {}
+    fields: dict[str, Any] = {}
     for field in qsharp_type.unwrap_udt().fields:
-        ty = None
+        ty: type[Any] | None = None
         kind = field[1].kind()
 
         if kind == TypeKind.Primitive:
@@ -141,6 +142,7 @@ def make_class_rec(qsharp_type: TypeIR) -> type:
             ty = make_class_rec(field[1])
         else:
             raise QSharpError(f"unknown type {kind}")
+        assert ty is not None
         fields[field[0]] = ty
 
     return make_dataclass(
@@ -408,7 +410,7 @@ class Context:
         self, namespace: List[str]
     ) -> types.ModuleType | types.SimpleNamespace:
         """Returns module for given path, creating it if it doesn't exist."""
-        module = self.code
+        module: Any = self.code
         if self._is_global_context:
             accumulated_namespace = code.__name__
             for name in namespace:
@@ -427,9 +429,9 @@ class Context:
                 if hasattr(module, name):
                     module = module.__getattribute__(name)
                 else:
-                    new_module = types.SimpleNamespace()
-                    module.__setattr__(name, new_module)
-                    module = new_module
+                    new_namespace_module = types.SimpleNamespace()
+                    module.__setattr__(name, new_namespace_module)
+                    module = new_namespace_module
         return module
 
     def _make_callable(
@@ -465,7 +467,7 @@ class Context:
         """Registers a Q# type as a Python dataclass in this context's code module."""
         module = self._get_code_module(namespace)
         QSharpClass = make_class_rec(qsharp_type)
-        QSharpClass.__qsharp_class = True
+        setattr(QSharpClass, "__qsharp_class", True)
         setattr(QSharpClass, "_qdk_context", self)
         module.__setattr__(class_name, QSharpClass)
 
@@ -684,7 +686,7 @@ class Context:
 
         callable = None
         run_entry_expr = None
-        if isinstance(entry_expr, Callable) and hasattr(
+        if builtins.callable(entry_expr) and hasattr(
             entry_expr, "__global_callable"
         ):
             self._check_same_context_callable(entry_expr)
@@ -775,7 +777,7 @@ class Context:
         start = monotonic()
         target_profile = self._config.get_target_profile()
         telemetry_events.on_compile(target_profile)
-        if isinstance(entry_expr, Callable) and hasattr(
+        if builtins.callable(entry_expr) and hasattr(
             entry_expr, "__global_callable"
         ):
             self._check_same_context_callable(entry_expr)
@@ -861,7 +863,7 @@ class Context:
             prune_classical_qubits=prune_classical_qubits,
         )
 
-        if isinstance(entry_expr, Callable) and hasattr(
+        if builtins.callable(entry_expr) and hasattr(
             entry_expr, "__global_callable"
         ):
             self._check_same_context_callable(entry_expr)
@@ -902,7 +904,7 @@ class Context:
         """
         ipython_helper()
 
-        if isinstance(entry_expr, Callable) and hasattr(
+        if builtins.callable(entry_expr) and hasattr(
             entry_expr, "__global_callable"
         ):
             self._check_same_context_callable(entry_expr)

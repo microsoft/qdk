@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
+import builtins
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union, Literal
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
@@ -114,7 +115,7 @@ def run(
 
     callable = None
     source_str: Optional[str] = None
-    if isinstance(source, Callable) and hasattr(source, "__global_callable"):
+    if builtins.callable(source) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         callable = source.__global_callable
     elif isinstance(source, str):

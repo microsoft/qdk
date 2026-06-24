@@ -16,6 +16,7 @@ also defined here for use by other submodules.
 """
 
 import warnings
+import builtins
 from . import telemetry_events, code
 from ._native import (  # type: ignore
     Interpreter,
@@ -414,7 +415,7 @@ def estimate(
     telemetry_events.on_estimate()
     start = monotonic()
     context = _get_default_context()
-    if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
+    if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
         args = context._python_args_to_interpreter_args(args)
         res_str = context._interpreter.estimate(
             param_str, callable=entry_expr.__global_callable, args=args
@@ -524,7 +525,7 @@ def dump_operation(operation: str, num_qubits: int) -> List[List[complex]]:
     num_entries = pow(2, num_qubits)
     factor = math.sqrt(num_entries)
     ndigits = 6
-    matrix = []
+    matrix: list[list[complex]] = []
     for i in range(num_entries):
         matrix += [[]]
         for j in range(num_entries):

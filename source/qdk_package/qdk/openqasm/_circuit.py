@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
+import builtins
 from typing import Any, Callable, Dict, Optional, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
@@ -85,12 +86,12 @@ def circuit(
         prune_classical_qubits=prune_classical_qubits,
     )
 
-    if isinstance(source, Callable) and hasattr(source, "__global_callable"):
+    if builtins.callable(source) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res = get_interpreter().circuit(
             config, callable=source.__global_callable, args=args
         )
-    else:
+    elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
 
@@ -106,6 +107,8 @@ def circuit(
             fetch_github,
             **kwargs,
         )
+    else:
+        raise ValueError("source must be a QASM string or callable")
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_circuit_qasm_end(durationMs)
