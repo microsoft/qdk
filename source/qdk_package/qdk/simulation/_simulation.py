@@ -39,11 +39,6 @@ if TYPE_CHECKING:  # This is in the pyi file only
     from .._native import GpuShotResults
 
 
-def _is_noisy_simulation(call: pyqir.Call) -> bool:
-    callee = cast(pyqir.Function, call.callee)
-    return "qdk_noise" in callee.attributes.func
-
-
 class AggregateGatesPass(pyqir.QirModuleVisitor):
     def __init__(self) -> None:
         super().__init__()
@@ -274,7 +269,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             or callee_name == "__quantum__rt__end_parallel"
             or callee_name == "__quantum__qis__barrier__body"
             # We only hit this during noiseless simulations
-            or _is_noisy_simulation(call)
+            or "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func
         ):
             pass
         else:
@@ -301,7 +296,7 @@ class CorrelatedNoisePass(AggregateGatesPass):
                     [pyqir.ptr_id(arg) for arg in call.args],
                 )
             )
-        elif _is_noisy_simulation(call):
+        elif "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func:
             # If we are running a noisy simulation, we treat
             # missing noise intrinsics as an error.
             raise ValueError(f"Missing noise intrinsic: {callee_name}")
@@ -332,7 +327,7 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
                     [pyqir.ptr_id(qubit) for qubit in call.args],  # qubit args
                 )
             )
-        elif _is_noisy_simulation(call):
+        elif "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func:
             # If we are running a noisy simulation, we treat
             # missing noise intrinsics as an error.
             raise ValueError(f"Missing noise intrinsic: {callee_name}")

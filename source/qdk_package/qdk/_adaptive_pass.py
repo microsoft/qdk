@@ -895,9 +895,7 @@ class AdaptiveProfilePass:
                 self._emit_quantum_call(call)
             case _ if callee in self._func_to_id:
                 self._emit_ir_function_call(call)
-            case _ if "qdk_noise" in str(
-                getattr(getattr(call.callee, "attributes", None), "func", "")
-            ):
+            case _ if "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func:
                 # Check if this is a noise intrinsic (custom gate with qdk_noise attribute)
                 self._emit_noise_intrinsic_call(call)
             case _:
