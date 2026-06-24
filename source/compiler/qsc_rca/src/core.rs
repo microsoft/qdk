@@ -239,6 +239,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_bin_op(
         &mut self,
+        op: BinOp,
         lhs_expr_id: ExprId,
         rhs_expr_id: ExprId,
         expr_type: &Ty,
@@ -262,13 +263,21 @@ impl<'a> Analyzer<'a> {
             value_kind,
         } = &mut compute_kind
         {
+            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
+            if (op == BinOp::Eq || op == BinOp::Neq) && is_any_result(lhs_expr_ty) {
+                // When binary operators on result types are equality or inequality, the Boolean outcome may be a dynamic variable.
+                // In this path, we know at least one side of the comparison is dynamic (constant or variable), so the boolean
+                // that comes from the comparison must be variable. This is the critical source of dynamic variable values
+                // in a program that operates on qubits measurements.
+                *value_kind = ValueKind::Variable;
+            }
+
             *runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(*value_kind, expr_type);
 
-            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
             if *value_kind == ValueKind::Variable
-                && matches!(lhs_expr_ty, Ty::Prim(Prim::String))
-                && expr_type == &Ty::Prim(Prim::Bool)
+                && *lhs_expr_ty == Ty::Prim(Prim::String)
+                && *expr_type == Ty::Prim(Prim::Bool)
             {
                 // Strings can only be concatenated or compared for equality, and only equality comparison
                 // can affect control flow of the program in a way that required runtime features,
@@ -343,7 +352,7 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id, expr_type)
+            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
         };
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
@@ -460,17 +469,6 @@ impl<'a> Analyzer<'a> {
             compute_kind.aggregate_value_kind(value_kind);
         }
 
-        // To distinguish between a cyclic operation and a call to a cyclic operation, replace the cyclic operation
-        // runtime feature (if any) by a call to a cyclic operation.
-        if let ComputeKind::Dynamic {
-            runtime_features, ..
-        } = &mut compute_kind
-            && runtime_features.contains(RuntimeFeatureFlags::CyclicOperationSpec)
-        {
-            runtime_features.remove(RuntimeFeatureFlags::CyclicOperationSpec);
-            runtime_features.insert(RuntimeFeatureFlags::CallToCyclicOperation);
-        }
-
         compute_kind
     }
 
@@ -478,7 +476,6 @@ impl<'a> Analyzer<'a> {
         &mut self,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
-        expr_type: &Ty,
     ) -> ComputeKind {
         // Try to resolve the callee.
         let package_id = self.get_current_package_id();
@@ -507,23 +504,18 @@ impl<'a> Analyzer<'a> {
         };
 
         if self.callee_in_active_contexts(&callee) {
-            assert_eq!(
-                expr_type,
-                &Ty::UNIT,
-                "output type for allowed recursive call should be Unit"
-            );
-
             // This is a recursive call, which we allow with some deferred capabilities checks at runtime.
-            // We treat the call as an unresolved callee, like above, such that partial evaluation will perform
-            // extra validation on the capabilities at runtime.
-            // This covers the corner case where a recursive call is made with a dynamic argument whose
+            // We treat the call as if it were an unresolved callee, like above, such that partial evaluation will perform
+            // extra validation on the capabilities at runtime. By adding the call expression to the list of unresolved callees,
+            // we ensure that the call is additionally validated at runtime regardless of any runtime flags.
+            // This runtime check covers the corner case where a recursive call is made with a dynamic argument whose
             // type is allowed to be dynamic but whose usage in later recursion could require additional
             // capabilities.
             self.get_current_application_instance_mut()
                 .unresolved_callee_exprs
                 .push(callee_expr_id);
             return ComputeKind::Dynamic {
-                runtime_features: RuntimeFeatureFlags::CallToUnresolvedCallee,
+                runtime_features: RuntimeFeatureFlags::empty(),
                 value_kind: ValueKind::Constant,
             };
         }
@@ -748,6 +740,11 @@ impl<'a> Analyzer<'a> {
                     // runtime feature since the result of the index expression can be used in a context that requires tuple-specific runtime features.
                     dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicTuple;
                 }
+                Ty::Prim(Prim::Result) => {
+                    // If the type of the index expression is a Result, we need to add the `UseOfDynamicResult`
+                    // runtime feature since the output will need to be stored in a variable of type Result.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicResult;
+                }
                 _ => {
                     // Other dynamic content types are already handled by the `derive_runtime_features_for_value_kind_associated_to_type` function
                     // called below, so we don't need to do anything else here.
@@ -896,8 +893,9 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_string(&mut self, components: &Vec<StringComponent>) -> ComputeKind {
         // Visit the string components to determine their compute kind, aggregate its runtime features and track whether
-        // any of them is variable to construct the compute kind of the string expression itself.
+        // any of them is variable or a result to construct the compute kind of the string expression itself.
         let mut has_variable_components = false;
+        let mut has_dynamic_result = false;
         let mut compute_kind = ComputeKind::Static;
         for component in components {
             match component {
@@ -909,6 +907,8 @@ impl<'a> Analyzer<'a> {
                     compute_kind = compute_kind
                         .aggregate_runtime_features(component_compute_kind, ValueKind::Constant);
                     has_variable_components |= component_compute_kind.is_variable_value_kind();
+                    has_dynamic_result |= is_any_result(&self.get_expr(*expr_id).ty)
+                        && !matches!(component_compute_kind, ComputeKind::Static);
                 }
                 StringComponent::Lit(_) => {
                     // Nothing to aggregate.
@@ -916,8 +916,8 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        // If any of the string components is variable, then the string expression is variable as well.
-        if has_variable_components {
+        // If any of the string components is variable or contains a dynamic result, then the string expression is variable as well.
+        if has_variable_components || has_dynamic_result {
             compute_kind.set_variable_value_kind();
         }
 
@@ -1896,8 +1896,8 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::BinOp(BinOp::Exp, lhs_expr_id, rhs_expr_id) => {
                 self.analyze_expr_bin_op_exp(*lhs_expr_id, *rhs_expr_id)
             }
-            ExprKind::BinOp(_, lhs_expr_id, rhs_expr_id) => {
-                self.analyze_expr_bin_op(*lhs_expr_id, *rhs_expr_id, &expr.ty)
+            ExprKind::BinOp(op, lhs_expr_id, rhs_expr_id) => {
+                self.analyze_expr_bin_op(*op, *lhs_expr_id, *rhs_expr_id, &expr.ty)
             }
             ExprKind::Block(block_id) => self.analyze_expr_block(*block_id),
             ExprKind::Call(callee_expr_id, args_expr_id) => {
@@ -1969,7 +1969,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ItemKind::Callable(decl) => {
                 self.visit_callable_decl(decl);
             }
-            ItemKind::Export(_, _) | ItemKind::Namespace(_, _) | ItemKind::Ty(_, _) => {
+            ItemKind::Ty(_, _) => {
                 // Items that are not callables do not have compute properties by themselves so we just record them as
                 // such in the package store compute properties data structure.
                 self.package_store_compute_properties.insert_item(
@@ -2345,10 +2345,12 @@ fn derive_instrinsic_operation_application_generator_set(
 ) -> ApplicationGeneratorSet {
     assert!(matches!(callable_context.kind, CallableKind::Operation));
 
-    // The value kind of intrinsic operations is inherently dynamic if their output is not `Unit` or `Qubit`.
+    // The value kind of intrinsic operations is inherently variable if their output is not `Unit`, `Qubit`, or `Result`.
     let runtime_kind = if callable_context.output_type == Ty::UNIT
-        || callable_context.output_type == Ty::Prim(Prim::Qubit)
-    {
+        || matches!(
+            callable_context.output_type,
+            Ty::Prim(Prim::Qubit | Prim::Result)
+        ) {
         ValueKind::Constant
     } else {
         ValueKind::new_variable_from_type(&callable_context.output_type)

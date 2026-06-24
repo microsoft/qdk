@@ -275,6 +275,39 @@ fn bind_noise_config<T: Float, Q: Float>(
     })
 }
 
+/// Builds a Python [`NoiseConfig`] for the Stim-to-QIR path, populating the
+/// intrinsics table from the Rust intrinsics map. The intrinsics handling is
+/// specific to Stim, so it lives here rather than in the general
+/// [`bind_noise_config`].
+pub(crate) fn bind_stim_noise_config<T: Float, Q: Float>(
+    py: Python,
+    value: &qdk_simulators::noise_config::NoiseConfig<T, Q>,
+) -> PyResult<NoiseConfig> {
+    let mut config = bind_noise_config(py, value)?;
+    config.intrinsics = Py::new(py, to_stim_intrinsics_table(py, &value.intrinsics)?)?;
+    Ok(config)
+}
+
+/// Builds a Python [`NoiseIntrinsicsTable`] from the Rust intrinsics map,
+/// preserving each intrinsic's id and naming it `noise_intrinsic_{id}` so the
+/// name matches the call emitted by the Stim-to-QIR compiler.
+fn to_stim_intrinsics_table<Q: Float>(
+    py: Python,
+    intrinsics: &FxHashMap<u32, qdk_simulators::noise_config::NoiseTable<Q>>,
+) -> PyResult<NoiseIntrinsicsTable> {
+    let mut table = FxHashMap::default();
+    let mut next_id = 0u32;
+    for (id, noise_table) in intrinsics {
+        let name = format!("noise_intrinsic_{id}");
+        table.insert(
+            name,
+            (*id, Py::new(py, NoiseTable::from(noise_table.clone()))?),
+        );
+        next_id = next_id.max(*id + 1);
+    }
+    Ok(NoiseIntrinsicsTable { next_id, table })
+}
+
 pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
     py: Python,
     value: &Bound<NoiseConfig>,

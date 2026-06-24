@@ -3,8 +3,8 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(ptr null)
-  %var_16 = call i64 @A(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__rt__int_record_output(i64 %var_16, ptr @0)
+  %var_17 = call i64 @A(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__int_record_output(i64 %var_17, ptr @0)
   ret i64 0
 }
 
@@ -12,44 +12,50 @@ declare void @__quantum__rt__initialize(ptr)
 
 define i64 @A(ptr %var_2, ptr %var_3) {
 block_1:
-  %var_9 = alloca i64
-  %var_12 = alloca i64
-  %var_8 = call i64 @B(ptr %var_3)
-  store i64 %var_8, ptr %var_9
-  call void @__quantum__qis__x__body(ptr %var_2)
+  %var_10 = alloca i64
+  %var_13 = alloca i64
+  %var_9 = call i64 @B(ptr %var_3)
+  store i64 %var_9, ptr %var_10
+  call void @X(ptr %var_2)
   call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 1 to ptr))
-  %var_10 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  br i1 %var_10, label %block_2, label %block_3
+  %var_11 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  br i1 %var_11, label %block_2, label %block_3
 block_2:
-  store i64 5, ptr %var_12
+  store i64 5, ptr %var_13
   br label %block_4
 block_3:
-  store i64 2, ptr %var_12
+  store i64 2, ptr %var_13
   br label %block_4
 block_4:
-  %var_19 = load i64, ptr %var_12
-  %var_20 = load i64, ptr %var_9
-  %var_14 = mul i64 %var_19, %var_20
-  %var_15 = add i64 %var_14, 1
-  ret i64 %var_15
+  %var_20 = load i64, ptr %var_13
+  %var_21 = load i64, ptr %var_10
+  %var_15 = mul i64 %var_20, %var_21
+  %var_16 = add i64 %var_15, 1
+  ret i64 %var_16
 }
 
 define i64 @B(ptr %var_4) {
 block_5:
-  %var_7 = alloca i64
-  call void @__quantum__qis__x__body(ptr %var_4)
+  %var_8 = alloca i64
+  call void @X(ptr %var_4)
   call void @__quantum__qis__mresetz__body(ptr %var_4, ptr inttoptr (i64 0 to ptr))
-  %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  br i1 %var_5, label %block_6, label %block_7
+  %var_6 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  br i1 %var_6, label %block_6, label %block_7
 block_6:
-  store i64 7, ptr %var_7
+  store i64 7, ptr %var_8
   br label %block_8
 block_7:
-  store i64 3, ptr %var_7
+  store i64 3, ptr %var_8
   br label %block_8
 block_8:
-  %var_23 = load i64, ptr %var_7
-  ret i64 %var_23
+  %var_24 = load i64, ptr %var_8
+  ret i64 %var_24
+}
+
+define void @X(ptr %var_5) {
+block_9:
+  call void @__quantum__qis__x__body(ptr %var_5)
+  ret void
 }
 
 declare void @__quantum__qis__x__body(ptr)

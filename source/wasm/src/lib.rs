@@ -784,13 +784,19 @@ fn get_configured_interpreter_from_openqasm(
         .expect("There should be at least one source");
     let mut resolver = sources.iter().cloned().collect::<InMemorySourceResolver>();
 
-    let CompileRawQasmResult(store, source_package_id, dependencies, sig, errors) =
+    let CompileRawQasmResult(store, source_package_id, dependencies, sig, errors, profile) =
         qsc::openqasm::parse_and_compile_raw_qasm(
             source.clone(),
             file.clone(),
             Some(&mut resolver),
             PackageType::Exe,
         );
+
+    let capabilities = if let Some(profile) = profile {
+        profile.into()
+    } else {
+        capabilities
+    };
 
     if !errors.is_empty() {
         return Err(errors

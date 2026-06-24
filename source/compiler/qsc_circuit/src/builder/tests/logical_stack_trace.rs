@@ -728,7 +728,7 @@ fn lambda_in_entry_expr() {
         ExecGraphConfig::Debug,
         &expect![[r#"
             AllocateQubitArray@qsharp-library-source:core/qir.qs:21:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:21:29[1] -> (1)@qsharp-library-source:core/qir.qs:22:23 -> qubit_allocate(q_0)
-            <lambda>@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            .lambda_1@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             ReleaseQubitArray@qsharp-library-source:core/qir.qs:39:8 -> loop: qs@qsharp-library-source:core/qir.qs:39:20[1] -> (1)@qsharp-library-source:core/qir.qs:40:12 -> qubit_release(q_0)
         "#]],
     );

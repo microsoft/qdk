@@ -96,7 +96,7 @@ fn count_compound_position_returns(package: &Package, block_id: qsc_fir::fir::Bl
 /// Count compound-position Returns in a single statement.
 ///
 /// A `Semi(Return(v))` or `Expr(Return(v))` is at the statement boundary —
-/// the outer Return is NOT compound, but Returns inside `v` ARE compound.
+/// the outer Return is not compound, but Returns inside `v` are compound.
 /// A `Local(_, _, e)` where `e` contains a Return is always compound.
 fn count_compound_returns_in_stmt(package: &Package, stmt_id: StmtId) -> usize {
     match &package.get_stmt(stmt_id).kind {
@@ -129,7 +129,7 @@ fn count_compound_returns_in_expr(package: &Package, expr_id: ExprId) -> usize {
             // nested compound Returns inside the inner value.
             1 + count_compound_returns_in_expr(package, *inner)
         }
-        // Statement-carrying constructs: the hoist pass does NOT descend
+        // Statement-carrying constructs: the hoist pass does not descend
         // into these (except for If-condition hoisting). For the purpose
         // of this measure, only count If-condition Returns.
         ExprKind::If(cond, _, _) | ExprKind::While(cond, _) => {
@@ -246,6 +246,9 @@ pub(super) fn collect_reachable_blocks(
     out
 }
 
+/// Recursion worker for [`collect_reachable_blocks`]: records `block_id` (once,
+/// via `seen`) and descends into its statements' expressions, stopping at
+/// closure boundaries so nested callable bodies are not collected here.
 pub(super) fn visit_block_for_collect(
     package: &Package,
     block_id: qsc_fir::fir::BlockId,
@@ -268,6 +271,8 @@ pub(super) fn visit_block_for_collect(
     }
 }
 
+/// Recursion worker for [`collect_reachable_blocks`]: descends an expression
+/// tree, recursing into any nested block via [`visit_block_for_collect`].
 pub(super) fn visit_expr_for_collect(
     package: &Package,
     expr_id: ExprId,
@@ -853,7 +858,7 @@ fn bind_inner_and_return(
 /// preserved.
 ///
 /// Defect this fixes: without preserving the Local, the flag-strategy emit
-/// (which does NOT truncate dead-after-return stmts) leaves sibling reads
+/// (which does not truncate dead-after-return stmts) leaves sibling reads
 /// of the dropped `LocalVarId` dangling, tripping the post-return-unify
 /// `LocalVarId consistency` invariant check (invariants.rs:1604).
 ///
@@ -872,7 +877,7 @@ fn bind_inner_and_return(
 /// # Mutations
 /// - Allocates exactly one fresh `ExprId` (the default-init expression).
 /// - Rewrites the original Local's `init` field in place.
-/// - Does NOT allocate a new `Pat`, `Stmt`, or `LocalVarId`.
+/// - Does not allocate a new `Pat`, `Stmt`, or `LocalVarId`.
 ///
 /// # Fallback
 /// When [`super::slot::create_default_value`] returns `None` for the pat type
@@ -925,7 +930,7 @@ fn replace_local_init_with_default_and_emit(
     let mut out: Vec<StmtId> = Vec::with_capacity(pre_discards.len() + 2);
     out.extend(pre_discards);
     if reorder_after_return {
-        // Non-defaultable type: emit the return BEFORE the dead Local so
+        // Non-defaultable type: emit the return before the dead Local so
         // the fail-init is never reached. Flag lowering wraps the dead
         // Local under `if not __has_returned`.
         out.push(hoisted_return_stmt_id);

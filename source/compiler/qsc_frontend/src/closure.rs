@@ -5,8 +5,8 @@ use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     assigner::Assigner,
     hir::{
-        Block, CallableDecl, CallableKind, Expr, ExprKind, Ident, Mutability, NodeId, Pat, PatKind,
-        Res, SpecBody, SpecDecl, Stmt, StmtKind,
+        Block, CallableDecl, CallableKind, Expr, ExprKind, Ident, LocalItemId, Mutability, NodeId,
+        Pat, PatKind, Res, SpecBody, SpecDecl, Stmt, StmtKind,
     },
     mut_visit::{self, MutVisitor},
     ty::{Arrow, FunctorSetValue, Ty},
@@ -86,6 +86,7 @@ pub(super) fn lift(
     assigner: &mut Assigner,
     locals: &IndexMap<NodeId, (Ident, Ty)>,
     mut lambda: Lambda,
+    item: LocalItemId,
     span: Span,
 ) -> (Vec<NodeId>, CallableDecl) {
     let mut finder = VarFinder {
@@ -125,7 +126,7 @@ pub(super) fn lift(
         name: Ident {
             id: assigner.next_node(),
             span,
-            name: "<lambda>".into(),
+            name: format!(".lambda_{item}").into(),
         },
         generics: Vec::new(),
         input,

@@ -180,7 +180,6 @@ fn qubit_release_guarded_in_for_loop_with_early_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -253,7 +252,6 @@ fn body_level_qubit_release_guarded_with_while_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -317,7 +315,6 @@ fn qubits_should_be_able_to_be_threaded_through_early_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -363,7 +360,6 @@ fn qubit_arrays_should_be_able_to_be_threaded_through_early_return() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -388,9 +384,6 @@ fn qubit_arrays_should_be_able_to_be_threaded_through_early_return() {
                     }
                 }
 
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

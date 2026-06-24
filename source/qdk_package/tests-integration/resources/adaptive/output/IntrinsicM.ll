@@ -6,10 +6,10 @@ define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(ptr null)
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
+  call void @X(ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 1 to ptr))
+  call void @Reset(ptr inttoptr (i64 0 to ptr))
+  call void @Reset(ptr inttoptr (i64 1 to ptr))
   call void @__quantum__rt__tuple_record_output(i64 2, ptr @0)
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
@@ -20,7 +20,19 @@ declare void @__quantum__rt__initialize(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
+define void @X(ptr %var_1) {
+block_1:
+  call void @__quantum__qis__x__body(ptr %var_1)
+  ret void
+}
+
 declare void @__quantum__qis__x__body(ptr)
+
+define void @Reset(ptr %var_2) {
+block_2:
+  call void @__quantum__qis__reset__body(ptr %var_2)
+  ret void
+}
 
 declare void @__quantum__qis__reset__body(ptr) #1
 

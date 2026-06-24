@@ -55,7 +55,6 @@ fn simple_both_branches_collapses_to_if_else() {
         both_branches::apply,
         &expect![[r#"
             // before both_branches (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -81,7 +80,6 @@ fn simple_both_branches_collapses_to_if_else() {
             Main()
 
             // after both_branches
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -130,7 +128,6 @@ fn nested_both_branches_collapses_recursively() {
         both_branches::apply,
         &expect![[r#"
             // before both_branches (fired=false)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -164,7 +161,6 @@ fn nested_both_branches_collapses_recursively() {
             Main()
 
             // after both_branches
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -226,7 +222,6 @@ fn both_branches_with_complex_arm_expressions() {
         both_branches::apply,
         &expect![[r#"
             // before both_branches (fired=true)
-            // namespace Test
             function F(x : Int) : Int {
                 x + 1
             }
@@ -260,7 +255,6 @@ fn both_branches_with_complex_arm_expressions() {
             Main()
 
             // after both_branches
-            // namespace Test
             function F(x : Int) : Int {
                 x + 1
             }
@@ -308,7 +302,6 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
         both_branches::apply,
         &expect![[r#"
             // before both_branches (fired=false)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -334,7 +327,6 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
             Main()
 
             // after both_branches
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;

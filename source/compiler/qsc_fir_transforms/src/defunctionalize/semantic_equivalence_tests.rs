@@ -103,7 +103,7 @@ fn multi_capture_strategy() -> impl Strategy<Value = String> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
     #[test]
-    fn differential_defunctionalize(source in defunc_pattern_strategy()) {
+    fn proptest_defunctionalize_preserves_semantics(source in defunc_pattern_strategy()) {
         crate::test_utils::check_semantic_equivalence(&source);
     }
 }
@@ -111,7 +111,7 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(30))]
     #[test]
-    fn differential_multi_capture_ordering(source in multi_capture_strategy()) {
+    fn proptest_multi_capture_ordering_preserves_semantics(source in multi_capture_strategy()) {
         crate::test_utils::check_semantic_equivalence(&source);
     }
 }

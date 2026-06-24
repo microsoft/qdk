@@ -27,7 +27,6 @@ fn operand_lift_return_in_array_element_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -76,7 +75,6 @@ fn operand_lift_return_in_array_repeat_value_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -123,7 +121,6 @@ fn operand_lift_return_in_unop_operand_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -170,7 +167,6 @@ fn operand_lift_return_in_binop_lhs_operand_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -219,7 +215,6 @@ fn operand_lift_return_in_update_index_value_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -271,7 +266,6 @@ fn operand_lift_return_in_field_receiver_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable __has_returned : Bool = false;
@@ -337,7 +331,6 @@ fn operand_temp_names_restart_per_specialization_body() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Foo(q : Qubit) : Unit is Adj + Ctl {
                 body ... {
                     mutable __has_returned : Bool = false;
@@ -528,7 +521,6 @@ fn operand_lift_return_in_range_step_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -579,7 +571,6 @@ fn operand_lift_return_in_struct_field_value_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable __has_returned : Bool = false;
@@ -635,7 +626,6 @@ fn operand_lift_return_in_struct_copy_receiver_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable __has_returned : Bool = false;
@@ -696,7 +686,6 @@ fn operand_lift_return_in_qubit_temp_is_array_backed() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -729,9 +718,6 @@ fn operand_lift_return_in_qubit_temp_is_array_backed() {
                 }
 
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -759,7 +745,6 @@ fn operand_lift_drains_two_qubit_temps_array_backed() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -808,9 +793,6 @@ fn operand_lift_drains_two_qubit_temps_array_backed() {
                 } else {
                     __trailing_result
                 }
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

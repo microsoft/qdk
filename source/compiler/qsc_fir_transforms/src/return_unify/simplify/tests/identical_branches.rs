@@ -22,7 +22,7 @@
 //! The snapshot header records `fired=<bool>` so each case witnesses
 //! whether the single-rule pass mutated the block. The impure-condition
 //! decline test is the rule-level witness of the H-1 fix: an
-//! identical-arm `if` whose condition is not side-effect-free must NOT
+//! identical-arm `if` whose condition is not side-effect-free must not
 //! be folded (dropping the condition would drop its side effects).
 
 use expect_test::expect;
@@ -58,7 +58,6 @@ fn pure_flag_merge_collapses_to_slot_read() {
         },
         &expect![[r#"
             // before identical_branches (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -84,7 +83,6 @@ fn pure_flag_merge_collapses_to_slot_read() {
             Main()
 
             // after identical_branches
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -111,7 +109,7 @@ fn pure_flag_merge_collapses_to_slot_read() {
 #[test]
 fn impure_condition_refuses_to_collapse() {
     // H-1 regression witness at the rule level. The user `if`'s
-    // condition `{ set c += 1; true }` is NOT side-effect-free, so the
+    // condition `{ set c += 1; true }` is not side-effect-free, so the
     // `identical_branches` rule must refuse to fold it even though its
     // arms are structurally identical — folding would drop the
     // condition block and its `set c += 1` side effect. With no
@@ -138,7 +136,6 @@ fn impure_condition_refuses_to_collapse() {
         },
         &expect![[r#"
             // before identical_branches (fired=false)
-            // namespace Test
             operation Main() : Unit {
                 mutable c : Int = 0;
                 if {
@@ -156,7 +153,6 @@ fn impure_condition_refuses_to_collapse() {
             Main()
 
             // after identical_branches
-            // namespace Test
             operation Main() : Unit {
                 mutable c : Int = 0;
                 if {

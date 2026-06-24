@@ -31,7 +31,7 @@ pub const BITFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
     |000⟩: 0.4472+0.0000𝑖
     |111⟩: 0.8944+0.0000𝑖
     One"#]];
-pub const BITFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 8046"];
+pub const BITFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 8068"];
 pub const BITFLIPCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 3794"];
 pub const DEUTSCHJOZSA_EXPECT: Expect = expect!["[true, false, true, false]"];
 pub const DEUTSCHJOZSA_EXPECT_DEBUG: Expect = expect!["[true, false, true, false]"];
@@ -58,7 +58,7 @@ pub const DOTPRODUCTVIAPHASEESTIMATION_EXPECT_DEBUG: Expect = expect![[r#"
 pub const DOTPRODUCTVIAPHASEESTIMATION_EXPECT_CIRCUIT: Expect =
     expect!["generated circuit of length 120400"];
 pub const DOTPRODUCTVIAPHASEESTIMATION_EXPECT_QIR: Expect =
-    expect!["generated QIR of length 139308"];
+    expect!["generated QIR of length 139362"];
 pub const GROVER_EXPECT: Expect = expect![[r#"
     Number of iterations: 4
     Reflecting about marked state...
@@ -94,7 +94,7 @@ pub const HIDDENSHIFTNISQ_EXPECT_QIR: Expect = expect!["generated QIR of length 
 pub const PHASEESTIMATION_EXPECT: Expect = expect!["1.0799224746714913"];
 pub const PHASEESTIMATION_EXPECT_DEBUG: Expect = expect!["1.0799224746714913"];
 pub const PHASEESTIMATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 248107"];
-pub const PHASEESTIMATION_EXPECT_QIR: Expect = expect!["generated QIR of length 95735"];
+pub const PHASEESTIMATION_EXPECT_QIR: Expect = expect!["generated QIR of length 95778"];
 pub const PHASEFLIPCODE_EXPECT: Expect = expect![[r#"
     STATE:
     |000⟩: 0.4743+0.0000𝑖
@@ -135,7 +135,7 @@ pub const PHASEFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
     |110⟩: 0.4743+0.0000𝑖
     |111⟩: −0.1581+0.0000𝑖
     One"#]];
-pub const PHASEFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 9728"];
+pub const PHASEFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 9784"];
 pub const PHASEFLIPCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 4734"];
 pub const QRNG_EXPECT: Expect = expect!["7568811972615905454"];
 pub const QRNG_EXPECT_DEBUG: Expect = expect!["7568811972615905454"];

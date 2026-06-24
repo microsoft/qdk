@@ -43,7 +43,7 @@
 //! patterns are rejected because decomposing them would change observable
 //! shape; discard patterns (`let _ = ...`) are left alone since their
 //! initializer must keep evaluating for side effects. Mutability is
-//! unconstrained: the bar is "no downstream uses AND side-effect-free
+//! unconstrained: the bar is "no downstream uses and side-effect-free
 //! init".
 //!
 //! The purity check is conservative — it accepts only the shapes
