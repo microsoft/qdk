@@ -4,8 +4,9 @@
 use num_bigint::BigInt;
 use qsc_data_structures::{
     display::{
-        write_field, write_header, write_indented_list, write_list_field, write_opt_field,
-        writeln_field, writeln_header, writeln_list_field, writeln_opt_field,
+        write_field, write_header_with_span, write_indented_list, write_list_field,
+        write_opt_field, writeln_field, writeln_header_with_span, writeln_list_field,
+        writeln_opt_field,
     },
     span::Span,
 };
@@ -51,7 +52,7 @@ pub struct Stmt {
 
 impl Display for Stmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "Stmt", self.span)?;
+        writeln_header_with_span(f, "Stmt", self.span)?;
         writeln_list_field(f, "annotations", &self.annotations)?;
         write_field(f, "kind", &self.kind)
     }
@@ -68,7 +69,7 @@ pub struct Annotation {
 impl Display for Annotation {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let value = self.value.as_ref().map(|val| format!("\"{val}\""));
-        writeln_header(f, "Annotation", self.span)?;
+        writeln_header_with_span(f, "Annotation", self.span)?;
         writeln_field(f, "identifier", &self.identifier.as_string())?;
         writeln_opt_field(f, "value", value.as_ref())?;
         write_opt_field(f, "value_span", self.value_span.as_ref())
@@ -84,7 +85,7 @@ pub struct MeasureExpr {
 
 impl Display for MeasureExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "MeasureExpr", self.span)?;
+        writeln_header_with_span(f, "MeasureExpr", self.span)?;
         writeln_field(f, "measure_token_span", &self.measure_token_span)?;
         write_field(f, "operand", &self.operand)
     }
@@ -98,7 +99,7 @@ pub struct GateOperand {
 
 impl Display for GateOperand {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "GateOperand", self.span)?;
+        writeln_header_with_span(f, "GateOperand", self.span)?;
         write_field(f, "kind", &self.kind)
     }
 }
@@ -223,7 +224,7 @@ pub struct AliasDeclStmt {
 
 impl Display for AliasDeclStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "AliasDeclStmt", self.span)?;
+        writeln_header_with_span(f, "AliasDeclStmt", self.span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         write_list_field(f, "exprs", &self.exprs)
     }
@@ -238,7 +239,7 @@ pub struct AssignStmt {
 
 impl Display for AssignStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "AssignStmt", self.span)?;
+        writeln_header_with_span(f, "AssignStmt", self.span)?;
         writeln_field(f, "lhs", &self.lhs)?;
         write_field(f, "rhs", &self.rhs)
     }
@@ -252,7 +253,7 @@ pub struct BarrierStmt {
 
 impl Display for BarrierStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "BarrierStmt", self.span)?;
+        writeln_header_with_span(f, "BarrierStmt", self.span)?;
         write_list_field(f, "operands", &self.qubits)
     }
 }
@@ -266,7 +267,7 @@ pub struct BoxStmt {
 
 impl Display for BoxStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "BoxStmt", self.span)?;
+        writeln_header_with_span(f, "BoxStmt", self.span)?;
         writeln_opt_field(f, "duration", self.duration.as_ref())?;
         write_list_field(f, "body", &self.body)
     }
@@ -283,7 +284,7 @@ pub struct Block {
 
 impl Display for Block {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write_header(f, "Block", self.span)?;
+        write_header_with_span(f, "Block", self.span)?;
         write_indented_list(f, &self.stmts)
     }
 }
@@ -295,7 +296,7 @@ pub struct BreakStmt {
 
 impl Display for BreakStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write_header(f, "BreakStmt", self.span)
+        write_header_with_span(f, "BreakStmt", self.span)
     }
 }
 
@@ -307,7 +308,7 @@ pub struct CalibrationStmt {
 
 impl Display for CalibrationStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "CalibrationStmt", self.span)?;
+        writeln_header_with_span(f, "CalibrationStmt", self.span)?;
         write_field(f, "content", &self.content)
     }
 }
@@ -320,7 +321,7 @@ pub struct CalibrationGrammarStmt {
 
 impl Display for CalibrationGrammarStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "CalibrationGrammarStmt", self.span)?;
+        writeln_header_with_span(f, "CalibrationGrammarStmt", self.span)?;
         write_field(f, "name", &self.name)
     }
 }
@@ -336,7 +337,7 @@ pub struct ClassicalDeclarationStmt {
 
 impl Display for ClassicalDeclarationStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "ClassicalDeclarationStmt", self.span)?;
+        writeln_header_with_span(f, "ClassicalDeclarationStmt", self.span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         writeln_field(f, "ty_span", &self.ty_span)?;
         writeln_list_field(f, "ty_exprs", &self.ty_exprs)?;
@@ -351,7 +352,7 @@ pub struct ContinueStmt {
 
 impl Display for ContinueStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write_header(f, "ContinueStmt", self.span)
+        write_header_with_span(f, "ContinueStmt", self.span)
     }
 }
 
@@ -364,7 +365,7 @@ pub struct DefParameter {
 
 impl Display for DefParameter {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "DefParameter", self.span)?;
+        writeln_header_with_span(f, "DefParameter", self.span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         write_list_field(f, "ty_exprs", &self.ty_exprs)
     }
@@ -383,7 +384,7 @@ pub struct DefStmt {
 
 impl Display for DefStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "DefStmt", self.span)?;
+        writeln_header_with_span(f, "DefStmt", self.span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         writeln_field(f, "has_qubit_params", &self.has_qubit_params)?;
         writeln_list_field(f, "parameters", &self.params)?;
@@ -401,7 +402,7 @@ pub struct DefCalStmt {
 
 impl Display for DefCalStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "DefCalStmt", self.span)?;
+        writeln_header_with_span(f, "DefCalStmt", self.span)?;
         write_field(f, "content", &self.content)
     }
 }
@@ -415,7 +416,7 @@ pub struct DelayStmt {
 
 impl Display for DelayStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "DelayStmt", self.span)?;
+        writeln_header_with_span(f, "DelayStmt", self.span)?;
         writeln_field(f, "duration", &self.duration)?;
         write_list_field(f, "qubits", &self.qubits)
     }
@@ -440,7 +441,7 @@ pub struct ExprStmt {
 
 impl Display for ExprStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "ExprStmt", self.span)?;
+        writeln_header_with_span(f, "ExprStmt", self.span)?;
         write_field(f, "expr", &self.expr)
     }
 }
@@ -455,7 +456,7 @@ pub struct ExternDecl {
 
 impl Display for ExternDecl {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "ExternDecl", self.span)?;
+        writeln_header_with_span(f, "ExternDecl", self.span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         writeln_list_field(f, "ty_exprs", &self.ty_exprs)?;
         write_list_field(f, "return_ty_exprs", &self.return_ty_exprs)
@@ -473,7 +474,7 @@ pub struct ForStmt {
 
 impl Display for ForStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "ForStmt", self.span)?;
+        writeln_header_with_span(f, "ForStmt", self.span)?;
         writeln_field(f, "loop_variable", &self.loop_variable)?;
         writeln_list_field(f, "ty_exprs", &self.ty_exprs)?;
         writeln_field(f, "iterable", &self.set_declaration)?;
@@ -496,7 +497,7 @@ pub struct GateCall {
 
 impl Display for GateCall {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "GateCall", self.span)?;
+        writeln_header_with_span(f, "GateCall", self.span)?;
         writeln_list_field(f, "modifiers", &self.modifiers)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         writeln_field(f, "gate_name_span", &self.gate_name_span)?;
@@ -518,7 +519,7 @@ pub struct IfStmt {
 
 impl Display for IfStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "IfStmt", self.span)?;
+        writeln_header_with_span(f, "IfStmt", self.span)?;
         writeln_field(f, "condition", &self.condition)?;
         writeln_field(f, "if_body", &self.if_body)?;
         write_opt_field(f, "else_body", self.else_body.as_ref())
@@ -533,7 +534,7 @@ pub struct IncludeStmt {
 
 impl Display for IncludeStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "IncludeStmt", self.span)?;
+        writeln_header_with_span(f, "IncludeStmt", self.span)?;
         write_field(f, "filename", &self.filename)
     }
 }
@@ -548,7 +549,7 @@ pub struct IndexedClassicalTypeAssignStmt {
 
 impl Display for IndexedClassicalTypeAssignStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "IndexedClassicalTypeAssignStmt", self.span)?;
+        writeln_header_with_span(f, "IndexedClassicalTypeAssignStmt", self.span)?;
         writeln_field(f, "lhs", &self.lhs)?;
         writeln_field(f, "rhs", &self.rhs)?;
         write_list_field(f, "indices", &self.indices)
@@ -566,7 +567,7 @@ pub struct InputDeclaration {
 
 impl Display for InputDeclaration {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "InputDeclaration", self.span)?;
+        writeln_header_with_span(f, "InputDeclaration", self.span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         write_list_field(f, "ty_exprs", &self.ty_exprs)
     }
@@ -583,7 +584,7 @@ pub struct OutputDeclaration {
 
 impl Display for OutputDeclaration {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "OutputDeclaration", self.span)?;
+        writeln_header_with_span(f, "OutputDeclaration", self.span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         writeln_list_field(f, "ty_exprs", &self.ty_exprs)?;
         writeln_field(f, "ty_span", &self.ty_span)?;
@@ -600,7 +601,7 @@ pub struct MeasureArrowStmt {
 
 impl Display for MeasureArrowStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "MeasureArrowStmt", self.span)?;
+        writeln_header_with_span(f, "MeasureArrowStmt", self.span)?;
         writeln_field(f, "measurement", &self.measurement)?;
         write_opt_field(f, "target", self.target.as_ref())
     }
@@ -617,7 +618,7 @@ pub struct Pragma {
 impl Display for Pragma {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let value = self.value.as_ref().map(|val| format!("\"{val}\""));
-        writeln_header(f, "Pragma", self.span)?;
+        writeln_header_with_span(f, "Pragma", self.span)?;
         writeln_opt_field(
             f,
             "identifier",
@@ -640,7 +641,7 @@ pub struct QuantumGateDefinition {
 
 impl Display for QuantumGateDefinition {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "Gate", self.span)?;
+        writeln_header_with_span(f, "Gate", self.span)?;
         writeln_field(f, "name_span", &self.name_span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         writeln_list_field(f, "parameters", &self.params)?;
@@ -657,7 +658,7 @@ pub struct QubitDeclaration {
 
 impl Display for QubitDeclaration {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "QubitDeclaration", self.span)?;
+        writeln_header_with_span(f, "QubitDeclaration", self.span)?;
         write_field(f, "symbol_id", &self.symbol_id)
     }
 }
@@ -674,7 +675,7 @@ pub struct QubitArrayDeclaration {
 
 impl Display for QubitArrayDeclaration {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "QubitArrayDeclaration", self.span)?;
+        writeln_header_with_span(f, "QubitArrayDeclaration", self.span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         writeln_field(f, "size", &self.size)?;
         write_field(f, "size_span", &self.size_span)
@@ -690,7 +691,7 @@ pub struct ResetStmt {
 
 impl Display for ResetStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "ResetStmt", self.span)?;
+        writeln_header_with_span(f, "ResetStmt", self.span)?;
         writeln_field(f, "reset_token_span", &self.reset_token_span)?;
         write_field(f, "operand", &self.operand)
     }
@@ -704,7 +705,7 @@ pub struct ReturnStmt {
 
 impl Display for ReturnStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "ReturnStmt", self.span)?;
+        writeln_header_with_span(f, "ReturnStmt", self.span)?;
         write_opt_field(f, "expr", self.expr.as_ref())
     }
 }
@@ -722,7 +723,7 @@ pub struct SwitchStmt {
 
 impl Display for SwitchStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "SwitchStmt", self.span)?;
+        writeln_header_with_span(f, "SwitchStmt", self.span)?;
         writeln_field(f, "target", &self.target)?;
         writeln_list_field(f, "cases", &self.cases)?;
         write_opt_field(f, "default_case", self.default.as_ref())
@@ -738,7 +739,7 @@ pub struct SwitchCase {
 
 impl Display for SwitchCase {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "SwitchCase", self.span)?;
+        writeln_header_with_span(f, "SwitchCase", self.span)?;
         writeln_list_field(f, "labels", &self.labels)?;
         write_field(f, "block", &self.block)
     }
@@ -753,7 +754,7 @@ pub struct WhileLoop {
 
 impl Display for WhileLoop {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "WhileLoop", self.span)?;
+        writeln_header_with_span(f, "WhileLoop", self.span)?;
         writeln_field(f, "condition", &self.condition)?;
         write_field(f, "body", &self.body)
     }
@@ -769,7 +770,7 @@ pub struct Expr {
 
 impl Display for Expr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "Expr", self.span)?;
+        writeln_header_with_span(f, "Expr", self.span)?;
         writeln_field(f, "ty", &self.ty)?;
         if self.const_value.is_some() {
             writeln_opt_field(f, "const_value", self.const_value.as_ref())?;
@@ -919,7 +920,7 @@ pub struct Set {
 
 impl Display for Set {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "Set", self.span)?;
+        writeln_header_with_span(f, "Set", self.span)?;
         write_list_field(f, "values", &self.values)
     }
 }
@@ -934,7 +935,7 @@ pub struct Range {
 
 impl Display for Range {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "Range", self.span)?;
+        writeln_header_with_span(f, "Range", self.span)?;
         writeln_opt_field(f, "start", self.start.as_ref())?;
         writeln_opt_field(f, "step", self.step.as_ref())?;
         write_opt_field(f, "end", self.end.as_ref())
@@ -950,7 +951,7 @@ pub struct QuantumGateModifier {
 
 impl Display for QuantumGateModifier {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "QuantumGateModifier", self.span)?;
+        writeln_header_with_span(f, "QuantumGateModifier", self.span)?;
         writeln_field(f, "modifier_keyword_span", &self.modifier_keyword_span)?;
         write_field(f, "kind", &self.kind)
     }
@@ -987,7 +988,7 @@ pub struct IntType {
 
 impl Display for IntType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "IntType", self.span)?;
+        writeln_header_with_span(f, "IntType", self.span)?;
         write_opt_field(f, "size", self.size.as_ref())
     }
 }
@@ -1000,7 +1001,7 @@ pub struct UIntType {
 
 impl Display for UIntType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "UIntType", self.span)?;
+        writeln_header_with_span(f, "UIntType", self.span)?;
         write_opt_field(f, "size", self.size.as_ref())
     }
 }
@@ -1013,7 +1014,7 @@ pub struct FloatType {
 
 impl Display for FloatType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "FloatType", self.span)?;
+        writeln_header_with_span(f, "FloatType", self.span)?;
         write_opt_field(f, "size", self.size.as_ref())
     }
 }
@@ -1026,7 +1027,7 @@ pub struct ComplexType {
 
 impl Display for ComplexType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "ComplexType", self.span)?;
+        writeln_header_with_span(f, "ComplexType", self.span)?;
         write_opt_field(f, "base_size", self.base_size.as_ref())
     }
 }
@@ -1039,7 +1040,7 @@ pub struct AngleType {
 
 impl Display for AngleType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "AngleType", self.span)?;
+        writeln_header_with_span(f, "AngleType", self.span)?;
         write_opt_field(f, "size", self.size.as_ref())
     }
 }
@@ -1052,7 +1053,7 @@ pub struct BitType {
 
 impl Display for BitType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "BitType", self.span)?;
+        writeln_header_with_span(f, "BitType", self.span)?;
         write_opt_field(f, "size", self.size.as_ref())
     }
 }
@@ -1065,7 +1066,7 @@ pub struct QuantumArgument {
 
 impl Display for QuantumArgument {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "QuantumArgument", self.span)?;
+        writeln_header_with_span(f, "QuantumArgument", self.span)?;
         write_opt_field(f, "expr", self.expr.as_ref())
     }
 }
@@ -1096,7 +1097,7 @@ pub struct UnaryOpExpr {
 
 impl Display for UnaryOpExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "UnaryOpExpr", self.span)?;
+        writeln_header_with_span(f, "UnaryOpExpr", self.span)?;
         writeln_field(f, "op", &self.op)?;
         write_field(f, "expr", &self.expr)
     }
@@ -1138,7 +1139,7 @@ pub struct FunctionCall {
 
 impl Display for FunctionCall {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "FunctionCall", self.span)?;
+        writeln_header_with_span(f, "FunctionCall", self.span)?;
         writeln_field(f, "fn_name_span", &self.fn_name_span)?;
         writeln_field(f, "symbol_id", &self.symbol_id)?;
         write_list_field(f, "args", &self.args)
@@ -1157,7 +1158,7 @@ pub struct SizeofCallExpr {
 
 impl Display for SizeofCallExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "SizeofCallExpr", self.span)?;
+        writeln_header_with_span(f, "SizeofCallExpr", self.span)?;
         writeln_field(f, "fn_name_span", &self.fn_name_span)?;
         writeln_field(f, "array", &self.array)?;
         writeln_field(f, "array_dims", &self.array_dims)?;
@@ -1176,7 +1177,7 @@ pub struct DurationofCallExpr {
 
 impl Display for DurationofCallExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "DurationofCallExpr", self.span)?;
+        writeln_header_with_span(f, "DurationofCallExpr", self.span)?;
         writeln_field(f, "fn_name_span", &self.fn_name_span)?;
         writeln_field(f, "duration", &self.duration)?;
         write_field(f, "scope", &self.scope)
@@ -1198,7 +1199,7 @@ pub struct BuiltinFunctionCall {
 
 impl Display for BuiltinFunctionCall {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "BuiltinFunctionCall", self.span)?;
+        writeln_header_with_span(f, "BuiltinFunctionCall", self.span)?;
         writeln_field(f, "fn_name_span", &self.fn_name_span)?;
         writeln_field(f, "name", &self.name)?;
         writeln_field(f, "function_ty", &self.function_ty)?;
@@ -1232,7 +1233,7 @@ pub struct Cast {
 
 impl Display for Cast {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "Cast", self.span)?;
+        writeln_header_with_span(f, "Cast", self.span)?;
         writeln_field(f, "ty", &self.ty)?;
         writeln_list_field(f, "ty_exprs", &self.ty_exprs)?;
         writeln_field(f, "expr", &self.expr)?;
@@ -1248,7 +1249,7 @@ pub struct ConcatExpr {
 
 impl Display for ConcatExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "ConcatExpr", self.span)?;
+        writeln_header_with_span(f, "ConcatExpr", self.span)?;
         write_list_field(f, "operands", &self.operands)
     }
 }
@@ -1262,7 +1263,7 @@ pub struct IndexedExpr {
 
 impl Display for IndexedExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header(f, "IndexedExpr", self.span)?;
+        writeln_header_with_span(f, "IndexedExpr", self.span)?;
         writeln_field(f, "collection", &self.collection)?;
         write_field(f, "index", &self.index)
     }
