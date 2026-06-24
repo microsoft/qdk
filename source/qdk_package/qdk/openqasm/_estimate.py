@@ -79,9 +79,11 @@ def estimate(
     telemetry_events.on_estimate_qasm()
     start = monotonic()
     if builtins.callable(source) and hasattr(source, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
         res_str = get_interpreter().estimate(
-            param_str, entry_expr=None, callable=source.__global_callable, args=args
+            param_str,
+            entry_expr=None,
+            callable=source.__global_callable,
+            args=python_args_to_interpreter_args(args),
         )
     elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value

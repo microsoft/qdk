@@ -480,7 +480,7 @@ class EstimatorInputParamsItem:
         qubit_params = self.qubit_params.as_dict(validate)
         if len(qubit_params) != 0:
             result["qubitParams"] = qubit_params
-        elif hasattr(additional_params, "qubit_params"):
+        elif additional_params and hasattr(additional_params, "qubit_params"):
             qubit_params = additional_params.qubit_params.as_dict(validate)
             if len(qubit_params) != 0:
                 result["qubitParams"] = qubit_params
@@ -488,7 +488,7 @@ class EstimatorInputParamsItem:
         qec_scheme = self.qec_scheme.as_dict(validate)
         if len(qec_scheme) != 0:
             result["qecScheme"] = qec_scheme
-        elif hasattr(additional_params, "qec_scheme"):
+        elif additional_params and hasattr(additional_params, "qec_scheme"):
             qec_scheme = additional_params.qec_scheme.as_dict(validate)
             if len(qec_scheme) != 0:
                 result["qecScheme"] = qec_scheme
@@ -500,8 +500,10 @@ class EstimatorInputParamsItem:
                     result["distillationUnitSpecifications"] = []
 
                 result["distillationUnitSpecifications"].append(specification_dict)
-        if result.get("distillationUnitSpecifications") is not None and hasattr(
-            additional_params, "distillation_unit_specifications"
+        if (
+            result.get("distillationUnitSpecifications") is not None
+            and additional_params is not None
+            and hasattr(additional_params, "distillation_unit_specifications")
         ):
             for specification in additional_params.distillation_unit_specifications:
                 specification_dict = specification.as_dict(validate)
@@ -514,7 +516,7 @@ class EstimatorInputParamsItem:
         constraints = self.constraints.as_dict(validate)
         if len(constraints) != 0:
             result["constraints"] = constraints
-        elif hasattr(additional_params, "constraints"):
+        elif additional_params and hasattr(additional_params, "constraints"):
             constraints = additional_params.constraints.as_dict(validate)
             if len(constraints) != 0:
                 result["constraints"] = constraints
@@ -529,7 +531,7 @@ class EstimatorInputParamsItem:
                 result["errorBudget"] = self.error_budget
             elif isinstance(self.error_budget, ErrorBudgetPartition):
                 result["errorBudget"] = self.error_budget.as_dict(validate)
-        elif hasattr(additional_params, "error_budget"):
+        elif additional_params and hasattr(additional_params, "error_budget"):
             if isinstance(additional_params.error_budget, float) or isinstance(
                 additional_params.error_budget, int
             ):
@@ -730,7 +732,7 @@ class EstimatorResult(dict):
             raise self._error
         return self._repr
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> Any:
         """
         If the result represents a batching job and key is a slice, a
         side-by-side table comparison is shown for the indexes represented by

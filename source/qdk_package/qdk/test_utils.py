@@ -2,9 +2,8 @@
 
 from typing import Any
 
-from qdk._interpreter import _get_context_or_default
-
 from ._context import Context
+from ._interpreter import _get_context_or_default
 
 
 def dump_operation_on_state(

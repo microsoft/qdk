@@ -386,7 +386,7 @@ class Context:
         finally:
             visited.remove(obj_id)
 
-    def _python_args_to_interpreter_args(self, args: tuple[Any, ...]):
+    def _python_args_to_interpreter_args(self, args: tuple[Any, ...]) -> Any:
         """Turns `args` to the format expected by the Q# interpreter."""
         if len(args) == 0:
             return None
@@ -529,7 +529,9 @@ class Context:
         try:
             _, circuit_json = read_file(resolved_path)
         except Exception as err:
-            raise QSharpError(f"Error reading visual circuit file {resolved_path}.") from err
+            raise QSharpError(
+                f"Error reading visual circuit file {resolved_path}."
+            ) from err
 
         circuit_count = _visual_circuit_count(circuit_json)
         operation_base_name = name if name is not None else _path_stem(resolved_path)
@@ -686,9 +688,7 @@ class Context:
 
         callable = None
         run_entry_expr = None
-        if builtins.callable(entry_expr) and hasattr(
-            entry_expr, "__global_callable"
-        ):
+        if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             callable = getattr(entry_expr, "__global_callable")
@@ -777,9 +777,7 @@ class Context:
         start = monotonic()
         target_profile = self._config.get_target_profile()
         telemetry_events.on_compile(target_profile)
-        if builtins.callable(entry_expr) and hasattr(
-            entry_expr, "__global_callable"
-        ):
+        if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             ll_str = self._interpreter.qir(
@@ -863,9 +861,7 @@ class Context:
             prune_classical_qubits=prune_classical_qubits,
         )
 
-        if builtins.callable(entry_expr) and hasattr(
-            entry_expr, "__global_callable"
-        ):
+        if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             res = self._interpreter.circuit(
@@ -874,9 +870,10 @@ class Context:
                 args=args,
             )
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
-            args = self._python_args_to_interpreter_args(args)
             res = self._interpreter.circuit(
-                config=config, callable=entry_expr, args=args
+                config=config,
+                callable=entry_expr,
+                args=self._python_args_to_interpreter_args(args),
             )
         else:
             assert entry_expr is None or isinstance(entry_expr, str)
@@ -904,9 +901,7 @@ class Context:
         """
         ipython_helper()
 
-        if builtins.callable(entry_expr) and hasattr(
-            entry_expr, "__global_callable"
-        ):
+        if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             res_dict = self._interpreter.logical_counts(
