@@ -5,8 +5,15 @@ use expect_test::{Expect, expect};
 
 /// Check that a stim source parses to the
 /// expected AST or yields the expected errors.
-fn check(_source: &str, _expect: &Expect) {
-    todo!("missing error handling for lexer")
+fn check(source: &str, expect: &Expect) {
+    let lexer = crate::lex::Lexer::new(source);
+    let tokens: Vec<_> = lexer.collect();
+    let buffer = tokens
+        .iter()
+        .map(|e| format!("{e:?}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    expect.assert_eq(&buffer);
 }
 
 #[test]
