@@ -278,8 +278,8 @@ def use_python_env(folder):
 
 # Static checks for Python code in source/qdk_package.
 # Currently only includes type checking with mypy.
-# Runs ifs:
-#   1. Enabled explicilty (will run these checks only): build.py --check-py.
+# Runs if:
+#   1. Enabled explicitly (will run these checks only): build.py --check-py.
 #   2. Or if this build builds qdk package and checks are not disabled.
 def run_python_checks():
     python_bin, env = use_python_env(qdk_python_src)
