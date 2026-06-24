@@ -284,7 +284,7 @@ def use_python_env(folder):
 def run_python_checks():
     python_bin, env = use_python_env(qdk_python_src)
 
-    step_start("Install requirments for Python static checks")
+    step_start("Install requirements for Python static checks")
     run(
         [
             python_bin,
