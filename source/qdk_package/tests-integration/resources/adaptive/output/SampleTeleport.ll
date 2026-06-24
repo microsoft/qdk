@@ -4,7 +4,7 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_1 = alloca i1
-  %var_14 = alloca i64
+  %var_15 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   store i1 false, ptr %var_1
   call void @H(ptr inttoptr (i64 0 to ptr))
@@ -14,17 +14,17 @@ block_0:
   call void @CNOT(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @H(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_8 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  br i1 %var_8, label %block_1, label %block_2
+  %var_9 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  br i1 %var_9, label %block_1, label %block_2
 block_1:
   call void @X(ptr inttoptr (i64 1 to ptr))
   br label %block_2
 block_2:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 1 to ptr))
-  %var_10 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-  store i1 %var_10, ptr %var_1
-  %var_22 = load i1, ptr %var_1
-  br i1 %var_22, label %block_3, label %block_4
+  %var_11 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  store i1 %var_11, ptr %var_1
+  %var_23 = load i1, ptr %var_1
+  br i1 %var_23, label %block_3, label %block_4
 block_3:
   call void @Z(ptr inttoptr (i64 1 to ptr))
   br label %block_4
@@ -32,19 +32,19 @@ block_4:
   call void @H(ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @H__Adj(ptr inttoptr (i64 1 to ptr))
-  store i64 0, ptr %var_14
+  store i64 0, ptr %var_15
   br label %block_5
 block_5:
-  %var_24 = load i64, ptr %var_14
-  %var_15 = icmp slt i64 %var_24, 2
-  br i1 %var_15, label %block_6, label %block_7
+  %var_25 = load i64, ptr %var_15
+  %var_16 = icmp slt i64 %var_25, 2
+  br i1 %var_16, label %block_6, label %block_7
 block_6:
-  %var_25 = load i64, ptr %var_14
-  %var_16 = getelementptr ptr, ptr @array0, i64 %var_25
-  %var_26 = load ptr, ptr %var_16
-  call void @Reset(ptr %var_26)
-  %var_19 = add i64 %var_25, 1
-  store i64 %var_19, ptr %var_14
+  %var_26 = load i64, ptr %var_15
+  %var_17 = getelementptr ptr, ptr @array0, i64 %var_26
+  %var_27 = load ptr, ptr %var_17
+  call void @Reset(ptr %var_27)
+  %var_20 = add i64 %var_26, 1
+  store i64 %var_20, ptr %var_15
   br label %block_5
 block_7:
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
@@ -53,25 +53,25 @@ block_7:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define void @H(ptr %var_4) {
+define void @H(ptr %var_5) {
 block_8:
-  call void @__quantum__qis__h__body(ptr %var_4)
+  call void @__quantum__qis__h__body(ptr %var_5)
   ret void
 }
 
 declare void @__quantum__qis__h__body(ptr)
 
-define void @CNOT(ptr %var_5, ptr %var_6) {
+define void @CNOT(ptr %var_6, ptr %var_7) {
 block_9:
-  call void @__quantum__qis__cx__body(ptr %var_5, ptr %var_6)
+  call void @__quantum__qis__cx__body(ptr %var_6, ptr %var_7)
   ret void
 }
 
 declare void @__quantum__qis__cx__body(ptr, ptr)
 
-define void @X(ptr %var_7) {
+define void @X(ptr %var_8) {
 block_10:
-  call void @__quantum__qis__x__body(ptr %var_7)
+  call void @__quantum__qis__x__body(ptr %var_8)
   ret void
 }
 
@@ -83,23 +83,23 @@ declare i1 @__quantum__rt__read_result(ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-define void @Z(ptr %var_12) {
+define void @Z(ptr %var_13) {
 block_11:
-  call void @__quantum__qis__z__body(ptr %var_12)
+  call void @__quantum__qis__z__body(ptr %var_13)
   ret void
 }
 
 declare void @__quantum__qis__z__body(ptr)
 
-define void @H__Adj(ptr %var_13) {
+define void @H__Adj(ptr %var_14) {
 block_12:
-  call void @__quantum__qis__h__body(ptr %var_13)
+  call void @__quantum__qis__h__body(ptr %var_14)
   ret void
 }
 
-define void @Reset(ptr %var_18) {
+define void @Reset(ptr %var_19) {
 block_13:
-  call void @__quantum__qis__reset__body(ptr %var_18)
+  call void @__quantum__qis__reset__body(ptr %var_19)
   ret void
 }
 

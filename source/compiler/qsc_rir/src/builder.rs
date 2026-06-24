@@ -117,6 +117,18 @@ pub fn read_result_decl() -> Callable {
 }
 
 #[must_use]
+pub fn write_result_decl() -> Callable {
+    Callable {
+        name: "__quantum__rt__write_result".to_string(),
+        input_type: vec![Ty::Prim(Prim::Boolean), Ty::Prim(Prim::Result)],
+        input_vars: Vec::new(),
+        output_type: None,
+        body: None,
+        call_type: CallableType::Regular,
+    }
+}
+
+#[must_use]
 pub fn initialize_decl() -> Callable {
     Callable {
         name: "__quantum__rt__initialize".to_string(),

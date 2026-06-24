@@ -1307,8 +1307,8 @@ fn if_else_expression_with_dynamic_condition_and_subsequent_call_to_operation() 
 }
 
 #[test]
-fn if_else_expression_with_result_literal_fails() {
-    let error = get_partial_evaluation_error(indoc! {
+fn if_else_expression_with_result_literal() {
+    let program = get_rir_program(indoc! {
         r#"
         namespace Test {
             @EntryPoint()
@@ -1320,11 +1320,27 @@ fn if_else_expression_with_result_literal_fails() {
         "#,
     });
 
-    assert_error(
-        &error,
-        &expect![[
-            r#"Unexpected("dynamic value of type Result in conditional expression", PackageSpan { package: PackageId(2), span: Span { lo: 101, hi: 137 } })"#
-        ]],
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Store Variable(0, Boolean)
+            Branch Variable(1, Boolean), 2, 3
+        Block 1:Block:
+            Variable(3, Result) = Store Variable(2, Result)
+            Call id(4), args( Variable(3, Result), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(2, Result) = Store ResultLit(true)
+            Jump(1)
+        Block 3:Block:
+            Call id(2), args( Qubit(0), Result(1), )
+            Variable(2, Result) = Store Result(1)
+            Jump(1)"#]],
     );
 }
 
