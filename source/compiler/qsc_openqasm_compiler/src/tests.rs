@@ -438,6 +438,45 @@ fn verify_qsharp_ast(unit: &QasmCompileUnit) -> miette::Result<(), Vec<Report>> 
     }
 }
 
+/// Compiles `OpenQASM` to the Q# AST, runs it through the Q# compiler's default
+/// passes (including loop unification and `control_flow_unification`), and
+/// returns the resulting post-pass HIR package as a string. Used to snapshot the
+/// structure produced by the `break`/`continue` desugar.
+fn compile_qasm_to_post_pass_hir<S: Into<Arc<str>>>(
+    source: S,
+) -> miette::Result<String, Vec<Report>> {
+    let config = CompilerConfig::new(
+        QubitSemantics::Qiskit,
+        OutputSemantics::OpenQasm,
+        ProgramType::File,
+        Some("Test".into()),
+        None,
+    );
+    let unit = compile_with_config(source, config)?;
+    if unit.has_errors() {
+        let errors = unit.errors.into_iter().map(Report::new).collect();
+        return Err(errors);
+    }
+    let capabilities = unit.profile.unwrap_or(Profile::Unrestricted).into();
+    let (stdid, store) = package_store_with_stdlib(capabilities);
+    let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
+    let (compiled, errors) = compile_ast(
+        &store,
+        &dependencies,
+        unit.package.clone(),
+        unit.source_map.clone(),
+        PackageType::Lib,
+        capabilities,
+    );
+    if errors.is_empty() {
+        let despanned = HirDespanner.despan(&compiled.package);
+        Ok(despanned.to_string())
+    } else {
+        let reports = errors.into_iter().map(Report::new).collect();
+        Err(reports)
+    }
+}
+
 pub fn compile_qasm_stmt_to_qsharp<S: Into<Arc<str>>>(
     source: S,
 ) -> miette::Result<String, Vec<Report>> {

@@ -743,6 +743,7 @@ impl With<'_> {
                 Box::new(self.lower_expr(rhs)),
             ),
             ast::ExprKind::Block(block) => hir::ExprKind::Block(self.lower_block(block)),
+            ast::ExprKind::Break => hir::ExprKind::Break,
             ast::ExprKind::Call(callee, arg) => match &ty {
                 Ty::Arrow(arrow) if is_partial_app(arg) => hir::ExprKind::Block(
                     self.lower_partial_app(callee, arg, arrow.clone(), expr.span),
@@ -755,6 +756,7 @@ impl With<'_> {
             ast::ExprKind::Conjugate(within, apply) => {
                 hir::ExprKind::Conjugate(self.lower_block(within), self.lower_block(apply))
             }
+            ast::ExprKind::Continue => hir::ExprKind::Continue,
             ast::ExprKind::Fail(message) => hir::ExprKind::Fail(Box::new(self.lower_expr(message))),
             ast::ExprKind::Field(container, FieldAccess::Ok(name)) => {
                 let container = self.lower_expr(container);

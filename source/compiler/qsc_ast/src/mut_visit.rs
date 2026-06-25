@@ -401,7 +401,11 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
             vis.visit_expr(cond);
             vis.visit_block(block);
         }
-        ExprKind::Err | ExprKind::Hole | ExprKind::Lit(_) => {}
+        ExprKind::Break
+        | ExprKind::Continue
+        | ExprKind::Err
+        | ExprKind::Hole
+        | ExprKind::Lit(_) => {}
     }
 }
 

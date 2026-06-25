@@ -23,6 +23,13 @@ pub enum Error {
     #[diagnostic(code("Qsc.LogicSeparation.ExprFobidden"))]
     ExprForbidden(#[label] Span),
 
+    #[error("cannot take the adjoint of a loop containing break/continue")]
+    #[diagnostic(help(
+        "break and continue cannot be used in loops within blocks that require generated adjoint"
+    ))]
+    #[diagnostic(code("Qsc.LogicSeparation.LoopControlForbidden"))]
+    LoopControlForbidden(#[label] Span),
+
     #[error("cannot generate adjoint of block with {0} type")]
     #[diagnostic(help("adjoint generation can only be performed with blocks of type Unit"))]
     #[diagnostic(code("Qsc.LogicSeparation.NonUnitBlock"))]
@@ -211,6 +218,11 @@ impl SepCheck {
             | ExprKind::Return(..)
             | ExprKind::While(..) => {
                 self.errors.push(Error::ExprForbidden(expr.span));
+                false
+            }
+
+            ExprKind::Break | ExprKind::Continue => {
+                self.errors.push(Error::LoopControlForbidden(expr.span));
                 false
             }
         }

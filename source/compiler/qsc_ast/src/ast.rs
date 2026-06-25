@@ -877,10 +877,14 @@ pub enum ExprKind {
     BinOp(BinOp, Box<Expr>, Box<Expr>),
     /// A block: `{ ... }`.
     Block(Box<Block>),
+    /// A break expression that exits the enclosing loop: `break`.
+    Break,
     /// A call: `a(b)`.
     Call(Box<Expr>, Box<Expr>),
     /// A conjugation: `within { ... } apply { ... }`.
     Conjugate(Box<Block>, Box<Block>),
+    /// A continue expression that proceeds to the next iteration of the enclosing loop: `continue`.
+    Continue,
     /// An expression with invalid syntax that can't be parsed.
     #[default]
     Err,
@@ -941,8 +945,10 @@ impl Display for ExprKind {
             }
             ExprKind::BinOp(op, lhs, rhs) => display_bin_op(indent, *op, lhs, rhs)?,
             ExprKind::Block(block) => write!(indent, "Expr Block: {block}")?,
+            ExprKind::Break => write!(indent, "Break")?,
             ExprKind::Call(callable, arg) => display_call(indent, callable, arg)?,
             ExprKind::Conjugate(within, apply) => display_conjugate(indent, within, apply)?,
+            ExprKind::Continue => write!(indent, "Continue")?,
             ExprKind::Err => write!(indent, "Err")?,
             ExprKind::Fail(e) => write!(indent, "Fail: {e}")?,
             ExprKind::Field(expr, id) => display_field(indent, expr, id)?,

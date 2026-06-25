@@ -6,6 +6,7 @@ mod callable_limits;
 mod capabilitiesck;
 mod common;
 mod conjugate_invert;
+mod control_flow_unification;
 mod entry_point;
 mod id_update;
 mod index_assignment;
@@ -42,6 +43,7 @@ use qsc_hir::{
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_rca::{PackageComputeProperties, PackageStoreComputeProperties};
 use replace_qubit_allocation::ReplaceQubitAllocation;
+use rustc_hash::FxHashMap;
 use thiserror::Error;
 
 pub(crate) static CORE_NAMESPACE: &[&str] = &["Std", "Core"];
@@ -133,7 +135,11 @@ impl PassContext {
         let entry_point_errors = generate_entry_expr(package, assigner, package_type);
         Validator::default().visit_package(package);
 
-        LoopUni { core, assigner }.visit_package(package);
+        let update_steps = loop_unification::unify_loops(core, package, assigner);
+        Validator::default().visit_package(package);
+
+        control_flow_unification::ControlFlowUnification::new(assigner, update_steps)
+            .visit_package(package);
         Validator::default().visit_package(package);
 
         ReplaceQubitAllocation::new(core, assigner).visit_package(package);
@@ -187,6 +193,7 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
     LoopUni {
         core: &table,
         assigner: &mut core.assigner,
+        update_steps: FxHashMap::default(),
     }
     .visit_package(&mut core.package);
     Validator::default().visit_package(&core.package);

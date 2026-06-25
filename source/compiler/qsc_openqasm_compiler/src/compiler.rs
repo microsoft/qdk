@@ -17,11 +17,12 @@ use crate::{
     ast_builder::{
         build_angle_cast_call_by_name, build_angle_convert_call_with_two_params, build_arg_pat,
         build_argument_validation_stmts, build_array_reverse_expr, build_assignment_statement,
-        build_attr, build_barrier_call, build_binary_expr, build_call_no_params,
+        build_attr, build_barrier_call, build_binary_expr, build_break_stmt, build_call_no_params,
         build_call_stmt_no_params, build_call_with_param, build_call_with_params,
-        build_classical_decl, build_complex_from_expr, build_convert_call_expr,
-        build_convert_cast_call_by_name, build_end_stmt, build_expr_array_expr, build_for_stmt,
-        build_function_or_operation, build_functor_from_constraints, build_gate_call_param_expr,
+        build_classical_decl, build_complex_from_expr, build_continue_stmt,
+        build_convert_call_expr, build_convert_cast_call_by_name, build_end_stmt,
+        build_expr_array_expr, build_for_stmt, build_function_or_operation,
+        build_functor_from_constraints, build_gate_call_param_expr,
         build_gate_call_with_params_and_callee, build_if_expr_then_block,
         build_if_expr_then_block_else_block, build_if_expr_then_block_else_expr,
         build_if_expr_then_expr_else_expr, build_implicit_return_stmt, build_index_expr,
@@ -643,13 +644,13 @@ impl QasmCompiler {
             semast::StmtKind::Barrier(stmt) => Self::compile_barrier_stmt(stmt),
             semast::StmtKind::Box(stmt) => self.compile_box_stmt(stmt),
             semast::StmtKind::Block(stmt) => self.compile_block_stmt(stmt),
-            semast::StmtKind::Break(stmt) => self.compile_break_stmt(stmt),
+            semast::StmtKind::Break(stmt) => Self::compile_break_stmt(stmt),
             semast::StmtKind::Calibration(cal) => self.compile_calibration_stmt(cal),
             semast::StmtKind::CalibrationGrammar(stmt) => {
                 self.compile_calibration_grammar_stmt(stmt)
             }
             semast::StmtKind::ClassicalDecl(stmt) => self.compile_classical_decl(stmt),
-            semast::StmtKind::Continue(stmt) => self.compile_continue_stmt(stmt),
+            semast::StmtKind::Continue(stmt) => Self::compile_continue_stmt(stmt),
             semast::StmtKind::Def(def_stmt) => self.compile_def_stmt(def_stmt, &stmt.annotations),
             semast::StmtKind::DefCal(stmt) => self.compile_def_cal_stmt(stmt),
             semast::StmtKind::Delay(stmt) => self.compile_delay_stmt(stmt),
@@ -928,9 +929,8 @@ impl QasmCompiler {
         Some(build_stmt_semi_from_expr(build_wrapped_block_expr(block)))
     }
 
-    fn compile_break_stmt(&mut self, stmt: &semast::BreakStmt) -> Option<qsast::Stmt> {
-        self.push_unsupported_error_message("break stmt", stmt.span);
-        None
+    fn compile_break_stmt(stmt: &semast::BreakStmt) -> Option<qsast::Stmt> {
+        Some(build_break_stmt(stmt.span))
     }
 
     fn compile_calibration_stmt(&mut self, stmt: &semast::CalibrationStmt) -> Option<qsast::Stmt> {
@@ -969,9 +969,8 @@ impl QasmCompiler {
         Some(stmt)
     }
 
-    fn compile_continue_stmt(&mut self, stmt: &semast::ContinueStmt) -> Option<qsast::Stmt> {
-        self.push_unsupported_error_message("continue stmt", stmt.span);
-        None
+    fn compile_continue_stmt(stmt: &semast::ContinueStmt) -> Option<qsast::Stmt> {
+        Some(build_continue_stmt(stmt.span))
     }
 
     fn compile_def_stmt(

@@ -10,6 +10,7 @@ use qsc_data_structures::{
 };
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_hir::{mut_visit::MutVisitor, validate::Validator, visit::Visitor};
+use rustc_hash::FxHashMap;
 
 use crate::loop_unification::LoopUni;
 
@@ -27,6 +28,7 @@ fn check(file: &str, expect: &Expect) {
     LoopUni {
         core: store.core(),
         assigner: &mut unit.assigner,
+        update_steps: FxHashMap::default(),
     }
     .visit_package(&mut unit.package);
     Validator::default().visit_package(&unit.package);

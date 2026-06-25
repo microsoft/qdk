@@ -328,6 +328,7 @@ impl<'a> Context<'a> {
                 let apply = self.infer_block(apply);
                 apply.diverge_if(within.diverges)
             }
+            ExprKind::Break | ExprKind::Continue => self.diverge(),
             ExprKind::Fail(message) => {
                 let message_ty = self.infer_expr(message).ty;
                 self.inferrer

@@ -7,10 +7,14 @@ use qsc_data_structures::span::Span;
 use qsc_hir::{
     assigner::Assigner,
     global::Table,
-    hir::{BinOp, Block, Expr, ExprKind, Lit, Mutability, Pat, PrimField, Stmt, StmtKind, UnOp},
+    hir::{
+        BinOp, Block, Expr, ExprKind, Lit, Mutability, NodeId, Package, Pat, PrimField, Stmt,
+        StmtKind, UnOp,
+    },
     mut_visit::{MutVisitor, walk_expr},
     ty::{GenericArg, Prim, Ty},
 };
+use rustc_hash::FxHashMap;
 
 use crate::CORE_NAMESPACE;
 use crate::common::{IdentTemplate, create_gen_core_ref, gen_ident};
@@ -21,6 +25,10 @@ mod tests;
 pub(crate) struct LoopUni<'a> {
     pub(crate) core: &'a Table,
     pub(crate) assigner: &'a mut Assigner,
+    /// Maps each desugared while-body block to the loop-update statement appended
+    /// to it, so a later loop-control pass can leave that statement unguarded when
+    /// rewriting `continue` (the update must still run to advance the loop).
+    pub(crate) update_steps: FxHashMap<NodeId, NodeId>,
 }
 
 impl LoopUni<'_> {
@@ -216,9 +224,11 @@ impl LoopUni<'_> {
             kind: ExprKind::Lit(Lit::Int(1)),
         };
         let update_index = gen_id_add_update(self.assigner, &index_id, update_expr);
+        let update_stmt_id = update_index.id;
 
         block.stmts.insert(0, pat_init);
         block.stmts.push(update_index);
+        self.update_steps.insert(block.id, update_stmt_id);
 
         let cond = Expr {
             id: self.assigner.next_node(),
@@ -310,9 +320,11 @@ impl LoopUni<'_> {
 
         let update_expr = step_id.gen_local_ref(self.assigner);
         let update_index = gen_id_add_update(self.assigner, &index_id, update_expr);
+        let update_stmt_id = update_index.id;
 
         block.stmts.insert(0, pat_init);
         block.stmts.push(update_index);
+        self.update_steps.insert(block.id, update_stmt_id);
 
         let cond = gen_range_cond(self.assigner, &index_id, &step_id, &end_id, iterable_span);
 
@@ -371,6 +383,20 @@ impl MutVisitor for LoopUni<'_> {
             kind => expr.kind = kind,
         }
     }
+}
+
+pub(crate) fn unify_loops(
+    core: &Table,
+    package: &mut Package,
+    assigner: &mut Assigner,
+) -> FxHashMap<NodeId, NodeId> {
+    let mut pass = LoopUni {
+        core,
+        assigner,
+        update_steps: FxHashMap::default(),
+    };
+    pass.visit_package(package);
+    pass.update_steps
 }
 
 fn gen_range_cond(

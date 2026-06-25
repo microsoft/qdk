@@ -797,6 +797,9 @@ impl Lowerer {
                 let args = args.iter().map(|arg| self.lower_generic_arg(arg)).collect();
                 fir::ExprKind::Var(res, args)
             }
+            hir::ExprKind::Break | hir::ExprKind::Continue => {
+                panic!("break/continue should be eliminated by the control_flow_unification pass")
+            }
             hir::ExprKind::Conjugate(..) => panic!("conjugate should be eliminated by passes"),
             hir::ExprKind::Err => panic!("error expr should not be present"),
             hir::ExprKind::For(..) => panic!("for-loop should be eliminated by passes"),

@@ -478,6 +478,12 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                 self.write("apply");
                 self.visit_block(apply);
             }
+            // Q# has no surface `break`/`continue` syntax, so these AST nodes (produced by
+            // OpenQASM lowering) have no faithful textual form. Emit an obvious,
+            // non-round-trippable placeholder rather than panicking, since this printer is
+            // reached when dumping OpenQASM-generated Q# to text.
+            ExprKind::Break => self.write("/* break */"),
+            ExprKind::Continue => self.write("/* continue */"),
             ExprKind::Fail(msg) => {
                 self.write("fail ");
                 self.visit_expr(msg);

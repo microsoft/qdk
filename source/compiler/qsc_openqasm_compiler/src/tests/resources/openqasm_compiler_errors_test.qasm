@@ -36,15 +36,6 @@ box [2ns] { // NotSupported box duration
     x [2ns] q; // NotSupported duration on gate call
 }
 
-for int i in [0:2] {
-    break; // NotSupported break
-}
-
-for int i in [0:2] {
-    continue; // NotSupported continue
-}
-
-
 // NotSupported mutable array reference
 def mut_subroutine_dyn(mutable array[int[8], #dim = 1] arr_arg) {
 

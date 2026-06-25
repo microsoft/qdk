@@ -2,7 +2,10 @@
 // Licensed under the MIT License.
 
 mod annotation;
+mod break_stmt;
 mod const_eval;
+mod continue_stmt;
+mod control_flow;
 mod end;
 mod for_loop;
 mod gate_call;
