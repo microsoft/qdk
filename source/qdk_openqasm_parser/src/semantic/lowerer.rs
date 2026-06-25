@@ -120,7 +120,7 @@ impl Lowerer {
     pub fn new(source: QasmSource, source_map: SourceMap) -> Self {
         // do a quick check for the version to set up the symbol table
         // lowering and validation come later
-        let version = source.program().version;
+        let version = source.program().and_then(|p| p.version);
         let symbols = if let Some(version) = version {
             if version.major == 2 && version.minor == Some(0) {
                 SymbolTable::new_qasm2()
@@ -152,9 +152,9 @@ impl Lowerer {
         // not borrow-conflict with the `&mut self` lowering methods. This avoids
         // cloning the entire syntax AST just to read it; the source is moved back
         // into the result at the end.
-        let source = std::mem::take(&mut self.source);
+        let mut source = std::mem::take(&mut self.source);
         // Should we fail if we see a version in included files?
-        self.version = self.lower_version(source.program().version);
+        self.version = self.lower_version(source.program().and_then(|p| p.version));
 
         self.lower_source(&source);
 
@@ -162,6 +162,12 @@ impl Lowerer {
             self.symbols.is_current_scope_global(),
             "scope stack was non popped correctly"
         );
+
+        // Lowering has produced the semantic `program`; the syntax tree is no longer
+        // needed (diagnostics use the source text/errors and the source map, not the
+        // syntax tree). Drop it so the result does not retain a full syntax AST
+        // alongside the semantic program.
+        source.drop_program();
 
         let program = semantic::Program {
             version: self.version,
@@ -214,7 +220,13 @@ impl Lowerer {
         // `source.includes()`
         let mut includes = source.includes().iter();
 
-        for stmt in &source.program().statements {
+        // The syntax program is present during lowering; once a source's program has
+        // been dropped there is nothing to lower.
+        let Some(program) = source.program() else {
+            return;
+        };
+
+        for stmt in &program.statements {
             match &*stmt.kind {
                 syntax::StmtKind::Include(include) => {
                     // if we are not in the root  we should not be able to include

@@ -102,7 +102,14 @@ fn int_version_can_be_parsed() -> miette::Result<(), Vec<Report>> {
     let source = r#"OPENQASM 3;"#;
     let res = parse(source)?;
     assert_eq!(
-        Some(format!("{}", res.source.program.version.expect("version"))),
+        Some(format!(
+            "{}",
+            res.source
+                .program()
+                .expect("program")
+                .version
+                .expect("version")
+        )),
         Some("3".to_string())
     );
     Ok(())
@@ -113,7 +120,14 @@ fn dotted_version_can_be_parsed() -> miette::Result<(), Vec<Report>> {
     let source = r#"OPENQASM 3.0;"#;
     let res = parse(source)?;
     assert_eq!(
-        Some(format!("{}", res.source.program.version.expect("version"))),
+        Some(format!(
+            "{}",
+            res.source
+                .program()
+                .expect("program")
+                .version
+                .expect("version")
+        )),
         Some("3.0".to_string())
     );
     Ok(())

@@ -102,7 +102,9 @@ fn update_offsets(source_map: &SourceMap, source: &mut QasmSource) {
         .for_each(|e| *e = e.clone().with_offset(offset));
     // Update the program's spans with the offset
     let mut offsetter = Offsetter(offset);
-    offsetter.visit_program(&mut source.program);
+    if let Some(program) = &mut source.program {
+        offsetter.visit_program(program);
+    }
 
     // Recursively update the includes, their programs, and errors
     for include in source.includes_mut() {
@@ -155,8 +157,9 @@ pub struct QasmSource {
     path: Arc<str>,
     /// The source code of the file.
     source: Arc<str>,
-    /// The parsed AST of the source file or any parse errors.
-    program: Program,
+    /// The parsed AST of the source file, or `None` once it has been dropped (for
+    /// example after semantic lowering, which no longer needs the syntax tree).
+    program: Option<Program>,
     /// Any parse errors that occurred.
     errors: Vec<Error>,
     /// Any included files that were resolved.
@@ -176,7 +179,7 @@ impl QasmSource {
         QasmSource {
             path,
             source,
-            program,
+            program: Some(program),
             errors,
             included,
         }
@@ -209,8 +212,20 @@ impl QasmSource {
     }
 
     #[must_use]
-    pub fn program(&self) -> &Program {
-        &self.program
+    pub fn program(&self) -> Option<&Program> {
+        self.program.as_ref()
+    }
+
+    /// Drops the parsed syntax tree once it is no longer needed (for example after
+    /// semantic lowering, which produces its own program). Diagnostics rely on the
+    /// source text, the stored parse errors, and the source map rather than the
+    /// syntax tree, so dropping the program avoids retaining a full syntax AST
+    /// alongside the lowered semantic program. Applied recursively to includes.
+    pub(crate) fn drop_program(&mut self) {
+        self.program = None;
+        for include in &mut self.included {
+            include.drop_program();
+        }
     }
 
     #[must_use]
@@ -393,11 +408,11 @@ where
                     QasmSource {
                         path: file_path.clone(),
                         source: Default::default(),
-                        program: Program {
+                        program: Some(Program {
                             span: Span::default(),
                             statements: vec![].into_boxed_slice(),
                             version: None,
-                        },
+                        }),
                         errors: vec![],
                         included: vec![],
                     }
