@@ -787,7 +787,11 @@ impl Lowerer {
             return semantic::StmtKind::Err;
         }
 
-        semantic::StmtKind::Assign(semantic::AssignStmt { span, lhs, rhs })
+        semantic::StmtKind::Assign(semantic::AssignStmt {
+            span,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        })
     }
 
     fn lower_indexed_assign_stmt(
@@ -841,7 +845,11 @@ impl Lowerer {
             }
         };
 
-        semantic::StmtKind::Assign(semantic::AssignStmt { span, lhs, rhs })
+        semantic::StmtKind::Assign(semantic::AssignStmt {
+            span,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        })
     }
 
     fn lower_indexed_classical_type_assign_stmt(
@@ -863,9 +871,9 @@ impl Lowerer {
         // So, if return here, it is guaranteed that the assignment will succeed.
         semantic::StmtKind::IndexedClassicalTypeAssign(semantic::IndexedClassicalTypeAssignStmt {
             span,
-            lhs,
+            lhs: Box::new(lhs),
             indices,
-            rhs,
+            rhs: Box::new(rhs),
         })
     }
 
@@ -926,8 +934,8 @@ impl Lowerer {
 
         semantic::StmtKind::Assign(semantic::AssignStmt {
             span,
-            lhs,
-            rhs: binary_expr,
+            lhs: Box::new(lhs),
+            rhs: Box::new(binary_expr),
         })
     }
 
@@ -985,8 +993,8 @@ impl Lowerer {
 
         semantic::StmtKind::Assign(semantic::AssignStmt {
             span,
-            lhs,
-            rhs: binary_expr,
+            lhs: Box::new(lhs),
+            rhs: Box::new(binary_expr),
         })
     }
 
@@ -1494,7 +1502,7 @@ impl Lowerer {
         let duration = stmt
             .duration
             .as_ref()
-            .map(|d| self.lower_duration_designator(d));
+            .map(|d| Box::new(self.lower_duration_designator(d)));
 
         semantic::StmtKind::Box(semantic::BoxStmt {
             span: stmt.span,
@@ -1892,7 +1900,7 @@ impl Lowerer {
     fn lower_delay(&mut self, stmt: &syntax::DelayStmt) -> semantic::StmtKind {
         let qubits = stmt.qubits.iter().map(|q| self.lower_gate_operand(q));
         let qubits = list_from_iter(qubits);
-        let duration = self.lower_duration_designator(&stmt.duration);
+        let duration = Box::new(self.lower_duration_designator(&stmt.duration));
 
         semantic::StmtKind::Delay(semantic::DelayStmt {
             span: stmt.span,
@@ -1933,7 +1941,7 @@ impl Lowerer {
     }
 
     fn lower_expr_stmt(&mut self, stmt: &syntax::ExprStmt) -> semantic::StmtKind {
-        let expr = self.lower_expr(&stmt.expr);
+        let expr = Box::new(self.lower_expr(&stmt.expr));
         match &*expr.kind {
             semantic::ExprKind::Err => semantic::StmtKind::Err,
             semantic::ExprKind::Ident(id) => {
@@ -2123,7 +2131,7 @@ impl Lowerer {
 
         semantic::StmtKind::If(semantic::IfStmt {
             span: stmt.span,
-            condition,
+            condition: Box::new(condition),
             if_body,
             else_body,
         })
@@ -2363,7 +2371,7 @@ impl Lowerer {
         let duration = stmt
             .duration
             .as_ref()
-            .map(|d| self.lower_duration_designator(d));
+            .map(|d| Box::new(self.lower_duration_designator(d)));
 
         let name = stmt.name.name.to_string();
 
@@ -2740,7 +2748,7 @@ impl Lowerer {
             let measure = self.lower_measure_expr(&stmt.measurement);
             semantic::StmtKind::ExprStmt(semantic::ExprStmt {
                 span: stmt.span,
-                expr: measure,
+                expr: Box::new(measure),
             })
         }
     }
@@ -2890,7 +2898,7 @@ impl Lowerer {
             semantic::StmtKind::QubitArrayDecl(semantic::QubitArrayDeclaration {
                 span: stmt.span,
                 symbol_id,
-                size,
+                size: Box::new(size),
                 size_span,
             })
         } else {
@@ -3003,7 +3011,7 @@ impl Lowerer {
 
         semantic::StmtKind::Switch(semantic::SwitchStmt {
             span: stmt.span,
-            target,
+            target: Box::new(target),
             cases: list_from_iter(cases),
             default,
         })
@@ -3050,7 +3058,7 @@ impl Lowerer {
 
         semantic::StmtKind::WhileLoop(semantic::WhileLoop {
             span: stmt.span,
-            condition: while_condition,
+            condition: Box::new(while_condition),
             body,
         })
     }
