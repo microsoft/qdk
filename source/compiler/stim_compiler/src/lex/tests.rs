@@ -2,15 +2,24 @@
 // Licensed under the MIT License.
 
 use expect_test::{Expect, expect};
+use miette::Report;
 
-/// Check that a stim source parses to the
-/// expected AST or yields the expected errors.
+mod number;
+
+/// Check that a stim source lexes to the
+/// expected tokens or yields the expected errors.
 fn check(source: &str, expect: &Expect) {
     let lexer = crate::lex::Lexer::new(source);
-    let tokens: Vec<_> = lexer.collect();
-    let buffer = tokens
-        .iter()
-        .map(|e| format!("{e:?}"))
+    let buffer = lexer
+        .map(|token| match token {
+            Ok(token) => token.to_string(),
+            Err(err) => {
+                format!(
+                    "{:?}",
+                    Report::new(err).with_source_code(source.to_string())
+                )
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
     expect.assert_eq(&buffer);
