@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-
-use qsc_eval::PackageSpan;
-
-use crate::rir::{Instruction, Literal, Operand, Program};
+use crate::{
+    builder,
+    rir::{CallableId, Instruction, Literal, Operand, Program},
+};
 
 /// Transforms result literals in the program.
 /// Since result literals are not supported in QIR, this function attempts to handle them as best as possible.
@@ -13,24 +13,39 @@ use crate::rir::{Instruction, Literal, Operand, Program};
 /// reject it as incompatible.
 pub fn transform_result_literals(program: &mut Program) {
     let result_zero_id = program.num_results;
+    let result_one_id = program.num_results + 1;
     let mut replaced_zero = false;
+    let mut replaced_one = false;
 
     for block in program.blocks.values_mut() {
         for instr in &mut block.0 {
             // Result literals are only expected in context of Store, Call, or Return instructions
             match instr {
-                Instruction::Store(operand, _) | Instruction::Return(Some(operand))
-                    if matches!(operand, Operand::Literal(Literal::ResultLit(false, _))) =>
-                {
-                    *operand = Operand::Literal(Literal::Result(result_zero_id));
-                    replaced_zero = true;
+                Instruction::Store(operand, _) | Instruction::Return(Some(operand)) => {
+                    let Operand::Literal(Literal::ResultLit(val)) = *operand else {
+                        continue;
+                    };
+                    let id = if val {
+                        replaced_one = true;
+                        result_one_id
+                    } else {
+                        replaced_zero = true;
+                        result_zero_id
+                    };
+                    *operand = Operand::Literal(Literal::Result(id));
                 }
 
                 Instruction::Call(_, operands, _, _) => {
                     for operand in operands.iter_mut() {
-                        if matches!(operand, Operand::Literal(Literal::ResultLit(false, _))) {
-                            *operand = Operand::Literal(Literal::Result(result_zero_id));
-                            replaced_zero = true;
+                        if let Operand::Literal(Literal::ResultLit(val)) = *operand {
+                            let id = if val {
+                                replaced_one = true;
+                                result_one_id
+                            } else {
+                                replaced_zero = true;
+                                result_zero_id
+                            };
+                            *operand = Operand::Literal(Literal::Result(id));
                         }
                     }
                 }
@@ -39,32 +54,64 @@ pub fn transform_result_literals(program: &mut Program) {
         }
     }
 
-    if replaced_zero {
+    if replaced_zero || replaced_one {
+        let write_id = add_write_result(program);
+        let entry_block_id = program
+            .callables
+            .get(program.entry)
+            .expect("entry point should exist")
+            .body
+            .expect("entry point should have a body");
+        let entry_block = program
+            .blocks
+            .get_mut(entry_block_id)
+            .expect("entry block should exist");
+        let mut instructions = Vec::new();
+        if replaced_zero {
+            instructions.push(Instruction::Call(
+                write_id,
+                vec![
+                    Operand::Literal(Literal::Result(result_zero_id)),
+                    Operand::Literal(Literal::Bool(false)),
+                ],
+                None,
+                None,
+            ));
+        }
+        if replaced_one {
+            instructions.push(Instruction::Call(
+                write_id,
+                vec![
+                    Operand::Literal(Literal::Result(result_one_id)),
+                    Operand::Literal(Literal::Bool(true)),
+                ],
+                None,
+                None,
+            ));
+        }
+        instructions.append(&mut entry_block.0);
+        entry_block.0 = instructions;
+    }
+
+    if replaced_one {
+        program.num_results += 2;
+    } else if replaced_zero {
         program.num_results += 1;
     }
 }
 
-#[must_use]
-pub fn has_result_one_literal(program: &Program) -> Option<PackageSpan> {
-    for block in program.blocks.values() {
-        for instr in &block.0 {
-            // Result literals are only expected in context of Store, Call, or Return instructions
-            match instr {
-                Instruction::Store(Operand::Literal(Literal::ResultLit(_, span)), _)
-                | Instruction::Return(Some(Operand::Literal(Literal::ResultLit(_, span)))) => {
-                    return Some(*span);
-                }
-
-                Instruction::Call(_, operands, _, _) => {
-                    for operand in operands {
-                        if let Operand::Literal(Literal::ResultLit(_, span)) = operand {
-                            return Some(*span);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    None
+fn add_write_result(program: &mut Program) -> CallableId {
+    let write_id = CallableId(
+        program
+            .callables
+            .iter()
+            .map(|(id, _)| id.0)
+            .max()
+            .expect("should be at least one callable")
+            + 1,
+    );
+    program
+        .callables
+        .insert(write_id, builder::write_result_decl());
+    write_id
 }

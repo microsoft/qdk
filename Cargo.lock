@@ -2535,7 +2535,6 @@ dependencies = [
  "expect-test",
  "indenter",
  "qsc_data_structures",
- "qsc_eval",
  "rustc-hash",
 ]
 

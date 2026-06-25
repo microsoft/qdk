@@ -7,7 +7,6 @@ use qsc_data_structures::{
     attrs::Attributes, display::core::set_indentation, index_map::IndexMap,
     target::TargetCapabilityFlags,
 };
-use qsc_eval::PackageSpan;
 use std::fmt::{self, Display, Formatter, Write};
 
 /// The root of the RIR.
@@ -659,7 +658,7 @@ impl Operand {
         match self {
             Operand::Literal(lit) => match lit {
                 Literal::Qubit(_) => Ty::Prim(Prim::Qubit),
-                Literal::Result(_) | Literal::ResultLit(_, _) => Ty::Prim(Prim::Result),
+                Literal::Result(_) | Literal::ResultLit(_) => Ty::Prim(Prim::Result),
                 Literal::Bool(_) => Ty::Prim(Prim::Boolean),
                 Literal::Integer(_) => Ty::Prim(Prim::Integer),
                 Literal::Double(_) => Ty::Prim(Prim::Double),
@@ -676,7 +675,7 @@ impl Operand {
 pub enum Literal {
     Qubit(u32),
     Result(u32),
-    ResultLit(bool, PackageSpan),
+    ResultLit(bool),
     Bool(bool),
     Integer(i64),
     Double(f64),
@@ -690,7 +689,7 @@ impl Display for Literal {
         match &self {
             Self::Qubit(id) => write!(f, "Qubit({id})")?,
             Self::Result(id) => write!(f, "Result({id})")?,
-            Self::ResultLit(b, _) => write!(f, "ResultLit({b})")?,
+            Self::ResultLit(b) => write!(f, "ResultLit({b})")?,
             Self::Bool(b) => write!(f, "Bool({b})")?,
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
@@ -743,8 +742,8 @@ impl PartialEq for Literal {
                     false
                 }
             }
-            Self::ResultLit(self_result_lit, _) => {
-                if let Self::ResultLit(other_result_lit, _) = other {
+            Self::ResultLit(self_result_lit) => {
+                if let Self::ResultLit(other_result_lit) = other {
                     self_result_lit == other_result_lit
                 } else {
                     false
