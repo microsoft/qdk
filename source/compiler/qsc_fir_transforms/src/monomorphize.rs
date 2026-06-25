@@ -7,7 +7,7 @@
 //! concrete specialization, one per unique `(callable, generic_args)` pair,
 //! and rewrites call sites to use it. `Identity(42)` becomes
 //! `Call(Var(Identity<Int>, []), 42)` with a freshly cloned `Identity<Int>`
-//! callable inserted into the target package.
+//! callable inserted into the package that owns the generic source callable.
 //!
 //! # What to know before diving in
 //!
@@ -17,13 +17,15 @@
 //! - **Three phases:** *Discovery* collects concrete generic references;
 //!   *Specialization* drives a worklist that clones each body, substitutes
 //!   type params, and feeds back transitive generic references it finds;
-//!   *Rewrite* redirects call sites and (via `collect_rewrite_scope`) walks
-//!   closure items so generic call sites in lifted lambdas are not missed.
+//!   *Rewrite* redirects call sites across every reachable package and (via
+//!   `collect_rewrite_scope_for_package`) walks closure items so generic call
+//!   sites in lifted lambdas are not missed.
 //! - **Special cases:** identity instantiations (`[Param(0), ...]`) are
 //!   skipped (they would duplicate the original); intrinsics get their
-//!   argument lists cleared in place with no new callable; cross-package
-//!   references are cloned into the target package so bodies are
-//!   self-contained.
+//!   argument lists cleared in place with no new callable; generic references
+//!   in foreign bodies are specialized in place in the package that owns the
+//!   source callable, so each package receives its own concrete
+//!   specializations.
 
 #[cfg(test)]
 mod tests;
@@ -33,11 +35,12 @@ mod semantic_equivalence_tests;
 
 use crate::cloner::FirCloner;
 use crate::fir_builder::{functored_specs, reachable_local_callables};
-use crate::reachability::collect_reachable_from_entry;
+use crate::package_assigners::PackageAssigners;
+use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
 use crate::walk_utils::{
-    collect_expr_ids_in_entry_and_local_callables, extend_expr_ids_in_local_callables,
+    collect_expr_ids_in_entry_and_local_callables, collect_expr_ids_in_local_callables,
+    extend_expr_ids_in_local_callables,
 };
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, CallableDecl, CallableImpl, ExprId, ExprKind, Ident, Item, ItemId, ItemKind,
     LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res,
@@ -49,7 +52,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 /// A recorded specialization: the source callable + args, and where it was
-/// placed in the target package.
+/// placed in the package that owns the source callable.
 struct Specialization {
     source: StoreItemId,
     args: Vec<GenericArg>,
@@ -68,42 +71,126 @@ struct Specialization {
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
-pub fn monomorphize(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
+pub fn monomorphize(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+) {
     let instantiations = discover_instantiations(store, package_id);
-    if instantiations.is_empty() {
-        return;
+    if !instantiations.is_empty() {
+        // Create specialized callables, allocating each into the package that owns
+        // the generic source callable (specialize-in-place). The per-package
+        // assigners thread the advanced id watermarks back into the pipeline.
+        let specializations = create_specializations(store, instantiations, assigners);
+
+        // Rewrite generic call sites across every reachable package so foreign
+        // bodies that call the now-specialized generics point at the concrete
+        // specializations in their own arena.
+        rewrite_all_packages(store, package_id, &specializations);
     }
 
-    // Take ownership of the assigner for the duration of specialization
-    // and restore it afterward with advanced counters.
-    let owned_assigner = std::mem::take(assigner);
-
-    // Create specialized callables.
-    let (specializations, returned_assigner) =
-        create_specializations(store, package_id, instantiations, owned_assigner);
-    *assigner = returned_assigner;
-
-    let expr_ids = collect_rewrite_scope(store, package_id, &specializations);
-
-    let package = store.get_mut(package_id);
-    rewrite_call_sites(package, package_id, &specializations, &expr_ids);
+    // After monomorphization no generic callable may remain reachable in any
+    // package. Holds even when no instantiation was discovered (a reachable
+    // generic would have produced one).
+    assert_no_reachable_generic(store, package_id);
 }
 
-/// Collects all expression IDs that may contain generic call sites requiring
-/// rewriting: entry-reachable callables, newly created specializations, and
-/// any closure items transitively referenced by those specializations.
-fn collect_rewrite_scope(
-    store: &PackageStore,
-    package_id: PackageId,
+/// Asserts the post-monomorphization invariant that no generic callable remains
+/// reachable in any package.
+///
+/// Generics are specialized in place in their owning package and their call
+/// sites are redirected to the concrete specializations, leaving the original
+/// generic entry-unreachable (item DCE prunes it later). Codegen rejects any
+/// surviving generic, and the implicit coupling that keeps a generic from
+/// staying reachable — for example via a first-class or closure use in a
+/// library body that the call-site rewrite cannot redirect — is otherwise
+/// unasserted. This hard `assert!` makes a violation fail
+/// deterministically in release rather than miscompiling downstream.
+///
+/// # Panics
+///
+/// Panics if any reachable callable in any reachable package still carries
+/// generic type parameters.
+fn assert_no_reachable_generic(store: &PackageStore, entry_pkg_id: PackageId) {
+    let reachable = collect_reachable_from_entry(store, entry_pkg_id);
+    for store_item_id in &reachable {
+        let package = store.get(store_item_id.package);
+        if let Some(item) = package.items.get(store_item_id.item)
+            && let ItemKind::Callable(decl) = &item.kind
+        {
+            assert!(
+                decl.generics.is_empty(),
+                "monomorphization left a generic callable `{}` reachable in package {:?}",
+                decl.name.name,
+                store_item_id.package
+            );
+        }
+    }
+}
+
+/// Rewrites generic call sites in every reachable package.
+///
+/// For each package in the entry-reachable closure, collects the rewrite
+/// scope (reachable callables, the entry expression for the entry package,
+/// the new specializations owned by that package, and their transitive
+/// closures) and redirects `ExprKind::Var(Item(generic), [concrete])` sites
+/// to the matching specialization.
+fn rewrite_all_packages(
+    store: &mut PackageStore,
+    entry_pkg_id: PackageId,
     specializations: &[Specialization],
+) {
+    // Build a single lookup from (source key) → new ItemId, shared across all
+    // packages so foreign callers resolve specializations regardless of which
+    // package owns them.
+    let lookup: FxHashMap<String, ItemId> = specializations
+        .iter()
+        .map(|s| (mono_key(s.source, &s.args), s.new_item_id))
+        .collect();
+
+    let reachable = collect_reachable_from_entry(store, entry_pkg_id);
+    let packages = collect_reachable_package_closure(entry_pkg_id, &reachable);
+
+    // Group the newly created specialization local ids by their owning package
+    // so each package's rewrite scope can include its own fresh specializations
+    // (which are not yet reachable from entry until call sites are redirected).
+    let mut new_specs_by_pkg: FxHashMap<PackageId, Vec<LocalItemId>> = FxHashMap::default();
+    for s in specializations {
+        new_specs_by_pkg
+            .entry(s.new_item_id.package)
+            .or_default()
+            .push(s.new_item_id.item);
+    }
+
+    let empty: Vec<LocalItemId> = Vec::new();
+    for &pkg_id in &packages {
+        let new_specs = new_specs_by_pkg.get(&pkg_id).unwrap_or(&empty);
+        let expr_ids =
+            collect_rewrite_scope_for_package(store, entry_pkg_id, pkg_id, &reachable, new_specs);
+        rewrite_call_sites(store.get_mut(pkg_id), pkg_id, &lookup, &expr_ids);
+    }
+}
+
+/// Collects all expression IDs in `pkg_id` that may contain generic call sites
+/// requiring rewriting: reachable callables in that package, the entry
+/// expression (entry package only), the newly created specializations owned by
+/// that package, and any closure items transitively referenced by those.
+fn collect_rewrite_scope_for_package(
+    store: &PackageStore,
+    entry_pkg_id: PackageId,
+    pkg_id: PackageId,
+    reachable: &FxHashSet<StoreItemId>,
+    new_spec_items: &[LocalItemId],
 ) -> Vec<ExprId> {
-    let reachable = collect_reachable_from_entry(store, package_id);
-    let package = store.get(package_id);
-    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
+    let package = store.get(pkg_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, pkg_id, reachable)
         .map(|(id, _)| id)
         .collect();
-    let mut expr_ids = collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
-    let new_item_ids: Vec<_> = specializations.iter().map(|s| s.new_item_id.item).collect();
+    let mut expr_ids = if pkg_id == entry_pkg_id {
+        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids)
+    } else {
+        collect_expr_ids_in_local_callables(package, &local_item_ids)
+    };
     let mut seen: FxHashSet<ExprId> = expr_ids.iter().copied().collect();
 
     // We computed reachability after creating specializations but before
@@ -112,10 +199,10 @@ fn collect_rewrite_scope(
     // closure items that are also unreachable from entry until call sites
     // are redirected.
     let mut walked_items: FxHashSet<LocalItemId> = local_item_ids.into_iter().collect();
-    walked_items.extend(new_item_ids.iter());
+    walked_items.extend(new_spec_items.iter().copied());
 
     let mut scan_start = expr_ids.len();
-    extend_expr_ids_in_local_callables(package, &new_item_ids, &mut expr_ids, &mut seen);
+    extend_expr_ids_in_local_callables(package, new_spec_items, &mut expr_ids, &mut seen);
 
     // Transitively walk closure items whose bodies may also contain generic
     // call sites that need rewriting.
@@ -316,19 +403,20 @@ fn scan_for_concrete_generic_refs(
     found
 }
 
-#[allow(clippy::too_many_lines)]
 /// Drives the worklist that clones each requested `(callable, args)` pair
-/// into the target package, substitutes type parameters, and scans the
-/// cloned bodies for additional transitively-referenced generic sites.
+/// into the package that owns the generic source callable (specialize-in-place),
+/// substitutes type parameters, and scans the cloned bodies for additional
+/// transitively-referenced generic sites.
 ///
-/// Returns the inserted specializations plus the assigner so its counter
-/// can be threaded back into the pipeline.
+/// Each worklist item allocates into `source_id.package` via that package's
+/// assigner (from [`PackageAssigners`]), so foreign packages receive their own
+/// concrete specializations rather than having their callables cloned into the
+/// entry package.
 fn create_specializations(
     store: &mut PackageStore,
-    target_pkg_id: PackageId,
     instantiations: Vec<(StoreItemId, Vec<GenericArg>)>,
-    assigner: Assigner,
-) -> (Vec<Specialization>, Assigner) {
+    assigners: &mut PackageAssigners,
+) -> Vec<Specialization> {
     let mut specializations = Vec::new();
 
     // Pre-populate seen keys from initial discovery.
@@ -338,13 +426,6 @@ fn create_specializations(
         .collect();
     let mut worklist: VecDeque<(StoreItemId, Vec<GenericArg>)> = instantiations.into();
 
-    // Temporarily take the target package out of the store so we can hold
-    // `&source_pkg` (for cross-package) and `&mut target_pkg` simultaneously.
-    let empty_pkg = Package::default();
-    let mut target_pkg = std::mem::replace(store.get_mut(target_pkg_id), empty_pkg);
-
-    let mut cloner = FirCloner::from_assigner(assigner);
-
     while let Some((source_id, args)) = worklist.pop_front() {
         // Skip identity instantiations — cloning with these produces a
         // useless duplicate identical to the original generic callable.
@@ -352,120 +433,38 @@ fn create_specializations(
             continue;
         }
 
-        // Extract read-only data from the source package.
-        let (body_pkg, decl_snapshot) = {
-            let source_pkg: &Package = if source_id.package == target_pkg_id {
-                &target_pkg
-            } else {
-                store.get(source_id.package)
-            };
-            let source_item = source_pkg.get_item(source_id.item);
-            let ItemKind::Callable(source_decl) = &source_item.kind else {
-                panic!("expected StoreItemId {source_id} to refer to a callable");
-            };
-            let source_decl = source_decl.as_ref();
-            let body_pkg = extract_callable_body(source_pkg, source_decl);
-            let decl_snapshot = source_decl.clone();
-            (body_pkg, decl_snapshot)
-        }; // source_pkg borrow released
+        let owning_pkg_id = source_id.package;
 
-        // Clone body into target, substitute types, and insert.
-        let new_local_id = cloner.alloc_item();
-        let new_item_id = ItemId {
-            package: target_pkg_id,
-            item: new_local_id,
-        };
-        let old_item_id = ItemId {
-            package: source_id.package,
-            item: source_id.item,
-        };
+        // Allocate into the owning package using its own assigner. A fresh
+        // `FirCloner` per item (empty maps, persisted assigner watermark) is
+        // equivalent to reusing one cloner with `reset_maps` between items.
+        let (new_item_id, new_refs) =
+            assigners.with_package(store, owning_pkg_id, |store, assigner| {
+                // Take the owning package out of the store so we can read the
+                // source callable and mutate the package simultaneously. The
+                // source and target are the same package, so no cross-package
+                // borrow is required.
+                let mut owning_pkg = std::mem::take(store.get_mut(owning_pkg_id));
 
-        // Reserve the item slot so that clone_nested_item (called during
-        // clone_callable_impl for StmtKind::Item / ExprKind::Closure) does
-        // not allocate the same LocalItemId for a nested item.
-        target_pkg.items.insert(
-            new_local_id,
-            Item {
-                id: new_local_id,
-                span: decl_snapshot.span,
-                parent: None,
-                doc: Rc::from(""),
-                attrs: vec![],
-                visibility: Visibility::Public,
-                kind: ItemKind::Namespace(
-                    Ident {
-                        id: LocalVarId::default(),
-                        span: decl_snapshot.name.span,
-                        name: Rc::from(""),
-                    },
-                    vec![],
-                ),
-            },
-        );
+                let mut cloner = FirCloner::from_assigner(assigner);
 
-        cloner.reset_maps();
-        cloner.set_self_item_remap(old_item_id, new_item_id);
+                let result = specialize_one(
+                    &mut owning_pkg,
+                    owning_pkg_id,
+                    source_id,
+                    &args,
+                    &mut cloner,
+                );
 
-        // Clone input BEFORE impl so that `local_map` contains input
-        // parameter mappings when the callable body is walked.
-        let new_input = cloner.clone_input_pat(&body_pkg, decl_snapshot.input, &mut target_pkg);
-        let new_impl =
-            cloner.clone_callable_impl(&body_pkg, &decl_snapshot.implementation, &mut target_pkg);
+                *store.get_mut(owning_pkg_id) = owning_pkg;
+                (cloner.into_assigner(), result)
+            });
 
-        // Substitute Ty::Param / FunctorSet::Param in all cloned nodes.
-        let arg_map = build_arg_map(&args);
-        substitute_types_in_cloned_nodes(&mut target_pkg, &cloner, &arg_map);
-
-        let output = substitute_ty(&decl_snapshot.output, &arg_map);
-
-        let spec_name = mono_name(&decl_snapshot, &args);
-        let spec_decl = CallableDecl {
-            span: decl_snapshot.span,
-            kind: decl_snapshot.kind,
-            name: Ident {
-                id: LocalVarId::default(),
-                span: decl_snapshot.name.span,
-                name: spec_name,
-            },
-            generics: vec![],
-            input: new_input,
-            output,
-            functors: decl_snapshot.functors,
-            implementation: new_impl,
-            attrs: decl_snapshot.attrs.clone(),
-        };
-
-        let new_item = Item {
-            id: new_local_id,
-            span: decl_snapshot.span,
-            parent: None,
-            doc: Rc::from(""),
-            attrs: vec![],
-            visibility: Visibility::Public,
-            kind: ItemKind::Callable(Box::new(spec_decl)),
-        };
-        target_pkg.items.insert(new_local_id, new_item);
-
-        // Scan the newly created callable for additional concrete
-        // generic references that need their own specializations. Skip
-        // references to items in the target package that are already
-        // non-generic (e.g., self-references from recursive callables that
-        // were remapped by set_self_item_remap).
-        let created_item = target_pkg.items.get(new_local_id).expect("just inserted");
-        if let ItemKind::Callable(created_decl) = &created_item.kind {
-            let new_refs = scan_for_concrete_generic_refs(&target_pkg, created_decl);
-            for (ref_id, ref_args) in new_refs {
-                if ref_id.package == target_pkg_id
-                    && let Some(ref_item) = target_pkg.items.get(ref_id.item)
-                    && let ItemKind::Callable(ref_decl) = &ref_item.kind
-                    && ref_decl.generics.is_empty()
-                {
-                    continue;
-                }
-                let key = mono_key(ref_id, &ref_args);
-                if seen_keys.insert(key) {
-                    worklist.push_back((ref_id, ref_args));
-                }
+        // Feed transitively-referenced generic sites back into the worklist.
+        for (ref_id, ref_args) in new_refs {
+            let key = mono_key(ref_id, &ref_args);
+            if seen_keys.insert(key) {
+                worklist.push_back((ref_id, ref_args));
             }
         }
 
@@ -476,10 +475,111 @@ fn create_specializations(
         });
     }
 
-    // Put the target package back.
-    *store.get_mut(target_pkg_id) = target_pkg;
+    specializations
+}
 
-    (specializations, cloner.into_assigner())
+#[allow(clippy::too_many_lines)]
+/// Clones a single `(callable, args)` pair into its owning package, substitutes
+/// type parameters, and returns the new item id plus any concrete generic
+/// references discovered in the cloned body that require their own
+/// specializations.
+fn specialize_one(
+    owning_pkg: &mut Package,
+    owning_pkg_id: PackageId,
+    source_id: StoreItemId,
+    args: &[GenericArg],
+    cloner: &mut FirCloner,
+) -> (ItemId, Vec<(StoreItemId, Vec<GenericArg>)>) {
+    // Extract read-only data from the owning package.
+    let (body_pkg, decl_snapshot) = {
+        let source_item = owning_pkg.get_item(source_id.item);
+        let ItemKind::Callable(source_decl) = &source_item.kind else {
+            panic!("expected StoreItemId {source_id} to refer to a callable");
+        };
+        let source_decl = source_decl.as_ref();
+        let body_pkg = extract_callable_body(owning_pkg, source_decl);
+        let decl_snapshot = source_decl.clone();
+        (body_pkg, decl_snapshot)
+    };
+
+    // Clone body into the owning package, substitute types, and insert.
+    let new_local_id = cloner.alloc_item();
+    let new_item_id = ItemId {
+        package: owning_pkg_id,
+        item: new_local_id,
+    };
+    let old_item_id = ItemId {
+        package: source_id.package,
+        item: source_id.item,
+    };
+
+    // `alloc_item()` already reserved the id at `new_local_id`, and nested
+    // items cloned during `clone_callable_impl` receive larger ids. Nothing
+    // reads that slot before the real callable is inserted below, so no
+    // placeholder is needed.
+    cloner.set_self_item_remap(old_item_id, new_item_id);
+
+    // Clone the input before the impl so `local_map` holds the input
+    // parameter mappings when the callable body is walked.
+    let new_input = cloner.clone_input_pat(&body_pkg, decl_snapshot.input, owning_pkg);
+    let new_impl = cloner.clone_callable_impl(&body_pkg, &decl_snapshot.implementation, owning_pkg);
+
+    // Substitute Ty::Param / FunctorSet::Param in all cloned nodes.
+    let arg_map = build_arg_map(args);
+    substitute_types_in_cloned_nodes(owning_pkg, cloner, &arg_map);
+
+    let output = substitute_ty(&decl_snapshot.output, &arg_map);
+
+    let spec_name = mono_name(&decl_snapshot, args);
+    let spec_decl = CallableDecl {
+        span: decl_snapshot.span,
+        kind: decl_snapshot.kind,
+        name: Ident {
+            id: LocalVarId::default(),
+            span: decl_snapshot.name.span,
+            name: spec_name,
+        },
+        generics: vec![],
+        input: new_input,
+        output,
+        functors: decl_snapshot.functors,
+        implementation: new_impl,
+        attrs: decl_snapshot.attrs.clone(),
+    };
+
+    let new_item = Item {
+        id: new_local_id,
+        span: decl_snapshot.span,
+        parent: None,
+        doc: Rc::from(""),
+        attrs: vec![],
+        visibility: Visibility::Public,
+        kind: ItemKind::Callable(Box::new(spec_decl)),
+    };
+    owning_pkg.items.insert(new_local_id, new_item);
+
+    // Scan the newly created callable for additional concrete generic
+    // references that need their own specializations. Skip references to
+    // items in the owning package that are already non-generic (e.g.,
+    // self-references from recursive callables that were remapped by
+    // set_self_item_remap).
+    let mut refs_out = Vec::new();
+    let created_item = owning_pkg.items.get(new_local_id).expect("just inserted");
+    if let ItemKind::Callable(created_decl) = &created_item.kind {
+        let new_refs = scan_for_concrete_generic_refs(owning_pkg, created_decl);
+        for (ref_id, ref_args) in new_refs {
+            if ref_id.package == owning_pkg_id
+                && let Some(ref_item) = owning_pkg.items.get(ref_id.item)
+                && let ItemKind::Callable(ref_decl) = &ref_item.kind
+                && ref_decl.generics.is_empty()
+            {
+                continue;
+            }
+            refs_out.push((ref_id, ref_args));
+        }
+    }
+
+    (new_item_id, refs_out)
 }
 
 /// Builds a standalone `Package` holding all nodes transitively referenced
@@ -550,7 +650,7 @@ fn extract_stmt(source: &Package, stmt_id: StmtId, target: &mut Package) {
 
 /// Recursively copies an expression and its transitive references.
 ///
-/// NOTE: This is intentionally a separate implementation from the nearly
+/// This is intentionally a separate implementation from the nearly
 /// identical `extract_expr` in `defunctionalize/specialize.rs`. The key
 /// difference is the `ExprKind::Closure` arm: monomorphize follows the
 /// closure's lifted item via [`extract_item`] because type substitution
@@ -763,7 +863,7 @@ fn substitute_types_in_cloned_nodes(
                 for ga in generic_args.iter_mut() {
                     *ga = substitute_generic_arg(ga, arg_map);
                 }
-                // Do NOT clear here — rewrite_call_sites needs the
+                // Do not clear here — rewrite_call_sites needs the
                 // substituted args to find the monomorphized target.
             }
         }
@@ -823,15 +923,9 @@ fn substitute_generic_arg(ga: &GenericArg, arg_map: &FxHashMap<ParamId, GenericA
 fn rewrite_call_sites(
     package: &mut Package,
     package_id: PackageId,
-    specializations: &[Specialization],
+    lookup: &FxHashMap<String, ItemId>,
     expr_ids: &[ExprId],
 ) {
-    // Build a lookup from (source key) → new ItemId.
-    let lookup: FxHashMap<String, ItemId> = specializations
-        .iter()
-        .map(|s| (mono_key(s.source, &s.args), s.new_item_id))
-        .collect();
-
     // Walk scoped expressions and rewrite generic Var references.
     for &expr_id in expr_ids {
         let expr = package.exprs.get(expr_id).expect("expr should exist");

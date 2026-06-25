@@ -1969,7 +1969,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ItemKind::Callable(decl) => {
                 self.visit_callable_decl(decl);
             }
-            ItemKind::Export(_, _) | ItemKind::Namespace(_, _) | ItemKind::Ty(_, _) => {
+            ItemKind::Ty(_, _) => {
                 // Items that are not callables do not have compute properties by themselves so we just record them as
                 // such in the package store compute properties data structure.
                 self.package_store_compute_properties.insert_item(

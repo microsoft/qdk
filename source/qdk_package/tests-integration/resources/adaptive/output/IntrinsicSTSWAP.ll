@@ -8,20 +8,20 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(ptr null)
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+  call void @H(ptr inttoptr (i64 0 to ptr))
+  call void @S(ptr inttoptr (i64 0 to ptr))
+  call void @S(ptr inttoptr (i64 0 to ptr))
+  call void @H(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__t__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__t__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__t__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__t__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @H(ptr inttoptr (i64 1 to ptr))
+  call void @T(ptr inttoptr (i64 1 to ptr))
+  call void @T(ptr inttoptr (i64 1 to ptr))
+  call void @T(ptr inttoptr (i64 1 to ptr))
+  call void @T(ptr inttoptr (i64 1 to ptr))
+  call void @H(ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__x__body(ptr inttoptr (i64 3 to ptr))
-  call void @__quantum__qis__swap__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
+  call void @X(ptr inttoptr (i64 3 to ptr))
+  call void @SWAP(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
   call void @__quantum__rt__tuple_record_output(i64 3, ptr @0)
@@ -35,15 +35,45 @@ block_0:
 
 declare void @__quantum__rt__initialize(ptr)
 
+define void @H(ptr %var_1) {
+block_1:
+  call void @__quantum__qis__h__body(ptr %var_1)
+  ret void
+}
+
 declare void @__quantum__qis__h__body(ptr)
+
+define void @S(ptr %var_2) {
+block_2:
+  call void @__quantum__qis__s__body(ptr %var_2)
+  ret void
+}
 
 declare void @__quantum__qis__s__body(ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
+define void @T(ptr %var_3) {
+block_3:
+  call void @__quantum__qis__t__body(ptr %var_3)
+  ret void
+}
+
 declare void @__quantum__qis__t__body(ptr)
 
+define void @X(ptr %var_5) {
+block_4:
+  call void @__quantum__qis__x__body(ptr %var_5)
+  ret void
+}
+
 declare void @__quantum__qis__x__body(ptr)
+
+define void @SWAP(ptr %var_6, ptr %var_7) {
+block_5:
+  call void @__quantum__qis__swap__body(ptr %var_6, ptr %var_7)
+  ret void
+}
 
 declare void @__quantum__qis__swap__body(ptr, ptr)
 

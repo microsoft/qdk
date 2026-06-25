@@ -332,6 +332,126 @@ fn ir_function_program() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
+fn distinct_ir_function_names_render_as_distinct_globals() {
+    // Two IR functions whose names already differ only by a package
+    // discriminator suffix (`Foo` and `Foo__p1`) must render as two distinct,
+    // valid global symbols with no duplicate `define`. This mirrors the
+    // partial-evaluator name registry that keeps a bare name for the
+    // first-emitted callable and discriminates a colliding one.
+    let mut program = rir::Program::default();
+    program
+        .callables
+        .insert(rir::CallableId(0), builder::x_decl());
+    program.callables.insert(
+        rir::CallableId(1),
+        rir::Callable {
+            name: "Foo".to_string(),
+            input_type: vec![rir::Ty::Prim(rir::Prim::Qubit)],
+            input_vars: vec![rir::VariableId(0)],
+            output_type: None,
+            body: Some(rir::BlockId(0)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.callables.insert(
+        rir::CallableId(2),
+        rir::Callable {
+            name: "Foo__p1".to_string(),
+            input_type: vec![rir::Ty::Prim(rir::Prim::Qubit)],
+            input_vars: vec![rir::VariableId(0)],
+            output_type: None,
+            body: Some(rir::BlockId(1)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.callables.insert(
+        rir::CallableId(3),
+        rir::Callable {
+            name: "main".to_string(),
+            input_type: vec![],
+            input_vars: vec![],
+            output_type: Some(rir::Ty::Prim(rir::Prim::Integer)),
+            body: Some(rir::BlockId(2)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.entry = rir::CallableId(3);
+    program.blocks.insert(
+        rir::BlockId(0),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(0),
+                vec![rir::Operand::Variable(rir::Variable {
+                    variable_id: rir::VariableId(0),
+                    ty: rir::Ty::Prim(rir::Prim::Qubit),
+                })],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(None),
+        ]),
+    );
+    program.blocks.insert(
+        rir::BlockId(1),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(0),
+                vec![rir::Operand::Variable(rir::Variable {
+                    variable_id: rir::VariableId(0),
+                    ty: rir::Ty::Prim(rir::Prim::Qubit),
+                })],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(None),
+        ]),
+    );
+    program.blocks.insert(
+        rir::BlockId(2),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(1),
+                vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
+                None,
+                None,
+            ),
+            rir::Instruction::Call(
+                rir::CallableId(2),
+                vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(Some(rir::Operand::Literal(rir::Literal::Integer(0)))),
+        ]),
+    );
+    program.num_qubits = 1;
+    program.num_results = 0;
+
+    let qir = program.to_qir(&program);
+    // Each callable renders exactly once under its own distinct global symbol.
+    assert_eq!(
+        qir.matches("define void @Foo(").count(),
+        1,
+        "expected exactly one bare `@Foo` definition; got:\n{qir}"
+    );
+    assert_eq!(
+        qir.matches("define void @Foo__p1(").count(),
+        1,
+        "expected exactly one discriminated `@Foo__p1` definition; got:\n{qir}"
+    );
+    // Both distinct functions are reached through calls.
+    assert!(
+        qir.contains("call void @Foo(ptr inttoptr (i64 0 to ptr))"),
+        "expected a call to the bare `@Foo`; got:\n{qir}"
+    );
+    assert!(
+        qir.contains("call void @Foo__p1(ptr inttoptr (i64 0 to ptr))"),
+        "expected a call to the discriminated `@Foo__p1`; got:\n{qir}"
+    );
+}
+
+#[test]
 fn ir_function_name_with_special_characters_is_quoted() {
     let mut program = rir::Program::default();
     program

@@ -8,7 +8,7 @@
 //!
 //! `HAS_RETURNED`, `RET_VAL`, and `TRAILING_RESULT` are FIR-dump-only labels:
 //! they name the synthesized `Ident.name` strings purely so emitted FIR reads
-//! clearly. They MUST NOT be used for match/branch logic. Cleanup phases
+//! clearly. They must not be used for match/branch logic. Cleanup phases
 //! identify these synthesized locals by `LocalVarId` identity (carried in
 //! `SynthSlots`), never by comparing against these name strings.
 
@@ -21,7 +21,7 @@
 /// to `_`, restoring the original `__has_returned` spelling in Parseable
 /// snapshots.
 ///
-/// MUST NOT be used for match/branch logic — use `LocalVarId` identity via
+/// Must not be used for match/branch logic — use `LocalVarId` identity via
 /// `SynthSlots` instead.
 pub(crate) const HAS_RETURNED: &str = "_.has_returned";
 
@@ -31,7 +31,7 @@ pub(crate) const HAS_RETURNED: &str = "_.has_returned";
 /// The in-memory `Ident.name` carries a `.` sentinel (`_.ret_val`); the
 /// Parseable render restores the original `__ret_val` spelling.
 ///
-/// MUST NOT be used for match/branch logic — use `LocalVarId` identity via
+/// Must not be used for match/branch logic — use `LocalVarId` identity via
 /// `SynthSlots` instead.
 pub(crate) const RET_VAL: &str = "_.ret_val";
 
@@ -41,7 +41,7 @@ pub(crate) const RET_VAL: &str = "_.ret_val";
 /// The in-memory `Ident.name` carries a `.` sentinel (`_.trailing_result`); the
 /// Parseable render restores the original `__trailing_result` spelling.
 ///
-/// MUST NOT be used for match/branch logic — use `LocalVarId` identity via
+/// Must not be used for match/branch logic — use `LocalVarId` identity via
 /// `SynthSlots` instead.
 pub(super) const TRAILING_RESULT: &str = "_.trailing_result";
 
@@ -58,6 +58,6 @@ pub(super) const RET_HOIST: &str = "_.ret_hoist";
 /// The in-memory `Ident.name` carries a `.` sentinel (`_.operand_tmp`); the
 /// Parseable render restores the original `__operand_tmp` spelling.
 ///
-/// MUST NOT be used for match/branch logic — synthesized temps are
+/// Must not be used for match/branch logic — synthesized temps are
 /// identified by `LocalVarId` identity, never by name.
 pub(super) const OPERAND_TEMP: &str = "_.operand_tmp";

@@ -1088,15 +1088,15 @@ fn check_rca_for_operation_body_recursion_preserves_inherent_capabilities() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                         value_kind: Constant
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] ElementParamApplication:
                             constant: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                                 value_kind: Constant
                             variable: Dynamic:
-                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | QubitAllocation)
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
                                 value_kind: Constant
                 adj: <none>
                 ctl: <none>

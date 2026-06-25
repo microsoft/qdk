@@ -17,68 +17,68 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  %var_3 = alloca i64
-  %var_10 = alloca i64
-  %var_17 = alloca i64
+  %var_6 = alloca i64
+  %var_15 = alloca i64
+  %var_22 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
-  call void @__quantum__qis__ccx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
+  call void @CCNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
-  store i64 0, ptr %var_3
+  store i64 0, ptr %var_6
   br label %block_1
 block_1:
-  %var_23 = load i64, ptr %var_3
-  %var_4 = icmp slt i64 %var_23, 3
-  br i1 %var_4, label %block_2, label %block_3
+  %var_28 = load i64, ptr %var_6
+  %var_7 = icmp slt i64 %var_28, 3
+  br i1 %var_7, label %block_2, label %block_3
 block_2:
-  %var_34 = load i64, ptr %var_3
-  %var_5 = getelementptr ptr, ptr @array0, i64 %var_34
-  %var_35 = load ptr, ptr %var_5
-  call void @__quantum__qis__reset__body(ptr %var_35)
-  %var_7 = add i64 %var_34, 1
-  store i64 %var_7, ptr %var_3
+  %var_39 = load i64, ptr %var_6
+  %var_8 = getelementptr ptr, ptr @array0, i64 %var_39
+  %var_40 = load ptr, ptr %var_8
+  call void @Reset(ptr %var_40)
+  %var_11 = add i64 %var_39, 1
+  store i64 %var_11, ptr %var_6
   br label %block_1
 block_3:
-  call void @__quantum__qis__x__body(ptr inttoptr (i64 3 to ptr))
-  call void @__quantum__qis__ccx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 5 to ptr))
+  call void @X(ptr inttoptr (i64 3 to ptr))
+  call void @CCNOT(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 5 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 4 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 5 to ptr), ptr inttoptr (i64 5 to ptr))
-  store i64 0, ptr %var_10
+  store i64 0, ptr %var_15
   br label %block_4
 block_4:
-  %var_25 = load i64, ptr %var_10
-  %var_11 = icmp slt i64 %var_25, 3
-  br i1 %var_11, label %block_5, label %block_6
+  %var_30 = load i64, ptr %var_15
+  %var_16 = icmp slt i64 %var_30, 3
+  br i1 %var_16, label %block_5, label %block_6
 block_5:
-  %var_31 = load i64, ptr %var_10
-  %var_12 = getelementptr ptr, ptr @array1, i64 %var_31
-  %var_32 = load ptr, ptr %var_12
-  call void @__quantum__qis__reset__body(ptr %var_32)
-  %var_14 = add i64 %var_31, 1
-  store i64 %var_14, ptr %var_10
+  %var_36 = load i64, ptr %var_15
+  %var_17 = getelementptr ptr, ptr @array1, i64 %var_36
+  %var_37 = load ptr, ptr %var_17
+  call void @Reset(ptr %var_37)
+  %var_19 = add i64 %var_36, 1
+  store i64 %var_19, ptr %var_15
   br label %block_4
 block_6:
-  call void @__quantum__qis__x__body(ptr inttoptr (i64 6 to ptr))
-  call void @__quantum__qis__x__body(ptr inttoptr (i64 7 to ptr))
-  call void @__quantum__qis__ccx__body(ptr inttoptr (i64 6 to ptr), ptr inttoptr (i64 7 to ptr), ptr inttoptr (i64 8 to ptr))
+  call void @X(ptr inttoptr (i64 6 to ptr))
+  call void @X(ptr inttoptr (i64 7 to ptr))
+  call void @CCNOT(ptr inttoptr (i64 6 to ptr), ptr inttoptr (i64 7 to ptr), ptr inttoptr (i64 8 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 6 to ptr), ptr inttoptr (i64 6 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 7 to ptr), ptr inttoptr (i64 7 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 8 to ptr), ptr inttoptr (i64 8 to ptr))
-  store i64 0, ptr %var_17
+  store i64 0, ptr %var_22
   br label %block_7
 block_7:
-  %var_27 = load i64, ptr %var_17
-  %var_18 = icmp slt i64 %var_27, 3
-  br i1 %var_18, label %block_8, label %block_9
+  %var_32 = load i64, ptr %var_22
+  %var_23 = icmp slt i64 %var_32, 3
+  br i1 %var_23, label %block_8, label %block_9
 block_8:
-  %var_28 = load i64, ptr %var_17
-  %var_19 = getelementptr ptr, ptr @array2, i64 %var_28
-  %var_29 = load ptr, ptr %var_19
-  call void @__quantum__qis__reset__body(ptr %var_29)
-  %var_21 = add i64 %var_28, 1
-  store i64 %var_21, ptr %var_17
+  %var_33 = load i64, ptr %var_22
+  %var_24 = getelementptr ptr, ptr @array2, i64 %var_33
+  %var_34 = load ptr, ptr %var_24
+  call void @Reset(ptr %var_34)
+  %var_26 = add i64 %var_33, 1
+  store i64 %var_26, ptr %var_22
   br label %block_7
 block_9:
   call void @__quantum__rt__tuple_record_output(i64 3, ptr @0)
@@ -99,11 +99,29 @@ block_9:
 
 declare void @__quantum__rt__initialize(ptr)
 
+define void @CCNOT(ptr %var_2, ptr %var_3, ptr %var_4) {
+block_10:
+  call void @__quantum__qis__ccx__body(ptr %var_2, ptr %var_3, ptr %var_4)
+  ret void
+}
+
 declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
+define void @Reset(ptr %var_10) {
+block_11:
+  call void @__quantum__qis__reset__body(ptr %var_10)
+  ret void
+}
+
 declare void @__quantum__qis__reset__body(ptr) #1
+
+define void @X(ptr %var_13) {
+block_12:
+  call void @__quantum__qis__x__body(ptr %var_13)
+  ret void
+}
 
 declare void @__quantum__qis__x__body(ptr)
 

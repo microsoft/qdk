@@ -49,14 +49,14 @@ use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BinOp, BlockId, CallableImpl, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, Lit,
     LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PatId, PatKind, Res,
-    StmtKind, UnOp,
+    StmtKind, StoreItemId, UnOp,
 };
 use qsc_fir::ty::{Arrow, Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// A resolved HOF dispatch target: the `(call site, specialization item, param)`
 /// triple produced during branch-split rewriting.
-type HofDispatchTarget<'a> = (&'a CallSite, LocalItemId, &'a CallableParam);
+type HofDispatchTarget<'a> = (&'a CallSite, StoreItemId, &'a CallableParam);
 
 /// A HOF dispatch target paired with its guard list (empty list = default branch).
 ///
@@ -79,14 +79,14 @@ pub(super) fn rewrite(
     package: &mut Package,
     package_id: PackageId,
     analysis: &AnalysisResult,
-    spec_map: &FxHashMap<SpecKey, LocalItemId>,
+    spec_map: &FxHashMap<SpecKey, StoreItemId>,
     assigner: &mut Assigner,
 ) {
     let expr_owner_lookup = build_expr_owner_lookup(package);
     let mut rewritten_callable_arg_locals = FxHashSet::default();
 
-    // Build a lookup from HOF LocalItemId → CallableParam.
-    let param_lookup: FxHashMap<LocalItemId, &CallableParam> = {
+    // Build a lookup from each HOF's StoreItemId → CallableParam.
+    let param_lookup: FxHashMap<StoreItemId, &CallableParam> = {
         let mut map = FxHashMap::default();
         for p in &analysis.callable_params {
             map.entry(p.callable_id).or_insert(p);
@@ -99,30 +99,37 @@ pub(super) fn rewrite(
     let mut grouped: FxHashMap<ExprId, Vec<HofDispatchTarget>> = FxHashMap::default();
 
     for call_site in &analysis.call_sites {
+        // This pass rewrites one package at a time; skip call sites that live
+        // in a different package's body.
+        if call_site.call_pkg_id != package_id {
+            continue;
+        }
+
         // Skip dynamic callables — they have no specialization.
         if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
             continue;
         }
 
         let spec_key = build_spec_key(call_site);
-        let Some(&spec_local_id) = spec_map.get(&spec_key) else {
+        let Some(&spec_store_id) = spec_map.get(&spec_key) else {
             continue;
         };
 
-        let hof_local_id = call_site.hof_item_id.item;
-        let Some(&param) = param_lookup.get(&hof_local_id) else {
+        let hof_store_id =
+            StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item));
+        let Some(&param) = param_lookup.get(&hof_store_id) else {
             continue;
         };
 
         grouped
             .entry(call_site.call_expr_id)
             .or_default()
-            .push((call_site, spec_local_id, param));
+            .push((call_site, spec_store_id, param));
     }
 
     for (call_expr_id, entries) in &grouped {
         if entries.len() == 1 {
-            let (call_site, spec_local_id, param) = entries[0];
+            let (call_site, spec_store_id, param) = entries[0];
             collect_rewritten_callable_arg_local(
                 package,
                 &expr_owner_lookup,
@@ -135,7 +142,7 @@ pub(super) fn rewrite(
                 package_id,
                 call_site,
                 param,
-                spec_local_id,
+                spec_store_id,
                 &expr_owner_lookup,
                 assigner,
             );
@@ -162,6 +169,10 @@ pub(super) fn rewrite(
 
     let mut grouped_direct: FxHashMap<ExprId, Vec<&DirectCallSite>> = FxHashMap::default();
     for direct_call_site in &analysis.direct_call_sites {
+        // Rewrite only the direct call sites that live in this package's body.
+        if direct_call_site.call_pkg_id != package_id {
+            continue;
+        }
         grouped_direct
             .entry(direct_call_site.call_expr_id)
             .or_default()
@@ -1124,7 +1135,7 @@ fn prune_dead_top_level_callable_locals(package: &mut Package) {
         .iter()
         .filter_map(|(item_id, item)| match &item.kind {
             ItemKind::Callable(decl) => Some((item_id, decl.implementation.clone())),
-            _ => None,
+            ItemKind::Ty(..) => None,
         })
         .collect();
 
@@ -1219,7 +1230,7 @@ fn remove_dead_callable_local_from_block(
             && local_ty_contains_arrow_through_udts(package, &package.get_pat(pat_id).ty)
             && pat_binds_local_var(package, pat_id, local_var)
         {
-            // Only remove when ALL bound variables in the pattern are
+            // Only remove when all bound variables in the pattern are
             // unused; a tuple pattern may bind siblings that are still live.
             let mut bound_vars = Vec::new();
             collect_bound_pat_vars(package, pat_id, &mut bound_vars);
@@ -1788,7 +1799,7 @@ fn apply_target_input_at_control_path(
 /// target whose parameters live in a one-element tuple.
 ///
 /// Relies on the naming contract with the producer pass: lifted lambdas
-/// that take a single tuple parameter are named with a leading `"<lambda>"`
+/// that take a single tuple parameter are named with a leading `".lambda"`
 /// prefix. Do not rename lambda items without updating this predicate.
 fn direct_lambda_packaged_input(package: &Package, item_id: LocalItemId) -> Option<Ty> {
     let ItemKind::Callable(decl) = &package.get_item(item_id).kind else {
@@ -1796,7 +1807,7 @@ fn direct_lambda_packaged_input(package: &Package, item_id: LocalItemId) -> Opti
     };
 
     let input_ty = package.get_pat(decl.input).ty.clone();
-    if decl.name.name.as_ref().starts_with("<lambda>")
+    if decl.name.name.as_ref().starts_with(".lambda")
         && matches!(&input_ty, Ty::Tuple(items) if items.len() == 1)
     {
         Some(input_ty)
@@ -2032,10 +2043,10 @@ fn build_direct_branch_args_data(
 ///   and appending closure captures.
 fn rewrite_one(
     package: &mut Package,
-    package_id: PackageId,
+    _package_id: PackageId,
     call_site: &CallSite,
     param: &CallableParam,
-    spec_local_id: LocalItemId,
+    spec_store_id: StoreItemId,
     expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     assigner: &mut Assigner,
 ) {
@@ -2047,8 +2058,8 @@ fn rewrite_one(
 
     // Replace callee with the specialized callable reference
     let spec_item_id = ItemId {
-        package: package_id,
-        item: spec_local_id,
+        package: spec_store_id.package,
+        item: spec_store_id.item,
     };
 
     // Build the new callee type: remove the callable param from the arrow input.
@@ -2753,21 +2764,13 @@ fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
     }
 }
 
-fn callable_uses_tuple_input_pattern(package: &Package, callable_id: LocalItemId) -> bool {
-    let item = package.get_item(callable_id);
-    match &item.kind {
-        ItemKind::Callable(decl) => matches!(package.get_pat(decl.input).kind, PatKind::Tuple(_)),
-        _ => false,
-    }
-}
-
 fn callable_param_input_path(
     package: &Package,
     callee_id: ExprId,
     param: &CallableParam,
 ) -> Vec<usize> {
     let (_, outer_functor) = peel_body_functors(package, callee_id);
-    let uses_tuple = callable_uses_tuple_input_pattern(package, param.callable_id);
+    let uses_tuple = param.hof_input_is_tuple;
     super::build_param_input_path(uses_tuple, param, outer_functor)
 }
 
@@ -3041,19 +3044,19 @@ fn branch_split_rewrite(
 #[allow(clippy::too_many_arguments)]
 fn create_branch_call(
     package: &mut Package,
-    package_id: PackageId,
+    _package_id: PackageId,
     orig_callee: &Expr,
     orig_args: &Expr,
     span: Span,
     result_ty: &Ty,
     call_site: &CallSite,
     param: &CallableParam,
-    spec_local_id: LocalItemId,
+    spec_store_id: StoreItemId,
     assigner: &mut Assigner,
 ) -> ExprId {
     let spec_item_id = ItemId {
-        package: package_id,
-        item: spec_local_id,
+        package: spec_store_id.package,
+        item: spec_store_id.item,
     };
 
     // Specialised callee type.
@@ -3504,7 +3507,7 @@ fn build_branch_tree<E: Copy>(
     );
     let inner_default = inner_default.unwrap_or(default_entry);
 
-    // THEN subtree: recurse on the stripped run, defaulting to the group else.
+    // Then subtree: recurse on the stripped run, defaulting to the group else.
     let then_id = build_branch_tree(
         package,
         span,
@@ -3515,7 +3518,7 @@ fn build_branch_tree<E: Copy>(
         build_call,
     );
 
-    // ELSE subtree: recurse on the rest, keeping the OUTER default.
+    // Else subtree: recurse on the rest, keeping the outer default.
     let else_id = build_branch_tree(
         package,
         span,

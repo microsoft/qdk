@@ -2,12 +2,14 @@
 // Licensed under the MIT License.
 
 use crate::PipelineStage;
-use crate::test_utils::{compile_and_run_pipeline_to, compile_to_fir};
+use crate::test_utils::{
+    assert_panics_with, callable_id_by_name, compile_and_run_pipeline_to,
+    compile_and_run_pipeline_to_with_library, compile_to_fir, compile_to_fir_with_library,
+};
 use indoc::indoc;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
-use qsc_fir::fir::{Ident, Item, ItemId, ItemKind, LocalVarId, PackageLookup, Res, Visibility};
-use std::rc::Rc;
+use qsc_fir::fir::{ItemKind, PackageLookup};
 
 /// Counts total items in the user package.
 fn item_count(package: &qsc_fir::fir::Package) -> usize {
@@ -30,46 +32,9 @@ fn ty_item_names(package: &qsc_fir::fir::Package) -> Vec<String> {
         .iter()
         .filter_map(|(_, item)| match &item.kind {
             ItemKind::Ty(ident, _) => Some(ident.name.to_string()),
-            _ => None,
+            ItemKind::Callable(_) => None,
         })
         .collect()
-}
-
-fn callable_id_by_name(package: &qsc_fir::fir::Package, name: &str) -> qsc_fir::fir::LocalItemId {
-    package
-        .items
-        .iter()
-        .find_map(|(item_id, item)| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref() == name => Some(item_id),
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("callable {name} should exist"))
-}
-
-fn make_export_item(
-    export_id: qsc_fir::fir::LocalItemId,
-    package_id: qsc_fir::fir::PackageId,
-    target_id: qsc_fir::fir::LocalItemId,
-) -> Item {
-    Item {
-        id: export_id,
-        span: Span::default(),
-        parent: None,
-        doc: Rc::from(""),
-        attrs: vec![],
-        visibility: Visibility::Public,
-        kind: ItemKind::Export(
-            Ident {
-                id: LocalVarId::default(),
-                span: Span::default(),
-                name: Rc::from("ExportedHelper"),
-            },
-            Res::Item(ItemId {
-                package: package_id,
-                item: target_id,
-            }),
-        ),
-    }
 }
 
 #[test]
@@ -172,7 +137,7 @@ fn dce_removes_generic_after_pipeline() {
         .iter()
         .filter_map(|(_, item)| match &item.kind {
             ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
-            _ => None,
+            ItemKind::Ty(..) => None,
         })
         .collect();
     assert!(
@@ -202,7 +167,7 @@ fn dce_removes_unreachable_generic_instantiations() {
         .iter()
         .filter_map(|(_, item)| match &item.kind {
             ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
-            _ => None,
+            ItemKind::Ty(..) => None,
         })
         .collect();
 
@@ -281,7 +246,7 @@ fn dce_removes_unreachable_closure_and_generic() {
         .iter()
         .filter_map(|(_, item)| match &item.kind {
             ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
-            _ => None,
+            ItemKind::Ty(..) => None,
         })
         .collect();
 
@@ -305,69 +270,89 @@ fn dce_removes_unreachable_closure_and_generic() {
 }
 
 #[test]
-fn dce_removes_namespace_items() {
+fn dce_removes_dead_export_keeps_live_export() {
+    // `export` is not a DCE root: only reachability from the entry keeps an
+    // item alive. `Kept` survives because `Main` calls it; `Dropped` is removed
+    // even though it is exported, because nothing reachable from the entry uses
+    // it.
     let source = indoc! {"
         namespace Test {
+            function Kept() : Int { 1 }
+            function Dropped() : Int { 2 }
+            export Kept, Dropped;
             @EntryPoint()
-            function Main() : Int { 42 }
+            function Main() : Int { Kept() }
         }
     "};
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ItemDce);
     let package = store.get(pkg_id);
-    let has_namespace = package
+    let names: Vec<String> = package
         .items
         .iter()
-        .any(|(_, item)| matches!(item.kind, ItemKind::Namespace(..)));
+        .filter_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+            ItemKind::Ty(..) => None,
+        })
+        .collect();
+
     assert!(
-        !has_namespace,
-        "namespace items are not considered for reachability and must be removed by DCE"
+        names.iter().any(|n| n == "Main"),
+        "entry Main must survive DCE; remaining: {names:?}"
+    );
+    assert!(
+        names.iter().any(|n| n == "Kept"),
+        "exported callable used by the entry must survive DCE; remaining: {names:?}"
+    );
+    assert!(
+        !names.iter().any(|n| n == "Dropped"),
+        "exported but entry-unreachable callable must be removed; remaining: {names:?}"
     );
 }
 
 #[test]
-fn dce_removes_export_targets() {
+fn dce_resolves_reexport_chain_keeping_only_used_target() {
+    // `Deep` and `Unused` are re-exported through an intermediate namespace
+    // (`A` -> `B`). Re-export statements do not create items or act as DCE
+    // roots, so following the chain only `Deep` (called by the entry) survives
+    // while the re-exported-but-unused `Unused` is removed.
     let source = indoc! {"
+        namespace A {
+            function Deep() : Int { 7 }
+            function Unused() : Int { 8 }
+            export Deep, Unused;
+        }
+        namespace B {
+            export A.Deep;
+            export A.Unused;
+        }
         namespace Test {
-            function Helper() : Int { 42 }
-            function Dead() : Int { 0 }
+            import B.*;
             @EntryPoint()
-            function Main() : Int { 1 }
+            function Main() : Int { Deep() }
         }
     "};
-    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
-    let helper_id = callable_id_by_name(store.get(pkg_id), "Helper");
-    let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    let export_id = assigner.next_item();
-
-    store
-        .get_mut(pkg_id)
-        .items
-        .insert(export_id, make_export_item(export_id, pkg_id, helper_id));
-
-    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
-    assert!(
-        !reachable.contains(&qsc_fir::fir::StoreItemId {
-            package: pkg_id,
-            item: helper_id,
-        }),
-        "Helper is only reachable through the export, which is not considered for reachability"
-    );
-
-    crate::item_dce::eliminate_dead_items(pkg_id, store.get_mut(pkg_id), &reachable);
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ItemDce);
     let package = store.get(pkg_id);
+    let names: Vec<String> = package
+        .items
+        .iter()
+        .filter_map(|(_, item)| match &item.kind {
+            ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
+            ItemKind::Ty(..) => None,
+        })
+        .collect();
 
     assert!(
-        !package.items.contains_key(helper_id),
-        "export target callable is not reachable and must be removed by DCE"
+        names.iter().any(|n| n == "Main"),
+        "entry Main must survive DCE; remaining: {names:?}"
     );
     assert!(
-        !package.items.contains_key(dead_id),
-        "unexported unreachable callable should still be removed"
+        names.iter().any(|n| n == "Deep"),
+        "re-exported target used by the entry must survive DCE; remaining: {names:?}"
     );
     assert!(
-        !package.items.contains_key(export_id),
-        "export items are never preserved by DCE"
+        !names.iter().any(|n| n == "Unused"),
+        "re-exported but entry-unreachable target must be removed; remaining: {names:?}"
     );
 }
 
@@ -394,7 +379,7 @@ fn item_dce_is_idempotent() {
 }
 
 /// Tests validating `item_dce`'s fragile contract regarding temporary dangling
-/// `StmtKind::Item` references and export retention.
+/// `StmtKind::Item` references.
 ///
 /// # Contract Summary
 ///
@@ -412,10 +397,10 @@ fn item_dce_is_idempotent() {
 ///
 /// This is a **staged-invariant design**: `item_dce` operates only at the item
 /// (declaration) level; node-level (block/stmt/expr arena) cleanup is deferred to
-/// the downstream garbage-collection pass. Exports are not considered for
-/// reachability: export items are always removed by `item_dce`, and a callable
-/// reachable only through an export is removed along with it.
+/// the downstream garbage-collection pass.
 mod item_dce_contracts {
+    use crate::package_assigners::PackageAssigners;
+
     use super::*;
 
     fn dangling_item_refs(package: &qsc_fir::fir::Package) -> Vec<qsc_fir::fir::LocalItemId> {
@@ -488,10 +473,11 @@ mod item_dce_contracts {
         "};
 
         let (mut store, pkg_id) = compile_to_fir(source);
-        let mut assigner = Assigner::from_package(store.get(pkg_id));
-        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigner);
+        let mut assigners = PackageAssigners::new(&store, pkg_id);
+        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
         let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
-        insert_item_stmt_in_main(&mut store, pkg_id, &mut assigner, dead_id);
+        let assigner = assigners.get_mut(&store, pkg_id);
+        insert_item_stmt_in_main(&mut store, pkg_id, assigner, dead_id);
         assert!(
             dangling_item_refs(store.get(pkg_id)).is_empty(),
             "pre-DCE package should not yet contain dangling item refs"
@@ -527,73 +513,6 @@ mod item_dce_contracts {
             &store,
             pkg_id,
             crate::invariants::InvariantLevel::PostItemDce,
-        );
-    }
-
-    /// Validates that `item_dce` removes export items regardless of whether their
-    /// resolution target is resolved.
-    ///
-    /// # Contract Being Tested
-    ///
-    /// - Export items (structural) are not considered for reachability and are
-    ///   always removed by `item_dce`.
-    /// - This holds even when the export target is unresolved (`Res::Err`).
-    #[test]
-    fn exports_removed_regardless_of_target() {
-        let source = indoc! {"
-            namespace Test {
-                function Helper() : Int { 42 }
-                @EntryPoint()
-                function Main() : Int { 1 }
-            }
-        "};
-
-        // Compile to FIR and monomorphize.
-        let (mut store, pkg_id) = compile_to_fir(source);
-        let mut assigner = Assigner::from_package(store.get(pkg_id));
-        crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigner);
-
-        // Manually create an export with an unresolved target to validate the contract.
-        let export_id = assigner.next_item();
-        store.get_mut(pkg_id).items.insert(
-            export_id,
-            Item {
-                id: export_id,
-                span: Span::default(),
-                parent: None,
-                doc: Rc::from(""),
-                attrs: vec![],
-                visibility: Visibility::Public,
-                kind: ItemKind::Export(
-                    Ident {
-                        id: LocalVarId::default(),
-                        span: Span::default(),
-                        name: Rc::from("UnresolvedExport"),
-                    },
-                    Res::Err, // Unresolved target
-                ),
-            },
-        );
-
-        let items_before = item_count(store.get(pkg_id));
-
-        // Run item_dce.
-        let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
-        crate::item_dce::eliminate_dead_items(pkg_id, store.get_mut(pkg_id), &reachable);
-
-        let package = store.get(pkg_id);
-
-        // Contract validation: export items are not considered for reachability and
-        // are always removed, even when the target is unresolved.
-        assert!(
-            !package.items.contains_key(export_id),
-            "export with unresolved target must be removed by item_dce"
-        );
-
-        // DCE should not increase the item count.
-        assert!(
-            item_count(store.get(pkg_id)) <= items_before,
-            "item count should not increase after item_dce"
         );
     }
 
@@ -728,5 +647,271 @@ fn pinned_item_transitive_deps_survive_item_dce() {
     assert!(
         package.items.get(helper_local).is_some(),
         "transitive dependency of pinned item should survive DCE"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Cross-package foreign item DCE.
+//
+// Whole-closure structural passes transform only the entry-reachable callables
+// inside each foreign (library) package. The entry-unreachable foreign
+// callables left behind still reference erased UDTs and pre-promotion
+// signatures, so they must be removed to keep each library package internally
+// consistent with its transformed reachable callables.
+// ---------------------------------------------------------------------------
+
+/// Finds a callable's `StoreItemId` by name across every package in the store.
+fn find_callable_store_id(
+    store: &qsc_fir::fir::PackageStore,
+    name: &str,
+) -> qsc_fir::fir::StoreItemId {
+    for (package_id, package) in store {
+        for (item_id, item) in package.items.iter() {
+            if let ItemKind::Callable(decl) = &item.kind
+                && decl.name.name.as_ref() == name
+            {
+                return qsc_fir::fir::StoreItemId {
+                    package: package_id,
+                    item: item_id,
+                };
+            }
+        }
+    }
+    panic!("callable {name} not found in any package");
+}
+
+/// Whether a callable with the given name exists in `package`.
+fn callable_exists(package: &qsc_fir::fir::Package, name: &str) -> bool {
+    package.items.iter().any(|(_, item)| {
+        matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == name)
+    })
+}
+
+/// Whether a newtype with the given name exists in `package`.
+fn ty_exists(package: &qsc_fir::fir::Package, name: &str) -> bool {
+    package.items.iter().any(
+        |(_, item)| matches!(&item.kind, ItemKind::Ty(ident, _) if ident.name.as_ref() == name),
+    )
+}
+
+/// Finds a newtype's `StoreItemId` by name across every package in the store.
+fn find_ty_store_id(store: &qsc_fir::fir::PackageStore, name: &str) -> qsc_fir::fir::StoreItemId {
+    for (package_id, package) in store {
+        for (item_id, item) in package.items.iter() {
+            if let ItemKind::Ty(ident, _) = &item.kind
+                && ident.name.as_ref() == name
+            {
+                return qsc_fir::fir::StoreItemId {
+                    package: package_id,
+                    item: item_id,
+                };
+            }
+        }
+    }
+    panic!("newtype {name} not found in any package");
+}
+
+#[test]
+fn foreign_dce_removes_unreachable_library_callable_and_udt() {
+    // `DeadWithUdt` is unreachable from the user entry but references a library
+    // newtype `Pair`. After the entry-rooted passes transform only the reachable
+    // `LibUsed`, the stale `DeadWithUdt`/`Pair` would skew RCA/codegen. Foreign
+    // DCE must remove both while keeping the reachable `LibUsed`.
+    let lib = indoc! {"
+        namespace Lib {
+            operation LibUsed(q : Qubit) : Unit { X(q) }
+            newtype Pair = (First : Int, Second : Int);
+            operation DeadWithUdt(p : Pair) : Int { p::First + p::Second }
+            export LibUsed, DeadWithUdt;
+        }
+    "};
+    let user = indoc! {"
+        import Lib.*;
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            LibUsed(q);
+        }
+    "};
+
+    let (store, user_pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib, user, PipelineStage::Full);
+    let lib_pkg_id = find_callable_store_id(&store, "LibUsed").package;
+    let lib_package = store.get(lib_pkg_id);
+
+    assert!(
+        callable_exists(lib_package, "LibUsed"),
+        "reachable library callable must survive foreign DCE"
+    );
+    assert!(
+        !callable_exists(lib_package, "DeadWithUdt"),
+        "unreachable library callable referencing an erased UDT must be removed"
+    );
+    assert!(
+        !ty_exists(lib_package, "Pair"),
+        "library newtype is unconditionally dead after udt_erase"
+    );
+    assert_ne!(
+        lib_pkg_id, user_pkg_id,
+        "library and user packages must be distinct"
+    );
+}
+
+#[test]
+fn foreign_dce_prunes_dead_non_pinned_library_callable() {
+    // `DeadLibOp` is unreachable from the user entry and not pinned, so foreign
+    // DCE removes it while the reachable `LibUsed` survives.
+    let lib = indoc! {"
+        namespace Lib {
+            operation LibUsed(q : Qubit) : Unit { X(q) }
+            operation DeadLibOp() : Int { 13 }
+            export LibUsed, DeadLibOp;
+        }
+    "};
+    let user = indoc! {"
+        import Lib.*;
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            LibUsed(q);
+        }
+    "};
+
+    let (store, _user_pkg_id) =
+        compile_and_run_pipeline_to_with_library(lib, user, PipelineStage::Full);
+    let lib_pkg_id = find_callable_store_id(&store, "LibUsed").package;
+    let lib_package = store.get(lib_pkg_id);
+
+    assert!(
+        callable_exists(lib_package, "LibUsed"),
+        "reachable library callable must survive foreign DCE"
+    );
+    assert!(
+        !callable_exists(lib_package, "DeadLibOp"),
+        "dead non-pinned library callable must be pruned"
+    );
+}
+
+#[test]
+fn pinned_library_item_survives_dce_in_foreign_package() {
+    // `PinnedLibOp` is unreachable from the user entry. Pinning it (a library
+    // `StoreItemId`) must keep it alive in its non-entry package.
+    let lib = indoc! {"
+        namespace Lib {
+            operation LibUsed(q : Qubit) : Unit { X(q) }
+            operation PinnedLibOp() : Int { 99 }
+            export LibUsed, PinnedLibOp;
+        }
+    "};
+    let user = indoc! {"
+        import Lib.*;
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            LibUsed(q);
+        }
+    "};
+
+    let (mut store, user_pkg_id) = compile_to_fir_with_library(lib, user);
+    let pinned_store_id = find_callable_store_id(&store, "PinnedLibOp");
+
+    let result = crate::run_pipeline_to_with_diagnostics(
+        &mut store,
+        user_pkg_id,
+        PipelineStage::ItemDce,
+        &[pinned_store_id],
+    );
+    assert!(result.is_success());
+
+    let lib_package = store.get(pinned_store_id.package);
+    assert!(
+        lib_package.items.get(pinned_store_id.item).is_some(),
+        "pinned library item must survive DCE in its non-entry package"
+    );
+}
+
+#[test]
+fn pinned_foreign_ty_panics_in_item_dce() {
+    // Only callable items may be pinned. Foreign item DCE drops every `Ty`
+    // unconditionally (sound because `udt_erase` precedes it and inlines every
+    // UDT reference), so a pinned `Ty` would be silently dropped. The pass
+    // asserts instead, turning the latent miscompile into a deterministic panic.
+    let lib = indoc! {"
+        namespace Lib {
+            operation LibUsed(q : Qubit) : Unit { X(q) }
+            newtype Pair = (First : Int, Second : Int);
+            operation DeadWithUdt(p : Pair) : Int { p::First + p::Second }
+            export LibUsed, DeadWithUdt;
+        }
+    "};
+    let user = indoc! {"
+        import Lib.*;
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            LibUsed(q);
+        }
+    "};
+
+    let (mut store, user_pkg_id) = compile_to_fir_with_library(lib, user);
+    let pair_ty_id = find_ty_store_id(&store, "Pair");
+    assert_ne!(
+        pair_ty_id.package, user_pkg_id,
+        "the pinned newtype must live in a foreign (library) package"
+    );
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, user_pkg_id);
+
+    assert_panics_with("only callable items may be pinned", move || {
+        crate::item_dce::eliminate_unreachable_foreign_items(
+            &mut store,
+            user_pkg_id,
+            &reachable,
+            &[pair_ty_id],
+        );
+    });
+}
+
+#[test]
+fn library_item_reachable_only_via_pinned_seed_survives_with_transitive_deps() {
+    // `PinnedLibOp` is unreachable from the user entry and calls `LibHelper`.
+    // Pinning `PinnedLibOp` must keep both it and its transitive dependency
+    // alive in the library package.
+    let lib = indoc! {"
+        namespace Lib {
+            operation LibUsed(q : Qubit) : Unit { X(q) }
+            operation PinnedLibOp() : Int { LibHelper() }
+            operation LibHelper() : Int { 77 }
+            export LibUsed, PinnedLibOp, LibHelper;
+        }
+    "};
+    let user = indoc! {"
+        import Lib.*;
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            LibUsed(q);
+        }
+    "};
+
+    let (mut store, user_pkg_id) = compile_to_fir_with_library(lib, user);
+    let pinned_store_id = find_callable_store_id(&store, "PinnedLibOp");
+    let helper_store_id = find_callable_store_id(&store, "LibHelper");
+
+    let result = crate::run_pipeline_to_with_diagnostics(
+        &mut store,
+        user_pkg_id,
+        PipelineStage::ItemDce,
+        &[pinned_store_id],
+    );
+    assert!(result.is_success());
+
+    let lib_package = store.get(pinned_store_id.package);
+    assert!(
+        lib_package.items.get(pinned_store_id.item).is_some(),
+        "pinned library seed must survive DCE in its non-entry package"
+    );
+    assert!(
+        lib_package.items.get(helper_store_id.item).is_some(),
+        "transitive dependency of a pinned library seed must survive DCE"
     );
 }

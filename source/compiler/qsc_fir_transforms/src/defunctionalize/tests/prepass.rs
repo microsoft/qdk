@@ -198,10 +198,10 @@ mod single_use_callable_local_promotion {
         }
         "#,
             &expect![[r#"
-            <lambda>: input_ty=(Double, Qubit)
-            ApplyOp<Empty>{closure}: input_ty=(Qubit, Double)
-            Main: input_ty=Unit
-            Parametrized: input_ty=(Double, Qubit)"#]],
+                .lambda_4: input_ty=(Double, Qubit)
+                ApplyOp<Empty>{closure}: input_ty=(Qubit, Double)
+                Main: input_ty=Unit
+                Parametrized: input_ty=(Double, Qubit)"#]],
         );
     }
 
@@ -243,7 +243,7 @@ mod single_use_callable_local_promotion {
         );
     }
 
-    /// Single-use callable local with non-callable type should NOT be promoted.
+    /// Single-use callable local with non-callable type should not be promoted.
     #[test]
     fn no_promote_non_callable_type() {
         check(
@@ -360,7 +360,7 @@ mod identity_closure_peephole_optimization {
         );
     }
 
-    /// Non-identity closure should NOT be optimized (argument reordering).
+    /// A closure that reorders its arguments should not be optimized.
     #[test]
     fn no_optimize_reordered_args() {
         check(
@@ -375,15 +375,15 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-            <lambda>: input_ty=((Qubit, Qubit),)
-            ApplyTwo<Empty>{closure}: input_ty=(Qubit, Qubit)
-            Main: input_ty=Unit"#]],
+                .lambda_3: input_ty=((Qubit, Qubit),)
+                ApplyTwo<Empty>{closure}: input_ty=(Qubit, Qubit)
+                Main: input_ty=Unit"#]],
         );
     }
 
-    /// Non-identity closure with capture in args should NOT be optimized.
+    /// Non-identity closure with a capture in its arguments should not be optimized.
     #[test]
-    fn no_optimize_capture_in_args() {
+    fn no_optimize_closure_uses_capture_not_param() {
         check(
             r#"
         operation ApplyOp(f : Qubit => Unit, q : Qubit) : Unit {
@@ -396,13 +396,13 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-            <lambda>: input_ty=(Qubit, Qubit)
-            ApplyOp<Empty>{closure}: input_ty=(Qubit, Qubit)
-            Main: input_ty=Unit"#]],
+                .lambda_3: input_ty=(Qubit, Qubit)
+                ApplyOp<Empty>{closure}: input_ty=(Qubit, Qubit)
+                Main: input_ty=Unit"#]],
         );
     }
 
-    /// Closure that does not forward its parameter should NOT be optimized.
+    /// Closure that does not forward its parameter should not be optimized.
     #[test]
     fn no_optimize_non_forwarded_param() {
         check(
@@ -417,13 +417,13 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-            <lambda>: input_ty=(Qubit, Unit)
-            ApplyOp<Empty>{closure}: input_ty=(Unit, Qubit)
-            Main: input_ty=Unit"#]],
+                .lambda_3: input_ty=(Qubit, Unit)
+                ApplyOp<Empty>{closure}: input_ty=(Unit, Qubit)
+                Main: input_ty=Unit"#]],
         );
     }
 
-    /// Closure with multiple statements should NOT be optimized (not identity).
+    /// A multi-statement closure is not an identity and should not be optimized.
     #[test]
     fn no_optimize_multiple_statements() {
         check(
@@ -437,13 +437,13 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-            <lambda>: input_ty=(Qubit,)
-            ApplyOp<Empty>{closure}: input_ty=Qubit
-            Main: input_ty=Unit"#]],
+                .lambda_3: input_ty=(Qubit,)
+                ApplyOp<Empty>{closure}: input_ty=Qubit
+                Main: input_ty=Unit"#]],
         );
     }
 
-    /// Closure body that's not a call should NOT be optimized.
+    /// Closure body that's not a call should not be optimized.
     #[test]
     fn no_optimize_non_call_body() {
         check(
@@ -457,9 +457,9 @@ mod identity_closure_peephole_optimization {
         }
         "#,
             &expect![[r#"
-            <lambda>: input_ty=(Qubit,)
-            ApplyOp<Empty>{closure}: input_ty=Qubit
-            Main: input_ty=Unit"#]],
+                .lambda_3: input_ty=(Qubit,)
+                ApplyOp<Empty>{closure}: input_ty=Qubit
+                Main: input_ty=Unit"#]],
         );
     }
 }
@@ -659,7 +659,7 @@ mod edge_cases_and_complex_scenarios {
         );
     }
 
-    /// Callable local with discard pattern should NOT be promoted.
+    /// Callable local with discard pattern should not be promoted.
     #[test]
     fn no_promote_discard_pattern() {
         check(

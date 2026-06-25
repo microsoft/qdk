@@ -12,25 +12,38 @@
 //!
 //! - **It is one ordered pipeline, not a toolbox of independent passes.**
 //!   Everything runs through [`run_pipeline_with_diagnostics`] in a fixed
-//!   order: ``monomorphize`` → ``return_unify`` → ``defunctionalize`` → ``udt_erase`` →
-//!   ``tuple_compare_lower`` → ``tuple_decompose`` → ``arg_promote`` → ``gc_unreachable`` →
-//!   ``item_dce`` → ``exec_graph_rebuild``. Individual passes are *not* sound or
-//!   invariant-preserving on their own. A pass deliberately leaves FIR that
-//!   violates invariants a later pass relies on (e.g. defunctionalization is
-//!   cleaned up by ``udt_erase`` and ``tuple_compare_lower``). Do not reorder, remove,
-//!   or run passes in isolation without understanding the chain.
+//!   order: ``monomorphize`` → ``return_unify`` → ``cond_normalize`` →
+//!   ``defunctionalize`` → ``udt_erase`` → ``tuple_compare_lower`` →
+//!   ``tuple_decompose`` → ``arg_promote`` → (``tuple_decompose`` ⇄
+//!   ``arg_promote`` fixed point) → ``normalize_reachable_call_arg_types`` →
+//!   ``run_item_dce_and_gc`` (item DCE first, then whole-closure
+//!   ``gc_unreachable``) → ``exec_graph_rebuild``, closed by the ``PostAll``
+//!   invariant check. Individual passes are *not* sound or invariant-preserving
+//!   on their own. A pass deliberately leaves FIR that violates invariants a
+//!   later pass relies on (e.g. defunctionalization is cleaned up by
+//!   ``udt_erase`` and ``tuple_compare_lower``). Do not reorder, remove, or run
+//!   passes in isolation without understanding the chain.
 //!
 //! - **``tuple_decompose`` ↔ ``arg_promote`` run to a fixed point.** These two passes
-//!   iterate until convergence (capped; see the hard-cap constant below), so
+//!   iterate until convergence (capped), so
 //!   changes to either must preserve the strictly-decreasing measure that
-//!   guarantees termination.
+//!   guarantees termination. The idempotent
+//!   ``normalize_reachable_call_arg_types`` cleanup runs exactly once after the
+//!   loop converges, not per round.
 //!
-//! - **One [`Assigner`] is threaded through the whole pipeline.** Passes that
-//!   synthesize FIR nodes allocate fresh IDs from this single shared counter so
-//!   IDs never collide across stages. Never construct a new [`Assigner`]
-//!   mid-pipeline. The trailing metadata passes (``gc_unreachable``, ``item_dce``,
-//!   ``exec_graph_rebuild``) don't take it because they only tombstone, delete,
-//!   or rebuild derived data and synthesize nothing.
+//! - **A `PackageAssigners` pool gives each package its own id space.** Every
+//!   package owns an independent id arena, so passes that synthesize FIR nodes
+//!   mint fresh IDs from the assigner of the package they are mutating, never
+//!   from one global counter. Each package's
+//!   [`Assigner`](qsc_fir::assigner::Assigner) is seeded lazily from that
+//!   package's own id watermark via
+//!   [`Assigner::from_package`](qsc_fir::assigner::Assigner::from_package) the
+//!   first time it is touched, and the advanced watermark persists across passes. A
+//!   pass always selects the owning package's assigner at a cross-package
+//!   boundary, so entry-package ids are never minted into a foreign package's
+//!   arena. See the `package_assigners` module. The trailing metadata passes
+//!   take no assigner because they only tombstone, delete, or rebuild derived
+//!   data and synthesize nothing.
 //!
 //! - **Synthesized nodes use the ``EMPTY_EXEC_RANGE`` sentinel.** New
 //!   [`Expr`](qsc_fir::fir::Expr)/[`Stmt`](qsc_fir::fir::Stmt) nodes get an
@@ -43,13 +56,14 @@
 //!   warnings, which do not block successful output.
 //!
 //! - **Implementation helpers.** Several passes deep-clone FIR subtrees via
-//!   [`cloner::FirCloner`]; others rewrite in place or rebuild derived
+//!   `cloner::FirCloner`; others rewrite in place or rebuild derived
 //!   structures from scratch. [`invariants`] checks the structural contracts
 //!   between stages.
 
 pub(crate) mod cloner;
 pub(crate) mod fir_builder;
 pub mod invariants;
+pub(crate) mod package_assigners;
 #[cfg(test)]
 pub(crate) mod pretty;
 pub mod reachability;
@@ -64,6 +78,8 @@ pub(crate) mod item_dce;
 pub(crate) mod monomorphize;
 pub(crate) mod return_unify;
 #[cfg(test)]
+mod sample_pipeline_tests;
+#[cfg(test)]
 mod signature_preserving_tests;
 pub(crate) mod tuple_compare_lower;
 pub(crate) mod tuple_decompose;
@@ -76,27 +92,11 @@ pub mod test_utils;
 pub(crate) mod walk_utils;
 
 use miette::Diagnostic;
-use qsc_fir::assigner::Assigner;
-use qsc_fir::fir::{ExecGraphIdx, ItemKind, LocalItemId, PackageId, PackageStore, StoreItemId};
+use qsc_fir::fir::{ExecGraphIdx, ItemKind, PackageId, PackageStore, StoreItemId};
 use rustc_hash::FxHashSet;
 use thiserror::Error;
 
-/// Identifies a specific callable specialization within a package store item.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct CallableSpecId {
-    /// The callable item that owns the specialization.
-    pub(crate) callable: StoreItemId,
-    /// The specialization kind on the callable.
-    pub(crate) kind: CallableSpecKind,
-}
-
-impl CallableSpecId {
-    /// Creates a callable specialization identifier.
-    #[must_use]
-    pub(crate) fn new(callable: StoreItemId, kind: CallableSpecKind) -> Self {
-        Self { callable, kind }
-    }
-}
+use crate::package_assigners::PackageAssigners;
 
 /// Kinds of callable specializations that carry execution graphs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -230,11 +230,11 @@ pub enum PipelineStage {
     Full,
 }
 
-/// Runs the FIR transform schedule up to `stage`, threading a single
-/// [`Assigner`] through every pass.
+/// Runs the FIR transform schedule up to `stage`, threading a
+/// [`PackageAssigners`] pool through every pass.
 ///
-/// The [`Assigner`] is constructed once from the input package and passed by
-/// mutable reference to each pass so ID allocations from earlier stages are
+/// The pool is constructed once from the input package and passed by mutable
+/// reference to each pass so per-package id allocations from earlier stages are
 /// observed by later stages. Between major stages the function invokes
 /// [`invariants::check`] with the corresponding [`invariants::InvariantLevel`].
 ///
@@ -275,15 +275,15 @@ fn run_pipeline_to_impl(
 
     let mut result = PipelineResult::default();
 
-    let mut assigner = Assigner::from_package(store.get(package_id));
+    let mut assigners = PackageAssigners::new(store, package_id);
 
-    monomorphize::monomorphize(store, package_id, &mut assigner);
+    monomorphize::monomorphize(store, package_id, &mut assigners);
     invariants::check(store, package_id, invariants::InvariantLevel::PostMono);
     if matches!(stage, PipelineStage::Mono) {
         return result;
     }
 
-    let (ru_errors, skipped) = return_unify::unify_returns(store, package_id, &mut assigner);
+    let (ru_errors, skipped) = return_unify::unify_returns(store, package_id, &mut assigners);
     let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
         .into_iter()
         .partition(return_unify::Error::is_warning);
@@ -315,7 +315,7 @@ fn run_pipeline_to_impl(
     // pure `Var` reads and never re-runs a condition's effects. This preserves
     // the `PostReturnUnify` invariants (it introduces no `Return` nodes), so no
     // additional checkpoint is required here.
-    cond_normalize::normalize_conditions(store, package_id, &mut assigner);
+    cond_normalize::normalize_conditions(store, package_id, &mut assigners);
     invariants::check_with_skip(
         store,
         package_id,
@@ -323,7 +323,7 @@ fn run_pipeline_to_impl(
         &skipped,
     );
 
-    let defunc_diagnostics = defunctionalize::defunctionalize(store, package_id, &mut assigner);
+    let defunc_diagnostics = defunctionalize::defunctionalize(store, package_id, &mut assigners);
     let (warnings, fatal_errors): (Vec<_>, Vec<_>) = defunc_diagnostics
         .into_iter()
         .partition(defunctionalize::Error::is_warning);
@@ -348,7 +348,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    let structurally_mutated_specs = udt_erase::erase_udts(store, package_id, &mut assigner);
+    udt_erase::erase_udts(store, package_id, &mut assigners);
     invariants::check_with_skip(
         store,
         package_id,
@@ -359,7 +359,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    tuple_compare_lower::lower_tuple_comparisons(store, package_id, &mut assigner);
+    tuple_compare_lower::lower_tuple_comparisons(store, package_id, &mut assigners);
     invariants::check_with_skip(
         store,
         package_id,
@@ -370,7 +370,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    tuple_decompose::tuple_decompose(store, package_id, &mut assigner);
+    tuple_decompose::tuple_decompose(store, package_id, &mut assigners);
     invariants::check_with_skip(
         store,
         package_id,
@@ -381,7 +381,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    arg_promote::arg_promote(store, package_id, &mut assigner);
+    arg_promote::arg_promote(store, package_id, &mut assigners);
     invariants::check_with_skip(
         store,
         package_id,
@@ -396,7 +396,7 @@ fn run_pipeline_to_impl(
         store,
         package_id,
         &mut result,
-        &mut assigner,
+        &mut assigners,
         &skipped,
     );
 
@@ -404,7 +404,7 @@ fn run_pipeline_to_impl(
     // it is hoisted to run exactly once after the loop converges rather than
     // per round (per-round runs cause `(T,)` wrapping churn that pollutes
     // change detection).
-    arg_promote::normalize_reachable_call_arg_types(store, package_id, &mut assigner);
+    arg_promote::normalize_reachable_call_arg_types(store, package_id, &mut assigners);
     invariants::check_with_skip(
         store,
         package_id,
@@ -434,17 +434,12 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    let structurally_mutated_external_specs: Vec<_> = structurally_mutated_specs
-        .into_iter()
-        .filter(|spec_id| spec_id.callable.package != package_id)
-        .collect();
-    exec_graph_rebuild::rebuild_exec_graphs_with_external_specs(
-        store,
-        package_id,
-        pinned_items,
-        &structurally_mutated_external_specs,
-    );
-    invariants::check_external_spec_exec_graphs(store, &structurally_mutated_external_specs);
+    // Exec graphs are rebuilt unconditionally for every reachable spec in every
+    // reachable package. Earlier passes may have structurally mutated reachable
+    // callables in any package, so the rebuild walks the whole reachable closure
+    // rather than tracking which specs were mutated. The reachable-spec exec
+    // graphs are validated by the `PostAll` invariant walk below.
+    exec_graph_rebuild::rebuild_exec_graphs(store, package_id, pinned_items);
     if matches!(stage, PipelineStage::ExecGraphRebuild) {
         return result;
     }
@@ -481,25 +476,25 @@ fn tuple_decompose_arg_promote_fixed_point(
     store: &mut PackageStore,
     package_id: PackageId,
     result: &mut PipelineResult,
-    assigner: &mut Assigner,
-    skip: &FxHashSet<LocalItemId>,
+    assigners: &mut PackageAssigners,
+    skip: &FxHashSet<StoreItemId>,
 ) {
     let mut rounds = 0;
     let mut arg_promote_tmp_counter = 0;
     loop {
-        let tuple_decompose_changed = tuple_decompose::tuple_decompose(store, package_id, assigner);
-        invariants::check_with_skip(
-            store,
-            package_id,
-            invariants::InvariantLevel::PostArgPromote,
-            skip,
-        );
+        let tuple_decompose_changed =
+            tuple_decompose::tuple_decompose(store, package_id, assigners);
         let promote_changed = arg_promote::promote_to_fixed_point(
             store,
             package_id,
-            assigner,
+            assigners,
             &mut arg_promote_tmp_counter,
         );
+        // One PostArgPromote check per round, after both passes have run.
+        // tuple-decompose preserves the PostArgPromote invariants (it only
+        // scalar-replaces local bindings), and argument promotion runs on its
+        // output, so a single check on the round's cumulative result validates
+        // both passes.
         invariants::check_with_skip(
             store,
             package_id,
@@ -570,11 +565,15 @@ fn validate_pinned_item(store: &PackageStore, item_id: StoreItemId) -> Result<()
 /// Runs item-level DCE with optional pinned-root expansion, followed by an
 /// unconditional GC pass.
 ///
-/// GC always runs because upstream rewrite passes leave orphaned arena nodes
-/// behind regardless of whether item DCE removed any items.
+/// Item DCE runs in two forms: the entry package keeps every entry-reachable
+/// callable, while each foreign (library) package keeps only its
+/// entry-reachable callables (its public surface is not an entry point for a
+/// closed codegen compilation). GC then runs over the entire reachable package
+/// closure because upstream rewrite passes leave orphaned arena nodes behind in
+/// every transformed package, regardless of whether item DCE removed any items.
 ///
 /// Pinned items are validated by `run_pipeline_to_impl` before this helper is
-/// called. They are NOT invariant-checked; `PostAll` uses entry-only
+/// called. They are not invariant-checked; `PostAll` uses entry-only
 /// reachability. Pinning is needed when the original target ID is used
 /// by `fir_to_qir_from_callable` after defunc rewrites the entry `Call`
 /// to reference the specialized callable.
@@ -589,7 +588,30 @@ fn run_item_dce_and_gc(
         reachability::collect_reachable_with_seeds(store, package_id, pinned_items)
     };
     let _ = item_dce::eliminate_dead_items(package_id, store.get_mut(package_id), &reachable);
-    let _ = gc_unreachable::gc_unreachable(store.get_mut(package_id));
+
+    // Foreign packages: structural passes transformed only their entry-reachable
+    // callables, so each foreign package still holds entry-unreachable callables
+    // that reference erased UDTs and pre-promotion signatures. RCA and codegen
+    // analyze every item in every package, so those stale callables must be
+    // removed to keep each foreign package internally consistent with its
+    // transformed reachable callables. Pinned callable items and their
+    // transitive dependencies are retained in whichever package they live in;
+    // only callable items may be pinned.
+    let _ =
+        item_dce::eliminate_unreachable_foreign_items(store, package_id, &reachable, pinned_items);
+
+    // Node-level GC runs across the whole reachable package closure, not just
+    // the entry package. Structural passes rewrite reachable callables in every
+    // package and leave orphaned blocks/stmts/exprs/pats behind in those foreign
+    // packages. GC never removes items (pinned items kept by item DCE keep their
+    // nodes), but it is required: RCA's top-level statement scan
+    // (`unanalyzed_stmts`) treats any package statement not reached through an
+    // item body as a top-level statement, so orphaned synthesized statements in
+    // foreign packages would otherwise be analyzed out of context and panic.
+    let gc_packages = reachability::collect_reachable_package_closure(package_id, &reachable);
+    for gc_pkg in gc_packages {
+        let _ = gc_unreachable::gc_unreachable(store.get_mut(gc_pkg));
+    }
 }
 
 /// Runs the authoritative FIR optimization schedule up to the requested stage,
@@ -608,6 +630,17 @@ fn run_item_dce_and_gc(
 ///
 /// Callers may consume the transformed FIR only when [`PipelineResult::errors`]
 /// is empty; warnings do not block successful output.
+///
+/// # Note
+///
+/// This operates **destructively** on `store`: it specializes, rewrites, and
+/// prunes items in place across the entry package and every reachable foreign
+/// package. The mutated store is a disposable codegen artifact — pass a fresh
+/// `lower_to_fir` store (or an explicit clone) and do **not** reuse it after the
+/// transforms. Item DCE and GC leave each package internally consistent only for
+/// the entry-rooted reachable closure, not for reuse as a general-purpose
+/// package store. Production callers uphold this by re-lowering from HIR per
+/// request; it is a caller property, not a contract this function enforces.
 ///
 /// # Panics
 ///
@@ -647,6 +680,12 @@ pub fn run_pipeline_to_with_diagnostics(
 /// [`PipelineResult::errors`] is non-empty, the FIR store must not be consumed
 /// as successful post-pipeline output.
 ///
+/// # Note
+///
+/// Like [`run_pipeline_to_with_diagnostics`], this mutates `store` destructively
+/// and the store must not be reused after the transforms; see that function for
+/// the disposable-store contract.
+///
 /// # Panics
 ///
 /// Panics if the package has no entry expression.
@@ -663,14 +702,14 @@ pub fn run_pipeline_with_diagnostics(
 /// This is the counterpart to [`run_pipeline_with_diagnostics`] for the
 /// codegen `ReinvokeOriginal` path. After the main `Full` pipeline runs rooted
 /// at the entry expression, the pinned `ReinvokeOriginal` target bodies are
-/// NOT entry-reachable, so the main pipeline never return-unifies them and they
+/// not entry-reachable, so the main pipeline never return-unifies them and they
 /// retain early `return`s inside dynamic (measurement-dependent) branches. This
 /// sub-pipeline re-roots `return_unify` → `tuple_compare_lower` →
 /// `tuple_decompose` at `seeds` (the pinned target and its transitive callees)
 /// so those early returns are rewritten into flag-guarded forward control flow
 /// that RCA and partial evaluation accept under Adaptive profiles.
 ///
-/// Unlike the main pipeline this sub-pipeline deliberately does NOT run
+/// Unlike the main pipeline this sub-pipeline deliberately does not run
 /// `monomorphize`, `defunctionalize`, `udt_erase`, or `arg_promote`: the pinned
 /// target's signature (arrow params, and any residual UDT/struct shape the main
 /// pipeline already erased consistently) must be preserved so the runtime
@@ -681,16 +720,22 @@ pub fn run_pipeline_with_diagnostics(
 /// level, which forbids residual `Return` while allowing the preserved
 /// arrow/UDT residue.
 ///
-/// A fresh [`Assigner`] is derived from the current package state, which is
-/// correct because the main pipeline already finished threading its own
-/// assigner; `Assigner::from_package` continues allocation from the package's
-/// current maximum IDs.
+/// A `PackageAssigners` pool is derived from the current package state. Each
+/// package's assigner continues allocation from that package's current id
+/// watermark, so seed bodies in foreign packages are rewritten with their own
+/// package's assigner without colliding with existing ids.
 ///
 /// Returns warnings/fatal errors with the same partitioning contract as
 /// [`run_pipeline_with_diagnostics`]: consume the FIR only when
 /// [`PipelineResult::errors`] is empty. A fatal `return_unify` diagnostic (an
 /// un-rewritable early return) aborts before the `PostSignaturePreserving`
 /// check would fail on the residual `Return`.
+///
+/// # Note
+///
+/// Like [`run_pipeline_to_with_diagnostics`], this mutates `store` in place and
+/// the store must not be reused after the transforms; see that function for the
+/// disposable-store contract.
 ///
 /// # Panics
 ///
@@ -703,10 +748,10 @@ pub fn run_signature_preserving_subpipeline(
 ) -> PipelineResult {
     let mut result = PipelineResult::default();
 
-    let mut assigner = Assigner::from_package(store.get(package_id));
+    let mut assigners = PackageAssigners::new(store, package_id);
 
     let (ru_errors, skipped) =
-        return_unify::unify_returns_with_seeds(store, package_id, &mut assigner, seeds);
+        return_unify::unify_returns_with_seeds(store, package_id, &mut assigners, seeds);
     let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
         .into_iter()
         .partition(return_unify::Error::is_warning);
@@ -724,10 +769,10 @@ pub fn run_signature_preserving_subpipeline(
     tuple_compare_lower::lower_tuple_comparisons_with_seeds(
         store,
         package_id,
-        &mut assigner,
+        &mut assigners,
         seeds,
     );
-    tuple_decompose::tuple_decompose_with_seeds(store, package_id, &mut assigner, seeds);
+    tuple_decompose::tuple_decompose_with_seeds(store, package_id, &mut assigners, seeds);
 
     // The transforms above added statements and expressions to the pinned
     // bodies, invalidating the exec graphs the main pipeline rebuilt for them.
@@ -736,7 +781,7 @@ pub fn run_signature_preserving_subpipeline(
     // `exec_graph_range`), so a stale exec graph makes the new return-unify
     // literals evaluate to the wrong value. Re-root the rebuild at `seeds` so
     // the pinned (non-entry-reachable) bodies get fresh exec graphs.
-    exec_graph_rebuild::rebuild_exec_graphs_with_external_specs(store, package_id, seeds, &[]);
+    exec_graph_rebuild::rebuild_exec_graphs(store, package_id, seeds);
 
     invariants::check_with_skip_and_seeds(
         store,

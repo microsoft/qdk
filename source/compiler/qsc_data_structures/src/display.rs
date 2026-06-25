@@ -47,14 +47,25 @@ where
 }
 
 /// Writes the name and span of a structure to the given buffer or stream.
-pub fn write_header(f: &mut impl Write, name: &str, span: Span) -> fmt::Result {
+pub fn write_header_with_span(f: &mut impl Write, name: &str, span: Span) -> fmt::Result {
     write!(f, "{name} {span}:")
 }
 
 /// Writes the name and span of a structure to the given buffer or stream.
 /// Inserts a newline afterwards.
-pub fn writeln_header(f: &mut impl Write, name: &str, span: Span) -> fmt::Result {
+pub fn writeln_header_with_span(f: &mut impl Write, name: &str, span: Span) -> fmt::Result {
     writeln!(f, "{name} {span}:")
+}
+
+/// Writes the name of a structure to the given buffer or stream.
+pub fn write_header(f: &mut impl Write, name: &str) -> fmt::Result {
+    write!(f, "{name}:")
+}
+
+/// Writes the name of a structure to the given buffer or stream.
+/// Inserts a newline afterwards.
+pub fn writeln_header(f: &mut impl Write, name: &str) -> fmt::Result {
+    writeln!(f, "{name}:")
 }
 
 /// Writes a field of a structure to the given buffer

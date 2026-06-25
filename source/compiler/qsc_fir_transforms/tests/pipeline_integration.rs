@@ -16,10 +16,13 @@ use qsc_fir_transforms::{
     test_utils::{
         assert_callable_body_terminal_expr_matches_block_type, assert_full_pipeline_succeeds,
         assert_no_pipeline_errors, assert_pipeline_stage_succeeds, compile_to_fir,
-        compile_to_fir_with_entry, compile_to_fir_with_library, format_callable_body_summary,
-        format_pipeline_errors, format_reachable_callable_summary,
+        compile_to_fir_with_entry, compile_to_fir_with_library, format_pipeline_errors,
+        format_reachable_callable_summary,
     },
 };
+
+#[cfg(feature = "testutil")]
+use qsc_fir_transforms::test_utils::format_callable_body_summary;
 
 type LoweredOutput = (
     qsc_fir::fir::PackageStore,
@@ -105,7 +108,7 @@ fn package_has_callable_named(
     let package = store.get(pkg_id);
     package.items.values().any(|item| match &item.kind {
         ItemKind::Callable(decl) => decl.name.name.as_ref() == callable_name,
-        _ => false,
+        ItemKind::Ty(..) => false,
     })
 }
 
@@ -148,6 +151,16 @@ fn store_with_removed_pinned_callable() -> (
     (store, pkg_id, pinned_store_id)
 }
 
+fn callable_name_matches(actual: &str, requested: &str) -> bool {
+    if requested == ".lambda" {
+        // Lifted lambdas are named `.lambda_<item-id>`; the `.lambda` sentinel
+        // matches any lifted lambda regardless of its volatile item-id suffix.
+        actual.starts_with(".lambda")
+    } else {
+        actual == requested
+    }
+}
+
 fn expr_targets_callable(
     package: &qsc_fir::fir::Package,
     pkg_id: qsc_fir::fir::PackageId,
@@ -160,7 +173,7 @@ fn expr_targets_callable(
             if item_id.package == pkg_id
                 && matches!(
                     &package.get_item(item_id.item).kind,
-                    ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name
+                    ItemKind::Callable(decl) if callable_name_matches(decl.name.name.as_ref(), callable_name)
                 ) =>
         {
             true
@@ -939,7 +952,30 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
 
     run_pipeline_to_successfully(&mut fir_store, fir_pkg_id, PipelineStage::Full);
 
-    let package = fir_store.get(fir_pkg_id);
+    // Generic library callables are monomorphized in place into their owning
+    // package, so the `MappedByIndex` specialization and its lifted
+    // lambda live alongside `Enumerated` in the standard library package rather
+    // than in the user package.
+    let reachable = reachability::collect_reachable_from_entry(&fir_store, fir_pkg_id);
+    let host_pkg_id = reachable
+        .iter()
+        .find(|store_id| {
+            matches!(
+                &fir_store.get(store_id.package).get_item(store_id.item).kind,
+                ItemKind::Callable(decl)
+                    if decl.name.name.as_ref().starts_with("MappedByIndex<Bool, (Int, Bool)>")
+            )
+        })
+        .map_or_else(
+            || {
+                panic!(
+                    "MappedByIndex specialization should exist\n{}",
+                    format_reachable_callable_summary(&fir_store, fir_pkg_id)
+                )
+            },
+            |store_id| store_id.package,
+        );
+    let package = fir_store.get(host_pkg_id);
     let mapper = package
         .items
         .values()
@@ -955,18 +991,13 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
             }
             _ => None,
         })
-        .unwrap_or_else(|| {
-            panic!(
-                "MappedByIndex specialization should exist\n{}",
-                format_reachable_callable_summary(&fir_store, fir_pkg_id)
-            )
-        });
+        .expect("MappedByIndex specialization should exist in its owning package");
 
     let lambda_names = package
         .items
         .values()
         .filter_map(|item| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with("<lambda>") => {
+            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with(".lambda") => {
                 Some(decl.name.name.to_string())
             }
             _ => None,
@@ -977,7 +1008,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
         .values()
         .find_map(|expr| match &expr.kind {
             ExprKind::Call(callee_id, args_id)
-                if expr_targets_callable(package, fir_pkg_id, *callee_id, "<lambda>") =>
+                if expr_targets_callable(package, host_pkg_id, *callee_id, ".lambda") =>
             {
                 Some(*args_id)
             }
@@ -988,7 +1019,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
                 "specialized mapper body should call the lifted lambda directly\nmapper body:\n{}\nlambdas:\n{}",
                 format_callable_body_summary(
                     &fir_store,
-                    fir_pkg_id,
+                    host_pkg_id,
                     mapper.name.name.as_ref(),
                 ),
                 lambda_names.join("\n")
@@ -1041,7 +1072,7 @@ fn direct_lambda_calls_preserve_nested_tuple_packaging() {
         .items
         .values()
         .filter_map(|item| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with("<lambda>") => {
+            ItemKind::Callable(decl) if decl.name.name.as_ref().starts_with(".lambda") => {
                 Some(decl.name.name.to_string())
             }
             _ => None,
@@ -1052,7 +1083,7 @@ fn direct_lambda_calls_preserve_nested_tuple_packaging() {
         .values()
         .find_map(|expr| match &expr.kind {
             ExprKind::Call(callee_id, args_id)
-                if expr_targets_callable(package, fir_pkg_id, *callee_id, "<lambda>") =>
+                if expr_targets_callable(package, fir_pkg_id, *callee_id, ".lambda") =>
             {
                 Some(*args_id)
             }

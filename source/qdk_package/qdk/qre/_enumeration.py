@@ -2,23 +2,51 @@
 # Licensed under the MIT License.
 
 import types
+from dataclasses import MISSING
+from enum import Enum
+from itertools import product
 from typing import (
     Generator,
+    Literal,
     Type,
     TypeVar,
-    Literal,
     Union,
     cast,
     get_args,
     get_origin,
     get_type_hints,
 )
-from dataclasses import MISSING
-from itertools import product
-from enum import Enum
-
 
 T = TypeVar("T")
+
+# The KW_ONLY sentinel as a string, used to detect it in annotations.
+_KW_ONLY_NAMES = {"KW_ONLY", "dataclasses.KW_ONLY"}
+
+
+def _get_type_hints_safe(cls: type) -> dict:
+    """Get type hints for a dataclass, working around Python 3.10 KW_ONLY bug.
+
+    In Python 3.10, ``get_type_hints`` fails on classes that use
+    ``from __future__ import annotations`` together with
+    ``_: dataclasses.KW_ONLY`` because the resolved sentinel object is
+    not a type.  This function temporarily removes such annotations
+    before calling ``get_type_hints``.
+    """
+    annotations = cls.__annotations__
+    # Find annotation keys whose string value refers to KW_ONLY
+    kw_only_keys = [
+        k for k, v in annotations.items() if isinstance(v, str) and v in _KW_ONLY_NAMES
+    ]
+
+    if not kw_only_keys:
+        return get_type_hints(cls, include_extras=True)
+
+    # Temporarily remove KW_ONLY annotations
+    removed = {k: annotations.pop(k) for k in kw_only_keys}
+    try:
+        return get_type_hints(cls, include_extras=True)
+    finally:
+        annotations.update(removed)
 
 
 def _is_union_type(tp) -> bool:
@@ -154,8 +182,12 @@ def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
         yield cls(**kwargs)
         return
 
-    # Resolve type hints to handle stringified types from __future__.annotations
-    type_hints = get_type_hints(cls)
+    # Resolve type hints to handle stringified types from __future__.annotations.
+    # On Python 3.10, get_type_hints fails if __annotations__ contains the
+    # KW_ONLY sentinel (used for keyword-only dataclass fields) because
+    # _type_check rejects non-type objects.  Work around by temporarily
+    # removing those entries before resolution.
+    type_hints = _get_type_hints_safe(cls)
 
     for field in fields.values():  # type: ignore
         name = field.name
