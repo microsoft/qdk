@@ -80,6 +80,7 @@ pub fn fir_to_qir_from_callable(
         },
     )?;
     check_and_transform(&mut program);
+    verify_program(&program)?;
     if capabilities <= Profile::AdaptiveRIF.into() {
         Ok(v1::ToQir::<String>::to_qir(&program, &program))
     } else {
