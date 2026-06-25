@@ -6,6 +6,7 @@ use miette::Report;
 
 mod instruction_name;
 mod number;
+mod single_char_token;
 mod whitespace_and_comments;
 
 /// Check that a stim source lexes to the
