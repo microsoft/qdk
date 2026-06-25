@@ -2121,6 +2121,7 @@ dependencies = [
  "num-complex",
  "num-traits",
  "paulimer",
+ "qsc_data_structures",
  "rand 0.10.1",
  "regex-lite",
  "rustc-hash",
