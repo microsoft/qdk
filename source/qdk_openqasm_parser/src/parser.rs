@@ -148,7 +148,7 @@ fn collect_source_files(source: &QasmSource, files: &mut Vec<(Arc<str>, Arc<str>
 }
 
 /// Represents a QASM source file that has been parsed.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct QasmSource {
     /// The path to the source file. This is used for error reporting.
     /// This path is just a name, it does not have to exist on disk.

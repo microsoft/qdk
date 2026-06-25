@@ -148,11 +148,15 @@ impl Lowerer {
     }
 
     pub fn lower(mut self) -> crate::semantic::QasmSemanticParseResult {
+        // Move the parsed source out of `self` so the immutable walk below does
+        // not borrow-conflict with the `&mut self` lowering methods. This avoids
+        // cloning the entire syntax AST just to read it; the source is moved back
+        // into the result at the end.
+        let source = std::mem::take(&mut self.source);
         // Should we fail if we see a version in included files?
-        let source = &self.source.clone();
         self.version = self.lower_version(source.program().version);
 
-        self.lower_source(source);
+        self.lower_source(&source);
 
         assert!(
             self.symbols.is_current_scope_global(),
@@ -166,7 +170,7 @@ impl Lowerer {
         };
 
         super::QasmSemanticParseResult {
-            source: self.source,
+            source,
             source_map: self.source_map,
             symbols: self.symbols,
             program,

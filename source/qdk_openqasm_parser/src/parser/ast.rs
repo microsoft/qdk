@@ -24,7 +24,7 @@ pub fn list_from_iter<T>(vals: impl IntoIterator<Item = T>) -> List<T> {
     vals.into_iter().map(Box::new).collect()
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Program {
     pub span: Span,
     pub statements: List<Stmt>,
