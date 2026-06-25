@@ -4,6 +4,7 @@
 use expect_test::{Expect, expect};
 use miette::Report;
 
+mod instruction_name;
 mod number;
 mod whitespace_and_comments;
 
