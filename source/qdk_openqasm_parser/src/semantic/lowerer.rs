@@ -1423,10 +1423,10 @@ impl Lowerer {
         semantic::Expr::new(expr.span, kind, ty)
     }
 
-    fn lower_annotations(annotations: &[Box<syntax::Annotation>]) -> Vec<semantic::Annotation> {
+    fn lower_annotations(annotations: &[syntax::Annotation]) -> Vec<semantic::Annotation> {
         annotations
             .iter()
-            .map(|annotation| Self::lower_annotation(annotation))
+            .map(Self::lower_annotation)
             .collect::<Vec<_>>()
     }
 
@@ -1782,7 +1782,7 @@ impl Lowerer {
         }
     }
 
-    fn block_always_returns<'a>(stmts: impl IntoIterator<Item = &'a Box<semantic::Stmt>>) -> bool {
+    fn block_always_returns<'a>(stmts: impl IntoIterator<Item = &'a semantic::Stmt>) -> bool {
         for stmt in stmts {
             if Self::stmt_always_returns(stmt) {
                 return true;
@@ -2477,7 +2477,7 @@ impl Lowerer {
             for index in 0..(*indexed_dim_size) {
                 let qubits = qubits
                     .iter()
-                    .map(|qubit| Self::index_into_qubit_register((**qubit).clone(), index));
+                    .map(|qubit| Self::index_into_qubit_register(qubit.clone(), index));
 
                 let qubits = list_from_iter(qubits);
 
@@ -4547,7 +4547,7 @@ impl Lowerer {
         let indices: Vec<_> = list
             .values
             .iter()
-            .filter_map(|index| match &**index {
+            .filter_map(|index| match index {
                 syntax::IndexListItem::RangeDefinition(range) => self
                     .lower_const_range(range)
                     .map(|range| semantic::Index::Range(range.into())),
@@ -4792,7 +4792,7 @@ impl Lowerer {
             != indexed_ident
                 .indices
                 .iter()
-                .map(|i| i.num_indices())
+                .map(syntax::Index::num_indices)
                 .sum::<usize>()
         {
             // Since we can't evaluate all the indices, we can't know the indexed type.
