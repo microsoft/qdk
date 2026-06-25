@@ -5,6 +5,7 @@ use expect_test::{Expect, expect};
 use miette::Report;
 
 mod arguments;
+mod tags;
 
 /// Check that a stim source parses to the expected AST,
 /// diagnostics, or both.
