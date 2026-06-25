@@ -8,6 +8,8 @@ use crate::{
 };
 use expect_test::Expect;
 use miette::Report;
+use qdk_openqasm_parser::io::{InMemorySourceResolver, SourceResolver};
+use qdk_openqasm_parser::semantic::{QasmSemanticParseResult, parse_source};
 use qsc::compile::compile_ast;
 use qsc::compile::package_store_with_stdlib;
 use qsc::interpret::Error;
@@ -17,8 +19,6 @@ use qsc::{
     ast::{Package, Stmt, TopLevelNode, mut_visit::MutVisitor},
 };
 use qsc_hir::hir::PackageId;
-use qdk_openqasm_parser::io::{InMemorySourceResolver, SourceResolver};
-use qdk_openqasm_parser::semantic::{QasmSemanticParseResult, parse_source};
 use qsc_passes::PackageType;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;

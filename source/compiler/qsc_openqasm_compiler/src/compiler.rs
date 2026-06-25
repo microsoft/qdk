@@ -39,7 +39,6 @@ use crate::{
     },
     get_semantic_errors_from_lowering_result,
 };
-use qsc_ast::ast::{self as qsast, NodeId, Package};
 use qdk_openqasm_parser::semantic::ast as semast;
 use qdk_openqasm_parser::{
     io::SourceResolver,
@@ -56,6 +55,7 @@ use qdk_openqasm_parser::{
     },
     stdlib::complex::Complex,
 };
+use qsc_ast::ast::{self as qsast, NodeId, Package};
 
 const QSHARP_QIR_INTRINSIC_ANNOTATION: &str = "SimulatableIntrinsic";
 const QDK_QIR_INTRINSIC_ANNOTATION: &str = "qdk.qir.intrinsic";
