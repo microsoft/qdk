@@ -41,6 +41,17 @@ export function getQuantumOsJobLink(
 }
 
 function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
+  // The Quantum OS portal uses the tenant id in the deep-link fragment to scope
+  // the interactive sign-in. An empty tenant id produces a malformed link, so
+  // require it here rather than silently emitting `tenantId=`. The tenant id is
+  // normally derived from the subscription id upstream; reaching here without
+  // one means that derivation failed.
+  if (!workspace.tenantId) {
+    throw new Error(
+      `Cannot build a portal link for the workspace "${workspace.name}": no tenant ID is available.`,
+    );
+  }
+
   const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
   const subscriptionId =
     workspace.subscriptionId ??
@@ -50,7 +61,7 @@ function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
     workspace.offeringId ?? workspace.providers[0]?.providerId ?? "";
 
   return (
-    `tenantId=${workspace.tenantId ?? ""}` +
+    `tenantId=${workspace.tenantId}` +
     `&subscriptionId=${subscriptionId}` +
     `&role=Researcher` +
     (offeringId ? `&offeringId=${offeringId}` : "") +

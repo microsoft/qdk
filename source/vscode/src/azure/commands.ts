@@ -490,8 +490,15 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         const treeItem = arg || currentTreeItem;
         if (treeItem?.type !== "job") return;
         const job = treeItem.itemData as Job;
-        const link = getQuantumOsJobLink(treeItem.workspace, job.id);
-        vscode.env.openExternal(vscode.Uri.parse(link));
+        try {
+          const link = getQuantumOsJobLink(treeItem.workspace, job.id);
+          vscode.env.openExternal(vscode.Uri.parse(link));
+        } catch (e) {
+          log.error("Failed to build job portal link", e);
+          vscode.window.showErrorMessage(
+            "Unable to open the job in the portal because the tenant ID for this workspace could not be determined. Try removing and re-adding the workspace.",
+          );
+        }
       },
     ),
   );
@@ -505,8 +512,15 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         if (treeItem?.type !== "workspace") return;
         const workspace = treeItem.itemData as WorkspaceConnection;
 
-        const link = getWorkspacePortalLink(workspace);
-        vscode.env.openExternal(vscode.Uri.parse(link));
+        try {
+          const link = getWorkspacePortalLink(workspace);
+          vscode.env.openExternal(vscode.Uri.parse(link));
+        } catch (e) {
+          log.error("Failed to build workspace portal link", e);
+          vscode.window.showErrorMessage(
+            "Unable to open the workspace in the portal because the tenant ID for this workspace could not be determined. Try removing and re-adding the workspace.",
+          );
+        }
       },
     ),
   );
