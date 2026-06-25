@@ -53,6 +53,12 @@ pub struct Token {
     pub span: Span,
 }
 
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.kind, self.span)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
 pub enum TokenKind {
     Newline,         // \n
