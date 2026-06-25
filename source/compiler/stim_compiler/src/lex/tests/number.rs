@@ -6,50 +6,50 @@ use expect_test::expect;
 
 #[test]
 fn single_digit_uint() {
-    check("0", &expect!["uint [0-1]"]);
-    check("9", &expect!["uint [0-1]"]);
+    check("0", &expect!["uint(0) [0-1]"]);
+    check("9", &expect!["uint(9) [0-1]"]);
 }
 
 #[test]
 fn multi_digit_uint() {
-    check("42", &expect!["uint [0-2]"]);
-    check("123", &expect!["uint [0-3]"]);
+    check("42", &expect!["uint(42) [0-2]"]);
+    check("123", &expect!["uint(123) [0-3]"]);
 }
 
 #[test]
 fn signed_integer_is_a_double() {
-    check("+1", &expect!["double [0-2]"]);
-    check("-1", &expect!["double [0-2]"]);
-    check("+42", &expect!["double [0-3]"]);
-    check("-42", &expect!["double [0-3]"]);
-    check("+0", &expect!["double [0-2]"]);
-    check("-0", &expect!["double [0-2]"]);
+    check("+1", &expect!["double(+1) [0-2]"]);
+    check("-1", &expect!["double(-1) [0-2]"]);
+    check("+42", &expect!["double(+42) [0-3]"]);
+    check("-42", &expect!["double(-42) [0-3]"]);
+    check("+0", &expect!["double(+0) [0-2]"]);
+    check("-0", &expect!["double(-0) [0-2]"]);
 }
 
 #[test]
 fn double_with_fractional_part() {
-    check("0.5", &expect!["double [0-3]"]);
-    check("3.14", &expect!["double [0-4]"]);
-    check("12.0", &expect!["double [0-4]"]);
-    check("100.001", &expect!["double [0-7]"]);
+    check("0.5", &expect!["double(0.5) [0-3]"]);
+    check("3.14", &expect!["double(3.14) [0-4]"]);
+    check("12.0", &expect!["double(12.0) [0-4]"]);
+    check("100.001", &expect!["double(100.001) [0-7]"]);
 }
 
 #[test]
 fn double_with_exponent() {
-    check("1e9", &expect!["double [0-3]"]);
-    check("1E9", &expect!["double [0-3]"]);
-    check("6e0", &expect!["double [0-3]"]);
-    check("2e+5", &expect!["double [0-4]"]);
-    check("2e-5", &expect!["double [0-4]"]);
-    check("10E10", &expect!["double [0-5]"]);
+    check("1e9", &expect!["double(1e9) [0-3]"]);
+    check("1E9", &expect!["double(1E9) [0-3]"]);
+    check("6e0", &expect!["double(6e0) [0-3]"]);
+    check("2e+5", &expect!["double(2e+5) [0-4]"]);
+    check("2e-5", &expect!["double(2e-5) [0-4]"]);
+    check("10E10", &expect!["double(10E10) [0-5]"]);
 }
 
 #[test]
 fn double_with_fraction_and_exponent() {
-    check("1.0e9", &expect!["double [0-5]"]);
-    check("3.14e10", &expect!["double [0-7]"]);
-    check("+3.5e-2", &expect!["double [0-7]"]);
-    check("-0.5E+8", &expect!["double [0-7]"]);
+    check("1.0e9", &expect!["double(1.0e9) [0-5]"]);
+    check("3.14e10", &expect!["double(3.14e10) [0-7]"]);
+    check("+3.5e-2", &expect!["double(+3.5e-2) [0-7]"]);
+    check("-0.5E+8", &expect!["double(-0.5E+8) [0-7]"]);
 }
 #[test]
 fn lone_sign_is_error() {
@@ -152,15 +152,15 @@ fn decimal_point_followed_by_non_digit_is_error() {
     check(
         "3.e5",
         &expect![[r#"
-        Stim.MissingFractionalDigits
+            Stim.MissingFractionalDigits
 
-          x expected digits after decimal point
-           ,----
-         1 | 3.e5
-           : ^^
-           `----
+              x expected digits after decimal point
+               ,----
+             1 | 3.e5
+               : ^^
+               `----
 
-        instruction_name [2-4]"#]],
+            instruction_name(e5) [2-4]"#]],
     );
 }
 
@@ -271,15 +271,15 @@ fn leading_decimal_point_is_not_a_double() {
     check(
         ".5",
         &expect![[r#"
-        Stim.UnrecognizedCharacter
+            Stim.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | .5
-           : ^
-           `----
+              x unrecognized character
+               ,----
+             1 | .5
+               : ^
+               `----
 
-        uint [1-2]"#]],
+            uint(5) [1-2]"#]],
     );
 }
 
@@ -290,16 +290,16 @@ fn second_decimal_point_ends_the_double() {
     check(
         "1.2.3",
         &expect![[r#"
-        double [0-3]
-        Stim.UnrecognizedCharacter
+            double(1.2) [0-3]
+            Stim.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | 1.2.3
-           :    ^
-           `----
+              x unrecognized character
+               ,----
+             1 | 1.2.3
+               :    ^
+               `----
 
-        uint [4-5]"#]],
+            uint(3) [4-5]"#]],
     );
 }
 
@@ -309,14 +309,14 @@ fn double_sign_recovers_to_a_double() {
     check(
         "++1",
         &expect![[r#"
-        Stim.MissingDigitsAfterSign
+            Stim.MissingDigitsAfterSign
 
-          x expected digits after sign
-           ,----
-         1 | ++1
-           : ^
-           `----
+              x expected digits after sign
+               ,----
+             1 | ++1
+               : ^
+               `----
 
-        double [1-3]"#]],
+            double(+1) [1-3]"#]],
     );
 }

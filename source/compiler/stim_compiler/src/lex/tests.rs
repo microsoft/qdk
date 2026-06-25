@@ -12,7 +12,12 @@ fn check(source: &str, expect: &Expect) {
     let lexer = crate::lex::Lexer::new(source);
     let buffer = lexer
         .map(|token| match token {
-            Ok(token) => token.to_string(),
+            Ok(token) => {
+                let value = source
+                    .get(token.span.lo as usize..token.span.hi as usize)
+                    .unwrap_or("");
+                format!("{}({}) {}", token.kind, value, token.span)
+            }
             Err(err) => {
                 format!(
                     "{:?}",
