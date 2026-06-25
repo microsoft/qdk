@@ -441,7 +441,7 @@ fn funcall(s: &mut ParserContext, ident: Ident) -> Result<ExprKind> {
     Ok(ExprKind::FunctionCall(FunctionCall {
         span: s.span(lo),
         name: ident,
-        args: args.into_iter().map(Box::new).collect(),
+        args: args.into_iter().collect(),
     }))
 }
 

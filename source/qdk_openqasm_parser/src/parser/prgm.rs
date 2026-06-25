@@ -30,11 +30,7 @@ pub(super) fn parse(s: &mut ParserContext) -> Program {
     Program {
         span: s.span(lo),
         version,
-        statements: stmts
-            .into_iter()
-            .map(Box::new)
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
+        statements: stmts.into_boxed_slice(),
     }
 }
 
