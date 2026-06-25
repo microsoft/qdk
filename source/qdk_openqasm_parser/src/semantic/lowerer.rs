@@ -1350,7 +1350,7 @@ impl Lowerer {
     fn lower_paren_expr(&mut self, expr: &syntax::Expr, span: Span) -> semantic::Expr {
         let expr = self.lower_expr(expr);
         let ty = expr.ty.clone();
-        let kind = semantic::ExprKind::Paren(expr);
+        let kind = semantic::ExprKind::Paren(Box::new(expr));
         semantic::Expr::new(span, kind, ty)
     }
 
@@ -1371,7 +1371,7 @@ impl Lowerer {
                 let unary = semantic::UnaryOpExpr {
                     span,
                     op: semantic::UnaryOp::Neg,
-                    expr,
+                    expr: Box::new(expr),
                 };
                 semantic::Expr::new(span, semantic::ExprKind::UnaryOp(unary), ty)
             }
@@ -1390,7 +1390,7 @@ impl Lowerer {
                 let unary = semantic::UnaryOpExpr {
                     span,
                     op: semantic::UnaryOp::NotB,
-                    expr,
+                    expr: Box::new(expr),
                 };
                 semantic::Expr::new(span, semantic::ExprKind::UnaryOp(unary), ty)
             }
@@ -1412,7 +1412,7 @@ impl Lowerer {
                     semantic::ExprKind::UnaryOp(semantic::UnaryOpExpr {
                         span: expr.span,
                         op: semantic::UnaryOp::NotL,
-                        expr,
+                        expr: Box::new(expr),
                     }),
                     ty,
                 )
@@ -2220,9 +2220,9 @@ impl Lowerer {
                 let kind = semantic::ExprKind::SizeofCall(semantic::SizeofCallExpr {
                     span: expr.span,
                     fn_name_span: expr.name.span,
-                    array: first_arg,
+                    array: Box::new(first_arg),
                     array_dims: array_dims.into(),
-                    dim: second_arg,
+                    dim: Box::new(second_arg),
                 });
 
                 Expr::new(expr.span, kind, Type::UInt(None, false))
@@ -4245,8 +4245,8 @@ impl Lowerer {
                 }
                 let bin_expr = semantic::BinaryOpExpr {
                     op: op.into(),
-                    lhs,
-                    rhs,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
                 };
                 let kind = semantic::ExprKind::BinaryOp(bin_expr);
                 let expr = semantic::Expr::new(span, kind, target_ty);
@@ -4263,8 +4263,8 @@ impl Lowerer {
             };
 
             let bin_expr = semantic::BinaryOpExpr {
-                lhs: new_lhs,
-                rhs: new_rhs,
+                lhs: Box::new(new_lhs),
+                rhs: Box::new(new_rhs),
                 op: op.into(),
             };
             let kind = semantic::ExprKind::BinaryOp(bin_expr);
@@ -4382,8 +4382,8 @@ impl Lowerer {
             if is_complex_binop_supported(op) {
                 let bin_expr = semantic::BinaryOpExpr {
                     op: op.into(),
-                    lhs,
-                    rhs,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
                 };
                 let kind = semantic::ExprKind::BinaryOp(bin_expr);
                 semantic::Expr::new(span, kind, ty.clone())
@@ -4396,8 +4396,8 @@ impl Lowerer {
         } else {
             let bin_expr = semantic::BinaryOpExpr {
                 op: op.into(),
-                lhs,
-                rhs,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
             };
             let kind = semantic::ExprKind::BinaryOp(bin_expr);
             semantic::Expr::new(span, kind, ty.clone())
@@ -4501,8 +4501,8 @@ impl Lowerer {
 
         let bin_expr = semantic::BinaryOpExpr {
             op: op.into(),
-            lhs,
-            rhs,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
         };
         let kind = semantic::ExprKind::BinaryOp(bin_expr);
         let expr = semantic::Expr::new(span, kind, ty);
@@ -5093,7 +5093,7 @@ fn wrap_expr_in_cast_expr(ty: Type, rhs: semantic::Expr) -> semantic::Expr {
         rhs.span,
         semantic::ExprKind::Cast(semantic::Cast {
             span: Span::default(),
-            expr: rhs,
+            expr: Box::new(rhs),
             ty: ty.clone(),
             kind: semantic::CastKind::Implicit,
             ty_exprs: list_from_iter(vec![]),

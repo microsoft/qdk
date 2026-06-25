@@ -862,7 +862,11 @@ impl Expr {
 
         Self {
             span,
-            kind: Box::new(ExprKind::BinaryOp(BinaryOpExpr { op, lhs, rhs })),
+            kind: Box::new(ExprKind::BinaryOp(BinaryOpExpr {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            })),
             const_value: None,
             ty,
         }
@@ -883,7 +887,7 @@ pub enum ExprKind {
     BuiltinFunctionCall(BuiltinFunctionCall),
     Cast(Cast),
     IndexedExpr(IndexedExpr),
-    Paren(Expr),
+    Paren(Box<Expr>),
     Measure(MeasureExpr),
     SizeofCall(SizeofCallExpr),
     DurationofCall(DurationofCallExpr),
@@ -1092,7 +1096,7 @@ impl Display for EnumerableSet {
 pub struct UnaryOpExpr {
     pub span: Span,
     pub op: UnaryOp,
-    pub expr: Expr,
+    pub expr: Box<Expr>,
 }
 
 impl Display for UnaryOpExpr {
@@ -1106,8 +1110,8 @@ impl Display for UnaryOpExpr {
 #[derive(Clone, Debug)]
 pub struct BinaryOpExpr {
     pub op: BinOp,
-    pub lhs: Expr,
-    pub rhs: Expr,
+    pub lhs: Box<Expr>,
+    pub rhs: Box<Expr>,
 }
 
 impl BinaryOpExpr {
@@ -1151,9 +1155,9 @@ impl Display for FunctionCall {
 pub struct SizeofCallExpr {
     pub span: Span,
     pub fn_name_span: Span,
-    pub array: Expr,
+    pub array: Box<Expr>,
     pub array_dims: u32,
-    pub dim: Expr,
+    pub dim: Box<Expr>,
 }
 
 impl Display for SizeofCallExpr {
@@ -1227,7 +1231,7 @@ pub struct Cast {
     pub span: Span,
     pub ty: Type,
     pub ty_exprs: List<Expr>,
-    pub expr: Expr,
+    pub expr: Box<Expr>,
     pub kind: CastKind,
 }
 
