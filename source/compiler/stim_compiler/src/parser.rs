@@ -13,7 +13,7 @@ use crate::lex::{
 use miette::Diagnostic;
 use qsc_data_structures::{
     display::{
-        write_field, write_list_field, writeln_field, writeln_header, writeln_list_field,
+        write_field, write_list_field, writeln_field, writeln_header_with_span, writeln_list_field,
         writeln_opt_field,
     },
     span::Span,
@@ -29,7 +29,7 @@ pub struct Circuit {
 
 impl Display for Circuit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln_header(f, "Circuit", self.span)?;
+        writeln_header_with_span(f, "Circuit", self.span)?;
         write_list_field(f, "items", &self.items)
     }
 }
@@ -69,7 +69,7 @@ pub struct Block {
 
 impl Display for Block {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln_header(f, "Block", self.span)?;
+        writeln_header_with_span(f, "Block", self.span)?;
         writeln_field(f, "block_instruction", &self.block_instruction)?;
         write_list_field(f, "items", &self.items)
     }
@@ -86,7 +86,7 @@ pub struct Instruction {
 
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln_header(f, "Instruction", self.span)?;
+        writeln_header_with_span(f, "Instruction", self.span)?;
         writeln_field(f, "name", &self.name)?;
         writeln_opt_field(f, "tag", self.tag.as_ref())?;
         writeln_list_field(f, "args", &self.args)?;
@@ -102,7 +102,7 @@ pub struct Target {
 
 impl Display for Target {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln_header(f, "Target", self.span)?;
+        writeln_header_with_span(f, "Target", self.span)?;
         write_field(f, "kind", &self.kind)
     }
 }
