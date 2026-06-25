@@ -22,7 +22,7 @@ fn get_wrap_in_array_actions(source: &str) -> (Vec<Location>, Vec<crate::protoco
 }
 
 #[test]
-fn single_arg_qubit_to_qubit_array() {
+fn single_arg_qubit_to_qubit_array_fix_offered() {
     let source = "namespace A {
     operation Foo(qs: Qubit[]) : Unit is Adj {
         use q = Qubit();
@@ -43,7 +43,7 @@ fn single_arg_qubit_to_qubit_array() {
 }
 
 #[test]
-fn multi_arg_second_param_is_array() {
+fn multi_arg_second_param_is_array_fix_offered() {
     let source = "namespace A {
     operation Bar(x: Int, qs: Qubit[]) : Unit {
         use q = Qubit();
@@ -64,7 +64,7 @@ fn multi_arg_second_param_is_array() {
 }
 
 #[test]
-fn no_action_when_types_already_match() {
+fn types_already_match_fix_not_offered() {
     let source = "namespace A {
     operation Foo(qs: Qubit[]) : Unit is Adj {
         use q = Qubit();
@@ -77,7 +77,7 @@ fn no_action_when_types_already_match() {
 }
 
 #[test]
-fn no_action_for_unrelated_mismatch() {
+fn unrelated_mismatch_fix_not_offered() {
     // Int passed where String expected - should NOT offer wrap in array.
     let source = "namespace A {
     function Foo(s: String) : Unit {}
@@ -91,7 +91,7 @@ fn no_action_for_unrelated_mismatch() {
 }
 
 #[test]
-fn no_action_for_tuple_to_tuple_array() {
+fn tuple_to_tuple_array_fix_not_offered() {
     // (Qubit, Qubit) passed where (Qubit, Qubit)[] expected - not a primitive type.
     let source = "namespace A {
     operation Foo(qs: (Qubit, Qubit)[]) : Unit {}
@@ -106,7 +106,7 @@ fn no_action_for_tuple_to_tuple_array() {
 }
 
 #[test]
-fn no_action_for_array_to_nested_array() {
+fn array_to_nested_array_fix_not_offered() {
     // Qubit[] passed where Qubit[][] expected - the expression type is Qubit[] (not
     // a primitive), so the code action should not be offered.
     let source = "namespace A {
@@ -121,7 +121,7 @@ fn no_action_for_array_to_nested_array() {
 }
 
 #[test]
-fn no_action_for_arrow_to_arrow_array() {
+fn arrow_to_arrow_array_fix_not_offered() {
     // An operation value passed where ((Qubit) => Unit)[] expected - not a primitive type.
     let source = "namespace A {
     operation MyOp(q: Qubit) : Unit {}
@@ -136,7 +136,7 @@ fn no_action_for_arrow_to_arrow_array() {
 }
 
 #[test]
-fn no_action_for_param_to_param_array() {
+fn param_to_param_array_fix_not_offered() {
     // A generic type parameter passed where 'T[] expected - not a primitive type.
     let source = "namespace A {
     operation Foo<'T>(ts: 'T[]) : Unit {}
@@ -150,7 +150,7 @@ fn no_action_for_param_to_param_array() {
 }
 
 #[test]
-fn no_action_for_udt_to_udt_array() {
+fn udt_to_udt_array_fix_not_offered() {
     // A UDT value passed where MyType[] expected - not a primitive type.
     let source = "namespace A {
     newtype MyType = Int;

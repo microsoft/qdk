@@ -29,7 +29,7 @@ fn get_int_to_double_actions(source: &str) -> (Vec<Location>, Vec<crate::protoco
 }
 
 #[test]
-fn int_literal_to_double() {
+fn int_literal_to_double_fix_offered() {
     let source = "namespace A {
     function Foo(d: Double) : Unit {
         Foo(1◉◉);
@@ -47,7 +47,7 @@ fn int_literal_to_double() {
 }
 
 #[test]
-fn int_literal_to_double_with_parens() {
+fn int_literal_to_double_with_parens_fix_offered() {
     let source = "namespace A {
     function Foo(d: Double) : Unit {
         Foo((1◉◉));
@@ -65,7 +65,7 @@ fn int_literal_to_double_with_parens() {
 }
 
 #[test]
-fn int_literal_to_double_with_pos() {
+fn int_literal_to_double_with_pos_fix_offered() {
     let source = "namespace A {
     function Foo(d: Double) : Unit {
         Foo((+1◉◉));
@@ -83,7 +83,7 @@ fn int_literal_to_double_with_pos() {
 }
 
 #[test]
-fn int_literal_to_double_with_neg() {
+fn int_literal_to_double_with_neg_fix_offered() {
     let source = "namespace A {
     function Foo(d: Double) : Unit {
         Foo((-1◉◉));
@@ -101,7 +101,7 @@ fn int_literal_to_double_with_neg() {
 }
 
 #[test]
-fn int_literal_to_double_with_neg_neg() {
+fn int_literal_to_double_with_neg_neg_fix_offered() {
     let source = "namespace A {
     function Foo(d: Double) : Unit {
         Foo((--1◉◉));
@@ -119,7 +119,7 @@ fn int_literal_to_double_with_neg_neg() {
 }
 
 #[test]
-fn int_literal_to_double_with_notb() {
+fn int_literal_to_double_with_notb_fix_not_offered() {
     let source = "namespace A {
     function Foo(d: Double) : Unit {
         Foo((~~~1));
@@ -131,7 +131,7 @@ fn int_literal_to_double_with_notb() {
 }
 
 #[test]
-fn int_local_to_double() {
+fn int_local_to_double_fix_not_offered() {
     let source = "namespace A {
     function Foo(d: Double) : Unit {
         let x = 1;
@@ -145,7 +145,7 @@ fn int_local_to_double() {
 
 // We'd like this to work but the TyMismatch flags the whole array, not the elements
 #[test]
-fn int_array_to_double() {
+fn int_array_to_double_fix_not_offered() {
     let source = "namespace A {
     function Foo(d: Double[]) : Unit {
         Foo([1,2,3]);
