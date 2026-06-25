@@ -8,6 +8,7 @@ mod instruction_name;
 mod number;
 mod rec_sweep_tag;
 mod single_char_token;
+mod unrecognized_character;
 mod whitespace_and_comments;
 
 /// Check that a stim source lexes to the
