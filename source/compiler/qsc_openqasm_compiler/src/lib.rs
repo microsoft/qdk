@@ -27,9 +27,9 @@ pub use functor_constraints::{FunctorConstraintSolver, FunctorConstraints};
 use std::{fmt::Write, sync::Arc};
 
 use miette::Diagnostic;
+use qdk_openqasm_parser::semantic::QasmSemanticParseResult;
 use qsc_ast::ast::Package;
 use qsc_data_structures::{error::WithSource, source::SourceMap, target::Profile};
-use qdk_openqasm_parser::semantic::QasmSemanticParseResult;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Diagnostic, Eq, Error, PartialEq)]

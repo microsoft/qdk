@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::vec;
 
+use qdk_openqasm_parser::io::SourceResolver;
 use qsc_data_structures::error::WithSource;
 use qsc_data_structures::target::Profile;
 use qsc_frontend::compile::PackageStore;
@@ -13,7 +14,6 @@ pub use qsc_openqasm_compiler::{
     CompilerConfig, OperationSignature, OutputSemantics, ProgramType, QasmCompileUnit,
     QubitSemantics,
 };
-use qdk_openqasm_parser::io::SourceResolver;
 use qsc_passes::PackageType;
 
 pub mod io {
