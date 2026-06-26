@@ -875,16 +875,22 @@ class LossPolicy(Enum):
     """
 
     # If any operand of a gate is lost, skip the gate entirely.
+    # This policy can apply to all multi-qubit gates.
     SKIP: int
     # If any operand of a gate is lost, propagate the loss to the other operands.
+    # This policy can apply to all multi-qubit gates.
     PROPAGATE: int
     # For multi-qubit rotations, degrade the unitary to its single-qubit version
     # on the surviving operand (e.g. rxx -> rx). Falls back to SKIP for gates with
     # no single-qubit reduction (cx, cy, cz, swap, and single-qubit gates).
+    # This policy only applies to the rxx, ryy, and rzz gates, in which case
+    # they degrade to rx, ry, and rz on the remaining qubit respectively.
     DEGRADE: int
     # Skip the gate and instead apply an S adjoint to each surviving operand.
+    # This policy can apply to all multi-qubit gates.
     RESIDUAL_S_DAGGER: int
-    # Apply the unitary anyway, ignoring the loss.
+    # This policy only applies to the swap gate, in which case the qubit states
+    # are exchanged, includding their loss flags.
     APPLY_ANYWAY: int
 
 class NoiseTable:
