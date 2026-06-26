@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qdk_simulators::noise_config::{NoiseConfig, NoiseTable, encode_pauli};
+use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
 
 use crate::parser::*;
 use miette::Diagnostic;
@@ -975,6 +975,7 @@ impl<'noise> Compiler<'noise> {
             qubits: columns.len() as u32,
             pauli_strings,
             probabilities,
+            on_loss: LossPolicy::Skip,
         };
         self.noise.intrinsics.insert(id, table);
 

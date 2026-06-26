@@ -361,7 +361,10 @@ fn to_stim_intrinsics_table<Q: Float>(
         let name = format!("noise_intrinsic_{id}");
         table.insert(
             name,
-            (*id, Py::new(py, NoiseTable::from(noise_table.clone()))?),
+            (
+                *id,
+                Py::new(py, from_qdk_simulators_noise_table(noise_table, ""))?,
+            ),
         );
         next_id = next_id.max(*id + 1);
     }
