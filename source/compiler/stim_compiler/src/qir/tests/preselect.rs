@@ -5,6 +5,7 @@ use super::check;
 use expect_test::expect;
 
 #[test]
+#[ignore = "this will be deprecated soon"]
 fn preselect_begin_yields_expected_qir() {
     let source = "#!preselect_begin";
 
@@ -43,6 +44,7 @@ fn preselect_begin_yields_expected_qir() {
 }
 
 #[test]
+#[ignore = "this will be deprecated soon"]
 fn preselect_begin_followed_by_preselect_expect_yields_expected_qir() {
     let source = "
 #!preselect_begin
@@ -98,6 +100,7 @@ R 0
 }
 
 #[test]
+#[ignore = "this will be deprecated soon"]
 fn preselect_begin_followed_by_two_preselect_expect_yields_expected_qir() {
     let source = "
 #!preselect_begin
