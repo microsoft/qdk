@@ -63,7 +63,9 @@ fn depolarize1_yields_expected_qir() {
 #[test]
 fn depolarize1_without_probability_yields_error() {
     let source = "DEPOLARIZE1 0 1";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Stim.MissingProbability
 
           x missing probability argument in instruction: DEPOLARIZE1
@@ -71,7 +73,8 @@ fn depolarize1_without_probability_yields_error() {
          1 | DEPOLARIZE1 0 1
            : ^^^^^^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -157,7 +160,9 @@ fn depolarize2_yields_expected_qir() {
 #[test]
 fn depolarize2_without_probability_yields_error() {
     let source = "DEPOLARIZE2 0 1 2 3";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Stim.MissingProbability
 
           x missing probability argument in instruction: DEPOLARIZE2
@@ -165,13 +170,16 @@ fn depolarize2_without_probability_yields_error() {
          1 | DEPOLARIZE2 0 1 2 3
            : ^^^^^^^^^^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn depolarize2_with_odd_number_of_targets_yields_error() {
     let source = "DEPOLARIZE2(0.01) 0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Stim.OddQubitCount
 
           x instruction DEPOLARIZE2 requires an even number of qubit targets
@@ -179,7 +187,8 @@ fn depolarize2_with_odd_number_of_targets_yields_error() {
          1 | DEPOLARIZE2(0.01) 0
            : ^^^^^^^^^^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]

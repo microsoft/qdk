@@ -830,7 +830,9 @@ fn y_error_yields_expected_qir() {
 #[test]
 fn y_error_without_probability_yields_error() {
     let source = "Y_ERROR 0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Stim.MissingProbability
 
           x missing probability argument in instruction: Y_ERROR
@@ -838,7 +840,8 @@ fn y_error_without_probability_yields_error() {
          1 | Y_ERROR 0
            : ^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
