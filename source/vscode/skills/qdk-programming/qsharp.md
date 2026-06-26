@@ -311,7 +311,7 @@ operation Main() : Result { ... }
 | Profile / Attribute             | Description                                                                                                          |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `unrestricted`                  | Full simulation (default)                                                                                            |
-| `adaptive` / `Adaptive`         | Full adaptive profile: RIF extensions plus backwards branching, static-sized arrays, and call support                |
+| `adaptive` / `Adaptive`         | The QIR Adaptive Profile with all QDK-supported extensions.                                                          |
 | `adaptive_rif` / `Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions; required for `CircuitGenerationMethod.Static` |
 | `adaptive_ri` / `Adaptive_RI`   | Adaptive profile with integer computation extension                                                                  |
 | `base` / `Base`                 | Minimal capabilities required to run a quantum program (Base Profile per QIR spec)                                   |

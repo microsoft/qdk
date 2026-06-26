@@ -91,7 +91,7 @@ qsharp.init(project_root="./my_project")
 | Profile                      | Use Case                                                                                              |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `TargetProfile.Unrestricted` | Full simulation (default)                                                                             |
-| `TargetProfile.Adaptive`     | Full adaptive profile: RIF extensions plus backwards branching, static-sized arrays, and call support |
+| `TargetProfile.Adaptive`     | The QIR Adaptive Profile with all QDK-supported extensions.                                           |
 | `TargetProfile.Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions                                 |
 | `TargetProfile.Adaptive_RI`  | Adaptive profile with integer computation extension                                                   |
 | `TargetProfile.Base`         | Minimal capabilities required to run a quantum program (Base Profile)                                 |
