@@ -28,8 +28,9 @@ pub enum LocalKind {
     InputParam(InputParamIndex),
     /// A specialization input (i.e. control qubits).
     SpecInput,
-    /// An immutable binding with the expression associated to it.
-    Immutable(ExprId),
+    /// An immutable binding with the expression associated to it and the optional
+    /// expression for the containing dynamic scope, if any.
+    Immutable(ExprId, Option<ExprId>),
     /// A mutable binding with the optional expression for the containing dynamic scope,
     /// if any.
     Mutable(Option<ExprId>),
@@ -172,7 +173,7 @@ fn try_resolve_local_callee(
     // This is a best effort attempt to resolve a callee.
     match locals_map.find(local_var_id) {
         Some(local) => match local.kind {
-            LocalKind::Immutable(expr_id) => {
+            LocalKind::Immutable(expr_id, _) => {
                 try_resolve_callee(expr_id, package_id, package, locals_map)
             }
             _ => (None, None),

@@ -469,6 +469,43 @@ impl<'a> Analyzer<'a> {
             compute_kind.aggregate_value_kind(value_kind);
         }
 
+        if !self.target_capabilities.is_empty()
+            && callable_decl.name.name.as_ref() == "__quantum__rt__qubit_release"
+        {
+            // If the analysis is for a target non-empty capabilities, we need to check if this is
+            // a non-deterministic qubit release, which requires the dynamic qubit allocation feature.
+            // (We ignore this check for Base Profile as other dynamism will already be flagged and this
+            // specific case does not come up in isolation).
+            // We know that only one intrinsic callable named "__quantum__rt__qubit_release" is allowed by the compiler
+            // and that the argument is a local variable of type "Qubit" so we unwrap to it and check its scoping.
+            // It is valid to release a qubit from a dynamic scope as long as it is the same scope the qubit was allocated in.
+            // If it is not the same scope, that means we will not be able to unconditional perform a single release during
+            // partial evaluation and would need to emit a dynamic call to a release function. Without the dynamic qubit release
+            // feature, this manifests as a double release during codegen, which we want to avoid. Adding the dynamic qubit release
+            // feature to the compute kind will flag this as requiring the dynamic qubit release feature.
+            let args_expr = self.get_expr(args_expr_id);
+            let ExprKind::Var(res, _) = args_expr.kind else {
+                panic!("expected a variable expression for qubit release arguments");
+            };
+            let Res::Local(local_var_id) = res else {
+                panic!("expected a local variable for qubit release arguments");
+            };
+            let local_var_compute_kind = application_instance
+                .locals_map
+                .find_local_compute_kind(local_var_id)
+                .expect("local compute kind should be defined before update");
+            let in_matching_dynamic_scope = matches!(
+                local_var_compute_kind.local.kind,
+                LocalKind::Immutable(_, dynamic_scope) | LocalKind::Mutable(dynamic_scope) if dynamic_scope.as_ref() == application_instance.active_dynamic_scopes.last()
+            );
+            if !in_matching_dynamic_scope {
+                compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicQubitRelease,
+                    value_kind: ValueKind::Constant,
+                });
+            }
+        }
+
         compute_kind
     }
 
@@ -1362,7 +1399,9 @@ impl<'a> Analyzer<'a> {
         match &pat.kind {
             PatKind::Bind(ident) => {
                 let local_kind = match mutability {
-                    Mutability::Immutable => LocalKind::Immutable(expr_id),
+                    Mutability::Immutable => {
+                        LocalKind::Immutable(expr_id, self.get_current_dynamic_scope())
+                    }
                     Mutability::Mutable => LocalKind::Mutable(self.get_current_dynamic_scope()),
                 };
                 let application_instance = self.get_current_application_instance();
@@ -1395,7 +1434,9 @@ impl<'a> Analyzer<'a> {
         match &pat.kind {
             PatKind::Bind(ident) => {
                 let local_kind = match mutability {
-                    Mutability::Immutable => LocalKind::Immutable(expr_id),
+                    Mutability::Immutable => {
+                        LocalKind::Immutable(expr_id, self.get_current_dynamic_scope())
+                    }
                     Mutability::Mutable => LocalKind::Mutable(self.get_current_dynamic_scope()),
                 };
                 let application_instance = self.get_current_application_instance();

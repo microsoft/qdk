@@ -228,6 +228,14 @@ pub enum Error {
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-generic"))]
     #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicGeneric"))]
     UseOfDynamicGeneric(#[label] Span),
+
+    #[error("cannot use a dynamic qubit release")]
+    #[diagnostic(help(
+        "non-deterministic qubit release, often from patterns like dynamic early returns, requires the dynamic qubit allocation feature and is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-qubit-release"))]
+    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicQubitRelease"))]
+    UseOfDynamicQubitRelease(#[label] Span),
 }
 
 #[must_use]
@@ -322,6 +330,9 @@ pub fn generate_errors_from_runtime_features(
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
         errors.push(Error::UseOfDynamicGeneric(span));
+    }
+    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicQubitRelease) {
+        errors.push(Error::UseOfDynamicQubitRelease(span));
     }
     errors
 }
