@@ -423,6 +423,11 @@ impl SymbolTable {
         self.scopes.pop();
     }
 
+    /// Returns an iterator over all symbols defined in the table, across all scopes.
+    pub fn symbols(&self) -> impl Iterator<Item = &Rc<Symbol>> {
+        self.symbols.values()
+    }
+
     pub fn insert_symbol(&mut self, symbol: Symbol) -> Result<SymbolId, SymbolInsertError> {
         let symbol = Rc::new(symbol);
         let id = self.current_id;

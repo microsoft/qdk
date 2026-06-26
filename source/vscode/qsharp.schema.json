@@ -25,7 +25,13 @@
     "targetProfile": {
       "title": "Target QIR Profile",
       "type": "string",
-      "enum": ["unrestricted", "adaptive_ri", "adaptive_rif", "base"]
+      "enum": [
+        "base",
+        "adaptive_ri",
+        "adaptive_rif",
+        "adaptive",
+        "unrestricted"
+      ]
     },
     "lints": {
       "title": "Lints",
