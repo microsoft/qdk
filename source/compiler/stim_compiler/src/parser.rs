@@ -524,6 +524,7 @@ impl<'a> Parser<'a> {
     fn is_target_start(&self, token: &Token) -> bool {
         match token.kind {
             TokenKind::Uint
+            | TokenKind::Double // can't actually start a target, it's only here for nicer error messages
             | TokenKind::Rec
             | TokenKind::Sweep
             | TokenKind::Bang

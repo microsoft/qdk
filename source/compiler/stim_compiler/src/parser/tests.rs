@@ -7,6 +7,7 @@ use miette::Report;
 mod arguments;
 mod blocks;
 mod instruction_shapes;
+mod numbers;
 mod tags;
 mod targets;
 mod whitespace_and_comments;
