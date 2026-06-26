@@ -8,6 +8,7 @@ import {
 } from "./codeLens.js";
 import { registerLearningCommands } from "./commands.js";
 import { LessonPanelManager, registerLessonPanelSerializer } from "./panel.js";
+import { createNotebookCellStatusBarProvider } from "./notebookCellStatusBar.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
 import { LearningService } from "./service.js";
 import { registerLearningWelcomeView } from "./welcomeView.js";
@@ -30,6 +31,34 @@ export function initLearning(
       createLearningCodeLensProvider(),
     ),
   );
+  context.subscriptions.push(
+    vscode.notebooks.registerNotebookCellStatusBarItemProvider(
+      "jupyter-notebook",
+      createNotebookCellStatusBarProvider(learningService),
+    ),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeNotebookDocument((e) => {
+      // When a cell finishes executing (executionSummary changes), check
+      // if it corresponds to an exercise in the active python-notebook
+      // course and update focus. If execution succeeded, mark complete.
+      if (
+        !learningService.initialized ||
+        learningService.getActiveCourseInfo().kind !== "python-notebook"
+      ) {
+        return;
+      }
+      for (const change of e.cellChanges) {
+        if (change.executionSummary !== undefined) {
+          const cellIndex = change.cell.index + 1;
+          void learningService.goToExerciseByCellIndex(cellIndex, "panel");
+          if (change.executionSummary.success) {
+            void learningService.markExerciseCompleteByCellIndex(cellIndex);
+          }
+        }
+      }
+    }),
+  );
   registerLearningProgressView(context, learningService);
   registerLearningWelcomeView(context, learningService);
   registerLearningCommands(context, learningService, panelManager);
@@ -38,7 +67,10 @@ export function initLearning(
 }
 
 export type {
+  CourseDescriptor,
+  CourseKind,
   CurrentActivity,
+  EnvironmentCheckReport,
   HintContext,
   OverallProgress,
   RunResult,

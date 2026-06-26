@@ -11,7 +11,7 @@
 // it in a headless instance of Chromium to run the integration test suite.
 //
 // Command-line arguments:
-// --suite=<name>           Run only the specified test suite (language-service or debugger)
+// --suite=<name>           Run only the specified test suite (language-service, debugger, or learning)
 // --waitForDebugger=<port> Wait for debugger to attach on the specified port before running tests
 // --verbose                Enable verbose logging for VS Code and test web server
 //                          Note: This controls the VS Code and test web server logging level.
@@ -72,7 +72,7 @@ try {
   }
   console.log("Empty suite succeeded.");
 
-  const suites = ["language-service", "debugger"];
+  const suites = ["language-service", "debugger", "learning"];
   const toRun =
     selectedSuite && suites.includes(selectedSuite) ? [selectedSuite] : suites;
 

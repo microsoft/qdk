@@ -2,7 +2,10 @@
 // Licensed under the MIT License.
 
 import { getAllKatas } from "qsharp-lang/katas-md";
+import * as vscode from "vscode";
 import { KATAS_COURSE_ID } from "./constants.js";
+import { CourseRegistry, KatasProvider } from "./courseProvider.js";
+import { DropInCourseProvider } from "./dropInCourseProvider.js";
 import type {
   CatalogUnit,
   CatalogCourse,
@@ -80,5 +83,21 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
     }),
   }));
 
-  return { id: KATAS_COURSE_ID, title: "Quantum Katas", units };
+  return { id: KATAS_COURSE_ID, title: "Quantum Katas", kind: "qsharp", units };
+}
+
+/**
+ * Create the {@link CourseRegistry} with all available course providers.
+ *
+ * Registers the built-in Quantum Katas provider plus a
+ * {@link DropInCourseProvider} that discovers courses authored on disk
+ * (under `qdk-learning/courses/*`).
+ */
+export function createCourseRegistry(
+  workspaceRoot: vscode.Uri,
+): CourseRegistry {
+  return new CourseRegistry([
+    new KatasProvider(),
+    new DropInCourseProvider(workspaceRoot),
+  ]);
 }

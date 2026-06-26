@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "circuit-diagrams",
+  "title": "Generating Circuit Diagrams",
+  "shortDescription": "Build and visualize quantum circuits with the QDK in Python notebooks.",
+  "readme": "README.md",
+  "units": [
+    {
+      "id": "intro",
+      "title": "Getting Started",
+      "dir": "01-intro"
+    },
+    {
+      "id": "circuits",
+      "title": "Circuit Diagrams",
+      "dir": "02-circuits"
+    }
+  ],
+  "environment": {
+    "importChecks": ["qdk", "qdk.widgets"]
+  }
+}
