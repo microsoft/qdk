@@ -7,6 +7,8 @@ mod control_flow;
 mod generalize_pauli_product_gates;
 mod noise_channels;
 mod noise_channels_broadcasting;
+mod pair_measurements;
+mod pair_measurements_broadcasting;
 mod preselect;
 mod single_qubit_gates;
 mod single_qubit_gates_broadcasting;
