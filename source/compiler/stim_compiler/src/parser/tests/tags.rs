@@ -43,13 +43,13 @@ fn tag_with_complicated_name() {
     check(
         "H[   _my.name_Is_TAG1_ ]",
         &expect![[r#"
-        Circuit [0-24]:
-            items:
-                Instruction [0-1]:
-                    name: H
-                    tag:    _my.name_Is_TAG1_ 
-                    args: <empty>
-                    targets: <empty>"#]],
+            Circuit [0-24]:
+                items:
+                    Instruction [0-24]:
+                        name: H
+                        tag:    _my.name_Is_TAG1_ 
+                        args: <empty>
+                        targets: <empty>"#]],
     );
 }
 

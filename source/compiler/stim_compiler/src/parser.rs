@@ -474,6 +474,7 @@ impl<'a> Parser<'a> {
 
         let mut args = Vec::new();
         let mut targets = Vec::new();
+        let mut paren_hi = None;
 
         if self
             .peek()
@@ -497,7 +498,7 @@ impl<'a> Parser<'a> {
                 let arg = self.expect_number()?;
                 args.push(self.extract_double(arg, None));
             }
-            self.expect_token(TokenKind::Close(Paren))?;
+            paren_hi = Some(self.expect_token(TokenKind::Close(Paren))?.span.hi);
         }
 
         while let Some(token) = self.peek() {
@@ -507,9 +508,13 @@ impl<'a> Parser<'a> {
             targets.push(self.parse_target()?);
         }
 
+        // The span ends at the rightmost component present: targets, else args,
+        // else tag, else just the name.
         let hi = targets
             .last()
             .map(|t| t.span.hi)
+            .or(paren_hi)
+            .or(tag_token.map(|t| t.span.hi))
             .unwrap_or(name_token.span.hi);
 
         Some(Instruction {

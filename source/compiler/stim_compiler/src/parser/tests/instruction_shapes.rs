@@ -45,14 +45,14 @@ fn args_no_targets() {
     check(
         "X_ERROR(0.1)",
         &expect![[r#"
-        Circuit [0-12]:
-            items:
-                Instruction [0-7]:
-                    name: X_ERROR
-                    tag: <none>
-                    args:
-                        0.1
-                    targets: <empty>"#]],
+            Circuit [0-12]:
+                items:
+                    Instruction [0-12]:
+                        name: X_ERROR
+                        tag: <none>
+                        args:
+                            0.1
+                        targets: <empty>"#]],
     );
 }
 

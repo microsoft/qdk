@@ -9,6 +9,7 @@ mod blocks;
 mod errors;
 mod instruction_shapes;
 mod numbers;
+mod spans;
 mod tags;
 mod targets;
 mod whitespace_and_comments;
