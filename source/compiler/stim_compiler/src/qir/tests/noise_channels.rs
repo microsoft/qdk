@@ -465,7 +465,9 @@ ELSE_CORRELATED_ERROR(0.02) Z0
 #[test]
 fn depolarize1_yields_expected_qir() {
     let source = "DEPOLARIZE1(0.01) 0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         NoiseConfig:
         intrinsics:
             0: NoiseTable:
@@ -504,7 +506,8 @@ fn depolarize1_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -516,7 +519,9 @@ fn depolarize1_without_probability_yields_error() {
 #[test]
 fn depolarize2_yields_expected_qir() {
     let source = "DEPOLARIZE2(0.01) 0 1";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         NoiseConfig:
         intrinsics:
             0: NoiseTable:
@@ -567,7 +572,8 @@ fn depolarize2_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -584,15 +590,34 @@ fn depolarize2_with_odd_number_of_targets_yields_error() {
 
 #[test]
 #[ignore = "unsupported instruction"]
-fn heralded_erase_yields_error() {
+fn heralded_erase_yields_expected_qir() {
+    let source = "HERALDED_ERASE(0.01) 0";
+    check(source, &expect![[""]]);
+}
+
+#[test]
+#[ignore = "unsupported instruction"]
+fn heralded_pauli_channel_1_yields_expected_qir() {
     let source = "HERALDED_PAULI_CHANNEL_1(0, 0, 0, 0.1) 0";
     check(source, &expect![[""]]);
 }
 
 #[test]
 #[ignore = "unsupported instruction"]
-fn heralded_pauli_channel_1_yields_error() {
-    let source = "HERALDED_PAULI_CHANNEL_1 0";
+fn i_error_yields_expected_qir() {
+    let source = "
+# does nothing
+I_ERROR 0
+
+# does nothing with probability 0.1, else does nothing
+I_ERROR(0.1) 0
+
+# doesn't require a probability argument
+I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
+
+# checks for you that the disjoint probabilities in the arguments are legal
+I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
+";
     check(source, &expect![[""]]);
 }
 
@@ -624,25 +649,6 @@ fn ii_error_with_odd_number_of_targets_yields_expected_qir() {
 
 #[test]
 #[ignore = "unsupported instruction"]
-fn i_error_yields_expected_qir() {
-    let source = "
-# does nothing
-I_ERROR 0
-
-# does nothing with probability 0.1, else does nothing
-I_ERROR(0.1) 0
-
-# doesn't require a probability argument
-I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
-
-# checks for you that the disjoint probabilities in the arguments are legal
-I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
-";
-    check(source, &expect![[""]]);
-}
-
-#[test]
-#[ignore = "unsupported instruction"]
 fn pauli_channel_1_yields_expected_qir() {
     let source = "PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0";
     check(source, &expect![[""]]);
@@ -657,7 +663,7 @@ fn pauli_channel_2_yields_expected_qir() {
 
 #[test]
 #[ignore = "unsupported instruction"]
-fn pauli_channel_2_with_odd_number_of_targets_yields_error() {
+fn pauli_channel_2_with_odd_number_of_targets_yields_expected_qir() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0";
     check(source, &expect![[""]]);
 }
