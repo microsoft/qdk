@@ -790,7 +790,9 @@ impl<'noise> Compiler<'noise> {
             "z_error" => FaultChar::Z,
             _ => FaultChar::Loss,
         };
-        let probability = instruction.args[0];
+        let Some(probability) = self.expect_probability(instruction) else {
+            return;
+        };
         for target in &instruction.targets {
             let Some(value) = self.expect_qubit(instruction, target) else {
                 continue;
@@ -947,7 +949,9 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn accumulate_correlated_error(&mut self, instruction: &Instruction) {
-        let probability = instruction.args[0];
+        let Some(probability) = self.expect_probability(instruction) else {
+            return;
+        };
         let mut terms = Vec::new();
         for target in &instruction.targets {
             match &target.kind {
