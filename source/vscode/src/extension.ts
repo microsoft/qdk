@@ -17,6 +17,7 @@ import { startOtherQSharpDiagnostics } from "./diagnostics.js";
 import { removeDeprecatedCopilotInstructions } from "./gh-copilot/instructions.js";
 import { registerLanguageModelTools } from "./gh-copilot/tools.js";
 import { initLearning } from "./learning/index.js";
+import type { LearningService } from "./learning/index.js";
 import { activateLanguageService } from "./language-service/activate.js";
 import {
   Logging,
@@ -104,6 +105,11 @@ export async function activate(
   if (vscode.env.uiKind !== vscode.UIKind.Web) {
     const learningService = initLearning(context);
     registerLanguageModelTools(context, learningService);
+    if (context.extensionMode === vscode.ExtensionMode.Test) {
+      // Test-only seam: expose the learning service so integration tests can
+      // drive multi-course flows without UI automation.
+      api.learning = learningService;
+    }
   }
   // fire-and-forget
   removeDeprecatedCopilotInstructions(context);
@@ -214,6 +220,8 @@ export interface ExtensionApi {
   // Only available in test mode. Allows listening to extension log events.
   logging?: Logging;
   setGithubEndpoint: (endpoint: string) => void;
+  // Only available in test mode on desktop. The multi-course learning service.
+  learning?: LearningService;
 }
 
 export class QsTextDocumentContentProvider

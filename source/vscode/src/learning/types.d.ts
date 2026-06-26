@@ -75,7 +75,8 @@ export type Action =
   | "check"
   | "reset"
   | "hint-chat"
-  | "explain-chat";
+  | "explain-chat"
+  | "open-notebook";
 
 export interface ActionBinding {
   /** Keyboard shortcut key (single character like "b", or "space"). */
@@ -136,6 +137,8 @@ export interface HintContext {
 }
 
 export interface LearningState {
+  /** The currently-active course. */
+  course: { id: string; title: string; kind: CourseKind };
   position: CurrentActivity;
   actions: ActionGroup[];
   progress: OverallProgress;
@@ -215,7 +218,13 @@ export type WebviewToHostMessage =
   /** Open Copilot Chat with a learning-context query. */
   | { command: "openChat"; text: string }
   /** Focus the learning progress tree view in the sidebar. */
-  | { command: "focusProgress" };
+  | { command: "focusProgress" }
+  /** Switch to a different course. */
+  | { command: "switchCourse"; courseId: string }
+  /** Show README/info for a course (defaults to the active course). */
+  | { command: "courseInfo"; courseId?: string }
+  /** Open the course picker to browse and switch courses. */
+  | { command: "browseCourses" };
 
 // ─── Catalog ───
 //
@@ -256,16 +265,98 @@ export interface CatalogLesson {
 
 export type CatalogActivity = CatalogExercise | CatalogLesson;
 
+/**
+ * Exercise metadata loaded from a per-unit `_exercises.json` sidecar
+ * (python-notebook courses). Provides hints, solutions, and descriptions
+ * for the chat LM tools without requiring cell parsing or execution.
+ */
+export interface NotebookExerciseInfo {
+  id: string;
+  title: string;
+  description: string;
+  hints: string[];
+  solution: string;
+  solutionExplanation: string;
+  /** 1-based cell index in the notebook where this exercise lives. */
+  cellIndex?: number;
+}
+
 export interface CatalogUnit {
   id: string;
   title: string;
   activities: CatalogActivity[];
+  /**
+   * Exercise metadata for python-notebook courses, loaded from
+   * `_exercises.json`. Used by chat LM tools for hints/solutions.
+   */
+  notebookExercises?: NotebookExerciseInfo[];
+  /**
+   * Path (relative to the course source dir) of the notebook for this
+   * unit. Set for python-notebook courses.
+   */
+  notebookRel?: string;
 }
+
+/** The execution model for a course's activities. */
+export type CourseKind = "qsharp" | "python-notebook";
 
 export interface CatalogCourse {
   id: string;
   title: string;
+  /** Execution model for this course. Defaults to `"qsharp"`. */
+  kind: CourseKind;
   units: CatalogUnit[];
+  /**
+   * URI string of the folder the course was loaded from (drop-in courses
+   * only). Used to locate notebooks and other assets for materialization.
+   */
+  sourceDir?: string;
+  /** Environment requirements (python-notebook courses). */
+  environment?: CourseEnvironment;
+}
+
+/**
+ * Lightweight metadata describing a course that can be loaded by the
+ * {@link CourseRegistry}. Used to populate course pickers and the tree
+ * view without forcing a full course load.
+ */
+export interface CourseDescriptor {
+  id: string;
+  title: string;
+  shortDescription?: string;
+  kind: CourseKind;
+  /** Optional path (URI string) to a README rendered for "Course info". */
+  readmePath?: string;
+  /** Optional environment requirements (used by python-notebook courses). */
+  environment?: CourseEnvironment;
+}
+
+/**
+ * Environment requirements for a course (python-notebook courses).
+ *
+ * Courses that ship a `pyproject.toml` use `uv sync` for environment setup;
+ * the `python` and `requirements` fields are only used as a legacy fallback
+ * when no `pyproject.toml` is present.
+ */
+export interface CourseEnvironment {
+  /**
+   * Python version specifier for the course venv (e.g. `">=3.11"`, `"3.12"`).
+   * Legacy: used only when no `pyproject.toml` is present. Prefer declaring
+   * `requires-python` in `pyproject.toml` instead.
+   */
+  python?: string;
+  /**
+   * Python package requirements (e.g. `["qdk[jupyter]>=1.0", "ipympl"]`).
+   * Legacy: used only when no `pyproject.toml` is present. Prefer declaring
+   * `dependencies` in `pyproject.toml` instead.
+   */
+  requirements?: string[];
+  /**
+   * Module names to probe with `importlib.util.find_spec` in the notebook's
+   * environment check cell (e.g. `["qdk", "qdk.widgets"]`). These are
+   * importable module names, not pip package names.
+   */
+  importChecks?: string[];
 }
 
 export interface UnitSummary {
@@ -275,4 +366,54 @@ export interface UnitSummary {
   completedCount: number;
   /** True if this is the first unit that hasn't been fully completed. */
   firstIncomplete: boolean;
+}
+
+// ─── Environment check (environment diagnostics) ───
+
+/** Severity of a single {@link EnvironmentCheckItem}. */
+export type EnvironmentCheckStatus = "ok" | "warn" | "fail" | "skip";
+
+/** A suggested fix attached to a failing {@link EnvironmentCheckItem}. */
+export interface EnvironmentCheckFix {
+  /** Short label for the action (e.g. "Set up environment"). */
+  label: string;
+  /**
+   * What the fix does when chosen:
+   * - `setup`: run the per-course environment setup.
+   * - `install-extensions`: prompt to install Python/Jupyter.
+   * - `select-kernel`: re-select the course kernel for the notebook.
+   * - `docs`: informational only; no action.
+   */
+  kind: "setup" | "install-extensions" | "select-kernel" | "docs";
+}
+
+/** One diagnostic in an {@link EnvironmentCheckReport}. */
+export interface EnvironmentCheckItem {
+  /** Stable identifier for the check (e.g. `"venv"`). */
+  id: string;
+  /** Human-readable label. */
+  label: string;
+  /** Pass/warn/fail/skip. */
+  status: EnvironmentCheckStatus;
+  /** Extra detail (a path, version, or error message). */
+  detail?: string;
+  /** Guidance on how to fix a non-ok check. */
+  hint?: string;
+  /** Optional fixes the UI can offer for this check. */
+  fixes?: EnvironmentCheckFix[];
+}
+
+/** Overall status for an {@link EnvironmentCheckReport}. */
+export type EnvironmentStatus = "ok" | "warning" | "error";
+
+/** Structured result of running environment diagnostics for a course. */
+export interface EnvironmentCheckReport {
+  courseId: string;
+  /** Overall status across all checks. */
+  overallStatus: EnvironmentStatus;
+  /** One-line human summary of the overall status. */
+  summary: string;
+  checks: EnvironmentCheckItem[];
+  /** Distinct fixes aggregated from all failing checks, in priority order. */
+  fixes: EnvironmentCheckFix[];
 }

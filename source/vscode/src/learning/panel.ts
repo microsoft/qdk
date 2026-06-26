@@ -47,6 +47,14 @@ export class LessonPanelManager {
     private readonly service: LearningService,
   ) {}
 
+  /** True when the active course is a python-notebook course. */
+  private get isPythonNotebook(): boolean {
+    return (
+      this.service.initialized &&
+      this.service.getActiveCourseInfo().kind === "python-notebook"
+    );
+  }
+
   /**
    * Show or create the Lesson panel.
    */
@@ -68,16 +76,7 @@ export class LessonPanelManager {
       "qsharp-lesson",
       "Lesson",
       { viewColumn: vscode.ViewColumn.One, preserveFocus: false },
-      {
-        enableScripts: true,
-        enableFindWidget: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(this.extensionUri, "out"),
-          vscode.Uri.joinPath(this.extensionUri, "resources"),
-          this.service.learningContentRoot,
-        ],
-      },
+      this.getWebviewOptions(),
     );
 
     this.panel.iconPath = {
@@ -112,6 +111,10 @@ export class LessonPanelManager {
     }
 
     this.panel = panel;
+
+    // Restored panels predate any webview-option changes, so re-apply the
+    // current options (e.g. allowlisted command URIs) before re-rendering.
+    this.panel.webview.options = this.getWebviewOptions();
 
     // Re-set HTML — webview resource URIs change across sessions.
     this.panel.webview.html = this.getWebviewContent(this.panel.webview);
@@ -183,7 +186,10 @@ export class LessonPanelManager {
     if (!this.service.initialized) {
       return;
     }
-    this.sendMessage({ command: "state", state: this.service.getState() });
+    this.sendMessage({
+      command: "state",
+      state: this.service.getStateForPanel(),
+    });
   }
 
   /**
@@ -262,7 +268,7 @@ export class LessonPanelManager {
       command: "result",
       action,
       result,
-      state: this.service.getState(),
+      state: this.service.getStateForPanel(),
     } as Extract<HostToWebviewMessage, { command: "result" }>);
   }
 
@@ -304,6 +310,29 @@ export class LessonPanelManager {
       return;
     }
 
+    if (msg.command === "switchCourse") {
+      await this.service.switchCourse(msg.courseId, "panel");
+      this.sendState();
+      return;
+    }
+
+    if (msg.command === "courseInfo") {
+      await vscode.commands.executeCommand(
+        "qsharp-vscode.learningCourseInfo",
+        msg.courseId
+          ? { kind: "course", descriptor: { id: msg.courseId } }
+          : undefined,
+      );
+      return;
+    }
+
+    if (msg.command === "browseCourses") {
+      await vscode.commands.executeCommand(
+        "qsharp-vscode.learningSwitchCourse",
+      );
+      return;
+    }
+
     if (msg.command === "action") {
       await this.handleAction(msg.action);
     }
@@ -317,12 +346,16 @@ export class LessonPanelManager {
     try {
       switch (action) {
         case "next": {
-          const result = await this.service.next("panel");
+          const result = this.isPythonNotebook
+            ? await this.service.nextUnit("panel")
+            : await this.service.next("panel");
           this.sendResult("next", result);
           break;
         }
         case "back": {
-          const result = await this.service.previous("panel");
+          const result = this.isPythonNotebook
+            ? await this.service.previousUnit("panel")
+            : await this.service.previous("panel");
           this.sendResult("back", result);
           break;
         }
@@ -338,7 +371,7 @@ export class LessonPanelManager {
         }
         case "reset": {
           const confirmed = await vscode.window.showWarningMessage(
-            "Reset this exercise to the original placeholder code? Your current code will be lost.",
+            "Reset this unit to the original notebook? Your current work will be lost.",
             { modal: true },
             "Reset",
           );
@@ -346,6 +379,10 @@ export class LessonPanelManager {
             await this.service.resetExercise("panel");
           }
           this.sendState();
+          break;
+        }
+        case "open-notebook": {
+          await this.openCourseNotebook();
           break;
         }
         default:
@@ -374,6 +411,54 @@ export class LessonPanelManager {
       `${qsharpExtensionId}.runProgram`,
       fileUri,
     );
+  }
+
+  /**
+   * Open the current unit's notebook in the Jupyter editor (column 2).
+   */
+  private async openCourseNotebook(): Promise<void> {
+    if (!this.service.initialized) {
+      return;
+    }
+    const notebookUri = this.service.getCurrentCodeFileUri();
+    if (!notebookUri) {
+      return;
+    }
+    // Set a two-column layout: lesson panel left, notebook right.
+    await vscode.commands.executeCommand("vscode.setEditorLayout", {
+      orientation: 0,
+      groups: [{ size: 0.35 }, { size: 0.65 }],
+    });
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      notebookUri,
+      "jupyter-notebook",
+      { viewColumn: vscode.ViewColumn.Two, preview: false },
+    );
+  }
+
+  /**
+   * Webview options for the lesson panel.
+   *
+   * `enableCommandUris` is restricted to an allowlist so author-supplied
+   * markdown (drop-in courses) can link to specific learning commands — e.g.
+   * a "Check my environment" button in a unit overview that runs the
+   * environment check — without granting the ability to invoke arbitrary VS
+   * Code commands.
+   */
+  private getWebviewOptions(): vscode.WebviewPanelOptions &
+    vscode.WebviewOptions {
+    return {
+      enableScripts: true,
+      enableFindWidget: true,
+      retainContextWhenHidden: true,
+      enableCommandUris: ["qsharp-vscode.learningCheckEnvironment"],
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.extensionUri, "out"),
+        vscode.Uri.joinPath(this.extensionUri, "resources"),
+        this.service.learningContentRoot,
+      ],
+    };
   }
 
   private getWebviewContent(webview: vscode.Webview): string {
@@ -415,12 +500,12 @@ export class LessonPanelManager {
   private async checkSolutionAndSendResult(
     source?: TelemetrySource,
   ): Promise<boolean> {
-    const { result, state } = await this.service.checkSolution(source);
+    const { result } = await this.service.checkSolution(source);
     this.sendMessage({
       command: "result",
       action: "check",
       result,
-      state,
+      state: this.service.getStateForPanel(),
     });
     return result.passed;
   }
