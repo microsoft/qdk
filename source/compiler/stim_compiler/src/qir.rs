@@ -8,7 +8,7 @@ use qdk_simulators::noise_config::{NoiseConfig, NoiseTable, encode_pauli};
 
 use crate::parser::*;
 use miette::Diagnostic;
-use qsc_data_structures::span::Span;
+use qsc_data_structures::{error::WithSource, source::SourceMap, span::Span};
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
 use thiserror::Error;
@@ -310,11 +310,12 @@ struct Compiler<'noise> {
     noise: &'noise mut NoiseConfig<f64, f64>,
     current_correlated_group: Option<CorrelatedGroup>,
     num_noise_intrinsics: u32,
-    errors: Vec<Error>,
+    source_map: SourceMap,
+    errors: Vec<WithSource<Error>>,
 }
 
 impl<'noise> Compiler<'noise> {
-    fn new(noise: &'noise mut NoiseConfig<f64, f64>) -> Self {
+    fn new(noise: &'noise mut NoiseConfig<f64, f64>, source_map: SourceMap) -> Self {
         Self {
             writer: QirWriter::new(),
             last_preselect_begin: None,
@@ -322,6 +323,7 @@ impl<'noise> Compiler<'noise> {
             noise,
             current_correlated_group: None,
             num_noise_intrinsics: 0,
+            source_map,
             errors: Vec::new(),
         }
     }
@@ -888,7 +890,7 @@ impl<'noise> Compiler<'noise> {
 
         // `rec[-N]` references the N-th most recent measurement; guard against integer underflow
         let Some(result_id) = self.writer.num_results.checked_sub(offset) else {
-            self.emit_error(Error::UnsupportedTarget {
+            self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: instruction.targets[0].span,
             });
@@ -1003,7 +1005,7 @@ impl<'noise> Compiler<'noise> {
             negated: false,
         } = target.kind
         else {
-            self.emit_error(Error::UnsupportedTarget {
+            self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
             });
@@ -1018,7 +1020,7 @@ impl<'noise> Compiler<'noise> {
         target: &Target,
     ) -> Option<u32> {
         let TargetKind::MeasurementRecord { value } = target.kind else {
-            self.emit_error(Error::UnsupportedTarget {
+            self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
             });
@@ -1028,7 +1030,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn unsupported(&mut self, instruction: &Instruction) {
-        self.errors.push(Error::UnsupportedInstruction {
+        self.push_error(Error::UnsupportedInstruction {
             name: instruction.name.clone(),
             span: instruction.span,
         });
@@ -1036,7 +1038,7 @@ impl<'noise> Compiler<'noise> {
 
     fn unsupported_args(&mut self, instruction: &Instruction) {
         if !instruction.args.is_empty() {
-            self.errors.push(Error::UnsupportedArgument {
+            self.push_error(Error::UnsupportedArgument {
                 instruction: instruction.name.clone(),
                 span: instruction.span,
             });
@@ -1044,17 +1046,18 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn unknown(&mut self, instruction: &Instruction) {
-        self.errors.push(Error::UnknownInstruction {
+        self.push_error(Error::UnknownInstruction {
             name: instruction.name.clone(),
             span: instruction.span,
         });
     }
 
-    fn emit_error(&mut self, error: Error) {
-        self.errors.push(error);
+    fn push_error(&mut self, error: Error) {
+        self.errors
+            .push(WithSource::from_map(&self.source_map, error));
     }
 
-    fn into_qir(mut self, circuit: &Circuit) -> Result<String, Vec<Error>> {
+    fn into_qir(mut self, circuit: &Circuit) -> Result<String, Vec<WithSource<Error>>> {
         self.writer.write_header();
         self.compile_circuit(circuit);
         self.finish_correlated_group();
@@ -1069,7 +1072,8 @@ impl<'noise> Compiler<'noise> {
 
 pub fn compile_to_qir(
     circuit: &Circuit,
+    source_map: SourceMap,
     noise: &mut NoiseConfig<f64, f64>,
-) -> Result<String, Vec<Error>> {
-    Compiler::new(noise).into_qir(circuit)
+) -> Result<String, Vec<WithSource<Error>>> {
+    Compiler::new(noise, source_map).into_qir(circuit)
 }

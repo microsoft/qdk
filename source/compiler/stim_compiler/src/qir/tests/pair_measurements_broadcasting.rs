@@ -60,10 +60,14 @@ fn mxx_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedTarget
+            Stim.UnsupportedTarget
 
-          x unsupported target in instruction: MXX
-    "#]],
+              x unsupported target in instruction: MXX
+               ,-[circuit:1:5]
+             1 | MXX !0 1 2 3
+               :     ^^
+               `----
+        "#]],
     );
 }
 
@@ -73,10 +77,14 @@ fn mxx_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedArgument
+            Stim.UnsupportedArgument
 
-          x unsupported argument in instruction: MXX
-    "#]],
+              x unsupported argument in instruction: MXX
+               ,-[circuit:1:1]
+             1 | MXX(0.01) 0 1 2 3
+               : ^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -148,10 +156,14 @@ fn myy_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedTarget
+            Stim.UnsupportedTarget
 
-          x unsupported target in instruction: MYY
-    "#]],
+              x unsupported target in instruction: MYY
+               ,-[circuit:1:5]
+             1 | MYY !0 1 2 3
+               :     ^^
+               `----
+        "#]],
     );
 }
 
@@ -161,10 +173,14 @@ fn myy_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedArgument
+            Stim.UnsupportedArgument
 
-          x unsupported argument in instruction: MYY
-    "#]],
+              x unsupported argument in instruction: MYY
+               ,-[circuit:1:1]
+             1 | MYY(0.01) 0 1 2 3
+               : ^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -219,10 +235,14 @@ fn mzz_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedTarget
+            Stim.UnsupportedTarget
 
-          x unsupported target in instruction: MZZ
-    "#]],
+              x unsupported target in instruction: MZZ
+               ,-[circuit:1:5]
+             1 | MZZ !0 1 2 3
+               :     ^^
+               `----
+        "#]],
     );
 }
 
@@ -232,9 +252,13 @@ fn mzz_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedArgument
+            Stim.UnsupportedArgument
 
-          x unsupported argument in instruction: MZZ
-    "#]],
+              x unsupported argument in instruction: MZZ
+               ,-[circuit:1:1]
+             1 | MZZ(0.01) 0 1 2 3
+               : ^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }

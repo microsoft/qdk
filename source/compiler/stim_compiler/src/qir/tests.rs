@@ -19,6 +19,8 @@ mod unsupported_instructions;
 use expect_test::{Expect, expect};
 use qdk_simulators::noise_config::NoiseConfig;
 
+use crate::format_stim_errors;
+
 /// Check that a stim source compiles to the
 /// expected QIR or yields the expected errors.
 fn check(source: &str, expect: &Expect) {
@@ -33,12 +35,8 @@ fn check(source: &str, expect: &Expect) {
             expect.assert_eq(&actual);
         }
         Err(errors) => {
-            let buffer = errors
-                .iter()
-                .map(|e| format!("{e:?}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            expect.assert_eq(&buffer);
+            let errors = format_stim_errors(errors);
+            expect.assert_eq(&errors);
         }
     }
 }
