@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod generalize_pauli_product_gates;
 mod noise_channels;
 mod noise_channels_broadcasting;
 mod preselect;
