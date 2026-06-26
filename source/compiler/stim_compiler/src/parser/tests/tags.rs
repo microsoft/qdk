@@ -40,14 +40,17 @@ fn empty_tag() {
 
 #[test]
 fn tag_with_complicated_name() {
-    check("H[   _my.name_Is_TAG1_ ]", &expect![[r#"
+    check(
+        "H[   _my.name_Is_TAG1_ ]",
+        &expect![[r#"
         Circuit [0-24]:
             items:
                 Instruction [0-1]:
                     name: H
                     tag:    _my.name_Is_TAG1_ 
                     args: <empty>
-                    targets: <empty>"#]]);
+                    targets: <empty>"#]],
+    );
 }
 
 #[test]

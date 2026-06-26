@@ -34,9 +34,12 @@ fn tag() {
 
 #[test]
 fn tag_stops_at_first_close_bracket() {
-    check("[a]b", &expect![[r#"
+    check(
+        "[a]b",
+        &expect![[r#"
         tag([a]) [0-3]
-        instruction_name(b) [3-4]"#]]);
+        instruction_name(b) [3-4]"#]],
+    );
 }
 
 #[test]
