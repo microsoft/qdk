@@ -16,6 +16,10 @@ const MAX_QUBITS_PER_WORKGROUP: i32 = {{MAX_QUBITS_PER_WORKGROUP}};
 
 const ERR_INVALID_PROBS = 1u;
 const ERR_INVALID_THREAD_TOTAL = 2u;
+// A loss policy was stamped onto a gate that does not support it. The host
+// validates loss policies per gate before submission, so this indicates a bug.
+// Errors 3-31 are reserved for base.wgsl and adaptive.wgsl
+const ERR_UNSUPPORTED_LOSS_POLICY = 32u;
 
 // Tolerance for probabilities to sum to 1.0
 const PROB_THRESHOLD: f32 = 0.0001;
@@ -450,6 +454,16 @@ fn propagate_loss_to_qubit(shot_idx: u32, op_idx: u32, q1: u32, q2: u32, qubit: 
     finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
 }
 
+// Records an error `code` for `shot_idx` in both the diagnostics buffer and the
+// shot's result-code slot, mirroring the reporting done elsewhere in this file.
+// Used for conditions the host guarantees never occur (e.g. a loss policy that
+// is not valid for a given gate).
+fn report_shot_error(shot_idx: u32, code: u32) {
+    atomicCompareExchangeWeak(&diagnostics.error_code, 0u, code);
+    let err_index = (shot_idx + 1u) * RESULT_COUNT - 1u;
+    atomicCompareExchangeWeak(&results[err_index], 0u, code);
+}
+
 // Handles a gate whose operand(s) include at least one lost qubit, according to
 // the loss policy stamped on the op's `q3` field. `q1`/`q2` are the (resolved)
 // operands. Returns true if the gate was fully handled here (the caller should
@@ -527,7 +541,16 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
                 finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
                 return true;
             }
+            case LOSS_POLICY_SKIP {
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                return true;
+            }
             default {
+                // SWAP only supports SKIP, PROPAGATE, RESIDUAL_S_DAGGER, and
+                // APPLY_ANYWAY. Any other policy (e.g. DEGRADE) is rejected by
+                // the host, so reaching here indicates a bug.
+                report_shot_error(shot_idx, ERR_UNSUPPORTED_LOSS_POLICY);
                 shot.op_type = OPID_ID;
                 shot.op_idx = op_idx;
                 return true;
@@ -535,9 +558,13 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
         }
     }
 
-    // APPLY_ANYWAY: run the gate as if nothing was lost.
+    // APPLY_ANYWAY is only valid for SWAP, which is handled above. Reaching here
+    // with it on any other gate is rejected by the host, so it indicates a bug.
     if (policy == LOSS_POLICY_APPLY_ANYWAY) {
-        return false;
+        report_shot_error(shot_idx, ERR_UNSUPPORTED_LOSS_POLICY);
+        shot.op_type = OPID_ID;
+        shot.op_idx = op_idx;
+        return true;
     }
 
     if (policy == LOSS_POLICY_PROPAGATE && has_survivor) {
@@ -554,8 +581,9 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
         return true;
     }
 
-    if (policy == LOSS_POLICY_DEGRADE && has_survivor &&
-        (op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ)) {
+    // DEGRADE is only valid for the two-qubit rotations (Rxx/Ryy/Rzz), so the
+    // op is guaranteed to be one of them when a survivor exists.
+    if (policy == LOSS_POLICY_DEGRADE && has_survivor) {
         // Degrade the two-qubit rotation to its single-qubit version on the
         // survivor. The op's unitary[0] holds cos(θ/2) for Rxx/Ryy; we recover
         // the angle to build the 1-qubit rotation matrix.
@@ -584,8 +612,8 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> b
         return true;
     }
 
-    // SKIP (and any policy with no applicable survivor, e.g. DEGRADE on a
-    // controlled gate, or a single-qubit gate): skip the gate entirely.
+    // SKIP, or any policy when both operands are lost (no survivor to act on):
+    // skip the gate entirely.
     shot.op_type = OPID_ID;
     shot.op_idx = op_idx;
     return true;

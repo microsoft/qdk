@@ -782,13 +782,12 @@ impl Simulator for NoisySimulator {
                 let remaining_qubit = if self.loss[control] { target } else { control };
                 self.apply_idle_noise(remaining_qubit);
                 match self.noise_config.cx.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Skip => (),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self
-                        .state
-                        .apply_operation(&CX, &[control, target])
-                        .expect("apply_operation should succeed"),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cx` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
                 }
             }
             (false, false) => {
@@ -810,13 +809,12 @@ impl Simulator for NoisySimulator {
                 let remaining_qubit = if self.loss[control] { target } else { control };
                 self.apply_idle_noise(remaining_qubit);
                 match self.noise_config.cy.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Skip => (),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self
-                        .state
-                        .apply_operation(&CY, &[control, target])
-                        .expect("apply_operation should succeed"),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cy` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
                 }
             }
             (false, false) => {
@@ -838,13 +836,12 @@ impl Simulator for NoisySimulator {
                 let remaining_qubit = if self.loss[control] { target } else { control };
                 self.apply_idle_noise(remaining_qubit);
                 match self.noise_config.cz.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Skip => (),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self
-                        .state
-                        .apply_operation(&CZ, &[control, target])
-                        .expect("apply_operation should succeed"),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cz` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
                 }
             }
             (false, false) => {
@@ -870,10 +867,9 @@ impl Simulator for NoisySimulator {
                     LossPolicy::Degrade => return self.rx(angle, remaining_qubit),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self
-                        .state
-                        .apply_operation(&rxx(angle), &[q1, q2])
-                        .expect("apply_operation should succeed"),
+                    LossPolicy::ApplyAnyway => {
+                        unreachable!("the `rxx` gate does not support the ApplyAnyway loss policy")
+                    }
                 }
             }
             (false, false) => {
@@ -898,10 +894,9 @@ impl Simulator for NoisySimulator {
                     LossPolicy::Degrade => return self.ry(angle, remaining_qubit),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self
-                        .state
-                        .apply_operation(&ryy(angle), &[q1, q2])
-                        .expect("apply_operation should succeed"),
+                    LossPolicy::ApplyAnyway => {
+                        unreachable!("the `ryy` gate does not support the ApplyAnyway loss policy")
+                    }
                 }
             }
             (false, false) => {
@@ -926,10 +921,9 @@ impl Simulator for NoisySimulator {
                     LossPolicy::Degrade => return self.rz(angle, remaining_qubit),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self
-                        .state
-                        .apply_operation(&rzz(angle), &[q1, q2])
-                        .expect("apply_operation should succeed"),
+                    LossPolicy::ApplyAnyway => {
+                        unreachable!("the `rzz` gate does not support the ApplyAnyway loss policy")
+                    }
                 }
             }
             (false, false) => {
@@ -960,7 +954,10 @@ impl Simulator for NoisySimulator {
                 let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
                 self.apply_idle_noise(remaining_qubit);
                 match self.noise_config.swap.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => {
+                        unreachable!("the `swap` gate does not support the Degrade loss policy")
+                    }
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => {
                         self.state

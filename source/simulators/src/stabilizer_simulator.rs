@@ -349,12 +349,12 @@ impl Simulator for StabilizerSimulator {
                 let remaining_qubit = if self.loss[control] { target } else { control };
                 self.apply_idle_noise(remaining_qubit);
                 match self.noise_config.cx.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Skip => (),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self
-                        .state
-                        .apply_unitary(UnitaryOp::ControlledX, &[control, target]),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cx` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
                 }
             }
             (false, false) => {
@@ -375,15 +375,12 @@ impl Simulator for StabilizerSimulator {
                 let remaining_qubit = if self.loss[control] { target } else { control };
                 self.apply_idle_noise(remaining_qubit);
                 match self.noise_config.cy.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Skip => (),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => {
-                        self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
-                        self.state
-                            .apply_unitary(UnitaryOp::ControlledX, &[control, target]);
-                        self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
-                    }
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cy` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
                 }
             }
             (false, false) => {
@@ -406,12 +403,12 @@ impl Simulator for StabilizerSimulator {
                 let remaining_qubit = if self.loss[control] { target } else { control };
                 self.apply_idle_noise(remaining_qubit);
                 match self.noise_config.cz.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Skip => (),
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
-                    LossPolicy::ApplyAnyway => self
-                        .state
-                        .apply_unitary(UnitaryOp::ControlledZ, &[control, target]),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cz` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
                 }
             }
             (false, false) => {
@@ -491,22 +488,7 @@ impl Simulator for StabilizerSimulator {
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
                     LossPolicy::ApplyAnyway => {
-                        // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-                        // and check to see if it is supported.
-                        let unitary = unitary_from_normalized_angle(
-                            angle,
-                            UnitaryOp::Z,
-                            UnitaryOp::SqrtZ,
-                            UnitaryOp::SqrtZInv,
-                        );
-                        // NOTE: We perform the Rxx gate by changing basis to Y and performing the decomposition of Rzz.
-                        self.state.apply_unitary(UnitaryOp::Hadamard, &[q1]);
-                        self.state.apply_unitary(UnitaryOp::Hadamard, &[q2]);
-                        self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                        self.state.apply_unitary(unitary, &[q1]);
-                        self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                        self.state.apply_unitary(UnitaryOp::Hadamard, &[q1]);
-                        self.state.apply_unitary(UnitaryOp::Hadamard, &[q2]);
+                        unreachable!("the `rxx` gate does not support the ApplyAnyway loss policy")
                     }
                 }
             }
@@ -547,22 +529,7 @@ impl Simulator for StabilizerSimulator {
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
                     LossPolicy::ApplyAnyway => {
-                        // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-                        // and check to see if it is supported.
-                        let unitary = unitary_from_normalized_angle(
-                            angle,
-                            UnitaryOp::Z,
-                            UnitaryOp::SqrtZ,
-                            UnitaryOp::SqrtZInv,
-                        );
-                        // NOTE: We perform the Ryy gate by changing basis to Z and performing the decomposition of Rzz.
-                        self.state.apply_unitary(UnitaryOp::SqrtX, &[q1]);
-                        self.state.apply_unitary(UnitaryOp::SqrtX, &[q2]);
-                        self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                        self.state.apply_unitary(unitary, &[q1]);
-                        self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                        self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q1]);
-                        self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q2]);
+                        unreachable!("the `ryy` gate does not support the ApplyAnyway loss policy")
                     }
                 }
             }
@@ -603,17 +570,7 @@ impl Simulator for StabilizerSimulator {
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
                     LossPolicy::ApplyAnyway => {
-                        // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-                        // and check to see if it is supported.
-                        let unitary = unitary_from_normalized_angle(
-                            angle,
-                            UnitaryOp::Z,
-                            UnitaryOp::SqrtZ,
-                            UnitaryOp::SqrtZInv,
-                        );
-                        self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                        self.state.apply_unitary(unitary, &[q1]);
-                        self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
+                        unreachable!("the `rzz` gate does not support the ApplyAnyway loss policy")
                     }
                 }
             }
@@ -654,7 +611,10 @@ impl Simulator for StabilizerSimulator {
                 let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
                 self.apply_idle_noise(remaining_qubit);
                 match self.noise_config.swap.on_loss {
-                    LossPolicy::Skip | LossPolicy::Degrade => (),
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => {
+                        unreachable!("the `swap` gate does not support the Degrade loss policy")
+                    }
                     LossPolicy::Propagate => self.loss_impl(remaining_qubit),
                     LossPolicy::ResidualSDagger => {
                         self.state.apply_permutation(&[1, 0], &[q1, q2]);
