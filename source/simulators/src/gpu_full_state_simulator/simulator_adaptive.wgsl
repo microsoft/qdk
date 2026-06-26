@@ -1622,13 +1622,10 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             shot.op_type = op.id;
 
             // If any operand is lost, dispatch the gate's configured loss
-            // policy (stamped on op.policy). For most policies this fully handles
-            // the op; APPLY_ANYWAY returns false so the gate runs as usual.
-            if gate_has_lost_operand(shot_idx, op_idx, q1, q2) {
-                if handle_lost_operand_policy(shot_idx, op_idx, q1, q2) {
-                    shots[shot_idx].interp.status = STATUS_RUNNING;
-                    return;
-                }
+            // policy (stamped on op.policy).
+            let has_lost_operand = gate_has_lost_operand(shot_idx, op_idx, q1, q2);
+            if (has_lost_operand) {
+                handle_lost_operand_policy(shot_idx, op_idx, q1, q2);
             }
 
             // Check for noise ops after this gate in the ops pool
@@ -1637,10 +1634,27 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             // Handle Pauli noise (loss, if sampled, is recorded in pending_loss_mask)
             if pauli_op_idx != 0u {
                 if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    // A 1-qubit gate has a single operand; if it is lost there
+                    // is no surviving qubit to receive Pauli noise.
+                    if (!has_lost_operand) {
+                        apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    }
                 } else {
-                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    if (has_lost_operand) {
+                        // The gate body was handled by the loss policy above;
+                        // apply the noise to the surviving operand (if any).
+                        apply_2q_pauli_noise_on_survivor(shot_idx, op_idx, pauli_op_idx, q1, q2);
+                    } else {
+                        apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    }
                 }
+                shots[shot_idx].interp.status = STATUS_RUNNING;
+                return;
+            }
+
+            // If the gate has any lost operands (and no attached noise), the gate
+            // logic was completely handled inside `handle_lost_operand_policy`.
+            if (has_lost_operand) {
                 shots[shot_idx].interp.status = STATUS_RUNNING;
                 return;
             }

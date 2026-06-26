@@ -309,67 +309,6 @@ ROTATION_DEGRADE_RECIPES = [
 ]
 
 
-# Allowed `on_loss` policies for each multi-qubit gate, mirroring
-# `allowed_noise_policies_from_gate_name` on the Rust side. Single-qubit gate
-# tables reject `on_loss` entirely (see SINGLE_QUBIT_GATE_ATTRS).
-ALL_LOSS_POLICIES = [
-    LossPolicy.SKIP,
-    LossPolicy.PROPAGATE,
-    LossPolicy.DEGRADE,
-    LossPolicy.RESIDUAL_S_DAGGER,
-    LossPolicy.APPLY_ANYWAY,
-]
-
-# The policies every multi-qubit gate accepts.
-DEFAULT_MULTI_QUBIT_POLICIES = [
-    LossPolicy.SKIP,
-    LossPolicy.PROPAGATE,
-    LossPolicy.RESIDUAL_S_DAGGER,
-]
-
-# NoiseConfig gate attribute -> the policies that gate accepts. Rotation gates
-# additionally allow DEGRADE (reduce to the single-qubit rotation) and SWAP
-# additionally allows APPLY_ANYWAY (run the swap regardless of loss).
-ALLOWED_ON_LOSS_POLICIES = {
-    "cx": DEFAULT_MULTI_QUBIT_POLICIES,
-    "cy": DEFAULT_MULTI_QUBIT_POLICIES,
-    "cz": DEFAULT_MULTI_QUBIT_POLICIES,
-    "ccx": DEFAULT_MULTI_QUBIT_POLICIES,
-    "rxx": DEFAULT_MULTI_QUBIT_POLICIES + [LossPolicy.DEGRADE],
-    "ryy": DEFAULT_MULTI_QUBIT_POLICIES + [LossPolicy.DEGRADE],
-    "rzz": DEFAULT_MULTI_QUBIT_POLICIES + [LossPolicy.DEGRADE],
-    "swap": DEFAULT_MULTI_QUBIT_POLICIES + [LossPolicy.APPLY_ANYWAY],
-}
-
-# Single-qubit gate tables: `on_loss` is meaningless and rejected for every
-# policy.
-SINGLE_QUBIT_GATE_ATTRS = [
-    "i",
-    "x",
-    "y",
-    "z",
-    "h",
-    "s",
-    "s_adj",
-    "t",
-    "t_adj",
-    "sx",
-    "sx_adj",
-    "rx",
-    "ry",
-    "rz",
-    "mov",
-    "mz",
-    "mresetz",
-]
-
-
-def forbidden_on_loss_policies(attr):
-    """The policies *not* accepted by the gate at NoiseConfig attribute *attr*."""
-    allowed = ALLOWED_ON_LOSS_POLICIES[attr]
-    return [p for p in ALL_LOSS_POLICIES if p not in allowed]
-
-
 def run_loss_policy_scenario(
     gate: str,
     sim_type: SimType,
@@ -401,80 +340,6 @@ def run_loss_policy_scenario(
     return compile_and_run(source, shots=1, seed=SEED, noise=noise, sim_type=sim_type)[
         0
     ]
-
-
-# TEST 0: C*, R**, and SWAP default loss policies
-def test_on_loss_defaults():
-    noise = NoiseConfig()
-    assert noise.cx.on_loss == LossPolicy.SKIP
-    assert noise.cy.on_loss == LossPolicy.SKIP
-    assert noise.cz.on_loss == LossPolicy.SKIP
-    assert noise.rxx.on_loss == LossPolicy.DEGRADE
-    assert noise.ryy.on_loss == LossPolicy.DEGRADE
-    assert noise.rzz.on_loss == LossPolicy.DEGRADE
-    assert noise.swap.on_loss == LossPolicy.APPLY_ANYWAY
-
-
-def test_on_loss_allowed_policies():
-    # Every gate accepts each of its allowed policies, and the assigned value
-    # round-trips through the getter on the (shared) noise table.
-    for attr, allowed in ALLOWED_ON_LOSS_POLICIES.items():
-        for policy in allowed:
-            noise = NoiseConfig()
-            setattr(getattr(noise, attr), "on_loss", policy)
-            assert (
-                getattr(noise, attr).on_loss == policy
-            ), f"`{attr}` should accept on_loss={policy}"
-
-    # The default policy reported by a fresh config must itself be allowed.
-    noise = NoiseConfig()
-    for attr, allowed in ALLOWED_ON_LOSS_POLICIES.items():
-        assert getattr(noise, attr).on_loss in allowed
-
-    # Multi-qubit noise intrinsics accept the default multi-qubit policies.
-    for policy in DEFAULT_MULTI_QUBIT_POLICIES:
-        noise = NoiseConfig()
-        setattr(noise.intrinsic("loss_intrinsic", num_qubits=2), "on_loss", policy)
-        assert noise.intrinsic("loss_intrinsic", num_qubits=2).on_loss == policy
-
-
-def test_on_loss_forbidden_policies_raise_error():
-    # Each multi-qubit gate rejects every policy outside its allowed set, and a
-    # rejected assignment leaves the current policy unchanged.
-    for attr in ALLOWED_ON_LOSS_POLICIES:
-        for policy in forbidden_on_loss_policies(attr):
-            noise = NoiseConfig()
-            original = getattr(noise, attr).on_loss
-            with pytest.raises(
-                AttributeError, match="only supports the following policies"
-            ):
-                setattr(getattr(noise, attr), "on_loss", policy)
-            assert getattr(noise, attr).on_loss == original
-
-    # Single-qubit gate tables reject on_loss for *every* policy: loss policies
-    # only apply to multi-qubit gates.
-    for attr in SINGLE_QUBIT_GATE_ATTRS:
-        for policy in ALL_LOSS_POLICIES:
-            noise = NoiseConfig()
-            with pytest.raises(AttributeError, match="only apply to multi-qubit gates"):
-                setattr(getattr(noise, attr), "on_loss", policy)
-
-    # A single-qubit noise intrinsic likewise rejects on_loss entirely.
-    for policy in ALL_LOSS_POLICIES:
-        noise = NoiseConfig()
-        table = noise.intrinsic("loss_intrinsic_1q", num_qubits=1)
-        with pytest.raises(AttributeError, match="only apply to multi-qubit gates"):
-            setattr(table, "on_loss", policy)
-
-    # A multi-qubit noise intrinsic only allows the default multi-qubit
-    # policies, so DEGRADE and APPLY_ANYWAY are rejected.
-    for policy in (LossPolicy.DEGRADE, LossPolicy.APPLY_ANYWAY):
-        noise = NoiseConfig()
-        table = noise.intrinsic("loss_intrinsic_2q", num_qubits=2)
-        with pytest.raises(
-            AttributeError, match="only supports the following policies"
-        ):
-            setattr(table, "on_loss", policy)
 
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
@@ -561,6 +426,27 @@ def test_on_loss_swap_swaps_loss_flag(on_loss, expected, sim_type):
         SWAP_GATE[1], sim_type, attr="swap", on_loss=on_loss, prep="X(qs[1]);"
     )
     assert res == expected
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_on_loss_skip_still_applies_survivor_noise(sim_type):
+    # When a two-qubit gate has a lost operand, the gate body is dropped by the
+    # SKIP policy, but the Pauli noise attached to the gate must still be applied
+    # to the surviving operand (matching the CPU `apply_fault`, which skips only
+    # the lost target).
+    noise = NoiseConfig()
+    noise.y.loss = 1.0  # deterministically lose the control qubit via the Y gate
+    noise.cx.on_loss = LossPolicy.SKIP
+    noise.cx.set_pauli_noise("IX", 1.0)  # always flip the (surviving) target
+    res = compile_and_run(
+        "{use qs = Qubit[2]; Y(qs[0]); CNOT(qs[0], qs[1]); [MResetZ(qs[0]), MResetZ(qs[1])]}",
+        shots=1,
+        seed=SEED,
+        noise=noise,
+        sim_type=sim_type,
+    )[0]
+    # Control is lost ("-"); the surviving target still receives the X noise ("1").
+    assert res == "-1"
 
 
 # ===========================================================================

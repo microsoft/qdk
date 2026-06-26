@@ -315,24 +315,36 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     }
 
     // Before doing further work, if any qubit for the gate is lost, dispatch
-    // the gate's configured loss policy (stamped on op.policy). For most policies
-    // this fully handles the op; APPLY_ANYWAY returns false so the gate runs as
-    // usual below.
-    if (gate_has_lost_operand(shot_idx, op_idx, op.q1, op.q2)) {
-        if (handle_lost_operand_policy(shot_idx, op_idx, op.q1, op.q2)) {
-            return;
-        }
+    // the gate's configured loss policy (stamped on op.policy).
+    let has_lost_operand = gate_has_lost_operand(shot_idx, op_idx, op.q1, op.q2);
+    if (has_lost_operand) {
+        handle_lost_operand_policy(shot_idx, op_idx, op.q1, op.q2);
     }
 
     if pauli_op_idx != 0 {
         if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-            apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
-            // This will have set up all the state we need.
+            // A 1-qubit gate has a single operand; if it is lost there is no
+            // surviving qubit to receive Pauli noise, so skip the noise.
+            if (!has_lost_operand) {
+                apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            }
             return;
         } else {
-            apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            if (has_lost_operand) {
+                // The gate body was handled by the loss policy above. Still apply
+                // the attached Pauli noise to the surviving operand (if any).
+                apply_2q_pauli_noise_on_survivor(shot_idx, op_idx, pauli_op_idx, op.q1, op.q2);
+            } else {
+                apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            }
             return;
         }
+    }
+
+    // If the gate has any lost operands (and no attached noise), the gate logic
+    // was completely handled inside `handle_lost_operand_policy`.
+    if (has_lost_operand) {
+        return;
     }
 
     // No noise to apply, just set up the shot to execute the op as-is
