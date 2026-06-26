@@ -15,6 +15,7 @@ use crate::{
     val::{self, Value, unwrap_tuple},
 };
 use num_bigint::BigInt;
+use qsc_fir::fir::PackageStoreLookup;
 use rand::{RngExt, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::convert::TryFrom;
@@ -30,6 +31,7 @@ pub(crate) fn call<B: Backend>(
     sim: &mut TracingBackend<'_, B>,
     rng: &mut StdRng,
     out: &mut dyn Receiver,
+    globals: &impl PackageStoreLookup,
 ) -> Result<Value, Error> {
     match name {
         "Length" => match arg.unwrap_array().len().try_into() {
@@ -295,7 +297,7 @@ pub(crate) fn call<B: Backend>(
             if qubits.len() != qubits_len {
                 return Err(Error::QubitUsedAfterRelease(arg_span));
             }
-            if let Some(result) = sim.custom_intrinsic(name, arg, call_stack) {
+            if let Some(result) = sim.custom_intrinsic(name, arg, call_stack, globals) {
                 match result {
                     Ok(value) => Ok(value),
                     Err(message) => Err(Error::IntrinsicFail(name.to_string(), message, name_span)),
