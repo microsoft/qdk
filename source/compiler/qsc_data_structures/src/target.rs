@@ -76,6 +76,18 @@ pub enum Profile {
 }
 
 impl Profile {
+    /// Returns all supported profiles, ordered from least to most capable.
+    #[must_use]
+    pub fn all() -> [Profile; 5] {
+        [
+            Self::Base,
+            Self::AdaptiveRI,
+            Self::AdaptiveRIF,
+            Self::Adaptive,
+            Self::Unrestricted,
+        ]
+    }
+
     #[must_use]
     pub fn to_str(&self) -> &'static str {
         match self {
