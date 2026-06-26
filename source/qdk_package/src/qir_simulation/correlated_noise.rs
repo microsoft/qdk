@@ -81,10 +81,16 @@ pub fn parse_noise_table(contents: &str) -> Result<NoiseTable, ParseError> {
     if contents.len() < 128 * 1024 || num_threads <= 1 {
         let (entries, qubits) = parse_noise_chunk(contents, 0)?;
         let pauli_noise = FxHashMap::from_iter(entries);
+        let qubits = qubits.unwrap_or(0);
         return Ok(NoiseTable {
-            qubits: qubits.unwrap_or(0),
+            qubits,
             pauli_noise,
             on_loss: LossPolicy::Skip,
+            allowed_loss_policies: if qubits >= 2 {
+                NoiseTable::DEFAULT_MULTI_QUBIT_LOSS_POLICIES.to_vec()
+            } else {
+                NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec()
+            },
         });
     }
 
@@ -158,6 +164,11 @@ pub fn parse_noise_table(contents: &str) -> Result<NoiseTable, ParseError> {
         qubits,
         pauli_noise,
         on_loss: LossPolicy::Skip,
+        allowed_loss_policies: if qubits >= 2 {
+            NoiseTable::DEFAULT_MULTI_QUBIT_LOSS_POLICIES.to_vec()
+        } else {
+            NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec()
+        },
     })
 }
 
