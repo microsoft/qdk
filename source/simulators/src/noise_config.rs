@@ -88,7 +88,7 @@ pub enum LossPolicy {
     /// This policy can apply to all multi-qubit gates.
     ResidualSDagger,
     /// This policy only applies to the swap gate, in which case the qubit states
-    /// are exchanged, includding their loss flags.
+    /// are exchanged, including their loss flags.
     ApplyAnyway,
 }
 

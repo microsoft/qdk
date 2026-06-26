@@ -890,7 +890,7 @@ class LossPolicy(Enum):
     # This policy can apply to all multi-qubit gates.
     RESIDUAL_S_DAGGER: int
     # This policy only applies to the swap gate, in which case the qubit states
-    # are exchanged, includding their loss flags.
+    # are exchanged, including their loss flags.
     APPLY_ANYWAY: int
 
 class NoiseTable:
