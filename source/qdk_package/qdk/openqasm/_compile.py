@@ -78,7 +78,7 @@ def compile(
         if "search_path" not in kwargs:
             kwargs["search_path"] = "."
         if "target_profile" not in kwargs:
-            kwargs["target_profile"] = TargetProfile.Base
+            kwargs["target_profile"] = TargetProfile.Adaptive
 
         ll_str = compile_qasm_program_to_qir(
             source,
