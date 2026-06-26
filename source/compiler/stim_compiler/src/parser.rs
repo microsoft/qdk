@@ -148,9 +148,9 @@ impl Display for TargetKind {
                 value,
             } => {
                 if *negated {
-                    write!(f, "Pauli(-{pauli}{value})")
+                    write!(f, "Pauli(-{pauli} {value})")
                 } else {
-                    write!(f, "Pauli({pauli}{value})")
+                    write!(f, "Pauli({pauli} {value})")
                 }
             }
             TargetKind::Loss { value } => write!(f, "Loss({value})"),
