@@ -97,6 +97,23 @@ fn correlated_error_yields_expected_qir() {
 }
 
 #[test]
+fn correlated_error_without_probability_yields_error() {
+    let source = "CORRELATED_ERROR X0";
+    check(
+        source,
+        &expect![[r#"
+        Stim.MissingProbability
+
+          x missing probability argument in instruction: CORRELATED_ERROR
+           ,----
+         1 | CORRELATED_ERROR X0
+           : ^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn else_correlated_error_with_preceding_correlated_error_yields_expected_qir() {
     let source = "
 CORRELATED_ERROR(0.01) X0
@@ -468,52 +485,63 @@ fn depolarize1_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-        NoiseConfig:
-        intrinsics:
-            0: NoiseTable:
-                qubits: 1
-                X: 0.0033333333333333335
-                Y: 0.0033222222222222225
-                Z: 0.0033111481481481486
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 1
+                    X: 0.0033333333333333335
+                    Y: 0.0033333333333333335
+                    Z: 0.0033333333333333335
 
 
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__rt__array_record_output(i64 0, ptr null)
-          ret i64 0
-        }
+            define i64 @ENTRYPOINT__main() #0 {
+              call void @__quantum__rt__initialize(ptr null)
+              call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__rt__array_record_output(i64 0, ptr null)
+              ret i64 0
+            }
 
-        declare void @noise_intrinsic_0(ptr) #2
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
+            declare void @noise_intrinsic_0(ptr) #2
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__initialize(ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-        attributes #1 = { "irreversible" }
+            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+            attributes #1 = { "irreversible" }
 
-        ; module flags
+            ; module flags
 
-        attributes #2 = { "qdk_noise" }
+            attributes #2 = { "qdk_noise" }
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
 
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            !0 = !{i32 1, !"qir_major_version", i32 2}
+            !1 = !{i32 7, !"qir_minor_version", i32 1}
+            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+            !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            !4 = !{i32 5, !"int_computations", !{!"i64"}}
+            !5 = !{i32 5, !"float_computations", !{!"double"}}
+            !6 = !{i32 7, !"backwards_branching", i2 3}
+            !7 = !{i32 1, !"arrays", i1 true}
+        "#]],
     );
 }
 
 #[test]
 fn depolarize1_without_probability_yields_error() {
     let source = "DEPOLARIZE1 0";
-    check(source, &expect![[""]]);
+    check(
+        source,
+        &expect![[r#"
+        Stim.MissingProbability
+
+          x missing probability argument in instruction: DEPOLARIZE1
+           ,----
+         1 | DEPOLARIZE1 0
+           : ^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
 }
 
 #[test]
@@ -522,70 +550,92 @@ fn depolarize2_yields_expected_qir() {
     check(
         source,
         &expect![[r#"
-        NoiseConfig:
-        intrinsics:
-            0: NoiseTable:
-                qubits: 2
-                IX: 0.0006666666666666666
-                IY: 0.0006662222222222221
-                IZ: 0.000665778074074074
-                XI: 0.0006653342220246913
-                XX: 0.0006648906658766748
-                XY: 0.000664447405432757
-                XZ: 0.0006640044404958018
-                YI: 0.0006635617708688046
-                YX: 0.000663119396354892
-                YY: 0.0006626773167573221
-                YZ: 0.0006622355318794839
-                ZI: 0.0006617940415248975
-                ZX: 0.0006613528454972143
-                ZY: 0.000660911943600216
-                ZZ: 0.0006604713356378159
+            NoiseConfig:
+            intrinsics:
+                0: NoiseTable:
+                    qubits: 2
+                    IX: 0.0006666666666666666
+                    IY: 0.0006666666666666666
+                    IZ: 0.0006666666666666666
+                    XI: 0.0006666666666666666
+                    XX: 0.0006666666666666666
+                    XY: 0.0006666666666666666
+                    XZ: 0.0006666666666666666
+                    YI: 0.0006666666666666666
+                    YX: 0.0006666666666666666
+                    YY: 0.0006666666666666666
+                    YZ: 0.0006666666666666666
+                    ZI: 0.0006666666666666666
+                    ZX: 0.0006666666666666666
+                    ZY: 0.0006666666666666666
+                    ZZ: 0.0006666666666666666
 
 
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-          call void @__quantum__rt__array_record_output(i64 0, ptr null)
-          ret i64 0
-        }
+            define i64 @ENTRYPOINT__main() #0 {
+              call void @__quantum__rt__initialize(ptr null)
+              call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+              call void @__quantum__rt__array_record_output(i64 0, ptr null)
+              ret i64 0
+            }
 
-        declare void @noise_intrinsic_0(ptr, ptr) #2
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare void @__quantum__rt__initialize(ptr)
+            declare void @noise_intrinsic_0(ptr, ptr) #2
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__initialize(ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
-        attributes #1 = { "irreversible" }
+            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
+            attributes #1 = { "irreversible" }
 
-        ; module flags
+            ; module flags
 
-        attributes #2 = { "qdk_noise" }
+            attributes #2 = { "qdk_noise" }
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
 
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            !0 = !{i32 1, !"qir_major_version", i32 2}
+            !1 = !{i32 7, !"qir_minor_version", i32 1}
+            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+            !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            !4 = !{i32 5, !"int_computations", !{!"i64"}}
+            !5 = !{i32 5, !"float_computations", !{!"double"}}
+            !6 = !{i32 7, !"backwards_branching", i2 3}
+            !7 = !{i32 1, !"arrays", i1 true}
+        "#]],
     );
 }
 
 #[test]
 fn depolarize2_without_probability_yields_error() {
     let source = "DEPOLARIZE2 0 1 2 3";
-    check(source, &expect![[""]]);
+    check(
+        source,
+        &expect![[r#"
+        Stim.MissingProbability
+
+          x missing probability argument in instruction: DEPOLARIZE2
+           ,----
+         1 | DEPOLARIZE2 0 1 2 3
+           : ^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
 }
 
 #[test]
 fn depolarize2_with_odd_number_of_targets_yields_error() {
     let source = "DEPOLARIZE2 0";
-    check(source, &expect![[""]]);
+    check(
+        source,
+        &expect![[r#"
+        Stim.OddQubitCount
+
+          x instruction DEPOLARIZE2 requires an even number of qubit targets
+           ,----
+         1 | DEPOLARIZE2 0
+           : ^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
 }
 
 #[test]
@@ -715,6 +765,23 @@ fn x_error_yields_expected_qir() {
 }
 
 #[test]
+fn x_error_without_probability_yields_error() {
+    let source = "X_ERROR 0";
+    check(
+        source,
+        &expect![[r#"
+        Stim.MissingProbability
+
+          x missing probability argument in instruction: X_ERROR
+           ,----
+         1 | X_ERROR 0
+           : ^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn y_error_yields_expected_qir() {
     let source = "Y_ERROR(0.01) 0";
     check(
@@ -758,6 +825,20 @@ fn y_error_yields_expected_qir() {
             !7 = !{i32 1, !"arrays", i1 true}
         "#]],
     );
+}
+
+#[test]
+fn y_error_without_probability_yields_error() {
+    let source = "Y_ERROR 0";
+    check(source, &expect![[r#"
+        Stim.MissingProbability
+
+          x missing probability argument in instruction: Y_ERROR
+           ,----
+         1 | Y_ERROR 0
+           : ^^^^^^^^^
+           `----
+    "#]]);
 }
 
 #[test]
@@ -807,6 +888,23 @@ fn z_error_yields_expected_qir() {
 }
 
 #[test]
+fn z_error_without_probability_yields_error() {
+    let source = "Z_ERROR 0";
+    check(
+        source,
+        &expect![[r#"
+        Stim.MissingProbability
+
+          x missing probability argument in instruction: Z_ERROR
+           ,----
+         1 | Z_ERROR 0
+           : ^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn loss_error_yields_expected_qir() {
     let source = "LOSS_ERROR(0.01) 0";
     check(
@@ -849,5 +947,22 @@ fn loss_error_yields_expected_qir() {
             !6 = !{i32 7, !"backwards_branching", i2 3}
             !7 = !{i32 1, !"arrays", i1 true}
         "#]],
+    );
+}
+
+#[test]
+fn loss_error_without_probability_yields_error() {
+    let source = "LOSS_ERROR 0";
+    check(
+        source,
+        &expect![[r#"
+        Stim.MissingProbability
+
+          x missing probability argument in instruction: LOSS_ERROR
+           ,----
+         1 | LOSS_ERROR 0
+           : ^^^^^^^^^^^^
+           `----
+    "#]],
     );
 }
