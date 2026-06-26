@@ -5,6 +5,7 @@ use expect_test::{Expect, expect};
 use miette::Report;
 
 mod arguments;
+mod instruction_shapes;
 mod tags;
 mod targets;
 
