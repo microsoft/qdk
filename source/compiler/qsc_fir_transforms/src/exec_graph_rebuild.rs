@@ -3,8 +3,8 @@
 
 //! Exec graph rebuild pass — the final pass in the pipeline.
 //!
-//! Reconstructs exec graphs from scratch for reachable target-package
-//! callables, the entry expression, and selected mutated external specs. After
+//! Reconstructs exec graphs from scratch for every reachable callable across
+//! the entry-reachable package closure plus the entry expression. After
 //! earlier passes synthesize nodes with `EMPTY_EXEC_RANGE` sentinels (return
 //! unify, defunctionalize, UDT erase, tuple-compare lower, tuple-decompose,
 //! argument promote), the `SpecDecl` and `Package.entry_exec_graph` graphs are
@@ -15,12 +15,11 @@
 //!
 //! - **Must run last.** It relies on earlier passes having removed the
 //!   expression forms the exec-graph builder treats as eliminated.
-//! - **External specs come only from UDT erasure.** The `external_specs`
-//!   argument lists cross-package specs whose bodies were structurally mutated.
-//!   Because [`crate::udt_erase`] is the only pass that rewrites across the
-//!   package closure, it is the sole producer; `lib.rs` filters its returned
-//!   specs to cross-package entries and forwards them here. Every other pass
-//!   touches only the entry package.
+//! - **Whole-closure rebuild.** `udt_erase` structurally mutates reachable
+//!   foreign callables in place, so this pass rebuilds the exec graph of every
+//!   reachable spec in every reachable package — keyed off each spec's owning
+//!   `package_id` — rather than only the entry package plus a narrow set of
+//!   externally mutated specs.
 //! - **Borrow-splitting via deferred writes.** The rebuild cannot hold
 //!   `&Package` (to read exprs) and `&mut Package` (to write graphs) at once,
 //!   so ranges are accumulated in `RangeUpdates` during the read-only walk and
@@ -41,8 +40,8 @@ use qsc_fir::fir::{
 use qsc_fir::ty::Ty;
 use qsc_lowerer::ExecGraphBuilder;
 
+use crate::CallableSpecKind;
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_with_seeds};
-use crate::{CallableSpecId, CallableSpecKind};
 
 /// Side-table collecting deferred `exec_graph_range` updates.
 /// Populated during the read-only graph-building pass, then applied in a
@@ -58,6 +57,8 @@ struct RangeUpdates {
 /// Invoked once per specialization. Each call writes the ranges gathered for
 /// that spec back to the package before the next specialization rebuilds.
 fn apply_ranges(package: &mut Package, ranges: &RangeUpdates) {
+    // Each id was gathered from this same package during the read-only pass, so
+    // every `.expect` below is infallible (see `get_spec_decl_mut`).
     for (id, range) in &ranges.exprs {
         package
             .exprs
@@ -90,9 +91,10 @@ struct CallableSpecs {
     specs: Vec<SpecInfo>,
 }
 
-/// Rebuilds exec graphs for every reachable callable and the entry expression
-/// in the given package. When `pinned_items` is non-empty, uses seed-based
-/// reachability to include pinned callables that are not entry-reachable.
+/// Rebuilds exec graphs for every reachable callable across the entry-reachable
+/// package closure and the entry expression. When `pinned_items` is non-empty,
+/// uses seed-based reachability to include pinned callables that are not
+/// entry-reachable.
 ///
 /// This must be called after all FIR transforms have completed. The function
 /// is idempotent — calling it multiple times produces the same result.
@@ -102,32 +104,10 @@ struct CallableSpecs {
 /// Panics if reachable bodies still contain FIR variants eliminated by earlier
 /// transforms, such as `ExprKind::Struct`, `ExprKind::Closure`, or
 /// `ExprKind::Hole`.
-#[cfg(test)]
 pub fn rebuild_exec_graphs(
     store: &mut PackageStore,
     package_id: PackageId,
     pinned_items: &[StoreItemId],
-) {
-    rebuild_exec_graphs_with_external_specs(store, package_id, pinned_items, &[]);
-}
-
-/// Rebuilds exec graphs for the target package's reachable callables, the
-/// entry expression, and selected external callable specs.
-///
-/// `external_specs` should contain only callable specs that earlier passes
-/// structurally mutated outside the target package. Like all exec-graph
-/// rebuilding, this must run only after every FIR transform has completed.
-///
-/// # Panics
-///
-/// Panics if any rebuilt body still contains FIR variants eliminated by earlier
-/// transforms, such as `ExprKind::Struct`, `ExprKind::Closure`, or
-/// `ExprKind::Hole`.
-pub fn rebuild_exec_graphs_with_external_specs(
-    store: &mut PackageStore,
-    package_id: PackageId,
-    pinned_items: &[StoreItemId],
-    external_specs: &[CallableSpecId],
 ) {
     // Early return if there is no entry expression — nothing to rebuild.
     {
@@ -143,88 +123,34 @@ pub fn rebuild_exec_graphs_with_external_specs(
         collect_reachable_with_seeds(store, package_id, pinned_items)
     };
 
-    let mut collected = collect_callable_specs(store, package_id, &reachable);
-    collected.extend(collect_external_callable_specs(
-        store,
-        package_id,
-        external_specs,
-    ));
+    let collected = collect_callable_specs(store, &reachable);
     rebuild_callable_exec_graphs(store, &collected);
     rebuild_entry_exec_graph(store, package_id);
 }
 
-/// Collects the block IDs for every spec in every reachable callable that
-/// lives in this package (cross-package items are not rebuilt).
+/// Collects the block IDs for every spec in every reachable callable across the
+/// entry-reachable package closure, grouped by the callable's owning package.
 fn collect_callable_specs(
     store: &PackageStore,
-    package_id: PackageId,
     reachable: &rustc_hash::FxHashSet<StoreItemId>,
 ) -> Vec<CallableSpecs> {
     let mut collected: Vec<CallableSpecs> = Vec::new();
-    let package = store.get(package_id);
     for item_id in reachable {
-        if item_id.package != package_id {
-            continue;
-        }
+        let package = store.get(item_id.package);
         let item = package.get_item(item_id.item);
         let decl = match &item.kind {
             ItemKind::Callable(decl) => decl.as_ref(),
-            _ => continue,
+            ItemKind::Ty(..) => continue,
         };
         let specs = collect_specs_from_impl(&decl.implementation);
         if !specs.is_empty() {
             collected.push(CallableSpecs {
-                package_id,
+                package_id: item_id.package,
                 item_id: item_id.item,
                 specs,
             });
         }
     }
-    collected
-}
-
-/// Collects selected external callable specs that should be rebuilt because an
-/// earlier transform structurally mutated their FIR bodies.
-fn collect_external_callable_specs(
-    store: &PackageStore,
-    target_package_id: PackageId,
-    external_specs: &[CallableSpecId],
-) -> Vec<CallableSpecs> {
-    let mut collected: Vec<CallableSpecs> = Vec::new();
-    for spec_id in external_specs {
-        if spec_id.callable.package == target_package_id {
-            continue;
-        }
-
-        let package = store.get(spec_id.callable.package);
-        let item = package.get_item(spec_id.callable.item);
-        let ItemKind::Callable(decl) = &item.kind else {
-            continue;
-        };
-        let Some(spec) = collect_spec_from_impl(&decl.implementation, spec_id.kind) else {
-            continue;
-        };
-
-        if let Some(callable) = collected.iter_mut().find(|callable| {
-            callable.package_id == spec_id.callable.package
-                && callable.item_id == spec_id.callable.item
-        }) {
-            if !callable
-                .specs
-                .iter()
-                .any(|existing| existing.kind == spec.kind)
-            {
-                callable.specs.push(spec);
-            }
-        } else {
-            collected.push(CallableSpecs {
-                package_id: spec_id.callable.package,
-                item_id: spec_id.callable.item,
-                specs: vec![spec],
-            });
-        }
-    }
-
     collected
 }
 
@@ -267,44 +193,6 @@ fn collect_specs_from_impl(implementation: &CallableImpl) -> Vec<SpecInfo> {
     specs
 }
 
-/// Extracts one requested specialization from a callable implementation.
-fn collect_spec_from_impl(
-    implementation: &CallableImpl,
-    kind: CallableSpecKind,
-) -> Option<SpecInfo> {
-    match (implementation, kind) {
-        (CallableImpl::Spec(spec_impl), CallableSpecKind::Body) => Some(SpecInfo {
-            block: spec_impl.body.block,
-            kind,
-        }),
-        (CallableImpl::Spec(spec_impl), CallableSpecKind::Adj) => {
-            spec_impl.adj.as_ref().map(|spec| SpecInfo {
-                block: spec.block,
-                kind,
-            })
-        }
-        (CallableImpl::Spec(spec_impl), CallableSpecKind::Ctl) => {
-            spec_impl.ctl.as_ref().map(|spec| SpecInfo {
-                block: spec.block,
-                kind,
-            })
-        }
-        (CallableImpl::Spec(spec_impl), CallableSpecKind::CtlAdj) => {
-            spec_impl.ctl_adj.as_ref().map(|spec| SpecInfo {
-                block: spec.block,
-                kind,
-            })
-        }
-        (CallableImpl::SimulatableIntrinsic(spec), CallableSpecKind::SimulatableIntrinsic) => {
-            Some(SpecInfo {
-                block: spec.block,
-                kind,
-            })
-        }
-        _ => None,
-    }
-}
-
 /// Rebuilds and writes back the exec graph for each collected callable spec.
 fn rebuild_callable_exec_graphs(store: &mut PackageStore, collected: &[CallableSpecs]) {
     for callable in collected {
@@ -330,6 +218,11 @@ fn rebuild_callable_exec_graphs(store: &mut PackageStore, collected: &[CallableS
 
 /// Returns a mutable reference to the spec decl identified by `kind` on the
 /// callable at `item_id`.
+///
+/// Every `.expect`/`unreachable!` below is infallible by construction: this
+/// pass runs after all transforms on well-formed reachable FIR, and `kind` was
+/// collected from the same store this writes back, so the item, its `Spec`
+/// implementation, and the requested specialization all exist.
 fn get_spec_decl_mut(
     package: &mut Package,
     item_id: LocalItemId,
@@ -338,7 +231,7 @@ fn get_spec_decl_mut(
     let item = package.items.get_mut(item_id).expect("item must exist");
     let decl = match &mut item.kind {
         ItemKind::Callable(decl) => decl.as_mut(),
-        _ => unreachable!("already verified callable"),
+        ItemKind::Ty(..) => unreachable!("already verified callable"),
     };
     match kind {
         CallableSpecKind::Body => match &mut decl.implementation {

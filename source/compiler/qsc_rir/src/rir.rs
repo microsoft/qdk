@@ -2,8 +2,11 @@
 // Licensed under the MIT License.
 
 use crate::debug::{DbgInfo, InstructionDbgMetadata};
-use indenter::{Indented, indented};
-use qsc_data_structures::{attrs::Attributes, index_map::IndexMap, target::TargetCapabilityFlags};
+use indenter::indented;
+use qsc_data_structures::{
+    attrs::Attributes, display::core::set_indentation, index_map::IndexMap,
+    target::TargetCapabilityFlags,
+};
 use std::fmt::{self, Display, Formatter, Write};
 
 /// The root of the RIR.
@@ -780,18 +783,6 @@ impl Display for ArrayLiteral {
 impl PartialEq for ArrayLiteral {
     fn eq(&self, other: &Self) -> bool {
         self.ty == other.ty && self.contents == other.contents
-    }
-}
-
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
     }
 }
 

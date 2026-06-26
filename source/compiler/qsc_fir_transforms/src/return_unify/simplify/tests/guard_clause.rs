@@ -56,7 +56,6 @@ fn simple_guard_clause_collapses_to_if_else() {
         guard_clause::apply,
         &expect![[r#"
             // before guard_clause (fired=true)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -82,7 +81,6 @@ fn simple_guard_clause_collapses_to_if_else() {
             Main()
 
             // after guard_clause
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -128,7 +126,6 @@ fn guard_clause_with_let_in_rest_block() {
         guard_clause::apply,
         &expect![[r#"
             // before guard_clause (fired=false)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -159,7 +156,6 @@ fn guard_clause_with_let_in_rest_block() {
             Main()
 
             // after guard_clause
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -222,7 +218,6 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
         guard_clause::apply,
         &expect![[r#"
             // before guard_clause (fired=false)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -257,7 +252,6 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
             Main()
 
             // after guard_clause
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -313,7 +307,6 @@ fn no_returns_block_has_no_merge_so_rule_does_not_fire() {
         guard_clause::apply,
         &expect![[r#"
             // before guard_clause (fired=false)
-            // namespace Test
             function Main() : Int {
                 let x : Int = 1;
                 x + 2
@@ -322,7 +315,6 @@ fn no_returns_block_has_no_merge_so_rule_does_not_fire() {
             Main()
 
             // after guard_clause
-            // namespace Test
             function Main() : Int {
                 let x : Int = 1;
                 x + 2
@@ -357,7 +349,6 @@ fn both_branches_return_shape_not_collapsed_by_guard_clause_rule() {
         guard_clause::apply,
         &expect![[r#"
             // before guard_clause (fired=false)
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -383,7 +374,6 @@ fn both_branches_return_shape_not_collapsed_by_guard_clause_rule() {
             Main()
 
             // after guard_clause
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -806,7 +796,6 @@ mod inverted_orientation {
             guard_clause::apply,
             &expect![[r#"
                 // before guard_clause (fired=true)
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -832,7 +821,6 @@ mod inverted_orientation {
                 Main()
 
                 // after guard_clause
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -981,7 +969,7 @@ mod inverted_orientation {
             Span::default(),
         );
         let slot_stmt = build_slot_assign_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
-        // Else-arm is a Unit block carrying ONLY the slot set — flag set absent.
+        // Else-arm is a Unit block carrying only the slot set — flag set absent.
         let asymmetric_bid = alloc_block(
             &mut package,
             &mut assigner,

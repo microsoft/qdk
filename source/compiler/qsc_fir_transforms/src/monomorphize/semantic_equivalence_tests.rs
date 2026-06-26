@@ -58,7 +58,7 @@ fn mono_pattern_strategy() -> impl Strategy<Value = String> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
     #[test]
-    fn differential_monomorphize(source in mono_pattern_strategy()) {
+    fn proptest_monomorphize_preserves_semantics(source in mono_pattern_strategy()) {
         crate::test_utils::check_semantic_equivalence(&source);
     }
 }

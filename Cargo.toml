@@ -17,6 +17,7 @@ members = [
     "source/compiler/qsc_hir",
     "source/compiler/qsc_openqasm_compiler",
     "source/compiler/qsc_openqasm_parser",
+    "source/compiler/stim_compiler",
     "source/compiler/qsc_linter",
     "source/compiler/qsc_lowerer",
     "source/compiler/qsc_parse",

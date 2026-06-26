@@ -7,12 +7,13 @@
 
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
 
 use crate::cond_normalize::normalize_conditions;
+use crate::package_assigners::PackageAssigners;
 use crate::test_utils::{
-    PipelineStage, check_semantic_equivalence, compile_and_run_pipeline_to,
-    compile_to_monomorphized_fir,
+    PipelineStage, check_semantic_equivalence, check_semantic_equivalence_with_library,
+    compile_and_run_pipeline_to, compile_and_run_pipeline_to_with_library,
+    compile_to_monomorphized_fir, find_library_callable,
 };
 
 /// Compiles Q# source to monomorphized FIR and snapshots the pretty-printed
@@ -21,8 +22,8 @@ use crate::test_utils::{
 fn check_normalize(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_to_monomorphized_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    normalize_conditions(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    normalize_conditions(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
 }
@@ -32,8 +33,8 @@ fn check_normalize(source: &str, expect: &Expect) {
 fn assert_no_change(source: &str) {
     let (mut store, pkg_id) = compile_to_monomorphized_fir(source);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    normalize_conditions(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    normalize_conditions(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     assert_eq!(before, after, "pure condition must not be rewritten");
 }
@@ -82,7 +83,6 @@ fn side_effecting_block_condition_is_hoisted() {
         "#},
         &expect![[r#"
             BEFORE:
-            // namespace test
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 if {
@@ -96,14 +96,10 @@ fn side_effecting_block_condition_is_hoisted() {
                 Z(q);
                 __quantum__rt__qubit_release(q);
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let __cond_0 : Bool = {
@@ -116,9 +112,6 @@ fn side_effecting_block_condition_is_hoisted() {
 
                 Z(q);
                 __quantum__rt__qubit_release(q);
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -156,7 +149,6 @@ fn else_cond_side_effecting_block_conditions_are_hoisted() {
         "#},
         &expect![[r#"
             BEFORE:
-            // namespace test
             operation Main() : Unit {
                 sut(true, true, true);
             }
@@ -188,14 +180,10 @@ fn else_cond_side_effecting_block_conditions_are_hoisted() {
                 __quantum__rt__qubit_release(q);
                 _generated_ident_92
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             operation Main() : Unit {
                 sut(true, true, true);
             }
@@ -235,9 +223,6 @@ fn else_cond_side_effecting_block_conditions_are_hoisted() {
                 __quantum__rt__qubit_release(q);
                 _generated_ident_92
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -261,7 +246,6 @@ fn measurement_condition_is_hoisted() {
         "#},
         &expect![[r#"
             BEFORE:
-            // namespace test
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 if MResetZ(q) == One {
@@ -271,14 +255,10 @@ fn measurement_condition_is_hoisted() {
                 Z(q);
                 __quantum__rt__qubit_release(q);
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let __cond_0 : Bool = MResetZ(q) == One;
@@ -288,9 +268,6 @@ fn measurement_condition_is_hoisted() {
 
                 Z(q);
                 __quantum__rt__qubit_release(q);
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -319,7 +296,6 @@ fn nested_if_condition_accumulator_is_declared_in_root_block() {
         "#},
         &expect![[r#"
             BEFORE:
-            // namespace test
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 if MResetZ(q) == One {
@@ -336,14 +312,10 @@ fn nested_if_condition_accumulator_is_declared_in_root_block() {
                 Z(q);
                 __quantum__rt__qubit_release(q);
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             operation Main() : Unit {
                 mutable __cond_1 : Bool = false;
                 let q : Qubit = __quantum__rt__qubit_allocate();
@@ -361,9 +333,6 @@ fn nested_if_condition_accumulator_is_declared_in_root_block() {
 
                 Z(q);
                 __quantum__rt__qubit_release(q);
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -398,7 +367,6 @@ fn nested_else_if_accumulator_is_declared_in_root_block() {
         "#},
         &expect![[r#"
             BEFORE:
-            // namespace test
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 if MResetZ(q) == One {
@@ -421,14 +389,10 @@ fn nested_else_if_accumulator_is_declared_in_root_block() {
                 Z(q);
                 __quantum__rt__qubit_release(q);
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             operation Main() : Unit {
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
@@ -457,9 +421,6 @@ fn nested_else_if_accumulator_is_declared_in_root_block() {
                 Z(q);
                 __quantum__rt__qubit_release(q);
             }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
-            }
             // entry
             Main()
         "#]],
@@ -476,6 +437,23 @@ fn while_condition_is_not_hoisted() {
             mutable count = 0;
             while { Y(q); count < 3 } {
                 set count += 1;
+            }
+        }
+    "#});
+}
+
+/// A value-position `if` (one that produces a binding's value) is left
+/// untouched even when its condition is side-effecting: defunctionalization
+/// removes the binding and rebuilds a tree that references each guard once, so
+/// this pass deliberately only normalizes statement-position `if`s.
+#[test]
+fn value_position_if_condition_is_not_hoisted() {
+    assert_no_change(indoc! {r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            let r = if { Y(q); true } { 1 } else { 0 };
+            if r == 1 {
+                X(q);
             }
         }
     "#});
@@ -513,10 +491,10 @@ fn normalization_is_idempotent() {
             Z(q);
         }
     "#});
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    normalize_conditions(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    normalize_conditions(&mut store, pkg_id, &mut assigners);
     let once = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    normalize_conditions(&mut store, pkg_id, &mut assigner);
+    normalize_conditions(&mut store, pkg_id, &mut assigners);
     let twice = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     assert_eq!(once, twice, "second normalization pass must be a no-op");
 }
@@ -641,4 +619,62 @@ fn cross_branch_boundary_guard_is_equivalent() {
             }
         }
     "#});
+}
+
+/// Cross-package: a library operation whose statement-position `if` guards a
+/// side-effecting condition is condition-normalized in place, so the
+/// measurement is hoisted into a single-evaluation `__cond` binding and
+/// evaluates exactly once.
+#[test]
+fn cross_package_side_effecting_if_condition_hoisted_in_library_body() {
+    let lib_source = indoc! {r#"
+        namespace TestLib {
+            operation CondFlip(q : Qubit) : Unit {
+                if MResetZ(q) == One {
+                    X(q);
+                }
+            }
+            export CondFlip;
+        }
+    "#};
+    let user_source = indoc! {r#"
+        import TestLib.*;
+        @EntryPoint()
+        operation Main() : Result {
+            use q = Qubit();
+            X(q);
+            CondFlip(q);
+            return MResetZ(q);
+        }
+    "#};
+
+    // Run up to (but not including) cond_normalize, then invoke it directly so
+    // the library body can be inspected before defunctionalize consumes the
+    // hoisted guard.
+    let (mut store, pkg_id) = compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        PipelineStage::ReturnUnify,
+    );
+    let lib_pkg = find_library_callable(&store, pkg_id, "CondFlip").package;
+
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    normalize_conditions(&mut store, pkg_id, &mut assigners);
+
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, lib_pkg);
+
+    // The measurement is hoisted into a single-evaluation `__cond` binding...
+    assert!(
+        rendered.contains("__cond"),
+        "cross-package cond_normalize should hoist the library if-condition into a __cond binding:\n{rendered}"
+    );
+    // ...and the side-effecting condition therefore evaluates exactly once.
+    assert_eq!(
+        rendered.matches("MResetZ").count(),
+        1,
+        "the side-effecting library condition must evaluate exactly once:\n{rendered}"
+    );
+
+    // End-to-end behavior is unchanged through the full pipeline.
+    check_semantic_equivalence_with_library(lib_source, user_source);
 }

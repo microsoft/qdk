@@ -11,7 +11,9 @@
     "ms-python.black-formatter",
     "rust-lang.rust-analyzer",
     "vadimcn.vscode-lldb",
-    "swellaby.workspace-config-plus"
+    "swellaby.workspace-config-plus",
+    "revng.llvm-ir",
+    "colejcummins.llvm-syntax-highlighting"
   ],
   // List of extensions recommended by VS Code that should not be recommended for users of this workspace.
   "unwantedRecommendations": ["quantum.quantum-devkit-vscode"]

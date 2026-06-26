@@ -148,7 +148,7 @@ fn check_rca_for_operation_with_one_classical_return_and_one_dynamic_return() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | ReturnWithinDynamicScope | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | ReturnWithinDynamicScope | QubitAllocation | UseOfDynamicQubitRelease)
                         value_kind: Variable
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -205,7 +205,7 @@ fn check_rca_for_callable_block_with_dynamic_unreachable_binding() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | ReturnWithinDynamicScope | QubitAllocation)
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | ReturnWithinDynamicScope | QubitAllocation | UseOfDynamicQubitRelease)
                         value_kind: Variable
                     dynamic_param_applications: <empty>
                 adj: <none>

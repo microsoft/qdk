@@ -578,7 +578,6 @@ mod q_driven {
             dead_flag::apply,
             &expect![[r#"
                 // before dead_flag (fired=false)
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -604,7 +603,6 @@ mod q_driven {
                 Main()
 
                 // after dead_flag
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -655,7 +653,6 @@ mod q_driven {
             dead_flag::apply,
             &expect![[r#"
                 // before dead_flag (fired=false)
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -681,7 +678,6 @@ mod q_driven {
                 Main()
 
                 // after dead_flag
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -728,7 +724,6 @@ mod q_driven {
             dead_flag::apply,
             &expect![[r#"
                 // before dead_flag (fired=false)
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
@@ -746,7 +741,6 @@ mod q_driven {
                 Main()
 
                 // after dead_flag
-                // namespace Test
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;

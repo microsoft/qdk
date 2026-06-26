@@ -202,7 +202,7 @@ extends:
 
               # Below VS Code extension build only needs to run on one platform (Linux x86_64 for now)
               - script: |
-                  npm install -g @vscode/vsce
+                  npm install -g @vscode/vsce --userconfig=.npmrc
                 displayName: Install Prereqs for VSCode Extension
 
               # build steps
@@ -510,8 +510,21 @@ extends:
                   artifactName: VSIX
                   targetPath: $(System.DefaultWorkingDirectory)/target/vscode
             steps:
+              # We don't want to check this .npmrc in because it won't work for external contributors.
+              # Unlike in the build stage, there doesn't seem to be a task that consumes AZURE_ARTIFACTS_FEED
+              # and creates the compliant .npmrc files, so just make a simple one inline.
               - script: |
-                  npm install -g @vscode/vsce
+                  echo "registry=$(AZURE_ARTIFACTS_FEED)" > .npmrc
+                  echo "always-auth=true" >> .npmrc
+                displayName: Create .npmrc
+
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: .npmrc
+
+              - script: |
+                  npm install -g @vscode/vsce --userconfig=.npmrc
                 displayName: Install Prereqs for VSCode Ext Publishing
 
               - script: |

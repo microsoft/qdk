@@ -6,9 +6,8 @@
 //!
 //! Tombstones blocks, stmts, exprs, and pats in a package's `IndexMap` arenas
 //! that are no longer reachable from any callable spec body or the entry
-//! expression — the orphans left behind by the rewrite passes (return unify,
-//! defunctionalize, UDT erase, tuple-decompose, argument promote). Items are
-//! never removed (that is [`item_dce`](crate::item_dce)'s job).
+//! expression — the orphans left behind by the earlier rewrite passes. Items
+//! are never removed (that is [`item_dce`](crate::item_dce)'s job).
 //!
 //! # What to know before diving in
 //!

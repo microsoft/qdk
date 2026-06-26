@@ -1048,7 +1048,7 @@ fn lambda_function_empty_closure() {
                 Item 2 [57-67] (Internal):
                     Parent: 1
                     Callable 15 [57-67] (function):
-                        name: Ident 16 [57-67] "<lambda>"
+                        name: Ident 16 [57-67] ".lambda_2"
                         input: Pat 14 [57-67] [Type (Int,)]: Tuple:
                             Pat 9 [57-58] [Type Int]: Bind: Ident 10 [57-58] "x"
                         output: Int
@@ -1110,7 +1110,7 @@ fn lambda_function_empty_closure_passed() {
                 Item 3 [93-103] (Internal):
                     Parent: 2
                     Callable 25 [93-103] (function):
-                        name: Ident 26 [93-103] "<lambda>"
+                        name: Ident 26 [93-103] ".lambda_3"
                         input: Pat 24 [93-103] [Type (Int,)]: Tuple:
                             Pat 19 [93-94] [Type Int]: Bind: Ident 20 [93-94] "x"
                         output: Int
@@ -1166,7 +1166,7 @@ fn lambda_function_closure() {
                 Item 2 [76-86] (Internal):
                     Parent: 1
                     Callable 21 [76-86] (function):
-                        name: Ident 22 [76-86] "<lambda>"
+                        name: Ident 22 [76-86] ".lambda_2"
                         input: Pat 19 [76-86] [Type (Int, Int)]: Tuple:
                             Pat 20 [53-54] [Type Int]: Bind: Ident 18 [53-54] "x"
                             Pat 13 [76-77] [Type Int]: Bind: Ident 14 [76-77] "y"
@@ -1223,7 +1223,7 @@ fn lambda_function_closure_repeated_var() {
                 Item 2 [76-90] (Internal):
                     Parent: 1
                     Callable 23 [76-90] (function):
-                        name: Ident 24 [76-90] "<lambda>"
+                        name: Ident 24 [76-90] ".lambda_2"
                         input: Pat 21 [76-90] [Type (Int, Int)]: Tuple:
                             Pat 22 [53-54] [Type Int]: Bind: Ident 20 [53-54] "x"
                             Pat 13 [76-77] [Type Int]: Bind: Ident 14 [76-77] "y"
@@ -1294,7 +1294,7 @@ fn lambda_function_closure_passed() {
                 Item 3 [120-130] (Internal):
                     Parent: 2
                     Callable 31 [120-130] (function):
-                        name: Ident 32 [120-130] "<lambda>"
+                        name: Ident 32 [120-130] ".lambda_3"
                         input: Pat 29 [120-130] [Type (Int, Int)]: Tuple:
                             Pat 30 [101-102] [Type Int]: Bind: Ident 28 [101-102] "x"
                             Pat 23 [120-121] [Type Int]: Bind: Ident 24 [120-121] "y"
@@ -1368,7 +1368,7 @@ fn lambda_function_nested_closure() {
                 Item 3 [172-190] (Internal):
                     Parent: 2
                     Callable 51 [172-190] (function):
-                        name: Ident 52 [172-190] "<lambda>"
+                        name: Ident 52 [172-190] ".lambda_3"
                         input: Pat 47 [172-190] [Type (Int, Int, Int, Int)]: Tuple:
                             Pat 48 [111-112] [Type Int]: Bind: Ident 44 [111-112] "a"
                             Pat 49 [130-131] [Type Int]: Bind: Ident 45 [130-131] "b"
@@ -1391,7 +1391,7 @@ fn lambda_function_nested_closure() {
                 Item 4 [130-200] (Internal):
                     Parent: 2
                     Callable 59 [130-200] (function):
-                        name: Ident 60 [130-200] "<lambda>"
+                        name: Ident 60 [130-200] ".lambda_4"
                         input: Pat 57 [130-200] [Type (Int, Int)]: Tuple:
                             Pat 58 [111-112] [Type Int]: Bind: Ident 56 [111-112] "a"
                             Pat 25 [130-131] [Type Int]: Bind: Ident 26 [130-131] "b"
@@ -1467,7 +1467,7 @@ fn lambda_operation_empty_closure() {
                 Item 3 [137-144] (Internal):
                     Parent: 2
                     Callable 27 [137-144] (operation):
-                        name: Ident 28 [137-144] "<lambda>"
+                        name: Ident 28 [137-144] ".lambda_3"
                         input: Pat 26 [137-144] [Type (Qubit,)]: Tuple:
                             Pat 23 [137-138] [Type Qubit]: Bind: Ident 24 [137-138] "q"
                         output: Unit
@@ -1550,7 +1550,7 @@ fn lambda_operation_closure() {
                 Item 4 [199-215] (Internal):
                     Parent: 3
                     Callable 35 [199-215] (operation):
-                        name: Ident 36 [199-215] "<lambda>"
+                        name: Ident 36 [199-215] ".lambda_4"
                         input: Pat 33 [199-215] [Type (Qubit, Unit)]: Tuple:
                             Pat 34 [174-175] [Type Qubit]: Bind: Ident 32 [174-175] "q"
                             Pat 28 [199-201] [Type Unit]: Unit
@@ -1628,7 +1628,7 @@ fn lambda_adj() {
                 Item 4 [138-147] (Internal):
                     Parent: 3
                     Callable 27 [138-147] (operation):
-                        name: Ident 28 [138-147] "<lambda>"
+                        name: Ident 28 [138-147] ".lambda_4"
                         input: Pat 26 [138-147] [Type (Qubit,)]: Tuple:
                             Pat 21 [138-139] [Type Qubit]: Bind: Ident 22 [138-139] "q"
                         output: Unit
@@ -1696,7 +1696,7 @@ fn partial_app_one_hole() {
                 Item 3 [99-108] (Internal):
                     Parent: 2
                     Callable 37 [99-108] (function):
-                        name: Ident 38 [99-108] "<lambda>"
+                        name: Ident 38 [99-108] ".lambda_3"
                         input: Pat 35 [99-108] [Type (Int, Int)]: Tuple:
                             Pat 36 [106-107] [Type Int]: Bind: Ident 34 [106-107] "arg"
                             Pat 24 [103-104] [Type Int]: Bind: Ident 23 [103-104] "hole"
@@ -1764,7 +1764,7 @@ fn partial_app_two_holes() {
                 Item 3 [99-108] (Internal):
                     Parent: 2
                     Callable 33 [99-108] (function):
-                        name: Ident 34 [99-108] "<lambda>"
+                        name: Ident 34 [99-108] ".lambda_3"
                         input: Pat 32 [99-108] [Type ((Int, Int),)]: Tuple:
                             Pat 30 [102-108] [Type (Int, Int)]: Tuple:
                                 Pat 24 [103-104] [Type Int]: Bind: Ident 23 [103-104] "hole"
@@ -1837,7 +1837,7 @@ fn partial_app_nested_tuple() {
                 Item 3 [130-152] (Internal):
                     Parent: 2
                     Callable 52 [130-152] (function):
-                        name: Ident 53 [130-152] "<lambda>"
+                        name: Ident 53 [130-152] ".lambda_3"
                         input: Pat 50 [130-152] [Type (Double, (Int, (Bool, String), Result))]: Tuple:
                             Pat 51 [141-144] [Type Double]: Bind: Ident 49 [141-144] "arg"
                             Pat 47 [133-152] [Type (Int, (Bool, String), Result)]: Tuple:
@@ -1921,7 +1921,7 @@ fn partial_app_nested_tuple_singleton_unwrap() {
                 Item 3 [130-155] (Internal):
                     Parent: 2
                     Callable 56 [130-155] (function):
-                        name: Ident 57 [130-155] "<lambda>"
+                        name: Ident 57 [130-155] ".lambda_3"
                         input: Pat 53 [130-155] [Type (Bool, Double, (Int, String, Result))]: Tuple:
                             Pat 54 [138-142] [Type Bool]: Bind: Ident 51 [138-142] "arg"
                             Pat 55 [144-147] [Type Double]: Bind: Ident 52 [144-147] "arg"
@@ -2176,7 +2176,7 @@ fn partial_app_bound_to_non_arrow_ty() {
                 Item 3 [113-122] (Internal):
                     Parent: 2
                     Callable 37 [113-122] (function):
-                        name: Ident 38 [113-122] "<lambda>"
+                        name: Ident 38 [113-122] ".lambda_3"
                         input: Pat 35 [113-122] [Type (Int, Int)]: Tuple:
                             Pat 36 [117-118] [Type Int]: Bind: Ident 34 [117-118] "arg"
                             Pat 30 [120-121] [Type Int]: Bind: Ident 29 [120-121] "hole"
@@ -2476,7 +2476,7 @@ fn lambda_with_invalid_free_variable() {
                 Item 2 [52-67] (Internal):
                     Parent: 1
                     Callable 12 [52-67] (operation):
-                        name: Ident 13 [52-67] "<lambda>"
+                        name: Ident 13 [52-67] ".lambda_2"
                         input: Pat 11 [52-67] [Type (Unit,)]: Tuple:
                             Pat 7 [52-54] [Type Unit]: Unit
                         output: Unit
@@ -2516,7 +2516,7 @@ fn lambda_with_explicit_return_should_have_non_unit_output_type() {
                 Item 2 [31-48] (Internal):
                     Parent: 1
                     Callable 16 [31-48] (function):
-                        name: Ident 17 [31-48] "<lambda>"
+                        name: Ident 17 [31-48] ".lambda_2"
                         input: Pat 15 [31-48] [Type (Int,)]: Tuple:
                             Pat 9 [31-32] [Type Int]: Bind: Ident 10 [31-32] "i"
                         output: Int
@@ -2558,7 +2558,7 @@ fn lambda_with_implicit_return_should_have_non_unit_output_type() {
                 Item 2 [31-41] (Internal):
                     Parent: 1
                     Callable 15 [31-41] (function):
-                        name: Ident 16 [31-41] "<lambda>"
+                        name: Ident 16 [31-41] ".lambda_2"
                         input: Pat 14 [31-41] [Type (Int,)]: Tuple:
                             Pat 9 [31-32] [Type Int]: Bind: Ident 10 [31-32] "i"
                         output: Int

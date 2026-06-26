@@ -50,8 +50,26 @@ fn assert_no_array_backed_slot(
     );
 }
 
+/// Contract check for the internal `guard_stmt_with_flag` invariant.
+///
+/// During flag-strategy return lowering, `guard_stmt_with_flag` rewrites a
+/// statement so it only runs when no early return has fired, wrapping it as
+/// `if not __has_returned { <stmt> }`. `StmtKind::Local` statements take a
+/// dedicated path (their initializer is guarded with a typed default so the
+/// binding stays in scope), but every other guarded statement is placed in a
+/// `Unit`-typed block whose value is discarded. A `StmtKind::Expr` therefore
+/// must itself be `Unit`-typed; a value-producing expression statement reaching
+/// this path would have its result silently dropped, which signals a caller bug
+/// (trailing value expressions are supposed to flow through the return-slot /
+/// trailing-merge machinery, not get guard-wrapped).
+///
+/// This test feeds the function an input that deliberately violates that
+/// contract: it hand-builds a `StmtKind::Expr` holding a non-`Unit` (`Int`)
+/// literal and confirms the defensive `assert!`
+/// ("`guard_stmt_with_flag` requires Unit-typed inner stmt") fires, so the
+/// invariant cannot silently regress.
 #[test]
-fn guard_stmt_with_flag_rejects_non_unit_expr_stmt() {
+fn guard_stmt_with_flag_panics_on_non_unit_expr_stmt() {
     let source = indoc! {r#"
         namespace Test {
             @EntryPoint()
@@ -431,7 +449,7 @@ fn test_reachable_only_transformation() {
         "Reachable Process callable should have no Return nodes after return_unify (reachable-only contract)"
     );
 
-    // Assert: Verify unreachable callable (UnusedHelper) was NOT transformed
+    // Assert: Verify unreachable callable (UnusedHelper) was not transformed
     // and still has returns (documenting the reachable-only semantics)
     let mut unused_has_return = false;
     {
@@ -552,7 +570,7 @@ fn mixed_qubit_arrow_return_type_succeeds_via_array_backed() {
     );
 }
 
-// NOTE: `UnsupportedHoistContext` fires when a `return` is in a compound-
+// `UnsupportedHoistContext` fires when a `return` is in a compound-
 // position sub-expression (e.g. an if-condition or local init) whose
 // enclosing type is non-defaultable. The Q# frontend does not produce FIR
 // with `return` as a sub-expression inside another expression — `return`
@@ -618,7 +636,7 @@ fn recursive_udt_early_return_fails_before_return_unify() {
     // The program should either fail at the frontend (cyclic UDT) or
     // succeed if the frontend resolves it. Either way, it should not
     // panic in return_unify.
-    // If errors exist, they should NOT be return_unify panics.
+    // If errors exist, they should not be return_unify panics.
     for err in &result.errors {
         if let crate::PipelineError::ReturnUnify(ru_err) = err {
             // Any return_unify error is acceptable (diagnostic, not panic).

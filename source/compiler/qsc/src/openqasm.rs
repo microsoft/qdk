@@ -53,6 +53,7 @@ pub struct CompileRawQasmResult(
     pub Vec<(PackageId, Option<std::sync::Arc<str>>)>,
     pub Option<OperationSignature>,
     pub Vec<crate::compile::Error>,
+    pub Option<Profile>,
 );
 
 #[must_use]
@@ -113,7 +114,14 @@ pub fn compile_openqasm_with_profile_override(
         compile_errors
     };
 
-    CompileRawQasmResult(store, source_package_id, dependencies, sig, surfaced_errors)
+    CompileRawQasmResult(
+        store,
+        source_package_id,
+        dependencies,
+        sig,
+        surfaced_errors,
+        profile_override.or(pragma_profile),
+    )
 }
 
 #[must_use]

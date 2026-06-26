@@ -521,6 +521,15 @@ class QasmError(BaseException):
 
     ...
 
+class StimError(BaseException):
+    """
+    EXPERIMENTAL:
+
+    An error returned from the Stim compiler.
+    """
+
+    ...
+
 def physical_estimates(logical_resources: str, params: str) -> str:
     """
     Estimates physical resources from pre-calculated logical resources.
@@ -650,6 +659,22 @@ def compile_qasm_to_qsharp(
       - ``search_path`` (str): The optional search path for resolving file references.
     :return: The converted Q# code as a string.
     :rtype: str
+    """
+    ...
+
+def compile_stim_to_qir(
+    source: str, noise: Optional[NoiseConfig]
+) -> Tuple[str, NoiseConfig]:
+    """
+    EXPERIMENTAL:
+
+    Converts a Stim program to QIR.
+
+    :param source: The Stim source code to convert.
+    :param noise: The noise configuration to use.
+    :return: The converted QIR code as a string and the noise configuration.
+    :rtype: Tuple[str, NoiseConfig]
+    :raises StimError: If there is an error compiling the Stim program.
     """
     ...
 

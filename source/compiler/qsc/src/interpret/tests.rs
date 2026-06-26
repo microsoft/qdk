@@ -921,6 +921,61 @@ mod given_interpreter {
         }
 
         #[test]
+        fn export_and_namespaces_round_trip_and_survive_revert() {
+            // The lowerer no longer emits namespace or export items into FIR, so
+            // an incremental compile tracks fewer item ids. Declaring an export
+            // and multiple namespaces across fragments must still round-trip,
+            // and reverting a later increment must leave the earlier
+            // declarations intact and callable.
+            let mut interpreter =
+                get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
+
+            // Fragment 0: a namespace that exports one of its callables.
+            let (result, output) = line(
+                &mut interpreter,
+                "namespace Foo { function Bar() : Int { 5 } export Bar; }",
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            // Fragment 1: a second namespace that calls into the first.
+            let (result, output) = line(
+                &mut interpreter,
+                "namespace Baz { function Qux() : Int { Foo.Bar() + 1 } }",
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            // Both namespaces and the exported name resolve.
+            let (result, output) = line(&mut interpreter, "Foo.Bar()");
+            is_only_value(&result, &output, &Value::Int(5));
+            let (result, output) = line(&mut interpreter, "Baz.Qux()");
+            is_only_value(&result, &output, &Value::Int(6));
+
+            // Fragment that fails profile validation, forcing the FIR increment
+            // to be reverted.
+            let (result, output) = line(
+                &mut interpreter,
+                "operation Dyn() : Int { use q = Qubit(); mutable x = 1; if MResetZ(q) == One { set x = 2; } x }",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    cannot use a dynamic integer value
+                       [line_4] [set x = 2]
+                    cannot use a dynamic integer value
+                       [line_4] [x]
+                "#]],
+            );
+
+            // After the revert, the earlier namespace/export declarations remain
+            // consistent and callable.
+            let (result, output) = line(&mut interpreter, "Foo.Bar()");
+            is_only_value(&result, &output, &Value::Int(5));
+            let (result, output) = line(&mut interpreter, "Baz.Qux()");
+            is_only_value(&result, &output, &Value::Int(6));
+        }
+
+        #[test]
         fn namespace_usable_before_definition() {
             let mut interpreter = get_interpreter();
             let (result, output) = line(
@@ -1079,6 +1134,47 @@ mod given_interpreter {
                 &result,
                 &output,
                 &Value::Result(qsc_eval::val::Result::Val(false)),
+            );
+        }
+
+        #[test]
+        fn qirgen_twice_on_shared_interpreter_store_is_byte_identical() {
+            // The FIR transform pipeline mutates every reachable package in
+            // place, including std, so codegen must run on a throwaway clone of
+            // the interpreter's long-lived `fir_store`. This entry point calls
+            // the std operation `ApplyToEach` cross-package, so the first
+            // `qirgen` destructively transforms std in its clone. If a future
+            // change ran the pipeline on the shared store instead, the second
+            // `qirgen` would see an already-transformed std and diverge or
+            // panic. Two identical calls must produce identical QIR.
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation Foo() : Result {
+                        use qs = Qubit[3];
+                        Std.Canon.ApplyToEach(H, qs);
+                        let r = M(qs[0]);
+                        for q in qs {
+                            Reset(q);
+                        }
+                        return r;
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let first = interpreter
+                .qirgen("Foo()")
+                .expect("first qirgen should succeed");
+            let second = interpreter
+                .qirgen("Foo()")
+                .expect("second qirgen should succeed");
+            assert_eq!(
+                first, second,
+                "two qirgen calls on the same interpreter must produce byte-identical \
+                 QIR; divergence means the FIR transform pipeline corrupted the shared \
+                 (non-disposable) store on the first call"
             );
         }
 

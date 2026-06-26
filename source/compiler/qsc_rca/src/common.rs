@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use indenter::Indented;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::{
     extensions::{InputParam, InputParamIndex},
@@ -13,10 +12,7 @@ use qsc_fir::{
     visit::{Visitor, walk_expr, walk_stmt},
 };
 use rustc_hash::FxHashMap;
-use std::{
-    cmp::max,
-    fmt::{Debug, Formatter},
-};
+use std::{cmp::max, fmt::Debug};
 
 /// A representation of a local symbol.
 #[derive(Clone, Debug)]
@@ -32,8 +28,9 @@ pub enum LocalKind {
     InputParam(InputParamIndex),
     /// A specialization input (i.e. control qubits).
     SpecInput,
-    /// An immutable binding with the expression associated to it.
-    Immutable(ExprId),
+    /// An immutable binding with the expression associated to it and the optional
+    /// expression for the containing dynamic scope, if any.
+    Immutable(ExprId, Option<ExprId>),
     /// A mutable binding with the optional expression for the containing dynamic scope,
     /// if any.
     Mutable(Option<ExprId>),
@@ -176,7 +173,7 @@ fn try_resolve_local_callee(
     // This is a best effort attempt to resolve a callee.
     match locals_map.find(local_var_id) {
         Some(local) => match local.kind {
-            LocalKind::Immutable(expr_id) => {
+            LocalKind::Immutable(expr_id, _) => {
                 try_resolve_callee(expr_id, package_id, package, locals_map)
             }
             _ => (None, None),
@@ -282,17 +279,5 @@ impl<'a> Visitor<'a> for AssignmentStmtCounter<'a> {
         if self.assignment_expr_count > initial_assigment_expr_count {
             self.assignment_stmt_count += 1;
         }
-    }
-}
-
-pub fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
     }
 }

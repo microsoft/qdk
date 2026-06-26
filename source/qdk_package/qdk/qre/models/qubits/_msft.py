@@ -56,6 +56,7 @@ class Majorana(Architecture):
     error_rate: float = field(default=1e-5, metadata={"domain": [1e-4, 1e-5, 1e-6]})
     time: int = 1_000
     t_error_rate: Optional[float] = None
+    target_year: Optional[int] = None
 
     def __post_init__(self) -> None:
         if self.t_error_rate is None:
@@ -75,10 +76,18 @@ class Majorana(Architecture):
             ctx.add_instruction(PREP_X, time=self.time, error_rate=self.error_rate),
             ctx.add_instruction(PREP_Z, time=self.time, error_rate=self.error_rate),
             ctx.add_instruction(
-                MEAS_XX, arity=2, time=self.time, error_rate=self.error_rate
+                MEAS_XX,
+                arity=2,
+                time=self.time,
+                error_rate=self.error_rate,
+                target_year=self.target_year,
             ),
             ctx.add_instruction(
-                MEAS_ZZ, arity=2, time=self.time, error_rate=self.error_rate
+                MEAS_ZZ,
+                arity=2,
+                time=self.time,
+                error_rate=self.error_rate,
+                target_year=self.target_year,
             ),
             ctx.add_instruction(MEAS_X, time=self.time, error_rate=self.error_rate),
             ctx.add_instruction(MEAS_Z, time=self.time, error_rate=self.error_rate),

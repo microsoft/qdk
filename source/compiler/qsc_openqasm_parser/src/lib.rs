@@ -15,7 +15,6 @@
 #![allow(clippy::large_stack_arrays)]
 
 mod convert;
-pub mod display_utils;
 pub mod error;
 pub mod io;
 mod keyword;

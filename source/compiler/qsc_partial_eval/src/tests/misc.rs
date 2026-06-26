@@ -607,10 +607,15 @@ fn evaluation_error_within_stdlib_yield_correct_package_span() {
         namespace Test {
             import Std.Arrays.*;
             @EntryPoint()
-            operation Main() : Result[] {
-                use qs = Qubit[1];
-                let rs = ForEach(MResetZ, qs);
-                return rs;
+            operation Main() : Int[] {
+                use q = Qubit();
+                let a = if MResetZ(q) == One {
+                    1
+                } else {
+                    0
+                };
+                let b = [(a, a)];
+                ForEach(t => Fst(t), b)
             }
         }
         "#,
