@@ -185,9 +185,8 @@ fn main() -> Result<(), String> {
         for f in &file_walker.changed_files {
             println!("\t{Error}{f}");
         }
-        println!(
-            "{Error}Run the formatter with the `--write` option to correct formatting for the above files.{Reset}"
-        );
+        println!("{Error}To correct formatting for the above files, run:{Reset}");
+        println!("\t{Verb}{}{Reset}", command_line_with_write());
     } else {
         println!(
             "{Passing}{} files are correctly formatted.{Reset}",
@@ -253,6 +252,24 @@ fn main() -> Result<(), String> {
                 file_walker.skipped_files.len()
             ))
         }
+    }
+}
+
+/// Reconstructs the command line this process was spawned with and appends
+/// `--write`, so the user can copy/paste it to correct the formatting.
+fn command_line_with_write() -> String {
+    let mut parts: Vec<String> = env::args().map(|arg| quote_arg(&arg)).collect();
+    parts.push("--write".to_string());
+    parts.join(" ")
+}
+
+/// Quotes a single command-line argument if it contains whitespace or is empty,
+/// so the reconstructed command line can be safely copied and re-run.
+fn quote_arg(arg: &str) -> String {
+    if arg.is_empty() || arg.chars().any(char::is_whitespace) {
+        format!("\"{}\"", arg.replace('"', "\\\""))
+    } else {
+        arg.to_string()
     }
 }
 
