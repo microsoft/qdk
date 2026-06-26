@@ -309,6 +309,67 @@ ROTATION_DEGRADE_RECIPES = [
 ]
 
 
+# Allowed `on_loss` policies for each multi-qubit gate, mirroring
+# `allowed_noise_policies_from_gate_name` on the Rust side. Single-qubit gate
+# tables reject `on_loss` entirely (see SINGLE_QUBIT_GATE_ATTRS).
+ALL_LOSS_POLICIES = [
+    LossPolicy.SKIP,
+    LossPolicy.PROPAGATE,
+    LossPolicy.DEGRADE,
+    LossPolicy.RESIDUAL_S_DAGGER,
+    LossPolicy.APPLY_ANYWAY,
+]
+
+# The policies every multi-qubit gate accepts.
+DEFAULT_MULTI_QUBIT_POLICIES = [
+    LossPolicy.SKIP,
+    LossPolicy.PROPAGATE,
+    LossPolicy.RESIDUAL_S_DAGGER,
+]
+
+# NoiseConfig gate attribute -> the policies that gate accepts. Rotation gates
+# additionally allow DEGRADE (reduce to the single-qubit rotation) and SWAP
+# additionally allows APPLY_ANYWAY (run the swap regardless of loss).
+ALLOWED_ON_LOSS_POLICIES = {
+    "cx": DEFAULT_MULTI_QUBIT_POLICIES,
+    "cy": DEFAULT_MULTI_QUBIT_POLICIES,
+    "cz": DEFAULT_MULTI_QUBIT_POLICIES,
+    "ccx": DEFAULT_MULTI_QUBIT_POLICIES,
+    "rxx": DEFAULT_MULTI_QUBIT_POLICIES + [LossPolicy.DEGRADE],
+    "ryy": DEFAULT_MULTI_QUBIT_POLICIES + [LossPolicy.DEGRADE],
+    "rzz": DEFAULT_MULTI_QUBIT_POLICIES + [LossPolicy.DEGRADE],
+    "swap": DEFAULT_MULTI_QUBIT_POLICIES + [LossPolicy.APPLY_ANYWAY],
+}
+
+# Single-qubit gate tables: `on_loss` is meaningless and rejected for every
+# policy.
+SINGLE_QUBIT_GATE_ATTRS = [
+    "i",
+    "x",
+    "y",
+    "z",
+    "h",
+    "s",
+    "s_adj",
+    "t",
+    "t_adj",
+    "sx",
+    "sx_adj",
+    "rx",
+    "ry",
+    "rz",
+    "mov",
+    "mz",
+    "mresetz",
+]
+
+
+def forbidden_on_loss_policies(attr):
+    """The policies *not* accepted by the gate at NoiseConfig attribute *attr*."""
+    allowed = ALLOWED_ON_LOSS_POLICIES[attr]
+    return [p for p in ALL_LOSS_POLICIES if p not in allowed]
+
+
 def run_loss_policy_scenario(
     gate: str,
     sim_type: SimType,
@@ -354,9 +415,68 @@ def test_on_loss_defaults():
     assert noise.swap.on_loss == LossPolicy.APPLY_ANYWAY
 
 
-# TEST 1: SKIP never applies the unitary. C*/R** leave the survivor (|1>)
-# untouched ("-1"); SWAP also skips the unitary but still exchanges the loss
-# flag, so the survivor's |1> ends up on the now-lost qubit ("0-").
+def test_on_loss_allowed_policies():
+    # Every gate accepts each of its allowed policies, and the assigned value
+    # round-trips through the getter on the (shared) noise table.
+    for attr, allowed in ALLOWED_ON_LOSS_POLICIES.items():
+        for policy in allowed:
+            noise = NoiseConfig()
+            setattr(getattr(noise, attr), "on_loss", policy)
+            assert (
+                getattr(noise, attr).on_loss == policy
+            ), f"`{attr}` should accept on_loss={policy}"
+
+    # The default policy reported by a fresh config must itself be allowed.
+    noise = NoiseConfig()
+    for attr, allowed in ALLOWED_ON_LOSS_POLICIES.items():
+        assert getattr(noise, attr).on_loss in allowed
+
+    # Multi-qubit noise intrinsics accept the default multi-qubit policies.
+    for policy in DEFAULT_MULTI_QUBIT_POLICIES:
+        noise = NoiseConfig()
+        setattr(noise.intrinsic("loss_intrinsic", num_qubits=2), "on_loss", policy)
+        assert noise.intrinsic("loss_intrinsic", num_qubits=2).on_loss == policy
+
+
+def test_on_loss_forbidden_policies_raise_error():
+    # Each multi-qubit gate rejects every policy outside its allowed set, and a
+    # rejected assignment leaves the current policy unchanged.
+    for attr in ALLOWED_ON_LOSS_POLICIES:
+        for policy in forbidden_on_loss_policies(attr):
+            noise = NoiseConfig()
+            original = getattr(noise, attr).on_loss
+            with pytest.raises(
+                AttributeError, match="only supports the following policies"
+            ):
+                setattr(getattr(noise, attr), "on_loss", policy)
+            assert getattr(noise, attr).on_loss == original
+
+    # Single-qubit gate tables reject on_loss for *every* policy: loss policies
+    # only apply to multi-qubit gates.
+    for attr in SINGLE_QUBIT_GATE_ATTRS:
+        for policy in ALL_LOSS_POLICIES:
+            noise = NoiseConfig()
+            with pytest.raises(AttributeError, match="only apply to multi-qubit gates"):
+                setattr(getattr(noise, attr), "on_loss", policy)
+
+    # A single-qubit noise intrinsic likewise rejects on_loss entirely.
+    for policy in ALL_LOSS_POLICIES:
+        noise = NoiseConfig()
+        table = noise.intrinsic("loss_intrinsic_1q", num_qubits=1)
+        with pytest.raises(AttributeError, match="only apply to multi-qubit gates"):
+            setattr(table, "on_loss", policy)
+
+    # A multi-qubit noise intrinsic only allows the default multi-qubit
+    # policies, so DEGRADE and APPLY_ANYWAY are rejected.
+    for policy in (LossPolicy.DEGRADE, LossPolicy.APPLY_ANYWAY):
+        noise = NoiseConfig()
+        table = noise.intrinsic("loss_intrinsic_2q", num_qubits=2)
+        with pytest.raises(
+            AttributeError, match="only supports the following policies"
+        ):
+            setattr(table, "on_loss", policy)
+
+
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "attr,gate,expected",
@@ -370,9 +490,6 @@ def test_on_loss_skip_does_not_apply_unitary(attr, gate, expected, sim_type):
     assert res == expected
 
 
-# TEST 2: PROPAGATE loses the surviving operand too. Here the first operand
-# (qs[0]) is the one originally lost, and the loss propagates to qs[1], so both
-# operands measure as loss.
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize("attr,gate", ALL_GATES, ids=ALL_IDS)
 def test_on_loss_propagate_lose_first(attr, gate, sim_type):
@@ -382,8 +499,6 @@ def test_on_loss_propagate_lose_first(attr, gate, sim_type):
     assert res == "--"
 
 
-# TEST 3: same as TEST 2 but the second operand (qs[1]) is the one originally
-# lost; the loss still propagates to the survivor, so both measure as loss.
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize("attr,gate", ALL_GATES, ids=ALL_IDS)
 def test_on_loss_propagate_lose_second(attr, gate, sim_type):
@@ -393,26 +508,6 @@ def test_on_loss_propagate_lose_second(attr, gate, sim_type):
     assert res == "--"
 
 
-# TEST 4: DEGRADE has no single-qubit reduction for controlled gates or SWAP,
-# so it falls back to SKIP. C* leave the survivor (|1>) untouched ("-1"); SWAP
-# skips the unitary but exchanges the loss flag ("0-").
-@pytest.mark.parametrize("sim_type", SIM_TYPES)
-@pytest.mark.parametrize(
-    "attr,gate,expected",
-    [(*elt, "-1") for elt in CONTROLLED_GATES + [SWAP_GATE]],
-    ids=CONTROLLED_IDS + [SWAP_ID],
-)
-def test_on_loss_degrade_behaves_like_skip(attr, gate, expected, sim_type):
-    res = run_loss_policy_scenario(
-        gate, sim_type, attr=attr, on_loss=LossPolicy.DEGRADE, prep="X(qs[1]);"
-    )
-    assert res == expected
-
-
-# TEST 5: DEGRADE reduces a two-qubit rotation to its single-qubit version on
-# the survivor (Rxx->Rx, Ryy->Ry, Rzz->Rz). With theta = PI the reduced
-# rotation flips the survivor's measured bit; Rz only adds phase, so Rzz is
-# measured in the X basis (H before and after).
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "attr,gate,prep,post", ROTATION_DEGRADE_RECIPES, ids=ROTATION_IDS
@@ -424,10 +519,6 @@ def test_on_loss_degrade_reduces_rotation(attr, gate, prep, post, sim_type):
     assert res == "-1"
 
 
-# TEST 6a: RESIDUAL_S_DAGGER skips the unitary but applies an S-dagger to the
-# survivor in place. The survivor is prepared in |+i> = S H |0>; S-dagger maps it
-# back to |+>, and the final H rotates it to |0>, so the survivor (still at
-# qs[1] for C*/R**) measures as 0 ("-0").
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "attr,gate",
@@ -446,14 +537,6 @@ def test_on_loss_residual_s_dagger_applies_s_adjoint(attr, gate, sim_type):
     assert res == "-0"
 
 
-# TEST 6b: SWAP under RESIDUAL_S_DAGGER applies the full swap, then the S-dagger
-# to the survivor, then exchanges the loss flag. Unlike C*/R**, the swap
-# relocates the survivor to qs[0] (the originally-lost operand) and moves the
-# loss flag to qs[1]. The survivor |+i> = S H |0> maps under S-dagger to |+>, so
-# the post-processing H is applied to qs[0] (the survivor's new location) to
-# rotate it to |0>: qs[0] measures 0 and the now-lost qs[1] measures as loss
-# ("0-"). Measuring the survivor in place (its X-basis phase) is what verifies
-# the S-dagger was actually applied.
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_on_loss_swap_residual_s_dagger_applies_s_adjoint(sim_type):
     res = run_loss_policy_scenario(
@@ -467,20 +550,11 @@ def test_on_loss_swap_residual_s_dagger_applies_s_adjoint(sim_type):
     assert res == "0-"
 
 
-# TEST 7: SWAP always exchanges the loss flag between its operands, whatever the
-# policy. The survivor (|1>) becomes the lost qubit and the originally-lost
-# qubit returns as a reset |0> ("0-"); under PROPAGATE both end up lost ("--").
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "on_loss,expected",
-    [
-        (LossPolicy.SKIP, "-1"),
-        (LossPolicy.PROPAGATE, "--"),
-        (LossPolicy.DEGRADE, "-1"),
-        (LossPolicy.RESIDUAL_S_DAGGER, "1-"),
-        (LossPolicy.APPLY_ANYWAY, "1-"),
-    ],
-    ids=["skip", "propagate", "residual_s_dagger", "degrade", "apply_anyway"],
+    [(LossPolicy.RESIDUAL_S_DAGGER, "1-"), (LossPolicy.APPLY_ANYWAY, "1-")],
+    ids=["residual_s_dagger", "apply_anyway"],
 )
 def test_on_loss_swap_swaps_loss_flag(on_loss, expected, sim_type):
     res = run_loss_policy_scenario(
