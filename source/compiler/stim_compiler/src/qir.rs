@@ -1038,6 +1038,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn expect_qubit(&mut self, instruction: &Instruction, target: &Target) -> Option<u32> {
+        // TODO: lacks support for negated qubits and pauli targets
         let TargetKind::Qubit {
             value,
             negated: false,
