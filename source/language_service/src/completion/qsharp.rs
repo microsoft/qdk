@@ -37,10 +37,11 @@ pub(super) fn completions(
         if name.as_ref() == "EntryPoint" {
             return CompletionList {
                 items: vec![
-                    CompletionItem::new("Unrestricted".to_string(), CompletionItemKind::Keyword),
                     CompletionItem::new("Base".to_string(), CompletionItemKind::Keyword),
                     CompletionItem::new("Adaptive_RI".to_string(), CompletionItemKind::Keyword),
                     CompletionItem::new("Adaptive_RIF".to_string(), CompletionItemKind::Keyword),
+                    CompletionItem::new("Adaptive".to_string(), CompletionItemKind::Keyword),
+                    CompletionItem::new("Unrestricted".to_string(), CompletionItemKind::Keyword),
                 ],
             };
         }

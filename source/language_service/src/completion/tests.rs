@@ -2351,6 +2351,31 @@ fn no_completion_inside_attr() {
 }
 
 #[test]
+fn target_profile_completions_in_entry_point_attr() {
+    check_single_file(
+        "namespace Test {
+            @EntryPoint(↘)
+            operation Main() : Unit {}
+        }",
+        &[
+            "Base",
+            "Adaptive_RI",
+            "Adaptive_RIF",
+            "Adaptive",
+            "Unrestricted",
+        ],
+        &expect![[r#"
+            found, sorted:
+              "Base" (Keyword)
+              "Adaptive_RI" (Keyword)
+              "Adaptive_RIF" (Keyword)
+              "Adaptive" (Keyword)
+              "Unrestricted" (Keyword)
+        "#]],
+    );
+}
+
+#[test]
 fn in_comment() {
     check_no_completions(
         "namespace Test {

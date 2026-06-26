@@ -63,8 +63,6 @@ use std::str::FromStr;
 /// Most user-facing APIs work in terms of profiles.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Profile {
-    /// Corresponds to a target with no limitations on supported language features.
-    Unrestricted,
     /// Corresponds to a target with support only for gate operations on qubits with all measurements at the end of the program..
     Base,
     /// Corresponds to a target with support for forward branching, qubit reuse, and integer computations.
@@ -73,17 +71,19 @@ pub enum Profile {
     AdaptiveRIF,
     /// Corresponds to a target with support for full adaptive profile, including any extensions.
     Adaptive,
+    /// Corresponds to a target with no limitations on supported language features.
+    Unrestricted,
 }
 
 impl Profile {
     #[must_use]
     pub fn to_str(&self) -> &'static str {
         match self {
-            Self::Unrestricted => "Unrestricted",
             Self::Base => "Base",
             Self::AdaptiveRI => "Adaptive_RI",
             Self::AdaptiveRIF => "Adaptive_RIF",
             Self::Adaptive => "Adaptive",
+            Self::Unrestricted => "Unrestricted",
         }
     }
 }
@@ -114,10 +114,10 @@ impl FromStr for Profile {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
+            "base" => Ok(Self::Base),
             "adaptive_ri" => Ok(Self::AdaptiveRI),
             "adaptive_rif" => Ok(Self::AdaptiveRIF),
             "adaptive" => Ok(Self::Adaptive),
-            "base" => Ok(Self::Base),
             "unrestricted" => Ok(Self::Unrestricted),
             _ => Err(()),
         }

@@ -62,6 +62,7 @@ function checkCompatibility(
     "base",
     "adaptive_ri",
     "adaptive_rif",
+    "adaptive",
     "unrestricted",
   ];
 
