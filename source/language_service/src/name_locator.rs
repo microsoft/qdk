@@ -13,6 +13,14 @@ use qsc::ast::{FieldAccess, Idents, ImportKind, PathKind};
 use qsc::display::Lookup;
 use qsc::{ast, hir, resolve};
 
+/// Callbacks for different ways a declaration can be referenced.
+///
+/// Responsible for what to do at each step, not for how to move between
+/// steps (aka traverse, walk).
+///
+/// For example, an implementer can use [`Self::at_callable_def`] to perform
+/// an action when at the definition site of a callable.
+/// Implemented for things like find-all-references and rename.
 pub(crate) trait Handler<'package> {
     fn at_attr_ref(&mut self, name: &'package ast::Ident);
 
@@ -99,6 +107,7 @@ pub(crate) trait Handler<'package> {
     );
 }
 
+/// State for a [`Locator`].
 pub(crate) struct LocatorContext<'package> {
     pub(crate) current_callable: Option<&'package ast::CallableDecl>,
     pub(crate) lambda_params: Vec<&'package ast::Pat>,
@@ -110,6 +119,7 @@ pub(crate) struct LocatorContext<'package> {
     pub(crate) current_udt_id: Option<&'package hir::ItemId>,
 }
 
+/// A [`Visitor`] that triggers calls to a [`Handler`].
 pub(crate) struct Locator<'inner, 'package, T> {
     inner: &'inner mut T,
     offset: u32,
