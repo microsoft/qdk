@@ -15,7 +15,6 @@ from .._interpreter import (
     ipython_helper,
     python_args_to_interpreter_args,
 )
-from .._native import TargetProfile
 from .. import telemetry_events
 
 
@@ -36,7 +35,7 @@ def compile(
     :param **kwargs: Additional keyword arguments for compiling the source program. Common options:
 
         - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
-        - ``target_profile`` (TargetProfile): The target profile to use for code generation.
+        - ``target_profile`` (TargetProfile): The target profile to use for code generation. (Default: ``TargetProfile.Adaptive``)
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
     :return: The compiled program. Use ``str()`` to get the QIR string.
@@ -77,8 +76,6 @@ def compile(
 
         if "search_path" not in kwargs:
             kwargs["search_path"] = "."
-        if "target_profile" not in kwargs:
-            kwargs["target_profile"] = TargetProfile.Adaptive
 
         ll_str = compile_qasm_program_to_qir(
             source,
