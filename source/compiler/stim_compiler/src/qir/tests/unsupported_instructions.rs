@@ -145,7 +145,9 @@ MPP X1*Y2 !Z3*Z4*Z5
 # Noisily measure +Z1+Z2 and +X1*X2 (independently flip each reported result 0.1% of the time).
 MPP(0.001) Z1*Z2 X1*X2
 ";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Stim.UnsupportedInstruction
 
           x unsupported instruction: MPP
@@ -161,7 +163,8 @@ MPP(0.001) Z1*Z2 X1*X2
         Stim.UnsupportedInstruction
 
           x unsupported instruction: MPP
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -185,7 +188,9 @@ SPP Y1*Y2 !Z1*Z2
 # Phase the -1 eigenspace of -X1*Y2*Z3 by i.
 SPP !X1*Y2*Z3
 ";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Stim.UnsupportedInstruction
 
           x unsupported instruction: SPP
@@ -209,7 +214,8 @@ SPP !X1*Y2*Z3
         Stim.UnsupportedInstruction
 
           x unsupported instruction: SPP
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -233,7 +239,9 @@ SPP_DAG Y1*Y2 !Z1*Z2
 # Phase the -1 eigenspace of -X1*Y2*Z3 by -i.
 SPP_DAG !X1*Y2*Z3
 ";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Stim.UnsupportedInstruction
 
           x unsupported instruction: SPP_DAG
@@ -257,5 +265,6 @@ SPP_DAG !X1*Y2*Z3
         Stim.UnsupportedInstruction
 
           x unsupported instruction: SPP_DAG
-    "#]]);
+    "#]],
+    );
 }
