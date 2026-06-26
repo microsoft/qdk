@@ -5,7 +5,7 @@ use super::check;
 use expect_test::expect;
 
 #[test]
-fn heralded_erase_yields_not_supported_error() {
+fn heralded_erase_yields_unsupported_error() {
     let source = "HERALDED_ERASE(0.01) 0";
     check(
         source,
@@ -18,7 +18,7 @@ fn heralded_erase_yields_not_supported_error() {
 }
 
 #[test]
-fn heralded_pauli_channel_1_yields_not_supported_error() {
+fn heralded_pauli_channel_1_yields_unsupported_error() {
     let source = "HERALDED_PAULI_CHANNEL_1(0, 0, 0, 0.1) 0";
     check(
         source,
@@ -31,7 +31,7 @@ fn heralded_pauli_channel_1_yields_not_supported_error() {
 }
 
 #[test]
-fn i_error_yields_not_supported_error() {
+fn i_error_yields_unsupported_error() {
     let source = "
 # does nothing
 I_ERROR 0
@@ -68,7 +68,7 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
 }
 
 #[test]
-fn ii_error_yields_not_supported_error() {
+fn ii_error_yields_unsupported_error() {
     let source = "
 # does nothing
 II_ERROR 0 1
@@ -105,7 +105,7 @@ II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
 }
 
 #[test]
-fn pauli_channel_1_yields_not_supported_error() {
+fn pauli_channel_1_yields_unsupported_error() {
     let source = "PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0";
     check(
         source,
@@ -118,7 +118,7 @@ fn pauli_channel_1_yields_not_supported_error() {
 }
 
 #[test]
-fn pauli_channel_2_yields_not_supported_error() {
+fn pauli_channel_2_yields_unsupported_error() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1";
     check(
         source,
@@ -131,7 +131,7 @@ fn pauli_channel_2_yields_not_supported_error() {
 }
 
 #[test]
-fn mpp_yields_not_supported_error() {
+fn mpp_yields_unsupported_error() {
     let source = "
 # Measure the two-body +X1*Y2 observable.
 MPP X1*Y2
@@ -168,7 +168,7 @@ MPP(0.001) Z1*Z2 X1*X2
 }
 
 #[test]
-fn spp_yields_not_supported_error() {
+fn spp_yields_unsupported_error() {
     let source = "
 # Perform an S gate on qubit 1.
 SPP Z1
@@ -219,7 +219,7 @@ SPP !X1*Y2*Z3
 }
 
 #[test]
-fn spp_dag_yields_not_supported_error() {
+fn spp_dag_yields_unsupported_error() {
     let source = "
 # Perform an S_DAG gate on qubit 1.
 SPP_DAG Z1
@@ -265,6 +265,25 @@ SPP_DAG !X1*Y2*Z3
         Stim.UnsupportedInstruction
 
           x unsupported instruction: SPP_DAG
+    "#]],
+    );
+}
+
+#[test]
+fn repeat_yields_unsupported_error() {
+    let source = "
+REPEAT 10 {
+    CNOT 0 1
+    CNOT 2 1
+    M 1
+}
+";
+    check(
+        source,
+        &expect![[r#"
+        Stim.UnsupportedInstruction
+
+          x unsupported instruction: REPEAT
     "#]],
     );
 }

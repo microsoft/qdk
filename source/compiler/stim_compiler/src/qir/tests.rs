@@ -3,6 +3,7 @@
 
 mod collapsing_gates;
 mod collapsing_gates_broadcasting;
+mod control_flow;
 mod generalize_pauli_product_gates;
 mod noise_channels;
 mod noise_channels_broadcasting;
