@@ -6,6 +6,7 @@ use miette::Report;
 
 mod arguments;
 mod blocks;
+mod errors;
 mod instruction_shapes;
 mod numbers;
 mod tags;
@@ -17,14 +18,15 @@ mod whitespace_and_comments;
 fn check(source: &str, expect: &Expect) {
     let (ast, errors) = crate::parser::parse(source);
     let mut entries = Vec::new();
-    if errors.is_empty() || !ast.items.is_empty() {
-        entries.push(ast.to_string());
-    }
+    let no_errors = errors.is_empty();
     for error in errors {
         entries.push(format!(
             "{:?}",
             Report::new(error).with_source_code(source.to_string())
         ));
+    }
+    if no_errors || !ast.items.is_empty() {
+        entries.push(ast.to_string());
     }
     expect.assert_eq(&entries.join("\n"));
 }
