@@ -138,11 +138,42 @@ impl<T, Q> NoiseConfig<T, Q> {
         idle: IdleNoiseParams::NOISELESS,
         intrinsics: const_empty_hash_map(),
     };
+
+    #[must_use]
+    pub fn is_noiseless(&self) -> bool {
+        self.i.is_noiseless()
+            && self.x.is_noiseless()
+            && self.y.is_noiseless()
+            && self.z.is_noiseless()
+            && self.h.is_noiseless()
+            && self.s.is_noiseless()
+            && self.s_adj.is_noiseless()
+            && self.t.is_noiseless()
+            && self.t_adj.is_noiseless()
+            && self.sx.is_noiseless()
+            && self.sx_adj.is_noiseless()
+            && self.rx.is_noiseless()
+            && self.ry.is_noiseless()
+            && self.rz.is_noiseless()
+            && self.cx.is_noiseless()
+            && self.cy.is_noiseless()
+            && self.cz.is_noiseless()
+            && self.rxx.is_noiseless()
+            && self.ryy.is_noiseless()
+            && self.rzz.is_noiseless()
+            && self.swap.is_noiseless()
+            && self.ccx.is_noiseless()
+            && self.mov.is_noiseless()
+            && self.mz.is_noiseless()
+            && self.mresetz.is_noiseless()
+            && self.idle.is_noiseless()
+            && self.intrinsics.is_empty()
+    }
 }
 
 impl<T: Display, Q: Display> Display for NoiseConfig<T, Q> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        /// Macro to avoid repeating the field names twice as in:
+        /// Macro to avoid repeating field names twice as in:
         /// ```ignore
         ///     writeln_field(f, "mresetz", &self.mresetz)?;
         /// ```
@@ -153,6 +184,8 @@ impl<T: Display, Q: Display> Display for NoiseConfig<T, Q> {
                 }
             };
         }
+
+        writeln_header(f, "NoiseConfig")?;
 
         // Write stdgates with noise.
         write_if_noisy!(i);
@@ -182,11 +215,16 @@ impl<T: Display, Q: Display> Display for NoiseConfig<T, Q> {
         write_if_noisy!(mresetz);
 
         // Write IdleNoiseParams.
-        writeln_field(f, "idle", &self.idle)?;
+        if !self.idle.is_noiseless() {
+            writeln_field(f, "idle", &self.idle)?;
+        }
 
         // Write intrinsics.
-        for (id, table) in &self.intrinsics {
-            writeln_field(f, &id.to_string(), table)?;
+        if !self.intrinsics.is_empty() {
+            writeln_header(f, "intrinsics")?;
+            for (id, table) in &self.intrinsics {
+                writeln_field(f, &id.to_string(), table)?;
+            }
         }
 
         Ok(())
@@ -221,6 +259,11 @@ impl Default for IdleNoiseParams {
 
 impl IdleNoiseParams {
     pub const NOISELESS: Self = Self { s_probability: 0.0 };
+
+    #[must_use]
+    pub const fn is_noiseless(&self) -> bool {
+        self.s_probability == 0.0
+    }
 
     #[must_use]
     pub fn s_probability(self, steps: u32) -> f32 {
@@ -270,7 +313,7 @@ impl<T: Display> Display for NoiseTable<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         const MAP: [char; 5] = ['I', 'X', 'Z', 'Y', 'L'];
         writeln_header(f, "NoiseTable")?;
-        writeln_field(f, "qubit", &self.qubits)?;
+        writeln_field(f, "qubits", &self.qubits)?;
         for (encoded_pauli, probability) in self.pauli_strings.iter().zip(&self.probabilities) {
             let fault_string: String = decode_pauli(*encoded_pauli, self.qubits, &MAP)
                 .into_iter()
