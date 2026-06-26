@@ -6,8 +6,7 @@ $$\frac1{\sqrt{2^{n-1}}} \big(\ket{0} + \ket{2} + ... + \ket{2^n-2} \big)$$
 
 > For example, for $n = 2$ the goal state is $\frac1{\sqrt2} \big(\ket{0} + \ket{2}\big)$.
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-    Which superposition of two basis states can be mapped to this state using QFT?
+:::hint
+Which superposition of two basis states can be mapped to this state using QFT?
     Use the solutions to earlier tasks in this lesson to figure out the answer.
-</details>
+:::

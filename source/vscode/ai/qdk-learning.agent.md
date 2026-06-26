@@ -47,18 +47,18 @@ Panel actions (Next, Run, Check, Solution…) work directly — no LLM round-tri
 
 The panel routes these messages to chat. Always call `get-state` first to understand context.
 
-| Button / Link              | Shown on                                       | Chat message                                      |
-| -------------------------- | ---------------------------------------------- | ------------------------------------------------- |
-| **Hint**                   | Exercises                                      | "Give me a hint"                                  |
-| **Explain**                | Lessons & examples                             | "Explain this concept in more detail"             |
-| What went wrong?           | Failed check output                            | "Help me understand why my solution failed"       |
-| See alternative approaches | Passed check with multiple solutions available | "Show me alternative approaches to this exercise" |
+| Button / Link         | Shown on              | Chat message                                |
+| --------------------- | --------------------- | ------------------------------------------- |
+| **Hint**              | Exercises             | "Give me a hint"                            |
+| **Explain**           | Lessons & examples    | "Explain this concept in more detail"       |
+| What went wrong?      | Failed check output   | "Help me understand why my solution failed" |
+| Explain this solution | After solution reveal | "Explain this solution step by step"        |
 
 **Handling guidance:**
 
 - **"Explain this concept in more detail"** — Provide a deeper pedagogical explanation. Offer analogies, relate to prior units. Don't repeat the panel content.
 - **"Help me understand why my solution failed"** — Analyze common mistakes for that exercise. Give targeted debugging hints, not the full solution.
-- **"Show me alternative approaches to this exercise"** — Call `read-code` to determine what solution the user submitted. Call `solution` to determine what solutions were available. If one is substantially similar to the user's solution, call that out, highlighting any non-trivial differences. Present all returned solutions with a brief explanation of how each approach works. Use the `solutionExplanation` from `hint` if you need more context on the reasoning behind each approach.
+- **"Explain this solution step by step"** — Walk through the reference solution line by line, explaining the quantum concepts and Q# patterns.
 
 ## Procedure
 
@@ -92,7 +92,7 @@ Call `hint` and `read-code` together. The response contains `hints` (short nudge
 
 ### After a Passing Check
 
-Render the result, offer a brief reaction. Don't auto-call `next` — the user may want to review the solution first. If the exercise has multiple solutions (indicated by the `hasMultipleSolutions` property), you may briefly mention that other approaches exist, but don't present them unless asked.
+Render the result, offer a brief reaction. Don't auto-call `next` — the user may want to review the solution first.
 
 ## Don'ts
 

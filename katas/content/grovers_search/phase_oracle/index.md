@@ -10,7 +10,6 @@ Flip the phase of each basis state $\ket{x}$ for which $f(x) = 1$. You can only 
 The operation you implement is the phase oracle for the same function.
 
 <br/>
-<details>
-  <summary><b>Need a hint?</b></summary>
-    Recall that you can allocate extra qubits to assist in this operation.  Is there a state that you could prepare with an auxiliary qubit which would help you to convert the marking oracle to a phase oracle?
-</details>
+:::hint
+Recall that you can allocate extra qubits to assist in this operation.  Is there a state that you could prepare with an auxiliary qubit which would help you to convert the marking oracle to a phase oracle?
+:::

@@ -4,7 +4,6 @@
 
 For example, for $N = 3$ the required state is $\frac{1}{\sqrt{3}}\big(\ket{100} + \ket{010} + \ket{001}\big)$.
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  You can modify the signature of the given operation to specify its controlled specialization.
-</details>
+:::hint
+You can modify the signature of the given operation to specify its controlled specialization.
+:::

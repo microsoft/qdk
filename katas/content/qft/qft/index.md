@@ -15,8 +15,6 @@ the behavior in this case is defined by behavior on the basis states and the lin
 
 > Notice that this implementation will let you use inverse QFT without writing any extra code, just by using the adjoint of this operation!
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  
+:::hint
 Consider first preparing a state with the states of individual qubits reversed and then transforming it to the goal state.
-</details>
+:::

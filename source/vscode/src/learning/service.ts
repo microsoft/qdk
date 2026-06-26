@@ -110,11 +110,17 @@ export class LearningService {
   private _progressFileWatcher: vscode.FileSystemWatcher | undefined;
   private _writingProgress = false;
   private _initPromise: Promise<boolean> | undefined;
+  private _progressCorruptError: string | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
   get initialized(): boolean {
     return this.workspace !== undefined;
+  }
+
+  /** Non-null when the progress file is corrupt and blocks initialization. */
+  get progressFileError(): string | undefined {
+    return this._progressCorruptError;
   }
 
   get learningContentRoot(): vscode.Uri {
@@ -160,7 +166,13 @@ export class LearningService {
 
   dispose(): void {
     if (this.workspace) {
-      this.saveProgress().catch(() => {});
+      this.saveProgress().catch((err) => {
+        vscode.window.showWarningMessage(
+          `Could not save learning progress: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
     }
     this._onDidChangeState.dispose();
     this._onDidChangeProgress.dispose();
@@ -658,10 +670,18 @@ export class LearningService {
     const detected = await detectLearningWorkspace();
 
     if (detected) {
-      await this.loadWorkspace(
-        detected.workspaceRoot,
-        detected.learningContentRoot,
-      );
+      try {
+        await this.loadWorkspace(
+          detected.workspaceRoot,
+          detected.learningContentRoot,
+        );
+      } catch (err) {
+        if (this._progressCorruptError) {
+          vscode.window.showErrorMessage(this._progressCorruptError);
+          return false;
+        }
+        throw err;
+      }
       this.startWatcher();
       sendTelemetryEvent(
         EventType.LearningSessionStarted,
@@ -810,7 +830,10 @@ export class LearningService {
               { key: "r", label: "Reset", action: "reset" },
             ],
           ];
-      return [primaryGroup, ...extraGroups, navGroup].filter(
+      const resetGroup: ActionGroup = [
+        { key: "x", label: "Reset", action: "reset" },
+      ];
+      return [primaryGroup, ...extraGroups, resetGroup, navGroup].filter(
         (g) => g.length > 0,
       );
     }
@@ -985,52 +1008,69 @@ export class LearningService {
   }
 
   private async loadProgress(ws: WorkspaceState): Promise<void> {
+    let bytes: Uint8Array;
     try {
-      const bytes = await vscode.workspace.fs.readFile(ws.learningFile);
-      const parsed = JSON.parse(new TextDecoder().decode(bytes));
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        parsed.version === 1 &&
-        typeof parsed.completions === "object" &&
-        parsed.completions !== null &&
-        typeof parsed.position === "object" &&
-        parsed.position !== null
-      ) {
-        ws.progressData = parsed as ProgressFileData;
-        // Validate saved position references a known unit and activity
-        if (ws.catalog.units.length > 0) {
-          const unit = ws.catalog.units.find(
-            (k) => k.id === ws.progressData.position.unitId,
-          );
-          const activityValid =
-            unit &&
-            unit.activities.some(
-              (s) => s.id === ws.progressData.position.activityId,
-            );
-          if (!activityValid) {
-            ws.progressData.position = {
-              courseId: ws.catalog.id,
-              unitId: ws.catalog.units[0].id,
-              activityId: ws.catalog.units[0].activities[0]?.id ?? "",
-            };
-          }
-        }
-        return;
-      }
+      bytes = await vscode.workspace.fs.readFile(ws.learningFile);
     } catch {
-      // expected when file is missing or corrupt
+      // File doesn't exist yet — use defaults.
+      ws.progressData = {
+        version: 1,
+        position: {
+          courseId: ws.catalog.id,
+          unitId: ws.catalog.units[0]?.id ?? "",
+          activityId: ws.catalog.units[0]?.activities[0]?.id ?? "",
+        },
+        completions: {},
+        startedAt: new Date().toISOString(),
+      };
+      return;
     }
-    ws.progressData = {
-      version: 1,
-      position: {
-        courseId: ws.catalog.id,
-        unitId: ws.catalog.units[0]?.id ?? "",
-        activityId: ws.catalog.units[0]?.activities[0]?.id ?? "",
-      },
-      completions: {},
-      startedAt: new Date().toISOString(),
-    };
+
+    // File exists — parse and validate.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      this._progressCorruptError =
+        "The qdk-learning.json file contains invalid JSON. Fix or delete the file to continue.";
+      throw new Error(this._progressCorruptError);
+    }
+
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      (parsed as any).version === 1 &&
+      typeof (parsed as any).completions === "object" &&
+      (parsed as any).completions !== null &&
+      typeof (parsed as any).position === "object" &&
+      (parsed as any).position !== null
+    ) {
+      ws.progressData = parsed as ProgressFileData;
+      // Validate saved position references a known unit and activity
+      if (ws.catalog.units.length > 0) {
+        const unit = ws.catalog.units.find(
+          (k) => k.id === ws.progressData.position.unitId,
+        );
+        const activityValid =
+          unit &&
+          unit.activities.some(
+            (s) => s.id === ws.progressData.position.activityId,
+          );
+        if (!activityValid) {
+          ws.progressData.position = {
+            courseId: ws.catalog.id,
+            unitId: ws.catalog.units[0].id,
+            activityId: ws.catalog.units[0].activities[0]?.id ?? "",
+          };
+        }
+      }
+      return;
+    }
+
+    // File exists but has unexpected structure.
+    this._progressCorruptError =
+      "The qdk-learning.json file is corrupt (unexpected structure). Fix or delete the file to continue.";
+    throw new Error(this._progressCorruptError);
   }
 
   private async saveProgress(): Promise<void> {
@@ -1041,6 +1081,13 @@ export class LearningService {
       await vscode.workspace.fs.writeFile(
         ws.learningFile,
         new TextEncoder().encode(json),
+      );
+    } catch (err) {
+      throw new Error(
+        `Failed to save learning progress: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        { cause: err },
       );
     } finally {
       this._writingProgress = false;
