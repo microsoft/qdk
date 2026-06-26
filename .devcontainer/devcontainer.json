@@ -24,7 +24,8 @@
 				"rust-lang.rust-analyzer",
 				"vadimcn.vscode-lldb",
 				"swellaby.workspace-config-plus",
-				"revng.llvm-ir"
+				"revng.llvm-ir",
+				"colejcummins.llvm-syntax-highlighting"
 			]
 		}
 	}
