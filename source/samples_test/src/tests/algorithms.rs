@@ -187,9 +187,9 @@ pub const SIMPLEVQE_EXPECT_DEBUG: Expect = expect![[r#"
    0.3216"#]];
 // VQE sample is not expected to produce a circuit as it is too large and complex.
 pub const SIMPLEVQE_EXPECT_CIRCUIT: Expect =
-    expect!["circuit error: cannot use a dynamically-sized array"];
+    expect!["compilation error: cannot use a dynamically-sized array"];
 pub const SIMPLEVQE_EXPECT_QIR: Expect =
-    expect!["QIR generation error for `SimpleVQE.Main()`: cannot use a dynamically-sized array"];
+    expect!["compilation error: cannot use a dynamically-sized array"];
 pub const SUPERDENSECODING_EXPECT: Expect = expect!["((false, true), (false, true))"];
 pub const SUPERDENSECODING_EXPECT_DEBUG: Expect = expect!["((false, true), (false, true))"];
 pub const SUPERDENSECODING_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4891"];
