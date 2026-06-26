@@ -6,6 +6,7 @@ use miette::Report;
 
 mod arguments;
 mod blocks;
+mod edge_cases;
 mod errors;
 mod instruction_shapes;
 mod numbers;
