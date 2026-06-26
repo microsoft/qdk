@@ -96,3 +96,18 @@ fn tag_on_block_instruction() {
                                     kind: Qubit(0)"#]],
     );
 }
+
+#[test]
+fn tag_in_target_position_is_error() {
+    // A tag is only valid immediately after the instruction name, not later in
+    // the target list.
+    check("H 0 [t]", &expect![[r#"
+        Stim.Parser.ExpectedToken
+
+          x expected newline, found tag
+           ,----
+         1 | H 0 [t]
+           :     ^^^
+           `----
+    "#]]);
+}
