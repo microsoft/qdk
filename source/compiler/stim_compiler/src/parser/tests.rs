@@ -6,6 +6,7 @@ use miette::Report;
 
 mod arguments;
 mod tags;
+mod targets;
 
 /// Check that a stim source parses to the expected AST,
 /// diagnostics, or both.
