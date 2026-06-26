@@ -7,9 +7,9 @@ use miette::Report;
 mod arguments;
 mod blocks;
 mod instruction_shapes;
-mod whitespace_and_comments;
 mod tags;
 mod targets;
+mod whitespace_and_comments;
 
 /// Check that a stim source parses to the expected AST,
 /// diagnostics, or both.

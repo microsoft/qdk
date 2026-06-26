@@ -8,7 +8,7 @@ use qdk_simulators::noise_config::{NoiseConfig, NoiseTable, encode_pauli};
 
 use crate::parser::*;
 use miette::Diagnostic;
-use qsc_data_structures::{error::WithSource, source::SourceMap, span::Span};
+use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
 use thiserror::Error;
@@ -310,12 +310,11 @@ struct Compiler<'noise> {
     noise: &'noise mut NoiseConfig<f64, f64>,
     current_correlated_group: Option<CorrelatedGroup>,
     num_noise_intrinsics: u32,
-    source_map: SourceMap,
-    errors: Vec<WithSource<Error>>,
+    errors: Vec<Error>,
 }
 
 impl<'noise> Compiler<'noise> {
-    fn new(noise: &'noise mut NoiseConfig<f64, f64>, source_map: SourceMap) -> Self {
+    fn new(noise: &'noise mut NoiseConfig<f64, f64>) -> Self {
         Self {
             writer: QirWriter::new(),
             last_preselect_begin: None,
@@ -323,7 +322,6 @@ impl<'noise> Compiler<'noise> {
             noise,
             current_correlated_group: None,
             num_noise_intrinsics: 0,
-            source_map,
             errors: Vec::new(),
         }
     }
@@ -1053,11 +1051,10 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn push_error(&mut self, error: Error) {
-        self.errors
-            .push(WithSource::from_map(&self.source_map, error));
+        self.errors.push(error);
     }
 
-    fn into_qir(mut self, circuit: &Circuit) -> Result<String, Vec<WithSource<Error>>> {
+    fn into_qir(mut self, circuit: &Circuit) -> Result<String, Vec<Error>> {
         self.writer.write_header();
         self.compile_circuit(circuit);
         self.finish_correlated_group();
@@ -1072,8 +1069,7 @@ impl<'noise> Compiler<'noise> {
 
 pub fn compile_to_qir(
     circuit: &Circuit,
-    source_map: SourceMap,
     noise: &mut NoiseConfig<f64, f64>,
-) -> Result<String, Vec<WithSource<Error>>> {
-    Compiler::new(noise, source_map).into_qir(circuit)
+) -> Result<String, Vec<Error>> {
+    Compiler::new(noise).into_qir(circuit)
 }

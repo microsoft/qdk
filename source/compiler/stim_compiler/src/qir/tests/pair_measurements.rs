@@ -57,7 +57,7 @@ fn mxx_with_negated_target_yields_unsupported_target_error() {
             Stim.UnsupportedTarget
 
               x unsupported target in instruction: MXX
-               ,-[circuit:1:5]
+               ,----
              1 | MXX !0 1
                :     ^^
                `----
@@ -74,7 +74,7 @@ fn mxx_with_parens_arg_yields_unsupported_argument_error() {
             Stim.UnsupportedArgument
 
               x unsupported argument in instruction: MXX
-               ,-[circuit:1:1]
+               ,----
              1 | MXX(0.01) 0 1
                : ^^^^^^^^^^^^^
                `----
@@ -142,7 +142,7 @@ fn myy_with_negated_target_yields_unsupported_target_error() {
             Stim.UnsupportedTarget
 
               x unsupported target in instruction: MYY
-               ,-[circuit:1:5]
+               ,----
              1 | MYY !0 1
                :     ^^
                `----
@@ -159,7 +159,7 @@ fn myy_with_parens_arg_yields_unsupported_argument_error() {
             Stim.UnsupportedArgument
 
               x unsupported argument in instruction: MYY
-               ,-[circuit:1:1]
+               ,----
              1 | MYY(0.01) 0 1
                : ^^^^^^^^^^^^^
                `----
@@ -217,7 +217,7 @@ fn mzz_with_negated_target_yields_unsupported_target_error() {
             Stim.UnsupportedTarget
 
               x unsupported target in instruction: MZZ
-               ,-[circuit:1:5]
+               ,----
              1 | MZZ !0 1
                :     ^^
                `----
@@ -234,7 +234,7 @@ fn mzz_with_parens_arg_yields_unsupported_argument_error() {
             Stim.UnsupportedArgument
 
               x unsupported argument in instruction: MZZ
-               ,-[circuit:1:1]
+               ,----
              1 | MZZ(0.01) 0 1
                : ^^^^^^^^^^^^^
                `----
