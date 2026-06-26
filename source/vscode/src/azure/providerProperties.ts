@@ -34,6 +34,6 @@ export function getPreferredTargetProfile(target: string): TargetProfile {
   } else if (target.startsWith("quantinuum") && target.includes(".h2")) {
     return "adaptive_ri";
   } else {
-    return "adaptive";
+    return "adaptive_rif";
   }
 }
