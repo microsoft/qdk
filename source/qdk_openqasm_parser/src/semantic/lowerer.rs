@@ -2319,8 +2319,9 @@ impl Lowerer {
         stmt: &syntax::GateCall,
         annotations: &List<semantic::Annotation>,
     ) -> Vec<semantic::Stmt> {
-        let mut stmts = Vec::new();
-        for kind in self.lower_gate_call_stmt(stmt) {
+        let kinds = self.lower_gate_call_stmt(stmt);
+        let mut stmts = Vec::with_capacity(kinds.len());
+        for kind in kinds {
             let stmt = semantic::Stmt {
                 span: stmt.span,
                 annotations: annotations.clone(),
@@ -2488,16 +2489,16 @@ impl Lowerer {
             }
 
             // 6.2 Convert the broadcast call in a list of simple stmts.
-            let mut stmts = Vec::new();
-
             let Type::QubitArray(indexed_dim_size) = register_type else {
                 unreachable!("we set register_type iff we find a QubitArray");
             };
 
+            let mut stmts = Vec::with_capacity(*indexed_dim_size as usize);
+
             for index in 0..(*indexed_dim_size) {
                 let qubits = qubits
                     .iter()
-                    .map(|qubit| Self::index_into_qubit_register(qubit.clone(), index));
+                    .map(|qubit| Self::index_into_qubit_register(qubit, index));
 
                 let qubits = list_from_iter(qubits);
 
@@ -2541,33 +2542,35 @@ impl Lowerer {
         // by all the QASM semantic analysis.
     }
 
-    fn index_into_qubit_register(op: semantic::GateOperand, index: u32) -> semantic::GateOperand {
-        let index = semantic::Index::Expr(semantic::Expr::new(
-            op.span,
-            semantic::ExprKind::Lit(semantic::LiteralKind::Int(index.into())),
-            Type::UInt(None, true),
-        ));
-
-        match op.kind {
+    fn index_into_qubit_register(op: &semantic::GateOperand, index: u32) -> semantic::GateOperand {
+        match &op.kind {
             semantic::GateOperandKind::Expr(expr) => {
                 // Single qubits are allowed in a broadcast call.
                 match &expr.ty {
                     Type::Qubit => semantic::GateOperand {
                         span: op.span,
-                        kind: semantic::GateOperandKind::Expr(expr),
+                        kind: semantic::GateOperandKind::Expr(expr.clone()),
                     },
-                    Type::QubitArray(..) => semantic::GateOperand {
-                        span: op.span,
-                        kind: semantic::GateOperandKind::Expr(Box::new(semantic::Expr::new(
+                    Type::QubitArray(..) => {
+                        let index = semantic::Index::Expr(semantic::Expr::new(
                             op.span,
-                            semantic::ExprKind::IndexedExpr(semantic::IndexedExpr {
-                                span: op.span,
-                                collection: expr,
-                                index: Box::new(index),
-                            }),
-                            Type::Qubit,
-                        ))),
-                    },
+                            semantic::ExprKind::Lit(semantic::LiteralKind::Int(index.into())),
+                            Type::UInt(None, true),
+                        ));
+
+                        semantic::GateOperand {
+                            span: op.span,
+                            kind: semantic::GateOperandKind::Expr(Box::new(semantic::Expr::new(
+                                op.span,
+                                semantic::ExprKind::IndexedExpr(semantic::IndexedExpr {
+                                    span: op.span,
+                                    collection: expr.clone(),
+                                    index: Box::new(index),
+                                }),
+                                Type::Qubit,
+                            ))),
+                        }
+                    }
                     _ => unreachable!("we set register_type iff we find a QubitArray"),
                 }
             }

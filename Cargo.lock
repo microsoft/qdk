@@ -2109,6 +2109,7 @@ name = "qdk_openqasm_parser"
 version = "0.0.0"
 dependencies = [
  "bitflags 2.11.0",
+ "criterion 0.8.2",
  "enum-iterator",
  "expect-test",
  "indenter",
