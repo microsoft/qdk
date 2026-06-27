@@ -120,19 +120,13 @@ pub trait Backend {
     /// Executes custom intrinsic specified by `_name`.
     /// Returns None if this intrinsic is unknown.
     /// Otherwise returns Some(Result), with the Result from intrinsic.
-    fn custom_intrinsic(&mut self, _name: &str, _arg: Value) -> Option<Result<Value, String>> {
-        None
-    }
-    /// Like [`custom_intrinsic`](Self::custom_intrinsic), but additionally provides access to the
-    /// package store so that intrinsics can evaluate classical Q# callables. Defaults to
-    /// forwarding to [`custom_intrinsic`](Self::custom_intrinsic).
-    fn custom_intrinsic_with_globals(
+    fn custom_intrinsic(
         &mut self,
-        name: &str,
-        arg: Value,
+        _name: &str,
+        _arg: Value,
         _globals: &impl PackageStoreLookup,
     ) -> Option<Result<Value, String>> {
-        self.custom_intrinsic(name, arg)
+        None
     }
     fn set_seed(&mut self, _seed: Option<u64>) {}
 }
@@ -495,9 +489,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
             tracer.custom_intrinsic(stack, name, arg.clone());
         }
         match &mut self.backend {
-            OptionalBackend::Some(backend) => {
-                backend.custom_intrinsic_with_globals(name, arg, globals)
-            }
+            OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg, globals),
             OptionalBackend::None(_) => {
                 match name {
                     // Special case this known intrinsic to match the simulator
@@ -1079,7 +1071,7 @@ impl Backend for SparseSim {
         Ok(self.sim.qubit_is_zero(q))
     }
 
-    fn custom_intrinsic_with_globals(
+    fn custom_intrinsic(
         &mut self,
         name: &str,
         arg: Value,
@@ -1435,7 +1427,12 @@ impl Backend for CliffordSim {
         Err("adjoint T gate is not supported in Clifford simulation".to_string())
     }
 
-    fn custom_intrinsic(&mut self, name: &str, _arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        _arg: Value,
+        _globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
             "GlobalPhase"
