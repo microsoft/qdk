@@ -321,8 +321,7 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     src_parallel = prefix + infix * n_x + suffix
 
     # Compile resulting program
-    qsharp.init(target_profile=TargetProfile.Base)
-    qir_parallel = openqasm.compile(src_parallel)
+    qir_parallel = openqasm.compile(src_parallel, target_profile=TargetProfile.Base)
     return str(qir_parallel)
 
 
@@ -389,10 +388,11 @@ def build_cy_noise_qir(n_cy: int) -> str:
         c = measure q;
         """
 
-    qsharp.init(target_profile=TargetProfile.Base)
     # OpenQasm output semantics preserves order of bits in the output register.
     qir_program = openqasm.compile(
-        src, output_semantics=openqasm.OutputSemantics.OpenQasm
+        src,
+        output_semantics=openqasm.OutputSemantics.OpenQasm,
+        target_profile=TargetProfile.Base,
     )
     return str(qir_program)
 
