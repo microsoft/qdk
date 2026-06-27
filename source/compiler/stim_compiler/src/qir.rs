@@ -316,6 +316,14 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error(
+        "else_correlated_error must be preceded by a correlated_error or else_correlated_error instruction"
+    )]
+    #[diagnostic(code("Stim.OrphanedElseCorrelatedError"))]
+    OrphanedElseCorrelatedError {
+        #[label]
+        span: Span,
+    },
 }
 
 struct Compiler<'noise> {
@@ -627,8 +635,15 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Noise Channels
-            "E" | "CORRELATED_ERROR" | "ELSE_CORRELATED_ERROR" => {
-                self.accumulate_correlated_error(instruction)
+            "E" | "CORRELATED_ERROR" => self.accumulate_correlated_error(instruction),
+            "ELSE_CORRELATED_ERROR" => {
+                if self.current_correlated_group.is_none() {
+                    self.push_error(Error::OrphanedElseCorrelatedError {
+                        span: instruction.span,
+                    });
+                } else {
+                    self.accumulate_correlated_error(instruction);
+                }
             }
             "DEPOLARIZE1" => self.compile_depolarize_1(instruction),
             "DEPOLARIZE2" => self.compile_depolarize_2(instruction),
