@@ -12,7 +12,11 @@ import {
   storageRequest,
   StorageUris,
 } from "./networkRequests";
-import { Job, WorkspaceConnection } from "./treeView";
+import {
+  getSubscriptionFromWorkspace,
+  Job,
+  WorkspaceConnection,
+} from "./treeView";
 import {
   shouldExcludeProvider,
   shouldExcludeTarget,
@@ -41,27 +45,19 @@ export function getQuantumOsJobLink(
 }
 
 function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
-  // The Quantum OS portal uses the tenant id in the deep-link fragment to scope
-  // the interactive sign-in. An empty tenant id produces a malformed link, so
-  // require it here rather than silently emitting `tenantId=`. The tenant id is
-  // normally derived from the subscription id upstream; reaching here without
-  // one means that derivation failed.
-  if (!workspace.tenantId) {
-    throw new Error(
-      `Cannot build a portal link for the workspace "${workspace.name}": no tenant ID is available.`,
-    );
-  }
+  const subscriptionId = getSubscriptionFromWorkspace(workspace);
 
-  const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
-  const subscriptionId =
-    workspace.subscriptionId ??
-    workspace.id.match(idRegex)?.groups?.subscriptionId ??
-    "";
-  const offeringId =
-    workspace.offeringId ?? workspace.providers[0]?.providerId ?? "";
+  // The QuantumOS requires the offeringId to be present in the fragment for the link to work correctly.
+  // For now, it's always just the first (only) provider in the list, but this may need to be updated if we allow multiple providers.
+  const offeringId = workspace.providers[0]?.providerId;
+
+  // The tenantId is required for QuantumOS links. If this workspace was added with API key auth
+  // then the tenantId may not be present, so derive it from the subscriptionId.
+  const tenantId =
+    workspace.tenantId || getTenantIdForSubscription(subscriptionId);
 
   return (
-    `tenantId=${workspace.tenantId}` +
+    `tenantId=${tenantId}` +
     `&subscriptionId=${subscriptionId}` +
     `&role=Researcher` +
     (offeringId ? `&offeringId=${offeringId}` : "") +
@@ -103,29 +99,40 @@ export type EndEventProperties = {
  */
 export async function getTenantIdForSubscription(
   subscriptionId: string,
-): Promise<string | undefined> {
+): Promise<string> {
+  log.debug(
+    `Attempting to get the tenantId for subscription ${subscriptionId}`,
+  );
+
   const url = `${AzureUris.mgmtEndpoint}/subscriptions/${subscriptionId}?api-version=${AzureUris.mgmtApiVersion}`;
   try {
     const response = await fetch(url);
-    const wwwAuth = response.headers.get("WWW-Authenticate") ?? "";
+    const wwwAuth = response.headers.get("WWW-Authenticate");
+    if (!wwwAuth)
+      throw Error(
+        "Azure ARM subscriptions endpoint did not return the WWW-Authenticate header",
+      );
+
     const match = wwwAuth.match(
       /authorization_uri="https:\/\/(?:login\.microsoftonline\.com|login\.windows\.net)\/([^"]+)"/,
     );
     const tenantId = match?.[1];
     if (!tenantId) {
-      log.warn(
-        "Could not parse tenant ID from WWW-Authenticate header",
-        wwwAuth,
+      throw Error(
+        `Failed to extract the tenantId from WWW-Authenticate value: ${wwwAuth}`,
       );
     }
     return tenantId;
   } catch (e) {
-    log.warn(
+    log.error(
       "Failed to discover tenant ID for subscription",
       subscriptionId,
       e,
     );
-    return undefined;
+    throw Error(
+      `Unable to discover Entra tenant for subscription "${subscriptionId}"`,
+      { cause: e },
+    );
   }
 }
 
@@ -268,6 +275,11 @@ export function parseConnectionString(
     return undefined;
   }
 
+  // At least one of ApiKey or TenantId must be specified
+  if (!partsMap.has("apikey") && !partsMap.has("tenantid")) {
+    return undefined;
+  }
+
   const workspaceId =
     `/subscriptions/${partsMap.get("subscriptionid")}` +
     `/resourceGroups/${partsMap.get("resourcegroupname")}` +
@@ -277,8 +289,7 @@ export function parseConnectionString(
     id: workspaceId,
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
-    tenantId: partsMap.get("tenantid"), // May be undefined; derived from the subscription id if missing
-    subscriptionId: partsMap.get("subscriptionid"),
+    tenantId: partsMap.get("tenantid") || "", // May be undefined; derived from the subscription id if missing
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
     jobs: [],
@@ -316,60 +327,11 @@ async function getWorkspaceWithConnectionString(
       }
     }
 
-    // Tenant id discovery (independent of the auth method). The tenant id is
-    // needed for Entra ID auth and for building portal deep links. If it wasn't
-    // supplied in the connection string, derive it from the subscription id.
-    // This must happen before validation because the Entra ID auth path below
-    // (used whenever there is no API key) requires a tenant id.
-    if (!workspace.tenantId) {
-      // subscriptionId is a required connection-string field, so it is always
-      // set on a parsed workspace here.
-      const subscriptionId = workspace.subscriptionId;
-      if (subscriptionId) {
-        workspace.tenantId = await getTenantIdForSubscription(subscriptionId);
-      }
-    }
-
-    // Validate the connection string info before returning as valid for further use.
     try {
-      const token = await getTokenForWorkspace(workspace);
-      const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
-      const associationId = getRandomGuid();
-      const providerStatus: ResponseTypes.ProviderStatusList =
-        await azureRequest(quantumUris.providerStatus(), token, associationId);
-      if (!providerStatus.value?.length) {
-        // There should always be providers, so this is an exceptional condition
-        throw Error("No providers returned");
-      }
-    } catch (e: unknown) {
-      log.debug("Workspace connection error", e);
-      // e.g. check for 401 (invalid key / no access), 403 (no access), 404 (invalid
-      // workspace), failed network requests (invalid endpoint), or a failed/cancelled
-      // interactive sign-in when authenticating via Entra ID (tenant id).
-      const usingEntraId = !workspace.apiKey;
-      const workspaceDescription =
-        `the workspace "${workspace.name}"` +
-        (workspace.tenantId ? ` in tenant ${workspace.tenantId}` : "");
-      const status = e instanceof AzureError ? e.status : undefined;
-      const message = e instanceof Error ? e.message : undefined;
-      let errorText = "An unexpected error occurred";
-      if (status === 401 || status === 403) {
-        errorText = usingEntraId
-          ? `Authentication failed. The signed-in account does not appear to have access to ${workspaceDescription}. Please verify the account has been granted access to this workspace.`
-          : "Authentication failed. Please check the ApiKey is valid and active.";
-      } else if (status === 404) {
-        errorText =
-          "Workspace not found. Please check the WorkspaceName and ResourceGroupName values.";
-      } else if (message?.includes("Failed to fetch")) {
-        errorText =
-          "Request failed. Please check the QuantumEndpoint value and network connectivity.";
-      } else if (usingEntraId) {
-        // No HTTP status code: the interactive sign-in itself failed or was
-        // cancelled (e.g. the account is not a member of the tenant, or consent
-        // was denied). Without this branch the failure would surface only as a
-        // generic message, appearing to fail silently to the user.
-        errorText = `Authentication failed. Unable to sign in to ${workspaceDescription}. Please verify the account has access to this workspace and try again.`;
-      }
+      await queryWorkspace(workspace);
+      return workspace;
+    } catch (e: any) {
+      const errorText = e.message || "An unknown error occurred";
       const action = await vscode.window.showErrorMessage(
         errorText,
         { modal: true },
@@ -383,8 +345,6 @@ async function getWorkspaceWithConnectionString(
         return;
       }
     }
-
-    return workspace;
   }
 }
 
@@ -509,7 +469,6 @@ async function getWorkspaceWithAzureAD(
     name: workspace.name,
     endpointUri: fixedEndpoint,
     tenantId: tenantAuth.tenantId,
-    subscriptionId,
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
     jobs: [],
   };
@@ -524,83 +483,103 @@ async function getWorkspaceWithAzureAD(
 // - https://github.com/microsoft/qdk-python/blob/main/azure-quantum/azure/quantum/_client/aio/operations/_operations.py
 // - https://github.com/Azure/azure-rest-api-specs/blob/main/specification/quantum/data-plane/Microsoft.Quantum/preview/2022-09-12-preview/quantum.json
 export async function queryWorkspace(workspace: WorkspaceConnection) {
-  const start = performance.now();
-  const token = await getTokenForWorkspace(workspace);
+  try {
+    const start = performance.now();
+    const token = await getTokenForWorkspace(workspace);
 
-  const associationId = getRandomGuid();
-  sendTelemetryEvent(EventType.QueryWorkspaceStart, { associationId }, {});
+    const associationId = getRandomGuid();
+    sendTelemetryEvent(EventType.QueryWorkspaceStart, { associationId }, {});
 
-  const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
+    const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
 
-  const providerStatus: ResponseTypes.ProviderStatusList = await azureRequest(
-    quantumUris.providerStatus(),
-    token,
-    associationId,
-  );
-  if (log.getLogLevel() >= 5) {
-    log.trace(
-      `Got provider status: ${JSON.stringify(providerStatus, null, 2)}`,
+    const providerStatus: ResponseTypes.ProviderStatusList = await azureRequest(
+      quantumUris.providerStatus(),
+      token,
+      associationId,
     );
-  }
+    if (log.getLogLevel() >= 5) {
+      log.trace(
+        `Got provider status: ${JSON.stringify(providerStatus, null, 2)}`,
+      );
+    }
 
-  // Update the providers with the target list
-  workspace.providers = providerStatus.value.map((provider) => {
-    return {
-      providerId: provider.id,
-      currentAvailability: provider.currentAvailability,
-      targets: provider.targets
-        .map((target) => ({ ...target, providerId: provider.id }))
-        .filter((target) => !shouldExcludeTarget(target.id)),
-    };
-  });
+    // Update the providers with the target list
+    workspace.providers = providerStatus.value.map((provider) => {
+      return {
+        providerId: provider.id,
+        currentAvailability: provider.currentAvailability,
+        targets: provider.targets
+          .map((target) => ({ ...target, providerId: provider.id }))
+          .filter((target) => !shouldExcludeTarget(target.id)),
+      };
+    });
 
-  workspace.providers = workspace.providers.filter(
-    (provider) => !shouldExcludeProvider(provider.providerId),
-  );
+    workspace.providers = workspace.providers.filter(
+      (provider) => !shouldExcludeProvider(provider.providerId),
+    );
 
-  // Cache the first offering ID on the workspace so portal links work even
-  // before providers are re-fetched in a subsequent refresh cycle.
-  if (!workspace.offeringId && workspace.providers[0]?.providerId) {
-    workspace.offeringId = workspace.providers[0].providerId;
-  }
+    log.debug("Fetching the jobs for the workspace");
+    const jobs: ResponseTypes.JobList = await azureRequest(
+      quantumUris.jobs(),
+      token,
+      associationId,
+    );
+    log.debug(`Query returned ${jobs.value.length} jobs`);
 
-  log.debug("Fetching the jobs for the workspace");
-  const jobs: ResponseTypes.JobList = await azureRequest(
-    quantumUris.jobs(),
-    token,
-    associationId,
-  );
-  log.debug(`Query returned ${jobs.value.length} jobs`);
+    if (log.getLogLevel() >= 5) {
+      log.trace(`Got jobs: ${JSON.stringify(jobs, null, 2)}`);
+    }
 
-  if (log.getLogLevel() >= 5) {
-    log.trace(`Got jobs: ${JSON.stringify(jobs, null, 2)}`);
-  }
+    if (jobs.value.length === 0) {
+      sendTelemetryEvent(
+        EventType.QueryWorkspaceEnd,
+        {
+          associationId,
+          reason: "no jobs returned",
+          flowStatus: UserFlowStatus.Aborted,
+        },
+        { timeToCompleteMs: performance.now() - start },
+      );
+      return;
+    }
 
-  if (jobs.value.length === 0) {
+    // Sort by creation time from newest to oldest
+    workspace.jobs = jobs.value
+      .sort((a, b) => (a.creationTime < b.creationTime ? 1 : -1))
+      .map(responseJobToJob);
+
     sendTelemetryEvent(
       EventType.QueryWorkspaceEnd,
-      {
-        associationId,
-        reason: "no jobs returned",
-        flowStatus: UserFlowStatus.Aborted,
-      },
+      { associationId, flowStatus: UserFlowStatus.Succeeded },
       { timeToCompleteMs: performance.now() - start },
     );
-    return;
+  } catch (e: unknown) {
+    log.debug("Workspace connection error", e);
+    // e.g. check for 401 (invalid key / no access), 403 (no access), 404 (invalid
+    // workspace), failed network requests (invalid endpoint), or a failed/cancelled
+    // interactive sign-in when authenticating via Entra ID (tenant id).
+    const usingEntraId = !workspace.apiKey;
+    const status = e instanceof AzureError ? e.status : undefined;
+    const message = e instanceof Error ? e.message : undefined;
+
+    // Default error text for unknown cause
+    let errorText =
+      `An unexpected error occurred querying workspace "${workspace.name}".` +
+      (status ? ` Status: ${status}.` : "") +
+      (message ? ` Message: ${message}` : "");
+
+    if (status === 401 || status === 403) {
+      errorText = usingEntraId
+        ? `Authentication failed. The signed-in account does not appear to have access to workspace "${workspace.name}". Please verify the account has been granted access.`
+        : "Authentication failed. Please check the ApiKey is valid and active.";
+    } else if (status === 404) {
+      errorText = "Workspace not found. Please check the connection settings.";
+    } else if (message?.includes("Failed to fetch")) {
+      errorText =
+        "Request failed. Please check the connection settings and network connectivity.";
+    }
+    throw Error(errorText, { cause: e });
   }
-
-  // Sort by creation time from newest to oldest
-  workspace.jobs = jobs.value
-    .sort((a, b) => (a.creationTime < b.creationTime ? 1 : -1))
-    .map(responseJobToJob);
-
-  sendTelemetryEvent(
-    EventType.QueryWorkspaceEnd,
-    { associationId, flowStatus: UserFlowStatus.Succeeded },
-    { timeToCompleteMs: performance.now() - start },
-  );
-
-  return;
 }
 
 // Drop properties we don't care to track and clean up the types.

@@ -94,11 +94,18 @@ export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceT
             workspace,
             "workspace",
             workspace,
+            null, // parent is root
           ),
       );
     } else {
       return element.getChildren();
     }
+  }
+
+  getParent(
+    element: WorkspaceTreeItem,
+  ): vscode.ProviderResult<WorkspaceTreeItem> {
+    return element.parent;
   }
 }
 
@@ -106,14 +113,26 @@ export type WorkspaceConnection = {
   id: string;
   name: string;
   endpointUri: string;
-  tenantId?: string;
-  subscriptionId?: string;
-  offeringId?: string;
+  tenantId: string;
   apiKey?: string;
   providers: Provider[];
   jobs: Job[];
   lastRequestError?: string;
 };
+
+export function getSubscriptionFromWorkspace(
+  workspace: WorkspaceConnection,
+): string {
+  const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
+  const subscriptionId = workspace.id.match(idRegex)?.groups?.subscriptionId;
+  if (!subscriptionId) {
+    // Should never happen
+    throw new Error(
+      `Could not extract subscription ID from workspace ID: ${workspace.id}`,
+    );
+  }
+  return subscriptionId;
+}
 
 export type Provider = {
   providerId: string;
@@ -198,6 +217,7 @@ export class WorkspaceTreeItem extends vscode.TreeItem {
       | Target
       | Job[]
       | Job,
+    public parent: WorkspaceTreeItem | null,
   ) {
     super(label, vscode.TreeItemCollapsibleState.Collapsed);
 
@@ -327,12 +347,14 @@ ${
             this.workspace,
             "providerHeader",
             this.workspace.providers,
+            this, // parent item
           ),
           new WorkspaceTreeItem(
             "Jobs",
             this.workspace,
             "jobHeader",
             this.workspace.jobs,
+            this, // parent item
           ),
         ];
 
@@ -344,12 +366,19 @@ ${
               this.workspace,
               "provider",
               provider,
+              this, // parent item
             ),
         );
       case "provider":
         return (this.itemData as Provider).targets.map(
           (target) =>
-            new WorkspaceTreeItem(target.id, this.workspace, "target", target),
+            new WorkspaceTreeItem(
+              target.id,
+              this.workspace,
+              "target",
+              target,
+              this,
+            ),
         );
       case "jobHeader":
         return (this.itemData as Job[]).map(
@@ -359,6 +388,7 @@ ${
               this.workspace,
               "job",
               job,
+              this, // parent item
             ),
         );
       case "target":
