@@ -502,9 +502,10 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
           const link = getWorkspacePortalLink(workspace);
           vscode.env.openExternal(vscode.Uri.parse(link));
         } catch (e) {
+          const errorMsg = e instanceof Error ? ` Details: ${e.message}` : "";
           log.error("Failed to build workspace portal link", e);
           vscode.window.showErrorMessage(
-            "Unable to open the workspace in the portal because the tenant ID for this workspace could not be determined. Try removing and re-adding the workspace.",
+            `Unable to open a link to the workspace portal.${errorMsg}`,
           );
         }
       },

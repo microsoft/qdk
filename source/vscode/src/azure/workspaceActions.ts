@@ -50,6 +50,11 @@ function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
   // The QuantumOS requires the offeringId to be present in the fragment for the link to work correctly.
   // For now, it's always just the first (only) provider in the list, but this may need to be updated if we allow multiple providers.
   const offeringId = workspace.providers[0]?.providerId;
+  if (!offeringId) {
+    throw Error(
+      `No providers found for Workspace ${workspace.name}. Cannot determine QuantumOS link offeringId.`,
+    );
+  }
 
   // The tenantId is required for QuantumOS links. If this workspace was added with API key auth
   // then the tenantId may not be present, so derive it from the subscriptionId.
@@ -60,7 +65,7 @@ function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
     `tenantId=${tenantId}` +
     `&subscriptionId=${subscriptionId}` +
     `&role=Researcher` +
-    (offeringId ? `&offeringId=${offeringId}` : "") +
+    `&offeringId=${offeringId}` +
     `&workspaceId=${workspace.id}`
   );
 }
@@ -110,7 +115,7 @@ export async function getTenantIdForSubscription(
     const wwwAuth = response.headers.get("WWW-Authenticate");
     if (!wwwAuth)
       throw Error(
-        "Azure ARM subscriptions endpoint did not return the WWW-Authenticate header",
+        "Azure ARM subscriptions endpoint did not return the WWW-Authenticate header as expected.",
       );
 
     const match = wwwAuth.match(
@@ -119,7 +124,7 @@ export async function getTenantIdForSubscription(
     const tenantId = match?.[1];
     if (!tenantId) {
       throw Error(
-        `Failed to extract the tenantId from WWW-Authenticate value: ${wwwAuth}`,
+        `Failed to extract the tenantId from WWW-Authenticate header value: ${wwwAuth}`,
       );
     }
     return tenantId;
