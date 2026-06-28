@@ -33,8 +33,8 @@ fn check_rca_for_array_with_dynamic_results() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -54,7 +54,7 @@ fn check_rca_for_array_with_dynamic_bools() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -88,8 +88,68 @@ fn check_rca_for_array_repeat_with_dynamic_result_value_and_classical_size() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_concatenation_of_static_arrays() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        let a = [1, 2, 3] + [4, 5, 6];
+        a"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_concatenation_of_dynamic_variable_array() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let a = [1, 2, 3] + [4, 5, if M(q) == Zero { 6 } else { 7 }];
+        a"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_concatenation_of_result_dynamic_constant_array() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let a = [M(q)] + [M(q)];
+        a"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -109,7 +169,7 @@ fn check_rca_for_array_repeat_with_dynamic_bool_value_and_classical_size() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -130,7 +190,7 @@ fn check_rca_for_array_repeat_with_classical_value_and_dynamic_size() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -154,7 +214,7 @@ fn check_rca_for_array_repeat_with_dynamic_double_value_and_dynamic_size() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -178,8 +238,8 @@ fn check_rca_for_mutable_array_statically_appended() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -269,7 +329,7 @@ fn check_rca_for_immutable_array_bound_to_dynamic_array() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -340,7 +400,7 @@ fn check_rca_for_mutable_array_assign_index_dynamic_content_in_dynamic_context()
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -365,7 +425,7 @@ fn check_rca_for_mutable_array_assign_index_dynamic_nested_array_content_in_dyna
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -406,7 +466,7 @@ fn check_rca_for_access_using_dynamic_index() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicIndex)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicIndex | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -429,7 +489,7 @@ fn check_rca_for_array_with_dynamic_size_bound_through_tuple() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -455,7 +515,7 @@ fn check_rca_for_array_with_dynamic_size_bound_through_tuple_from_callable() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -521,8 +581,8 @@ fn check_rca_for_array_with_static_size_bound_through_dynamic_tuple() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -560,7 +620,7 @@ fn check_rca_for_index_range_on_array_with_dynamic_contents() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -581,7 +641,7 @@ fn check_rca_for_indirect_length_on_array_with_dynamic_contents() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -603,7 +663,7 @@ fn check_rca_for_indirect_length_on_array_with_dynamic_length() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

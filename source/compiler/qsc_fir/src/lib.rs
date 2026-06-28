@@ -4,7 +4,6 @@
 pub mod assigner;
 pub mod extensions;
 pub mod fir;
-pub mod global;
 pub mod mut_visit;
 pub mod ty;
 pub mod validate;

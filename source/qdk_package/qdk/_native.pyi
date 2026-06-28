@@ -117,11 +117,12 @@ class TargetProfile(Enum):
     extension defined by the QIR specification.
     """
 
-    Adaptive_RIFLA: TargetProfile
+    Adaptive: TargetProfile
     """
-    Target supports the Adaptive profile with integer & floating-point
-    computation extensions as well as loop extension and statically-sized
-    arrays extension.
+    Target supports the Adaptive profile with all supported extensions.
+
+    This profile includes all required Adaptive Profile features and
+    all the optional extensions defined by the QIR specification.
     """
 
     Unrestricted: TargetProfile
@@ -520,6 +521,15 @@ class QasmError(BaseException):
 
     ...
 
+class StimError(BaseException):
+    """
+    EXPERIMENTAL:
+
+    An error returned from the Stim compiler.
+    """
+
+    ...
+
 def physical_estimates(logical_resources: str, params: str) -> str:
     """
     Estimates physical resources from pre-calculated logical resources.
@@ -529,6 +539,29 @@ def physical_estimates(logical_resources: str, params: str) -> str:
 
     :return: The estimated resources.
     :rtype: str
+    """
+    ...
+
+def compile_visual_circuit_to_qsharp(
+    file_name: str,
+    contents: str,
+    index: int,
+    program_type: ProgramType,
+) -> Tuple[str, str]:
+    """
+    Converts a visual circuit file to Q# source.
+
+    .. note::
+        This call is not intended to be used directly by the user.
+        It is intended to be used by the Python wrapper which will handle
+        file loading and callable registration.
+
+    :param file_name: The base name to use for the generated operation.
+    :param contents: The visual circuit JSON contents.
+    :param index: The circuit index to import in file mode.
+    :param program_type: The type of Q# source to generate.
+    :return: The sanitized operation name and generated Q# source.
+    :rtype: Tuple[str, str]
     """
     ...
 
@@ -626,6 +659,22 @@ def compile_qasm_to_qsharp(
       - ``search_path`` (str): The optional search path for resolving file references.
     :return: The converted Q# code as a string.
     :rtype: str
+    """
+    ...
+
+def compile_stim_to_qir(
+    source: str, noise: Optional[NoiseConfig]
+) -> Tuple[str, NoiseConfig]:
+    """
+    EXPERIMENTAL:
+
+    Converts a Stim program to QIR.
+
+    :param source: The Stim source code to convert.
+    :param noise: The noise configuration to use.
+    :return: The converted QIR code as a string and the noise configuration.
+    :rtype: Tuple[str, NoiseConfig]
+    :raises StimError: If there is an error compiling the Stim program.
     """
     ...
 
@@ -845,6 +894,12 @@ class IdleNoiseParams:
     s_probability: float
 
 class NoiseTable:
+    # Deprecated. Setting `loss` distributes the per-qubit loss probability
+    # across the correlated loss fault strings ('L' for a single-qubit
+    # operation; 'IL', 'LI', and 'LL' for a two-qubit operation), so that it
+    # is equivalent to applying loss independently to each qubit. Reading
+    # `loss` reconstructs that per-qubit probability. Prefer setting the loss
+    # fault strings directly via `set_pauli_noise`.
     loss: float
 
     def __init__(self, num_qubits: int):
@@ -870,6 +925,13 @@ class NoiseTable:
 
         for arbitrary pauli fields. Setting an element that was
         previously set overrides that entry with the new value.
+
+        In addition to the Pauli characters 'I', 'X', 'Y', 'Z', a string
+        may contain 'L' to indicate that the corresponding qubit is lost
+        when this entry is sampled. Loss is correlated with the rest of the
+        string: the Pauli is applied to the non-lost qubits and the qubits
+        marked 'L' are lost (measured and reset). For example, `noise_table.xl`
+        applies an X to the first qubit and loses the second.
         """
 
     @overload
@@ -878,10 +940,17 @@ class NoiseTable:
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
 
+        In addition to the Pauli characters 'I', 'X', 'Y', 'Z', a string
+        may contain 'L' to indicate that the corresponding qubit is lost
+        when this entry is sampled. Loss is correlated with the rest of the
+        string: the Pauli is applied to the non-lost qubits and the qubits
+        marked 'L' are lost (measured and reset). For example, `noise_table.xl`
+        applies an X to the first qubit and loses the second.
+
         Example::
 
             noise_table = NoiseTable(2)
-            noise_table.set_pauli_noise([("XI", 1e-10), ("XZ", 1e-8)])
+            noise_table.set_pauli_noise([("XI", 1e-10), ("XL", 1e-8)])
         """
 
     @overload

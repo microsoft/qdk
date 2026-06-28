@@ -78,7 +78,7 @@ fn array_with_dynamic_content() {
                 Call id(3), args( Integer(2), Tag(0, 3), )
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(1), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -146,7 +146,7 @@ fn array_with_hybrid_content() {
                 Call id(4), args( Integer(2), Tag(0, 3), )
                 Call id(5), args( Bool(true), Tag(1, 5), )
                 Call id(5), args( Variable(1, Boolean), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -212,7 +212,7 @@ fn array_repeat_with_dynamic_content() {
                 Call id(3), args( Integer(2), Tag(0, 3), )
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(0), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -264,7 +264,7 @@ fn result_array_value_at_index() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(2), args( Qubit(1), Result(1), )
                 Call id(3), args( Result(1), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -289,7 +289,7 @@ fn result_array_value_at_negative_index_works() {
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(2), args( Qubit(1), Result(1), )
                 Call id(3), args( Result(1), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -381,7 +381,7 @@ fn result_array_slice_with_explicit_range() {
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(2), Tag(2, 5), )
                 Call id(4), args( Result(4), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -450,7 +450,7 @@ fn result_array_slice_with_open_start_range() {
                 Call id(3), args( Integer(2), Tag(0, 3), )
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(1), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -519,7 +519,7 @@ fn result_array_slice_with_open_ended_range() {
                 Call id(3), args( Integer(2), Tag(0, 3), )
                 Call id(4), args( Result(1), Tag(1, 5), )
                 Call id(4), args( Result(2), Tag(2, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -591,7 +591,7 @@ fn result_array_slice_with_open_two_step_range() {
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(2), Tag(2, 5), )
                 Call id(4), args( Result(4), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -682,7 +682,7 @@ fn result_array_copy_and_update_with_single_index() {
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(3), Tag(2, 5), )
                 Call id(4), args( Result(2), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -800,7 +800,7 @@ fn result_array_copy_and_update_with_explicit_range() {
                 Call id(4), args( Result(6), Tag(3, 5), )
                 Call id(4), args( Result(3), Tag(4, 5), )
                 Call id(4), args( Result(7), Tag(5, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -872,7 +872,7 @@ fn result_array_copy_and_update_with_open_start_range() {
                 Call id(4), args( Result(3), Tag(1, 5), )
                 Call id(4), args( Result(4), Tag(2, 5), )
                 Call id(4), args( Result(2), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -944,7 +944,7 @@ fn result_array_copy_and_update_with_open_ended_range() {
                 Call id(4), args( Result(0), Tag(1, 5), )
                 Call id(4), args( Result(3), Tag(2, 5), )
                 Call id(4), args( Result(4), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1016,7 +1016,7 @@ fn result_array_copy_and_update_with_open_two_step_range() {
                 Call id(4), args( Result(3), Tag(1, 5), )
                 Call id(4), args( Result(1), Tag(2, 5), )
                 Call id(4), args( Result(4), Tag(3, 5), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1097,7 +1097,7 @@ fn result_array_index_range_returns_length_as_end() {
                     Call id(2), args( Qubit(1), Result(1), )
                     Variable(1, Integer) = Store Integer(2)
                     Call id(3), args( Integer(1), Tag(0, 3), )
-                    Return
+                    Return Integer(0)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations)
             num_qubits: 2

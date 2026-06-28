@@ -78,7 +78,7 @@ fn terminator(block: &Block) -> Terminator {
             })
         }
         Instruction::Jump(target, ..) => Terminator::Unconditional(*target),
-        Instruction::Return => Terminator::Return,
+        Instruction::Return(..) => Terminator::Return,
         _ => panic!("unexpected terminator kind"),
     }
 }

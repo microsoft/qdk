@@ -655,7 +655,7 @@ def _extract_data_from_simulations(filename: Path, zenodo_path: Path):
 
     Reads Monte Carlo simulation results from CSV files, processes them
     through the ``cultiv`` and ``gen`` libraries, and prints the resulting
-    data dictionary suitable for embedding in the :class:`GSJ24Factory` class.
+    data dictionary suitable for embedding in the :class:`~qdk.qre.GSJ24Factory` class.
 
     Requires the ``stim``, ``sinter``, ``cultiv``, and ``gen`` packages.
 

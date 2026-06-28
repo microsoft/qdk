@@ -274,6 +274,12 @@ impl Arg {
 }
 
 /// Represents the possible control flow options that an evaluation can have.
+///
+/// Note: The `Return` variant is vestigial for the production pipeline.
+/// The `return_unify` FIR transform pass eliminates all `ExprKind::Return`
+/// nodes before partial evaluation runs. However, partial eval unit tests
+/// bypass FIR transforms and evaluate raw FIR, so the `Return` variant
+/// and its handling code remain for test compatibility.
 pub enum EvalControlFlow {
     Continue(Value),
     Return(Value),
@@ -317,7 +323,7 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
             }
             ValueKind::Constant
         }
-        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Variable,
+        Value::Result(Result::Loss) | Value::Var(_) => ValueKind::Variable,
         Value::BigInt(_)
         | Value::Bool(_)
         | Value::Closure(_)
@@ -327,7 +333,7 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Pauli(_)
         | Value::Qubit(_)
         | Value::Range(_)
-        | Value::Result(Result::Val(_))
+        | Value::Result(Result::Val(_) | Result::Id(_))
         | Value::String(_) => ValueKind::Constant,
     }
 }

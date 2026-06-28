@@ -8,7 +8,9 @@ use katas::check_solution;
 use language_service::IOperationInfo;
 use num_bigint::BigUint;
 use num_complex::Complex64;
-use project_system::{ProgramConfig, into_openqasm_arg, into_qsc_args, is_openqasm_program};
+use project_system::{
+    ProgramConfig, into_openqasm_arg, into_qsc_args, into_qsharp_ast_args, is_openqasm_program,
+};
 use qsc::{
     LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents, SourceMap, SourceName,
     SparseSim, TargetCapabilityFlags,
@@ -196,8 +198,17 @@ pub fn get_circuit(
             .map_err(interpret_errors_into_qsharp_errors_json)?;
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     } else {
-        let (source_map, capabilities, language_features, store, deps) =
+        let (source_map, mut capabilities, language_features, store, deps) =
             into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
+
+        if method == qsc::interpret::CircuitGenerationMethod::Static
+            && capabilities > Profile::AdaptiveRIF.into()
+        {
+            // If the program itself is annotated for a profile that is more capable than Adaptive_RIF,
+            // we need to fall back to Adaptive_RIF. Higher profiles generate patterns that static circuit
+            // construction cannot handle.
+            capabilities = Profile::AdaptiveRIF.into();
+        }
 
         let (package_type, entry_point) = match operation {
             Some(p) => {
@@ -253,56 +264,114 @@ pub fn get_library_source_content(name: &str) -> Option<String> {
 }
 
 #[wasm_bindgen]
-pub fn get_ast(code: &str, language_features: Vec<String>) -> Result<String, String> {
-    let language_features = LanguageFeatures::from_iter(language_features);
-    let sources = SourceMap::new([("code".into(), code.into())], None);
-    let profile = Profile::Unrestricted;
-    let package = STORE_CORE_STD.with(|(store, std)| {
-        let (unit, _) = compile::compile(
-            store,
-            &[(*std, None)],
-            sources,
-            PackageType::Exe,
-            profile.into(),
-            language_features,
-        );
-        unit.ast.package
-    });
-    Ok(format!("{package}"))
+pub fn get_ast(program: ProgramConfig) -> Result<String, String> {
+    if is_openqasm_program(&program) {
+        let (sources, _capabilities) = into_openqasm_arg(program);
+        // OpenQASM has two ASTs: the original OpenQASM AST and the Q# AST it lowers
+        // to. Show both so the original is available for debugging. Compiler errors
+        // are ignored here so the (partial) AST still renders, matching the Q# path.
+        let qasm_ast = qsc::openqasm::semantic::parse_sources(&sources).program;
+        let (store, package_id) = compile_openqasm_to_store(&sources);
+        let unit = store
+            .get(package_id)
+            .expect("compiled OpenQASM package should be in the store");
+        Ok(format!(
+            "OpenQASM AST:\n{qasm_ast}\nQ# AST:\n{}",
+            unit.ast.package
+        ))
+    } else {
+        let (source_map, language_features) = into_qsharp_ast_args(program);
+        let package = STORE_CORE_STD.with(|(store, std)| {
+            let (unit, _) = compile::compile(
+                store,
+                &[(*std, None)],
+                source_map,
+                PackageType::Exe,
+                Profile::Unrestricted.into(),
+                language_features,
+            );
+            unit.ast.package
+        });
+        Ok(format!("{package}"))
+    }
 }
 
 #[wasm_bindgen]
-pub fn get_hir(code: &str, language_features: Vec<String>) -> Result<String, String> {
-    let language_features = LanguageFeatures::from_iter(language_features);
-    let sources = SourceMap::new([("code".into(), code.into())], None);
-    let profile = Profile::Unrestricted;
-    let package = STORE_CORE_STD.with(|(store, std)| {
-        let (unit, _) = compile::compile(
-            store,
-            &[(*std, None)],
-            sources,
-            PackageType::Exe,
-            profile.into(),
-            language_features,
-        );
-        unit.package
-    });
-    Ok(package.to_string())
+pub fn get_hir(program: ProgramConfig) -> Result<String, String> {
+    if is_openqasm_program(&program) {
+        let (sources, _capabilities) = into_openqasm_arg(program);
+        // Compiler errors are ignored so the (partial) HIR still renders, matching the Q# path.
+        let (store, package_id) = compile_openqasm_to_store(&sources);
+        let unit = store
+            .get(package_id)
+            .expect("compiled OpenQASM package should be in the store");
+        Ok(unit.package.to_string())
+    } else {
+        let (source_map, language_features) = into_qsharp_ast_args(program);
+        let package = STORE_CORE_STD.with(|(store, std)| {
+            let (unit, _) = compile::compile(
+                store,
+                &[(*std, None)],
+                source_map,
+                PackageType::Exe,
+                Profile::Unrestricted.into(),
+                language_features,
+            );
+            unit.package
+        });
+        Ok(package.to_string())
+    }
 }
 
 #[wasm_bindgen]
 pub fn get_rir(program: ProgramConfig) -> Result<Vec<String>, String> {
-    let (source_map, capabilities, language_features, store, deps) =
-        into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
+    if is_openqasm_program(&program) {
+        let (sources, capabilities) = into_openqasm_arg(program);
+        get_rir_from_openqasm(&sources, capabilities)
+    } else {
+        let (source_map, capabilities, language_features, store, deps) =
+            into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
 
-    qsc::codegen::qir::get_rir(
-        source_map,
-        language_features,
-        capabilities,
-        store,
-        &deps[..],
-    )
-    .map_err(interpret_errors_into_qsharp_errors_json)
+        qsc::codegen::qir::get_rir(
+            source_map,
+            language_features,
+            capabilities,
+            store,
+            &deps[..],
+        )
+        .map_err(interpret_errors_into_qsharp_errors_json)
+    }
+}
+
+/// Compiles raw `OpenQASM` sources into a Q# package store, returning the store and the id of the
+/// compiled package. Used by the AST and HIR views, which read the compiled package directly.
+/// Compiler errors are ignored: the package is always returned best-effort so the views can render
+/// a (partial) AST/HIR even for invalid programs, matching the Q# behavior.
+fn compile_openqasm_to_store(sources: &[(Arc<str>, Arc<str>)]) -> (PackageStore, PackageId) {
+    let (file, source) = sources
+        .iter()
+        .next()
+        .expect("there should be at least one source");
+    let mut resolver = sources.iter().cloned().collect::<InMemorySourceResolver>();
+    let CompileRawQasmResult(store, source_package_id, ..) =
+        qsc::openqasm::parse_and_compile_raw_qasm(
+            source.clone(),
+            file.clone(),
+            Some(&mut resolver),
+            PackageType::Exe,
+        );
+    (store, source_package_id)
+}
+
+pub(crate) fn get_rir_from_openqasm(
+    sources: &[(Arc<str>, Arc<str>)],
+    capabilities: TargetCapabilityFlags,
+) -> Result<Vec<String>, String> {
+    let (entry_expr, mut interpreter) = get_interpreter_from_openqasm(sources, capabilities)
+        .map_err(interpret_errors_into_qsharp_errors_json)?;
+    interpreter
+        .get_rir(&entry_expr)
+        .map_err(interpret_errors_into_qsharp_errors_json)
 }
 
 #[wasm_bindgen]
@@ -724,13 +793,19 @@ fn get_configured_interpreter_from_openqasm(
         .expect("There should be at least one source");
     let mut resolver = sources.iter().cloned().collect::<InMemorySourceResolver>();
 
-    let CompileRawQasmResult(store, source_package_id, dependencies, sig, errors) =
+    let CompileRawQasmResult(store, source_package_id, dependencies, sig, errors, profile) =
         qsc::openqasm::parse_and_compile_raw_qasm(
             source.clone(),
             file.clone(),
             Some(&mut resolver),
             PackageType::Exe,
         );
+
+    let capabilities = if let Some(profile) = profile {
+        profile.into()
+    } else {
+        capabilities
+    };
 
     if !errors.is_empty() {
         return Err(errors
@@ -756,7 +831,7 @@ fn get_configured_interpreter_from_openqasm(
 
 #[wasm_bindgen(typescript_custom_section)]
 const TARGET_PROFILE: &'static str = r#"
-export type TargetProfile = "base" | "adaptive_ri" | "adaptive_rif" | "unrestricted";
+export type TargetProfile = "base" | "adaptive_ri" | "adaptive_rif" | "adaptive" | "unrestricted";
 "#;
 
 #[wasm_bindgen(typescript_custom_section)]

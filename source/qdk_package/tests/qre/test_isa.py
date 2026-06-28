@@ -19,8 +19,13 @@ from qdk.qre.property_keys import (
     ACCELERATION,
     ASSUMPTIONS,
     ATOM_SPACING,
+    BASE_SYSTEM_COST,
+    COST_PER_HOUR,
+    COST_PER_QUBIT,
+    COST_PER_QUBIT_PER_HOUR,
     DISTANCE,
     FEASIBILITY,
+    SHOT_COST,
     TARGET_YEAR,
     VELOCITY,
 )
@@ -82,6 +87,14 @@ def test_instruction_properties():
     assert instr_with_distance.get_property(DISTANCE) == 9
     assert instr_with_distance.has_property(DISTANCE) is True
     assert instr_with_distance.get_property_or(DISTANCE, 5) == 9
+
+    # Test instruction with None value (should be treated as not having the property)
+    instr_with_none_distance = _make_instruction(
+        T, 1, 1, 1000, None, None, 1e-8, {"distance": None}
+    )
+    assert instr_with_none_distance.get_property(DISTANCE) is None
+    assert instr_with_none_distance.has_property(DISTANCE) is False
+    assert instr_with_none_distance.get_property_or(DISTANCE, 5) == 5
 
     # Test instruction with invalid property name
     with pytest.raises(ValueError, match="Unknown property 'invalid_prop'"):
@@ -185,6 +198,41 @@ def test_qualitative_property_keys():
     assert property_name_to_key("target_year") == TARGET_YEAR
 
 
+def test_cost_property_keys():
+    """Test the cost property keys added for resource-estimator costing data."""
+    keys = {
+        BASE_SYSTEM_COST,
+        SHOT_COST,
+        COST_PER_QUBIT,
+        COST_PER_HOUR,
+        COST_PER_QUBIT_PER_HOUR,
+    }
+    assert len(keys) == 5
+    assert BASE_SYSTEM_COST != DISTANCE
+    assert SHOT_COST != DISTANCE
+    assert COST_PER_QUBIT != DISTANCE
+    assert COST_PER_HOUR != DISTANCE
+    assert COST_PER_QUBIT_PER_HOUR != DISTANCE
+
+    assert property_name(BASE_SYSTEM_COST) == "BASE_SYSTEM_COST"
+    assert property_name(SHOT_COST) == "SHOT_COST"
+    assert property_name(COST_PER_QUBIT) == "COST_PER_QUBIT"
+    assert property_name(COST_PER_HOUR) == "COST_PER_HOUR"
+    assert property_name(COST_PER_QUBIT_PER_HOUR) == "COST_PER_QUBIT_PER_HOUR"
+
+    assert property_name_to_key("BASE_SYSTEM_COST") == BASE_SYSTEM_COST
+    assert property_name_to_key("SHOT_COST") == SHOT_COST
+    assert property_name_to_key("COST_PER_QUBIT") == COST_PER_QUBIT
+    assert property_name_to_key("COST_PER_HOUR") == COST_PER_HOUR
+    assert property_name_to_key("COST_PER_QUBIT_PER_HOUR") == COST_PER_QUBIT_PER_HOUR
+
+    assert property_name_to_key("base_system_cost") == BASE_SYSTEM_COST
+    assert property_name_to_key("shot_cost") == SHOT_COST
+    assert property_name_to_key("cost_per_qubit") == COST_PER_QUBIT
+    assert property_name_to_key("cost_per_hour") == COST_PER_HOUR
+    assert property_name_to_key("cost_per_qubit_per_hour") == COST_PER_QUBIT_PER_HOUR
+
+
 def test_qualitative_properties_on_instruction():
     """Test setting and retrieving qualitative properties on instructions."""
     instr = _make_instruction(
@@ -209,6 +257,38 @@ def test_qualitative_properties_on_instruction():
     assert instr.get_property(ASSUMPTIONS) == 42
     assert instr.get_property(FEASIBILITY) == 4
     assert instr.get_property(TARGET_YEAR) == 2030
+
+
+def test_cost_properties_on_instruction():
+    """Test setting and retrieving costing properties on instructions."""
+    instr = _make_instruction(
+        T,
+        1,
+        1,
+        1000,
+        None,
+        None,
+        1e-8,
+        {
+            "base_system_cost": 10,
+            "shot_cost": 15,
+            "cost_per_qubit": 20,
+            "cost_per_hour": 30,
+            "cost_per_qubit_per_hour": 40,
+        },
+    )
+
+    assert instr.has_property(BASE_SYSTEM_COST) is True
+    assert instr.has_property(SHOT_COST) is True
+    assert instr.has_property(COST_PER_QUBIT) is True
+    assert instr.has_property(COST_PER_HOUR) is True
+    assert instr.has_property(COST_PER_QUBIT_PER_HOUR) is True
+
+    assert instr.get_property(BASE_SYSTEM_COST) == 10
+    assert instr.get_property(SHOT_COST) == 15
+    assert instr.get_property(COST_PER_QUBIT) == 20
+    assert instr.get_property(COST_PER_HOUR) == 30
+    assert instr.get_property(COST_PER_QUBIT_PER_HOUR) == 40
 
 
 def test_block_linear_function():

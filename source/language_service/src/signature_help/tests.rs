@@ -3366,3 +3366,154 @@ fn std_callable_with_type_params() {
         "#]],
     );
 }
+
+#[test]
+fn missing_close_paren_empty_args() {
+    check(
+        indoc! {r#"
+        namespace Test {
+            operation Foo(x : Int, y : Double) : Unit {}
+            operation Bar() : Unit {
+                Foo(↘
+                let z = 3;
+            }
+        }
+    "#},
+        &expect![[r#"
+            SignatureHelp {
+                signatures: [
+                    SignatureInformation {
+                        label: "operation Foo(x : Int, y : Double) : Unit",
+                        documentation: None,
+                        parameters: [
+                            ParameterInformation {
+                                label: (
+                                    13,
+                                    34,
+                                ),
+                                documentation: None,
+                            },
+                            ParameterInformation {
+                                label: (
+                                    14,
+                                    21,
+                                ),
+                                documentation: None,
+                            },
+                            ParameterInformation {
+                                label: (
+                                    23,
+                                    33,
+                                ),
+                                documentation: None,
+                            },
+                        ],
+                    },
+                ],
+                active_signature: 0,
+                active_parameter: 1,
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn missing_close_paren_second_arg() {
+    check(
+        indoc! {r#"
+        namespace Test {
+            operation Foo(x : Int, y : Double) : Unit {}
+            operation Bar() : Unit {
+                Foo(1, ↘
+                let z = 3;
+            }
+        }
+    "#},
+        &expect![[r#"
+            SignatureHelp {
+                signatures: [
+                    SignatureInformation {
+                        label: "operation Foo(x : Int, y : Double) : Unit",
+                        documentation: None,
+                        parameters: [
+                            ParameterInformation {
+                                label: (
+                                    13,
+                                    34,
+                                ),
+                                documentation: None,
+                            },
+                            ParameterInformation {
+                                label: (
+                                    14,
+                                    21,
+                                ),
+                                documentation: None,
+                            },
+                            ParameterInformation {
+                                label: (
+                                    23,
+                                    33,
+                                ),
+                                documentation: None,
+                            },
+                        ],
+                    },
+                ],
+                active_signature: 0,
+                active_parameter: 2,
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn missing_close_paren_nested_call() {
+    check(
+        indoc! {r#"
+        namespace Test {
+            operation Foo(x : Int) : Unit {}
+            operation Baz(a : Int, b : Int) : Int { a + b }
+            operation Bar() : Unit {
+                Foo(Baz(1, ↘
+                let z = 3;
+            }
+        }
+    "#},
+        &expect![[r#"
+            SignatureHelp {
+                signatures: [
+                    SignatureInformation {
+                        label: "operation Baz(a : Int, b : Int) : Int",
+                        documentation: None,
+                        parameters: [
+                            ParameterInformation {
+                                label: (
+                                    13,
+                                    31,
+                                ),
+                                documentation: None,
+                            },
+                            ParameterInformation {
+                                label: (
+                                    14,
+                                    21,
+                                ),
+                                documentation: None,
+                            },
+                            ParameterInformation {
+                                label: (
+                                    23,
+                                    30,
+                                ),
+                                documentation: None,
+                            },
+                        ],
+                    },
+                ],
+                active_signature: 0,
+                active_parameter: 2,
+            }
+        "#]],
+    );
+}

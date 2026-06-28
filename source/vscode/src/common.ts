@@ -123,12 +123,20 @@ export function toVsCodeDiagnostic(d: VSDiagnostic): vscode.Diagnostic {
     case "info":
       severity = vscode.DiagnosticSeverity.Information;
       break;
+    case "hint":
+      severity = vscode.DiagnosticSeverity.Hint;
+      break;
   }
   const vscodeDiagnostic = new vscode.Diagnostic(
     toVsCodeRange(d.range),
     d.message,
     severity,
   );
+  if (d.tags) {
+    // LSP DiagnosticTag values: 1 = Unnecessary, 2 = Deprecated.
+    // VS Code's DiagnosticTag enum uses the same numeric values.
+    vscodeDiagnostic.tags = d.tags as vscode.DiagnosticTag[];
+  }
   if (d.uri && d.code) {
     vscodeDiagnostic.code = {
       value: d.code,

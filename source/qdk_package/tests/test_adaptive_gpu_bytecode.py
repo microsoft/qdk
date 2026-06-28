@@ -791,6 +791,11 @@ FLOAT_ARITH_PARAMS = [
     ("fsub", 3.0, 10.0, -7.0),
     ("fmul", 6.0, 7.0, 42.0),
     ("fdiv", 8.0, 2.0, 4.0),
+    ("frem", 8.0, 2.0, 0.0),
+    ("frem", 7.0, 3.0, 1.0),
+    ("frem", 10.5, 3.0, 1.5),
+    ("frem", 10.5, -3.0, 1.5),  # remainder has the same sign as dividend
+    ("frem", -10.5, 3.0, -1.5),  # remainder has the same sign as dividend
 ]
 
 
@@ -869,6 +874,26 @@ def test_float_arith_negative_test(bin_op, lhs, rhs, expected):
         %flag = fcmp oeq double %a, {expected}""",
         "0",
     )
+
+
+# Dividing by zero with `frem` must fail gracefully (no crash, deterministic
+# result) rather than panicking the interpreter. The exact value is left
+# implementation-defined on the GPU: with strict IEEE semantics `8 frem 0` is
+# NaN, but GPUs using fast-math may yield a finite value for `x / 0`. So we only
+# assert that the program runs and every shot agrees.
+FREM_BY_ZERO_QIR = """
+  %a = frem double 8.0, 0.0
+  %flag = fcmp oeq double %a, %a
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_frem_by_zero_is_graceful():
+    body = build_arith_body(FREM_BY_ZERO_QIR)
+    qir = format_qir(body)
+    results = _run(qir, SHOTS)["shot_results"]
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert len(counts) == 1, f"Expected a deterministic result, got {counts}"
 
 
 # #########################################################################
@@ -998,6 +1023,102 @@ SITOFP_QIR = """
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_sitofp():
     check_arith_result(SITOFP_QIR, "1")
+
+
+# =========================================================================
+# OP_FPTOUI — float to unsigned int
+# =========================================================================
+
+FPTOUI_QIR = """
+  ; fptoui 3.7 → 3 (truncation toward zero), check 3 == 3 → true
+  %i = fptoui double 3.7 to i64
+  %flag = icmp eq i64 %i, 3
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_fptoui():
+    check_arith_result(FPTOUI_QIR, "1")
+
+
+FPTOUI_ZERO_QIR = """
+  ; fptoui 0.0 → 0
+  %i = fptoui double 0.0 to i64
+  %flag = icmp eq i64 %i, 0
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_fptoui_zero():
+    check_arith_result(FPTOUI_ZERO_QIR, "1")
+
+
+FPTOUI_LARGE_QIR = """
+  ; fptoui 255.9 → 255
+  %i = fptoui double 255.9 to i64
+  %flag = icmp eq i64 %i, 255
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_fptoui_large():
+    check_arith_result(FPTOUI_LARGE_QIR, "1")
+
+
+FPTOUI_NEGATIVE_QIR = """
+  ; fptoui of a negative float is out of range for an unsigned int;
+  ; but we still round towards the nearest uint value, which is zero.
+  %neg = fsub double 0.0, 3.7
+  %i = fptoui double %neg to i64
+  %flag = icmp eq i64 %i, 0
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_fptoui_negative():
+    check_arith_result(FPTOUI_NEGATIVE_QIR, "1")
+
+
+# =========================================================================
+# OP_UITOFP — unsigned int to float
+# =========================================================================
+
+UITOFP_QIR = """
+  ; uitofp 5 → 5.0, then 5.0 > 4.0 → true
+  %f = uitofp i64 5 to double
+  %flag = fcmp ogt double %f, 4.0
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_uitofp():
+    check_arith_result(UITOFP_QIR, "1")
+
+
+UITOFP_ZERO_QIR = """
+  ; uitofp 0 → 0.0
+  %f = uitofp i64 0 to double
+  %flag = fcmp oeq double %f, 0.0
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_uitofp_zero():
+    check_arith_result(UITOFP_ZERO_QIR, "1")
+
+
+UITOFP_ROUNDTRIP_QIR = """
+  ; uitofp 42 → 42.0, then fptoui 42.0 → 42
+  %f = uitofp i64 42 to double
+  %i = fptoui double %f to i64
+  %flag = icmp eq i64 %i, 42
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_uitofp_fptoui_roundtrip():
+    """Round-trip: uitofp then fptoui must recover the original value."""
+    check_arith_result(UITOFP_ROUNDTRIP_QIR, "1")
 
 
 # #########################################################################

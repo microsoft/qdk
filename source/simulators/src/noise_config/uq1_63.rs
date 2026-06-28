@@ -4,13 +4,18 @@
 #[cfg(test)]
 mod tests;
 
+/// A `UQ1_63` encoding for a floating point number.
+///
+/// You can learn more at: <https://en.wikipedia.org/wiki/Q_(number_format)>.
+pub(crate) type UQ1_63 = u64;
+
 /// This value is 1.0 in `UQ1.63` format (high order bit is 1, rest are 0).
-pub(crate) const ONE: u64 = 1u64 << 63;
+pub(crate) const ONE: UQ1_63 = 1u64 << 63;
 
 /// Maps an `f64` in the range`[0.0, 1.0]` to a `u64` in the `UQ1.63` format.
 ///
 /// You can learn more at: <https://en.wikipedia.org/wiki/Q_(number_format)>.
-pub(crate) fn from_prob(p: f64) -> u64 {
+pub(crate) fn from_prob(p: f64) -> UQ1_63 {
     // Only allow values from 0 to 1.0 for the incoming probability.
     assert!(
         (0.0..=1.0).contains(&p),

@@ -70,9 +70,9 @@ class Application(ABC, Generic[TraceParameters]):
         """
         return TraceQuery(NoneType, **kwargs)
 
-    def context(self) -> _Context:
+    def context(self) -> ApplicationContext:
         """Create a new enumeration context for this application."""
-        return _Context(self)
+        return ApplicationContext(self)
 
     def post_process(
         self, parameters: TraceParameters, estimation: EstimationResult
@@ -157,7 +157,7 @@ class Application(ABC, Generic[TraceParameters]):
         self._parallel_traces = False
 
 
-class _Context:
+class ApplicationContext:
     """Enumeration context wrapping an application instance."""
 
     application: Application

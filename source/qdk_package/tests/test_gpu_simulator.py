@@ -3,7 +3,7 @@
 
 from collections import Counter
 from pathlib import Path
-from typing import Sequence, cast
+from typing import Dict, Sequence, cast
 import math
 import os
 import random
@@ -66,6 +66,52 @@ def result_array_to_string(results: Sequence[Result]) -> str:
     return "".join(chars)
 
 
+def format_expectation(actual: Dict[str, float], expect: Dict[str, float]):
+    return f"Expected distribution:\n  {expect}\n\nActual distribution:\n  {actual}"
+
+
+def assert_err(msg: str, actual: Dict[str, float], expect: Dict[str, float]):
+    return msg + "\n\n" + format_expectation(actual, expect)
+
+
+def assert_distributions_eq(
+    actual: Dict[str, float], expect: Dict[str, float], tolerance: float
+):
+    # Prune values that are smaller than the tolerance.
+    actual = {key: val for key, val in actual.items() if val > tolerance}
+    expect = {key: val for key, val in expect.items() if val > tolerance}
+
+    for key in actual:
+        assert key in expect, assert_err(
+            f"Unexpected measurement string: '{key}'.", actual, expect
+        )
+
+    for key in expect:
+        assert key in actual, assert_err(
+            f"Missing measurement string: '{key}'", actual, expect
+        )
+
+    tolerance_percent = int(tolerance * 100)
+    for key in actual:
+        assert abs(actual[key] - expect[key]) < tolerance, assert_err(
+            f"Probability for {key} outside {tolerance_percent}% tolerance.",
+            actual,
+            expect,
+        )
+
+
+def expect_distribution(
+    results,
+    expected: Dict[str, float],
+    *,
+    tolerance: float = 0.01,
+):
+    histogram = Counter(results)
+    total = sum(histogram.values())
+    actual = {key: val / total for key, val in histogram.items()}
+    assert_distributions_eq(actual, expected, tolerance)
+
+
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_seeding_no_noise():
     qsharp.init(target_profile=TargetProfile.Base)
@@ -115,53 +161,59 @@ def test_gpu_no_noise():
 def test_gpu_bitflip_noise():
     """Bitflip noise for GPU simulator."""
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
     input = qsharp.compile(
-        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
+        "{ use qs = Qubit[25]; X(qs[0]); CZ(qs[23], qs[24]); MResetEachZ(qs) }"
     )
 
-    p_noise = 0.005
+    p_noise = 0.2
     noise = NoiseConfig()
-    noise.rx.set_bitflip(p_noise)
-    noise.rzz.set_pauli_noise("XX", p_noise)
-    noise.mresetz.set_bitflip(p_noise)
+    noise.x.set_bitflip(p_noise)
+    noise.cz.set_pauli_noise("XX", p_noise)
 
-    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=17)
+    output = run_qir_gpu(str(input), shots=100, noise=noise, seed=17)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
-    print(result)
-    # Reasonable results obtained from manual run
-    assert result == [
-        "0000000000011100000000110",
-        "0001001100000000000100110",
-        "0000000000011000000000000",
-    ]
+    expect_distribution(
+        result,
+        {
+            "1000000000000000000000000": (1 - p_noise) ** 2,  # No noise
+            "0000000000000000000000000": p_noise * (1 - p_noise),  # X bitflip
+            "1000000000000000000000011": (1 - p_noise) * p_noise,  # CZ bitflip
+            "0000000000000000000000011": p_noise**2,  # X & CZ bitflip
+        },
+        tolerance=0.05,
+    )
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_mixed_noise():
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
 
     input = qsharp.compile(
-        "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 4.0, 4)"
+        "{ use qs = Qubit[25]; X(qs[0]); CZ(qs[23], qs[24]); MResetEachZ(qs) }"
     )
 
+    p_noise = 0.2
     noise = NoiseConfig()
-    noise.rz.set_bitflip(0.005)
-    noise.rz.loss = 0.003
-    noise.rzz.set_depolarizing(0.005)
-    noise.rzz.loss = 0.003
+    noise.x.set_bitflip(p_noise)
+    noise.cz.XI = p_noise
+    noise.cz.IL = p_noise
 
-    output = run_qir_gpu(str(input), shots=3, noise=noise, seed=53)
+    output = run_qir_gpu(str(input), shots=100, noise=noise, seed=53)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
-    print(result)
-    # Reasonable results obtained from manual run
-    assert result == [
-        "00000-00000000-0000000000",
-        "00100001000-0000000000-00",
-        "000000010000000-000000000",
-    ]
+    expect_distribution(
+        result,
+        # Reasonable results obtained from manual run
+        {
+            "1000000000000000000000000": (1 - p_noise) * (1 - 2 * p_noise),  # No noise
+            "0000000000000000000000000": p_noise * (1 - 2 * p_noise),  # X bitflip
+            "1000000000000000000000010": (1 - p_noise) * p_noise,  # CZ bitflip
+            "100000000000000000000000-": (1 - p_noise) * p_noise,  # CZ loss
+            "0000000000000000000000010": p_noise**2,  # X bitflip + CZ bitflip
+            "000000000000000000000000-": p_noise**2,  # X bitflip + CZ loss
+        },
+        tolerance=0.05,
+    )
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
@@ -269,8 +321,7 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     src_parallel = prefix + infix * n_x + suffix
 
     # Compile resulting program
-    qsharp.init(target_profile=TargetProfile.Base)
-    qir_parallel = openqasm.compile(src_parallel)
+    qir_parallel = openqasm.compile(src_parallel, target_profile=TargetProfile.Base)
     return str(qir_parallel)
 
 
@@ -337,10 +388,11 @@ def build_cy_noise_qir(n_cy: int) -> str:
         c = measure q;
         """
 
-    qsharp.init(target_profile=TargetProfile.Base)
     # OpenQasm output semantics preserves order of bits in the output register.
     qir_program = openqasm.compile(
-        src, output_semantics=openqasm.OutputSemantics.OpenQasm
+        src,
+        output_semantics=openqasm.OutputSemantics.OpenQasm,
+        target_profile=TargetProfile.Base,
     )
     return str(qir_program)
 

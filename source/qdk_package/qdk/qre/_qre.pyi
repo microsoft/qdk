@@ -794,7 +794,7 @@ class _ProvenanceGraph:
         space: Optional[int | _IntFunction] = None,
         length: Optional[int | _IntFunction] = None,
         error_rate: float | _FloatFunction = ...,
-        **kwargs: int,
+        **kwargs: Optional[int],
     ) -> int: ...
     def add_instruction(
         self,
@@ -806,7 +806,7 @@ class _ProvenanceGraph:
         space: Optional[int | _IntFunction] = None,
         length: Optional[int | _IntFunction] = None,
         error_rate: float | _FloatFunction = ...,
-        **kwargs: int,
+        **kwargs: Optional[int],
     ) -> int:
         """
         Add an instruction to the provenance graph with no transform or
@@ -888,6 +888,21 @@ class _ProvenanceGraph:
 
         Returns:
             int: The number of nodes in the graph.
+        """
+        ...
+
+    def pareto_nodes(self, instruction_id: int) -> Optional[list[int]]:
+        """
+        Return the Pareto-optimal node indices for a given instruction ID.
+
+        Requires ``build_pareto_index`` to have been called.
+
+        Args:
+            instruction_id (int): The instruction ID to look up.
+
+        Returns:
+            Optional[list[int]]: The Pareto-optimal node indices, or
+                None if the instruction ID has no entries.
         """
         ...
 
@@ -1382,6 +1397,16 @@ class Trace:
         """
         ...
 
+    @property
+    def gate_counts(self) -> dict[int, int]:
+        """
+        The counts of each gate ID in the trace.
+
+        Returns:
+            dict[int, int]: A dictionary mapping gate IDs to their counts.
+        """
+        ...
+
     def estimate(
         self, isa: ISA, max_error: Optional[float] = None
     ) -> Optional[EstimationResult]:
@@ -1462,6 +1487,76 @@ class Trace:
         """
         ...
 
+    def flatten(self) -> Iterator[Gate]:
+        """
+        Iterate over gates as if executing the circuit.
+
+        Yield each gate in execution order. Gates inside repeated blocks
+        are yielded once per repetition.
+
+        Returns:
+            Iterator[Gate]: An iterator over the gates in the trace.
+        """
+        ...
+
+class Gate:
+    """
+    Represent a single gate operation in a trace.
+
+    Attributes:
+        id (int): The instruction ID of the gate.
+        qubits (list[int]): The qubits the gate acts on.
+        params (list[float]): The parameters of the gate.
+    """
+
+    @property
+    def id(self) -> int:
+        """
+        The instruction ID of the gate.
+
+        Returns:
+            int: The instruction ID.
+        """
+        ...
+
+    @property
+    def qubits(self) -> list[int]:
+        """
+        The qubits the gate acts on.
+
+        Returns:
+            list[int]: The qubit indices.
+        """
+        ...
+
+    @property
+    def params(self) -> list[float]:
+        """
+        The parameters of the gate.
+
+        Returns:
+            list[float]: The gate parameters.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Return a string representation of the gate.
+
+        Returns:
+            str: A string representation of the gate.
+        """
+        ...
+
+    def __repr__(self) -> str:
+        """
+        Return a detailed string representation of the gate.
+
+        Returns:
+            str: A detailed string representation of the gate.
+        """
+        ...
+
 class Block:
     """
     Represents a block of operations in a trace.
@@ -1511,6 +1606,16 @@ class PSSPC:
 
 class LatticeSurgery:
     def __new__(cls, slow_down_factor: float) -> LatticeSurgery: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class DynamicMemoryCompute:
+    def __new__(
+        cls, compute_capacity_percentage: float, eviction_strategy: int
+    ) -> DynamicMemoryCompute: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class Unmemory:
+    def __new__(cls) -> Unmemory: ...
     def transform(self, trace: Trace) -> Optional[Trace]: ...
 
 class InstructionFrontier:

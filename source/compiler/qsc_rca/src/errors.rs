@@ -137,30 +137,6 @@ pub enum Error {
     #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicArrowOperation"))]
     UseOfDynamicArrowOperation(#[label] Span),
 
-    #[error("cannot call a cyclic function with a dynamic value as argument")]
-    #[diagnostic(help(
-        "calling a cyclic function with an argument value that depends on a measurement result is not supported by the configured target profile"
-    ))]
-    #[diagnostic(url("https://aka.ms/qdk.qir#call-to-cyclic-function-with-dynamic-argument"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.CallToCyclicFunctionWithDynamicArg"))]
-    CallToCyclicFunctionWithDynamicArg(#[label] Span),
-
-    #[error("cannot define a cyclic operation specialization")]
-    #[diagnostic(help(
-        "operation specializations that contain call cycles are not supported by the configured target profile"
-    ))]
-    #[diagnostic(url("https://aka.ms/qdk.qir#cyclic-operation-definition"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.CyclicOperationSpec"))]
-    CyclicOperationSpec(#[label] Span),
-
-    #[error("cannot call a cyclic operation")]
-    #[diagnostic(help(
-        "calling an operation specialization that contains call cycles is not supported by the configured target profile"
-    ))]
-    #[diagnostic(url("https://aka.ms/qdk.qir#call-to-cyclic-operation"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.CallToCyclicOperation"))]
-    CallToCyclicOperation(#[label] Span),
-
     #[error("cannot call a function or operation whose resolution is dynamic")]
     #[diagnostic(help(
         "calling a function or operation whose resolution depends on a measurement result is not supported by the configured target profile"
@@ -252,6 +228,14 @@ pub enum Error {
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-generic"))]
     #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicGeneric"))]
     UseOfDynamicGeneric(#[label] Span),
+
+    #[error("cannot use a dynamic qubit release")]
+    #[diagnostic(help(
+        "non-deterministic qubit release, often from patterns like dynamic early returns, requires the dynamic qubit allocation feature and is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-qubit-release"))]
+    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicQubitRelease"))]
+    UseOfDynamicQubitRelease(#[label] Span),
 }
 
 #[must_use]
@@ -311,15 +295,6 @@ pub fn generate_errors_from_runtime_features(
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicArrowOperation) {
         errors.push(Error::UseOfDynamicArrowOperation(span));
     }
-    if runtime_features.contains(RuntimeFeatureFlags::CallToCyclicFunctionWithDynamicArg) {
-        errors.push(Error::CallToCyclicFunctionWithDynamicArg(span));
-    }
-    if runtime_features.contains(RuntimeFeatureFlags::CyclicOperationSpec) {
-        errors.push(Error::CyclicOperationSpec(span));
-    }
-    if runtime_features.contains(RuntimeFeatureFlags::CallToCyclicOperation) {
-        errors.push(Error::CallToCyclicOperation(span));
-    }
     if runtime_features.contains(RuntimeFeatureFlags::CallToDynamicCallee) {
         errors.push(Error::CallToDynamicCallee(span));
     }
@@ -355,6 +330,9 @@ pub fn generate_errors_from_runtime_features(
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
         errors.push(Error::UseOfDynamicGeneric(span));
+    }
+    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicQubitRelease) {
+        errors.push(Error::UseOfDynamicQubitRelease(span));
     }
     errors
 }
