@@ -460,8 +460,10 @@ pub struct NoiseTable {
 }
 
 impl NoiseTable {
-    const DEFAULT_SINGLE_QUBIT_LOSS_POLICIES: [LossPolicy; 1] = [LossPolicy::Skip];
+    /// Loss policies doesn't make sense for single-qubit gates.
+    const DEFAULT_SINGLE_QUBIT_LOSS_POLICIES: [LossPolicy; 0] = [];
 
+    /// All multi-qubit gates support these loss policies.
     const DEFAULT_MULTI_QUBIT_LOSS_POLICIES: [LossPolicy; 3] = [
         LossPolicy::Skip,
         LossPolicy::Propagate,
@@ -646,7 +648,11 @@ impl NoiseTable {
             qubits: num_qubits,
             pauli_noise: FxHashMap::default(),
             on_loss: LossPolicy::Skip,
-            allowed_loss_policies: NoiseTable::DEFAULT_MULTI_QUBIT_LOSS_POLICIES.to_vec(),
+            allowed_loss_policies: if num_qubits == 1 {
+                NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec()
+            } else {
+                NoiseTable::DEFAULT_MULTI_QUBIT_LOSS_POLICIES.to_vec()
+            },
         }
     }
 
