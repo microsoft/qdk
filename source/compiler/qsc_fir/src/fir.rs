@@ -910,12 +910,40 @@ pub enum ExecGraphNode {
     Unit,
     /// The end of the control flow graph.
     Ret,
-    /// The start of a parallel region, with a Boolean indicating whether it has a limit.
-    ParStart(bool),
+    /// The start of a parallel region, with a value indicating whether it has a limit.
+    ParStart(ParKind),
     /// The end of a parallel region
     ParEnd,
     /// A node only to be executed in debug mode.
     Debug(ExecGraphDebugNode),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The kind of a parallel region.
+pub enum ParKind {
+    /// A parallel region with a limit.
+    Limited,
+    /// A parallel region without a limit.
+    Unlimited,
+}
+
+impl From<bool> for ParKind {
+    fn from(b: bool) -> Self {
+        if b {
+            ParKind::Limited
+        } else {
+            ParKind::Unlimited
+        }
+    }
+}
+
+impl Display for ParKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ParKind::Limited => write!(f, "Limited"),
+            ParKind::Unlimited => write!(f, "Unlimited"),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]

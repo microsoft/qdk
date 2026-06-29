@@ -697,7 +697,7 @@ impl Lowerer {
                 let limit = limit.as_ref().map(|l| self.lower_expr(l));
 
                 self.exec_graph
-                    .push(ExecGraphNode::ParStart(limit.is_some()));
+                    .push(ExecGraphNode::ParStart(limit.is_some().into()));
                 let expr = self.lower_expr(expr);
                 self.exec_graph.push(ExecGraphNode::ParEnd);
                 fir::ExprKind::Parallel(limit, expr)

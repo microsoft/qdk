@@ -223,7 +223,7 @@ fn format_exec_graph_nodes(
             ExecGraphNode::Ret => format!("{index}: Ret"),
             ExecGraphNode::Store => format!("{index}: Store"),
             ExecGraphNode::Unit => format!("{index}: Unit"),
-            ExecGraphNode::ParStart(has_limit) => format!("{index}: ParStart({has_limit})"),
+            ExecGraphNode::ParStart(kind) => format!("{index}: ParStart({kind})"),
             ExecGraphNode::ParEnd => format!("{index}: ParEnd"),
             ExecGraphNode::Debug(_) => {
                 unreachable!("NoDebug exec graph should not contain debug nodes")
@@ -1206,7 +1206,7 @@ fn parallel_without_limit_emits_par_start_and_end() {
             3: Store
             4: Expr(ExprId(3)) [Tuple(len=2)]
             5: Bind(PatId(1))
-            6: ParStart(false)
+            6: ParStart(Unlimited)
             7: Expr(ExprId(13)) [Var]
             8: Store
             9: Expr(ExprId(14)) [Var]
@@ -1237,7 +1237,7 @@ fn parallel_within_limit_emits_par_start_with_limit() {
             4: Expr(ExprId(3)) [Tuple(len=2)]
             5: Bind(PatId(1))
             6: Expr(ExprId(15)) [Var]
-            7: ParStart(true)
+            7: ParStart(Limited)
             8: Expr(ExprId(16)) [Var]
             9: Store
             10: Expr(ExprId(17)) [Var]

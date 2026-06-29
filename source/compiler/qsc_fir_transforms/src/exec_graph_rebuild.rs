@@ -603,7 +603,7 @@ fn rebuild_expr(
             if let Some(limit) = limit {
                 rebuild_expr(package, builder, limit, ranges);
             }
-            builder.push(ExecGraphNode::ParStart(limit.is_some()));
+            builder.push(ExecGraphNode::ParStart(limit.is_some().into()));
             rebuild_expr(package, builder, body, ranges);
             builder.push(ExecGraphNode::ParEnd);
         }

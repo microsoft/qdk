@@ -40,8 +40,8 @@ use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span}
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
     ExecGraphDebugNode, ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit,
-    LocalItemId, LocalVarId, PackageId, PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId,
-    StoreItemId, StringComponent, UnOp,
+    LocalItemId, LocalVarId, PackageId, PackageStoreLookup, ParKind, PatId, PatKind, PrimField,
+    Res, StmtId, StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_lowerer::map_fir_package_to_hir;
@@ -821,8 +821,8 @@ impl State {
                     env.leave_scope();
                     continue;
                 }
-                Some(ExecGraphNode::ParStart(has_limit)) => {
-                    let limit = if *has_limit {
+                Some(ExecGraphNode::ParStart(kind)) => {
+                    let limit = if *kind == ParKind::Limited {
                         let limit_val = self.take_val_register().unwrap_int();
                         if limit_val < 0 {
                             let package = map_fir_package_to_hir(self.package);
