@@ -799,14 +799,10 @@ impl With<'_> {
                 self.lower_lambda(lambda, expr.span)
             }
             ast::ExprKind::Lit(lit) => self.lower_lit(lit),
-            ast::ExprKind::Parallel(expr) => {
-                let inner = self.lower_expr(expr);
-                self.lower_parallel(None, inner)
-            }
-            ast::ExprKind::ParallelLimited(limit, body) => {
-                let limit = self.lower_expr(limit);
+            ast::ExprKind::Parallel(limit, body) => {
+                let limit = limit.as_ref().map(|limit| Box::new(self.lower_expr(limit)));
                 let body = self.lower_expr(body);
-                self.lower_parallel(Some(Box::new(limit)), body)
+                self.lower_parallel(limit, body)
             }
             ast::ExprKind::Paren(_) => unreachable!("parentheses should be removed earlier"),
             ast::ExprKind::Path(PathKind::Ok(path)) => {

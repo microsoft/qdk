@@ -101,7 +101,7 @@ pub(super) fn is_stmt_final(kind: &ExprKind) -> bool {
             | ExprKind::If(..)
             | ExprKind::Repeat(..)
             | ExprKind::While(..)
-    ) || matches!(kind, ExprKind::Parallel(expr) | ExprKind::ParallelLimited(.., expr) if is_stmt_final(&expr.kind))
+    ) || matches!(kind, ExprKind::Parallel(_, expr) if is_stmt_final(&expr.kind))
 }
 
 fn expr_op(s: &mut ParserContext, context: OpContext) -> Result<Box<Expr>> {
@@ -235,9 +235,9 @@ fn expr_base(s: &mut ParserContext) -> Result<Box<Expr>> {
             s.advance();
             let limit = expr(s)?;
             let body = expr(s)?;
-            Ok(Box::new(ExprKind::ParallelLimited(limit, body)))
+            Ok(Box::new(ExprKind::Parallel(Some(limit), body)))
         } else {
-            Ok(Box::new(ExprKind::Parallel(expr(s)?)))
+            Ok(Box::new(ExprKind::Parallel(None, expr(s)?)))
         }
     } else if !s.contains_language_feature(LanguageFeatures::V2PreviewSyntax)
         && token(s, TokenKind::Keyword(Keyword::Set)).is_ok()

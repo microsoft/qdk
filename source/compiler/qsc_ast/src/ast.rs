@@ -906,10 +906,8 @@ pub enum ExprKind {
     Lambda(CallableKind, Box<Pat>, Box<Expr>),
     /// A literal.
     Lit(Box<Lit>),
-    /// A parallel expression: `parallel a`
-    Parallel(Box<Expr>),
-    /// A parallel-limited expression: `parallel within n a`
-    ParallelLimited(Box<Expr>, Box<Expr>),
+    /// A parallel expression: `parallel a`, optionally including a limit: `parallel within n a`
+    Parallel(Option<Box<Expr>>, Box<Expr>),
     /// Parentheses: `(a)`.
     Paren(Box<Expr>),
     /// A path: `a` or `a.b`.
@@ -957,10 +955,7 @@ impl Display for ExprKind {
             ExprKind::Interpolate(components) => display_interpolate(indent, components)?,
             ExprKind::Lambda(kind, param, expr) => display_lambda(indent, *kind, param, expr)?,
             ExprKind::Lit(lit) => write!(indent, "Lit: {lit}")?,
-            ExprKind::Parallel(e) => write!(indent, "Parallel: {e}")?,
-            ExprKind::ParallelLimited(limit, body) => {
-                write!(indent, "ParallelLimited: {limit} {body}")?;
-            }
+            ExprKind::Parallel(limit, body) => display_parallel(indent, limit.as_deref(), body)?,
             ExprKind::Paren(e) => write!(indent, "Paren: {e}")?,
             ExprKind::Path(p) => write!(indent, "Path: {p}")?,
             ExprKind::Range(start, step, end) => {
@@ -1131,6 +1126,20 @@ fn display_interpolate(
         }
     }
 
+    Ok(())
+}
+
+fn display_parallel(
+    mut indent: Indented<Formatter>,
+    limit: Option<&Expr>,
+    body: &Expr,
+) -> fmt::Result {
+    write!(indent, "Parallel:")?;
+    indent = set_indentation(indent, 1);
+    if let Some(l) = limit {
+        write!(indent, "\nLimit: {l}")?;
+    }
+    write!(indent, "\nBody: {body}")?;
     Ok(())
 }
 
