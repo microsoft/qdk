@@ -238,12 +238,15 @@ workspace = Workspace(
  * getTokenForWorkspace / azureRequest to validate.
  *
  * Required fields: SubscriptionId, ResourceGroupName, WorkspaceName, QuantumEndpoint
- * Optional fields:
+ * Authentication: at least one of ApiKey or TenantId must be present, otherwise
+ * this returns undefined.
  *   - ApiKey:   if present, API key authentication is used; otherwise Entra ID
  *               (AAD) authentication is used and VS Code will prompt the user to
  *               sign in interactively if not already authenticated.
- *   - TenantId: scopes Entra ID auth and is used for portal deep links. If
- *               omitted, it is derived from the SubscriptionId.
+ *   - TenantId: scopes Entra ID auth and is used for portal deep links. When an
+ *               ApiKey is supplied the TenantId may be omitted; in that case it
+ *               is left blank here and lazily derived from the SubscriptionId
+ *               only when a portal deep link is built (see buildQuantumOsFragment).
  *
  * API key format:
  *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>
@@ -265,11 +268,9 @@ export function parseConnectionString(
     partsMap.set(part.substring(0, eq).trim().toLowerCase(), value);
   });
 
-  // Only the core fields are required. Authentication method and tenant id are
-  // handled independently downstream:
-  //   - Auth uses the ApiKey if present, otherwise Entra ID (see getTokenForWorkspace).
-  //   - A missing TenantId is later derived from the SubscriptionId (see
-  //     getWorkspaceWithConnectionString), so it is not required here.
+  // The core fields are always required. In addition, an authentication method
+  // must be present: either an ApiKey or a TenantId (Entra ID). Auth uses the
+  // ApiKey if present, otherwise Entra ID (see getTokenForWorkspace).
   const hasRequiredFields =
     partsMap.has("subscriptionid") &&
     partsMap.has("resourcegroupname") &&
@@ -294,7 +295,7 @@ export function parseConnectionString(
     id: workspaceId,
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
-    tenantId: partsMap.get("tenantid") || "", // May be undefined; derived from the subscription id if missing
+    tenantId: partsMap.get("tenantid") || "", // Blank when only an ApiKey is supplied; derived from the subscription id when a portal link is built
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
     jobs: [],
