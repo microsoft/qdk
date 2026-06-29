@@ -7,6 +7,8 @@ import {
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
   resolveNewWorkspaceRoot,
+  type CourseDescriptor,
+  type EnvironmentCheckReport,
   type HintContext,
   type UnitSummary,
   type OverallProgress,
@@ -24,6 +26,8 @@ import { CopilotToolError } from "./types.js";
  * curriculum without needing a separate round-trip.
  */
 export interface SerializedLearningState {
+  /** The currently-active course. */
+  course: { id: string; title: string; kind: string };
   position: CurrentActivity;
   progress: {
     totalActivities: number;
@@ -137,12 +141,83 @@ export class LearningTools {
   }
 
   /**
-   * Read the user's current Q# code at the active exercise or example.
+   * List all available courses (loaded or not) with the active course id.
+   */
+  async listCourses(): Promise<{
+    courses: CourseDescriptor[];
+    activeCourseId: string;
+  }> {
+    await this.ensureInitialized();
+    return {
+      courses: await this.service.getCourses(),
+      activeCourseId: this.service.getActiveCourseId(),
+    };
+  }
+
+  /**
+   * Switch the active course, moving to its first incomplete activity.
+   */
+  async switchCourse(input: { courseId: string }): Promise<StateSnapshot> {
+    await this.ensureInitialized();
+    return this.invoke(async () => {
+      await this.service.switchCourse(input.courseId, "chat");
+      await this.showActivity();
+      return { state: this.serializeState() };
+    });
+  }
+
+  /**
+   * Return descriptor and README content (if any) for a course. Defaults
+   * to the active course when no id is provided.
+   */
+  async courseInfo(input?: { courseId?: string }): Promise<{
+    descriptor: CourseDescriptor | undefined;
+    readme?: string;
+  }> {
+    await this.ensureInitialized();
+    return this.invoke(async () => {
+      const courseId = input?.courseId ?? this.service.getActiveCourseId();
+      const courses = await this.service.getCourses();
+      const descriptor = courses.find((c) => c.id === courseId);
+      let readme: string | undefined;
+      if (descriptor?.readmePath) {
+        try {
+          const bytes = await vscode.workspace.fs.readFile(
+            vscode.Uri.parse(descriptor.readmePath),
+          );
+          readme = new TextDecoder().decode(bytes);
+        } catch {
+          readme = undefined;
+        }
+      }
+      return { descriptor, readme };
+    });
+  }
+
+  /**
+   * Run environment diagnostics for the active course and return the
+   * structured report (passing/failing checks plus whether a one-click
+   * environment setup is available).
+   */
+  async checkEnvironment(): Promise<EnvironmentCheckReport> {
+    await this.ensureInitialized();
+    return this.invoke(() => this.service.runEnvironmentCheck());
+  }
+
+  /**
+   * Read the user's current code at the active exercise or example.
+   * For python-notebook courses, returns the notebook file path.
    */
   async readCode(): Promise<{ code: string; filePath: string }> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
+      if (this.service.getActiveCourseInfo().kind === "python-notebook") {
+        return {
+          code: "",
+          filePath: uri.fsPath,
+        };
+      }
       const code = await this.service.readUserCode();
       return { code, filePath: uri.fsPath };
     });
@@ -311,6 +386,7 @@ export class LearningTools {
       : undefined;
 
     return {
+      course: this.service.getActiveCourseInfo(),
       position: state.position,
       progress: {
         totalActivities: progress.stats.totalActivities,

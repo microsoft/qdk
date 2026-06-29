@@ -1,0 +1,16 @@
+{
+  "exercises": [
+    {
+      "id": "forty_two",
+      "cellIndex": 7,
+      "title": "Your first Q# expression",
+      "description": "Implement the forty_two() function so it returns 42.",
+      "hints": [
+        "The function just needs to return a value equal to the integer 42.",
+        "The simplest answer is to return the literal `42` itself."
+      ],
+      "solution": "@exercise\ndef forty_two():\n    return qsharp.eval(\"40 + 2\")",
+      "solutionExplanation": "Any Q# expression that evaluates to the integer 42 works. The simplest options are the literal `42` or an arithmetic expression like `40 + 2`."
+    }
+  ]
+}

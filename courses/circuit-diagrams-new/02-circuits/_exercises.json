@@ -1,0 +1,28 @@
+{
+  "exercises": [
+    {
+      "id": "cat_circuit",
+      "cellIndex": 22,
+      "title": "Render with operation=",
+      "description": "Implement cat_circuit() to return a circuit built with circuit() using the operation= parameter for PrepareCatState.",
+      "hints": [
+        "The `operation=` parameter takes a string — the name of a Q# operation that accepts only qubits or qubit arrays.",
+        "Return `circuit(operation=\"PrepareCatState\")`."
+      ],
+      "solution": "@exercise\ndef cat_circuit():\n    return circuit(operation=\"PrepareCatState\")",
+      "solutionExplanation": "The `operation=` parameter lets the renderer decide the qubit allocation. Pass the operation name as a string without parentheses or arguments."
+    },
+    {
+      "id": "flat_circuit",
+      "cellIndex": 24,
+      "title": "Flatten a grouped circuit",
+      "description": "Implement flat_circuit() to return a circuit for GHZ(3) with grouping disabled so each gate is shown individually.",
+      "hints": [
+        "Pass `group_by_scope=False` to `circuit()` to disable grouping.",
+        "Return `circuit(\"GHZ(3)\", group_by_scope=False)`."
+      ],
+      "solution": "@exercise\ndef flat_circuit():\n    return circuit(\"GHZ(3)\", group_by_scope=False)",
+      "solutionExplanation": "Setting `group_by_scope=False` tells the renderer to flatten all operations instead of grouping them by their containing scope (function calls, loops)."
+    }
+  ]
+}
