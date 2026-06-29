@@ -34,17 +34,19 @@ function getQuantumOsRoot(): string {
   );
 }
 
-export function getQuantumOsJobLink(
+export async function getQuantumOsJobLink(
   workspace: WorkspaceConnection,
   jobId: string,
 ) {
   // Quantum OS job page format:
   // <quantumOsRoot>/jobs/<job-id>#<workspace-fragment>
-  const fragment = buildQuantumOsFragment(workspace);
+  const fragment = await buildQuantumOsFragment(workspace);
   return `${getQuantumOsRoot()}/jobs/${jobId}#${fragment}`;
 }
 
-function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
+async function buildQuantumOsFragment(
+  workspace: WorkspaceConnection,
+): Promise<string> {
   const subscriptionId = getSubscriptionFromWorkspace(workspace);
 
   // The QuantumOS requires the offeringId to be present in the fragment for the link to work correctly.
@@ -59,7 +61,7 @@ function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
   // The tenantId is required for QuantumOS links. If this workspace was added with API key auth
   // then the tenantId may not be present, so derive it from the subscriptionId.
   const tenantId =
-    workspace.tenantId || getTenantIdForSubscription(subscriptionId);
+    workspace.tenantId || (await getTenantIdForSubscription(subscriptionId));
 
   return (
     `tenantId=${tenantId}` +
@@ -70,7 +72,7 @@ function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
   );
 }
 
-export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
+export async function getWorkspacePortalLink(workspace: WorkspaceConnection) {
   const { isV2Workspace } = QuantumUris.parseEndpointUri(workspace.endpointUri);
 
   if (isV2Workspace) {
@@ -80,7 +82,7 @@ export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
     //
     // workspace.id starts with '/' (e.g. "/subscriptions/.../Workspaces/<name>"),
     // so it is appended directly to produce a clean path with literal slashes.
-    const fragment = buildQuantumOsFragment(workspace);
+    const fragment = await buildQuantumOsFragment(workspace);
     return `${getQuantumOsRoot()}/workspaces/${workspace.name}#${fragment}`;
   }
 

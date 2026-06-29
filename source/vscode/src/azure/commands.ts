@@ -477,7 +477,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         if (treeItem?.type !== "job") return;
         const job = treeItem.itemData as Job;
         try {
-          const link = getQuantumOsJobLink(treeItem.workspace, job.id);
+          const link = await getQuantumOsJobLink(treeItem.workspace, job.id);
           vscode.env.openExternal(vscode.Uri.parse(link));
         } catch (e) {
           log.error("Failed to build job portal link", e);
@@ -499,7 +499,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         const workspace = treeItem.itemData as WorkspaceConnection;
 
         try {
-          const link = getWorkspacePortalLink(workspace);
+          const link = await getWorkspacePortalLink(workspace);
           vscode.env.openExternal(vscode.Uri.parse(link));
         } catch (e) {
           const errorMsg = e instanceof Error ? ` Details: ${e.message}` : "";
