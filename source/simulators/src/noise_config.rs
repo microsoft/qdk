@@ -6,9 +6,10 @@ mod tests;
 pub(crate) mod uq1_63;
 
 use num_traits::ConstZero;
+use qsc_data_structures::display::{write_field, writeln_field, writeln_header};
 use rand::RngExt;
 use rustc_hash::FxHashMap;
-use std::hash::BuildHasherDefault;
+use std::{fmt::Display, hash::BuildHasherDefault};
 
 use crate::noise_config::uq1_63::UQ1_63;
 
@@ -137,6 +138,97 @@ impl<T, Q> NoiseConfig<T, Q> {
         idle: IdleNoiseParams::NOISELESS,
         intrinsics: const_empty_hash_map(),
     };
+
+    #[must_use]
+    pub fn is_noiseless(&self) -> bool {
+        self.i.is_noiseless()
+            && self.x.is_noiseless()
+            && self.y.is_noiseless()
+            && self.z.is_noiseless()
+            && self.h.is_noiseless()
+            && self.s.is_noiseless()
+            && self.s_adj.is_noiseless()
+            && self.t.is_noiseless()
+            && self.t_adj.is_noiseless()
+            && self.sx.is_noiseless()
+            && self.sx_adj.is_noiseless()
+            && self.rx.is_noiseless()
+            && self.ry.is_noiseless()
+            && self.rz.is_noiseless()
+            && self.cx.is_noiseless()
+            && self.cy.is_noiseless()
+            && self.cz.is_noiseless()
+            && self.rxx.is_noiseless()
+            && self.ryy.is_noiseless()
+            && self.rzz.is_noiseless()
+            && self.swap.is_noiseless()
+            && self.ccx.is_noiseless()
+            && self.mov.is_noiseless()
+            && self.mz.is_noiseless()
+            && self.mresetz.is_noiseless()
+            && self.idle.is_noiseless()
+            && self.intrinsics.is_empty()
+    }
+}
+
+impl<T: Display, Q: Display> Display for NoiseConfig<T, Q> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        /// Macro to avoid repeating field names twice as in:
+        /// ```ignore
+        ///     writeln_field(f, "mresetz", &self.mresetz)?;
+        /// ```
+        macro_rules! write_if_noisy {
+            ($field:ident) => {
+                if !self.$field.is_noiseless() {
+                    writeln_field(f, stringify!($field), &self.$field)?;
+                }
+            };
+        }
+
+        writeln_header(f, "NoiseConfig")?;
+
+        // Write stdgates with noise.
+        write_if_noisy!(i);
+        write_if_noisy!(x);
+        write_if_noisy!(y);
+        write_if_noisy!(z);
+        write_if_noisy!(h);
+        write_if_noisy!(s);
+        write_if_noisy!(s_adj);
+        write_if_noisy!(t);
+        write_if_noisy!(t_adj);
+        write_if_noisy!(sx);
+        write_if_noisy!(sx_adj);
+        write_if_noisy!(rx);
+        write_if_noisy!(ry);
+        write_if_noisy!(rz);
+        write_if_noisy!(cx);
+        write_if_noisy!(cy);
+        write_if_noisy!(cz);
+        write_if_noisy!(rxx);
+        write_if_noisy!(ryy);
+        write_if_noisy!(rzz);
+        write_if_noisy!(swap);
+        write_if_noisy!(ccx);
+        write_if_noisy!(mov);
+        write_if_noisy!(mz);
+        write_if_noisy!(mresetz);
+
+        // Write IdleNoiseParams.
+        if !self.idle.is_noiseless() {
+            writeln_field(f, "idle", &self.idle)?;
+        }
+
+        // Write intrinsics.
+        if !self.intrinsics.is_empty() {
+            writeln_header(f, "intrinsics")?;
+            for (id, table) in &self.intrinsics {
+                writeln_field(f, &id.to_string(), table)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// The probability of idle noise is computed using the equation:
@@ -152,6 +244,13 @@ pub struct IdleNoiseParams {
     pub s_probability: f32,
 }
 
+impl Display for IdleNoiseParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln_header(f, "IdleNoiseParams")?;
+        write_field(f, "s_probability", &self.s_probability)
+    }
+}
+
 impl Default for IdleNoiseParams {
     fn default() -> Self {
         Self::NOISELESS
@@ -160,6 +259,11 @@ impl Default for IdleNoiseParams {
 
 impl IdleNoiseParams {
     pub const NOISELESS: Self = Self { s_probability: 0.0 };
+
+    #[must_use]
+    pub const fn is_noiseless(&self) -> bool {
+        self.s_probability == 0.0
+    }
 
     #[must_use]
     pub fn s_probability(self, steps: u32) -> f32 {
@@ -202,6 +306,21 @@ impl<T: ConstZero + PartialOrd> NoiseTable<T> {
     #[must_use]
     pub fn has_pauli_noise(&self) -> bool {
         self.probabilities.iter().any(|p| *p > T::ZERO)
+    }
+}
+
+impl<T: Display> Display for NoiseTable<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const MAP: [char; 5] = ['I', 'X', 'Z', 'Y', 'L'];
+        writeln_header(f, "NoiseTable")?;
+        writeln_field(f, "qubits", &self.qubits)?;
+        for (encoded_pauli, probability) in self.pauli_strings.iter().zip(&self.probabilities) {
+            let fault_string: String = decode_pauli(*encoded_pauli, self.qubits, &MAP)
+                .into_iter()
+                .collect();
+            writeln_field(f, &fault_string, &probability)?;
+        }
+        Ok(())
     }
 }
 
