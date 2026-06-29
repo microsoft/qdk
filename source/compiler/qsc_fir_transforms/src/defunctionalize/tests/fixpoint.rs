@@ -811,14 +811,6 @@ fn nested_hof_requires_multi_iteration_convergence() {
                 op(q);
                 op(q);
             }
-            operation ApplyAndMeasure_Empty__AdjCtl__ApplyTwice_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Result {
-                ApplyTwice_Empty_(op, q);
-                M(q)
-            }
-            operation ApplyAndMeasure_Empty__AdjCtl__H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Result {
-                H(op, q);
-                M(q)
-            }
             operation ApplyAndMeasure_Empty__AdjCtl__ApplyTwice_Empty___H_(q : Qubit) : Result {
                 ApplyTwice_Empty__H_(q);
                 M(q)
@@ -1039,12 +1031,6 @@ fn transient_dynamic_resolves_after_outer_hof_specialization() {
             operation ApplyMiddle_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 ApplyInner_Empty_(op, q);
             }
-            operation ApplyOuter_Empty__AdjCtl__ApplyMiddle_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                ApplyMiddle_Empty_(op, q);
-            }
-            operation ApplyOuter_Empty__AdjCtl__H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(op, q);
-            }
             operation ApplyOuter_Empty__AdjCtl__ApplyMiddle_Empty___H_(q : Qubit) : Unit {
                 ApplyMiddle_Empty__H_(q);
             }
@@ -1216,14 +1202,6 @@ fn closure_in_active_call_arg_survives_cleanup() {
             }
             operation Apply2_Empty__AdjCtl_(f : (Qubit => Unit), g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 f(q);
-                g(q);
-            }
-            operation Apply2_Empty__AdjCtl__closure_(g : (Qubit => Unit is Adj + Ctl), q : Qubit, __capture_0 : Bool) : Unit {
-                _lambda_4(__capture_0, q);
-                g(q);
-            }
-            operation Apply2_Empty__AdjCtl__X_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                X(q);
                 g(q);
             }
             operation Apply2_Empty__AdjCtl__closure__X_(q : Qubit, __capture_0 : Bool) : Unit {
@@ -1417,32 +1395,8 @@ fn progress_tracking_allows_multi_iteration_convergence() {
             operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty__(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty_(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L1_Empty__(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L1_Empty_(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__H_(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___L1_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty__L1_Empty__(op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty_(H, op, q);
-            }
-            operation L2_Empty__Empty__L1_Empty__(op : (Qubit => Unit), q : Qubit) : Unit {
-                L1_Empty_(op, q);
-            }
             operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___L1_Empty___H_(q : Qubit) : Unit {
                 L2_Empty__Empty__L1_Empty___H_(q);
-            }
-            operation L2_Empty__Empty__L1_Empty__(op : (Qubit => Unit), q : Qubit) : Unit {
-                L1_Empty_(op, q);
-            }
-            operation L2_Empty__Empty__H_(op : (Qubit => Unit), q : Qubit) : Unit {
-                H(op, q);
             }
             operation L2_Empty__Empty__L1_Empty___H_(q : Qubit) : Unit {
                 L1_Empty__H_(q);

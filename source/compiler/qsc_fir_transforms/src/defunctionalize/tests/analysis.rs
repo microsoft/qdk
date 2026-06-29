@@ -155,14 +155,6 @@ fn analysis_multiple_callable_params() {
                 f(q);
                 g(q);
             }
-            operation ApplyTwo_AdjCtl__AdjCtl__H_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(q);
-                g(q);
-            }
-            operation ApplyTwo_AdjCtl__AdjCtl__X_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                X(q);
-                g(q);
-            }
             operation ApplyTwo_AdjCtl__AdjCtl__H__X_(q : Qubit) : Unit {
                 H(q);
                 X(q);

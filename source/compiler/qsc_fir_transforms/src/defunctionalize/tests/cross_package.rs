@@ -35,6 +35,9 @@ fn closure_spec_key_distinguishes_packages() {
             package: PackageId::from(0usize),
             item: LocalItemId::from(7usize),
         },
+        top_level_param: 0,
+        field_path: vec![],
+        hof_input_is_tuple: false,
         callable_arg: ConcreteCallable::Closure {
             target: LocalItemId::from(0usize),
             captures: vec![],

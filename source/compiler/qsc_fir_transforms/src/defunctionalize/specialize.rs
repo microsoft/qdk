@@ -22,10 +22,12 @@
 //! [`crate::invariants::InvariantLevel::PostDefunc`] invariant that no
 //! arrow types appear on reachable callable parameters or expressions.
 
-use super::build_spec_key;
 use super::types::{
     AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, Error, SpecKey,
     compose_functors, peel_body_functors,
+};
+use super::{
+    build_combined_spec_key, build_spec_key, is_combined_eligible, partition_mixed_branch_split,
 };
 use crate::EMPTY_EXEC_RANGE;
 use crate::cloner::FirCloner;
@@ -36,12 +38,14 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident, Item,
-    ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageStore,
-    Pat, PatId, PatKind, Res, StoreItemId, UnOp, Visibility,
+    Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Functor,
+    Ident, Item, ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
+    PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId, StoreItemId, UnOp, Visibility,
 };
 use qsc_fir::ty::{Arrow, Ty};
+use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::fmt::Write as _;
 use std::rc::Rc;
 
 /// Maximum number of specializations a single HOF may generate before a
@@ -58,6 +62,12 @@ pub(super) const CAPTURE_NAME_PREFIX: &str = "_.capture";
 /// Set of `LocalVarId`s that alias a nested callable parameter after
 /// destructuring (e.g. `let (op, _) = pair;` makes `op` an alias).
 type AliasSet = FxHashSet<LocalVarId>;
+
+/// Closure-capture threading record for one specialized parameter: the closure
+/// body's `LocalItemId` paired with the captured variables and their types.
+/// `None` marks an argument slot that holds a global callable rather than a
+/// closure.
+type ClosureInfo = Option<(LocalItemId, Vec<(LocalVarId, Ty)>)>;
 
 /// Resolves a `ConcreteCallable` to a compact label for inclusion in
 /// specialized callable names.  For globals, produces the callable name
@@ -90,6 +100,7 @@ fn resolve_callable_arg_label(store: &PackageStore, arg: &ConcreteCallable) -> S
 ///
 /// Returns a map from `SpecKey` to the `StoreItemId` of each newly created
 /// specialized callable.
+#[allow(clippy::too_many_lines)]
 pub(super) fn specialize(
     store: &mut PackageStore,
     analysis: &AnalysisResult,
@@ -99,79 +110,281 @@ pub(super) fn specialize(
     let mut errors: Vec<Error> = Vec::new();
     let mut recursion_guard: FxHashSet<SpecKey> = FxHashSet::default();
 
-    // Build a lookup from each HOF's StoreItemId → CallableParam for quick
-    // access. Use entry().or_insert() to keep the first (lowest-index) param
-    // per callable, ensuring deterministic behavior when a callable has
-    // multiple arrow params.
+    // Build a lookup from each HOF's StoreItemId => CallableParam. This
+    // lowest-index entry serves the per-row path, used by single-arrow-param
+    // HOFs and branch-split candidate sets where every row resolves the same
+    // parameter; it cannot distinguish between separate arrow parameters.
     let mut param_lookup: FxHashMap<StoreItemId, &CallableParam> = FxHashMap::default();
     for p in &analysis.callable_params {
         param_lookup.entry(p.callable_id).or_insert(p);
     }
 
+    // Build a precise lookup keyed by parameter position so a multi-argument
+    // call recovers the exact parameter for each distinct slot instead of
+    // collapsing every arrow parameter onto the lowest index.
+    let mut param_by_position: FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam> =
+        FxHashMap::default();
+    for p in &analysis.callable_params {
+        param_by_position.insert((p.callable_id, p.top_level_param, p.field_path.clone()), p);
+    }
+
+    // Group call sites by their originating call expression. A multi-argument
+    // HOF call contributes one row per arrow parameter; those rows specialize
+    // together into one clone under one combined key, so the cleanup that clears
+    // a producer closure's body cannot leave a sibling parameter referring to a
+    // removed body on a later iteration. Rows that share an expression but
+    // resolve the same parameter, the branch-split candidate sets, stay on the
+    // per-row path.
+    let mut groups: Vec<Vec<&CallSite>> = Vec::new();
+    let mut group_index: FxHashMap<(PackageId, ExprId), usize> = FxHashMap::default();
     for call_site in &analysis.call_sites {
-        let spec_key = build_spec_key(call_site);
-
-        // Already specialized — skip.
-        if dedup.contains_key(&spec_key) {
-            continue;
+        let group_key = (call_site.call_pkg_id, call_site.call_expr_id);
+        if let Some(&idx) = group_index.get(&group_key) {
+            groups[idx].push(call_site);
+        } else {
+            group_index.insert(group_key, groups.len());
+            groups.push(vec![call_site]);
         }
+    }
 
-        // Dynamic callables cannot be specialized — emit an error with the
-        // call-site span so the user gets an actionable diagnostic instead of
-        // the generic `FixpointNotReached` convergence error.
-        if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
-            let package = store.get(call_site.call_pkg_id);
-            let span = package.get_expr(call_site.call_expr_id).span;
-            errors.push(Error::DynamicCallable(span));
-            continue;
-        }
+    for group in &groups {
+        // Specialize and rewrite consult the same eligibility predicate so they
+        // agree on which call sites are combined. The borrow is scoped here so
+        // the combined branch can re-borrow the store mutably below.
+        let combined = {
+            let package = store.get(group[0].call_pkg_id);
+            is_combined_eligible(package, group)
+        };
+        if combined {
+            // Combined multi-argument specialization keyed by every resolved
+            // argument together.
+            let hof_item_id = group[0].hof_item_id;
+            let spec_key = build_combined_spec_key(hof_item_id, group);
 
-        // The HOF may live in a foreign package (e.g. a generic std lib
-        // callable monomorphized in place into its owning package). Confirm the
-        // HOF item actually exists in its declared package before proceeding.
-        let hof_store_id =
-            StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item));
-        if !store
-            .get(hof_store_id.package)
-            .items
-            .contains_key(hof_store_id.item)
-        {
-            continue;
-        }
+            if dedup.contains_key(&spec_key) {
+                continue;
+            }
 
-        // Recursive specialization guard.
-        if recursion_guard.contains(&spec_key) {
-            let package = store.get(call_site.call_pkg_id);
-            let span = package.get_expr(call_site.call_expr_id).span;
-            errors.push(Error::RecursiveSpecialization(span));
-            continue;
-        }
-        recursion_guard.insert(spec_key.clone());
+            let hof_store_id = StoreItemId::from((hof_item_id.package, hof_item_id.item));
+            if !store
+                .get(hof_store_id.package)
+                .items
+                .contains_key(hof_store_id.item)
+            {
+                continue;
+            }
 
-        // Look up the callable parameter for this HOF.
-        let Some(param) = param_lookup.get(&hof_store_id).copied() else {
+            if recursion_guard.contains(&spec_key) {
+                let package = store.get(group[0].call_pkg_id);
+                let span = package.get_expr(group[0].call_expr_id).span;
+                errors.push(Error::RecursiveSpecialization(span));
+                continue;
+            }
+            recursion_guard.insert(spec_key.clone());
+
+            // Recover the exact parameter for each row, then order the members
+            // ascending by parameter position so capture threading and
+            // call-site rewriting agree on operand order.
+            let mut members: Vec<(&CallSite, &CallableParam)> = Vec::with_capacity(group.len());
+            let mut all_resolved = true;
+            for call_site in group {
+                let position_key = (
+                    hof_store_id,
+                    call_site.top_level_param,
+                    call_site.field_path.clone(),
+                );
+                if let Some(param) = param_by_position.get(&position_key).copied() {
+                    members.push((*call_site, param));
+                } else {
+                    all_resolved = false;
+                    break;
+                }
+            }
+            if !all_resolved {
+                recursion_guard.remove(&spec_key);
+                continue;
+            }
+            members.sort_by(|a, b| {
+                a.1.top_level_param
+                    .cmp(&b.1.top_level_param)
+                    .then_with(|| a.1.field_path.cmp(&b.1.field_path))
+            });
+
+            let target_pkg_id = group[0].call_pkg_id;
+            let new_item_id = assigners.with_package(store, target_pkg_id, |store, assigner| {
+                let mut assigner = assigner;
+                let result = specialize_many(store, target_pkg_id, &members, &mut assigner);
+                (assigner, result)
+            });
+
+            if let Some(id) = new_item_id {
+                dedup.insert(spec_key.clone(), id);
+            }
             recursion_guard.remove(&spec_key);
             continue;
-        };
-
-        // Clone the HOF and produce a specialized callable. The spec is
-        // allocated into the call site's owning package via that package's own
-        // assigner (mirroring monomorphize's specialize-in-place). When the
-        // HOF lives in a different package, the cloned body references that
-        // package's nodes directly; closures threaded as arguments are local
-        // to the call site's package and so remain locally resolvable.
-        let target_pkg_id = call_site.call_pkg_id;
-        let new_item_id = assigners.with_package(store, target_pkg_id, |store, assigner| {
-            let mut assigner = assigner;
-            let result = specialize_one(store, target_pkg_id, call_site, param, &mut assigner);
-            (assigner, result)
-        });
-
-        if let Some(id) = new_item_id {
-            dedup.insert(spec_key.clone(), id);
         }
 
-        recursion_guard.remove(&spec_key);
+        // Combined per-candidate specialization for a mixed branch-split group.
+        // Such a group has one parameter dispatched over two or more candidates
+        // plus one or more single-valued sibling arrow parameters, at least one
+        // of which is a producer closure. Each dispatch candidate is specialized
+        // into one combined specialization, formed as `[candidate] + sibling
+        // parameters`, so each leaf inlines the single-valued producer closure
+        // in the same pass; the closure is consumed before
+        // `track_specialized_closures` or `cleanup_consumed_closures` can clear
+        // the producer body on a later iteration. The per-row path is skipped
+        // for this group so no single-argument producer specialization exists,
+        // which the consistency check in `track_specialized_closures` would
+        // otherwise reject.
+        if let Some((dispatch, constants)) = partition_mixed_branch_split(group) {
+            let hof_item_id = group[0].hof_item_id;
+            let hof_store_id = StoreItemId::from((hof_item_id.package, hof_item_id.item));
+            if !store
+                .get(hof_store_id.package)
+                .items
+                .contains_key(hof_store_id.item)
+            {
+                continue;
+            }
+            for candidate in &dispatch {
+                let mut members_cs: Vec<&CallSite> = Vec::with_capacity(constants.len() + 1);
+                members_cs.push(*candidate);
+                members_cs.extend(constants.iter().copied());
+                let spec_key = build_combined_spec_key(hof_item_id, &members_cs);
+                if dedup.contains_key(&spec_key) {
+                    continue;
+                }
+                if recursion_guard.contains(&spec_key) {
+                    let package = store.get(candidate.call_pkg_id);
+                    let span = package.get_expr(candidate.call_expr_id).span;
+                    errors.push(Error::RecursiveSpecialization(span));
+                    continue;
+                }
+                recursion_guard.insert(spec_key.clone());
+
+                // Resolve the exact parameter per member and order ascending by
+                // parameter position so capture threading and the leaf rewrite
+                // agree on operand order.
+                let mut members: Vec<(&CallSite, &CallableParam)> =
+                    Vec::with_capacity(members_cs.len());
+                let mut all_resolved = true;
+                for cs in &members_cs {
+                    let position_key = (hof_store_id, cs.top_level_param, cs.field_path.clone());
+                    if let Some(param) = param_by_position.get(&position_key).copied() {
+                        members.push((*cs, param));
+                    } else {
+                        all_resolved = false;
+                        break;
+                    }
+                }
+                if !all_resolved {
+                    recursion_guard.remove(&spec_key);
+                    continue;
+                }
+                members.sort_by(|a, b| {
+                    a.1.top_level_param
+                        .cmp(&b.1.top_level_param)
+                        .then_with(|| a.1.field_path.cmp(&b.1.field_path))
+                });
+
+                let target_pkg_id = candidate.call_pkg_id;
+                let new_item_id =
+                    assigners.with_package(store, target_pkg_id, |store, assigner| {
+                        let mut assigner = assigner;
+                        let result = specialize_many(store, target_pkg_id, &members, &mut assigner);
+                        (assigner, result)
+                    });
+
+                if let Some(id) = new_item_id {
+                    dedup.insert(spec_key.clone(), id);
+                }
+                recursion_guard.remove(&spec_key);
+            }
+            continue;
+        }
+
+        // Per-row path: each call site is specialized independently under its
+        // single-argument key.
+        for call_site in group {
+            let call_site: &CallSite = call_site;
+            let spec_key = build_spec_key(call_site);
+
+            // Already specialized — skip.
+            if dedup.contains_key(&spec_key) {
+                continue;
+            }
+
+            // Dynamic callables cannot be specialized — emit an error with the
+            // call-site span so the user gets an actionable diagnostic instead of
+            // the generic `FixpointNotReached` convergence error.
+            if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
+                let package = store.get(call_site.call_pkg_id);
+                let span = package.get_expr(call_site.call_expr_id).span;
+                errors.push(Error::DynamicCallable(span));
+                continue;
+            }
+
+            // The HOF may live in a foreign package, for example a generic std
+            // lib callable monomorphized in place into its owning package.
+            // Confirm the HOF item actually exists in its declared package
+            // before proceeding.
+            let hof_store_id =
+                StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item));
+            if !store
+                .get(hof_store_id.package)
+                .items
+                .contains_key(hof_store_id.item)
+            {
+                continue;
+            }
+
+            // Recursive specialization guard.
+            if recursion_guard.contains(&spec_key) {
+                let package = store.get(call_site.call_pkg_id);
+                let span = package.get_expr(call_site.call_expr_id).span;
+                errors.push(Error::RecursiveSpecialization(span));
+                continue;
+            }
+            recursion_guard.insert(spec_key.clone());
+
+            // Look up the callable parameter for this HOF, preferring the exact
+            // per-position match so a per-row specialization removes its own slot
+            // rather than the lowest-index slot. This keeps the specialize side
+            // in agreement with the rewrite side's slot removal at the same
+            // parameter position.
+            let position_key = (
+                hof_store_id,
+                call_site.top_level_param,
+                call_site.field_path.clone(),
+            );
+            let Some(param) = param_by_position
+                .get(&position_key)
+                .or_else(|| param_lookup.get(&hof_store_id))
+                .copied()
+            else {
+                recursion_guard.remove(&spec_key);
+                continue;
+            };
+
+            // Clone the HOF and produce a specialized callable. The spec is
+            // allocated into the call site's owning package via that package's
+            // own assigner, mirroring monomorphize's specialize-in-place. When
+            // the HOF lives in a different package, the cloned body references
+            // that package's nodes directly; closures threaded as arguments are
+            // local to the call site's package and so remain locally resolvable.
+            let target_pkg_id = call_site.call_pkg_id;
+            let new_item_id = assigners.with_package(store, target_pkg_id, |store, assigner| {
+                let mut assigner = assigner;
+                let result = specialize_one(store, target_pkg_id, call_site, param, &mut assigner);
+                (assigner, result)
+            });
+
+            if let Some(id) = new_item_id {
+                dedup.insert(spec_key.clone(), id);
+            }
+
+            recursion_guard.remove(&spec_key);
+        }
     }
 
     // Count specializations per HOF and emit a warning when the threshold
@@ -374,6 +587,223 @@ fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
     new_ty
 }
 
+/// Specializes a higher-order function for a group of concrete callable
+/// arguments that share one call expression — one row per arrow parameter.
+///
+/// `group` must be ordered ascending by parameter position. The HOF is cloned
+/// once; every parameter is rewritten against the shared clone so the cleanup
+/// that clears a producer closure's body cannot leave a sibling parameter
+/// referring to a removed body. Each closure argument's captures are threaded
+/// onto the specialized input in ascending parameter order, and each closure's
+/// capture-prepend post-pass is scoped to exactly the calls that parameter
+/// retargeted so same-target producer closures receive their own captures.
+///
+/// Single-row groups delegate to [`specialize_one`] so single-arrow-param
+/// specializations stay byte-identical.
+#[allow(clippy::too_many_lines)]
+fn specialize_many(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    group: &[(&CallSite, &CallableParam)],
+    assigner: &mut Assigner,
+) -> Option<StoreItemId> {
+    if group.len() == 1 {
+        let (call_site, param) = group[0];
+        return specialize_one(store, package_id, call_site, param, assigner);
+    }
+
+    // Every row shares one call expression and therefore one HOF.
+    let hof_item_id = group[0].0.hof_item_id;
+    let hof_pkg_id = hof_item_id.package;
+
+    let (body_pkg, decl_snapshot) = {
+        let package = store.get(hof_pkg_id);
+        let hof_item = package.get_item(hof_item_id.item);
+        let ItemKind::Callable(ref hof_decl) = hof_item.kind else {
+            return None;
+        };
+        let body_pkg = extract_callable_body(package, hof_decl);
+        let decl_snapshot = hof_decl.as_ref().clone();
+        (body_pkg, decl_snapshot)
+    }; // immutable borrow released
+
+    // Name the specialization after every argument label in parameter order:
+    // `HOF{labelA}{labelB}`.
+    let mut spec_name = decl_snapshot.name.name.to_string();
+    for (call_site, _) in group {
+        let label = resolve_callable_arg_label(store, &call_site.callable_arg);
+        write!(spec_name, "{{{label}}}").expect("writing to a String is infallible");
+    }
+    let hof_name: Rc<str> = Rc::from(spec_name);
+
+    let target = store.get_mut(package_id);
+    let new_item_id = assigner.next_item();
+    let owned_assigner = std::mem::take(assigner);
+    let mut cloner = FirCloner::from_assigner(owned_assigner);
+    cloner.reset_maps();
+
+    // Clone the input before the impl so `local_map` holds the input parameter
+    // mappings when the callable body is walked.
+    let cloned_input = cloner.clone_pat(&body_pkg, decl_snapshot.input, target);
+    let cloned_impl = cloner.clone_callable_impl(&body_pkg, &decl_snapshot.implementation, target);
+
+    // Remap each parameter through the cloner's maps.
+    let remapped_params: Vec<CallableParam> = group
+        .iter()
+        .map(|(_, param)| {
+            let remapped_param_var = *cloner
+                .local_map()
+                .get(&param.param_var)
+                .expect("param_var should be in local_map after cloning input first");
+            CallableParam::new(
+                param.callable_id,
+                cloner
+                    .pat_map()
+                    .get(&param.param_pat_id)
+                    .copied()
+                    .unwrap_or(param.param_pat_id),
+                param.top_level_param,
+                param.field_path.clone(),
+                remapped_param_var,
+                param.param_ty.clone(),
+                param.hof_input_is_tuple,
+            )
+        })
+        .collect();
+
+    let mut new_decl = CallableDecl {
+        span: decl_snapshot.span,
+        kind: decl_snapshot.kind,
+        name: Ident {
+            id: LocalVarId::from(0_u32),
+            span: decl_snapshot.name.span,
+            name: hof_name,
+        },
+        generics: decl_snapshot.generics.clone(),
+        input: cloned_input,
+        output: decl_snapshot.output.clone(),
+        functors: decl_snapshot.functors,
+        implementation: cloned_impl,
+        attrs: decl_snapshot.attrs.clone(),
+    };
+
+    // Thread each closure argument's captures onto the specialized input in
+    // ascending parameter order, continuing one capture counter across
+    // parameters. Capture threading must happen before recovering the assigner
+    // because it allocates through the cloner.
+    let mut closure_infos: Vec<ClosureInfo> = Vec::with_capacity(group.len());
+    let mut capture_offset = 0usize;
+    for ((call_site, _), remapped_param) in group.iter().zip(remapped_params.iter()) {
+        if let ConcreteCallable::Closure {
+            ref captures,
+            target: closure_target,
+            ..
+        } = call_site.callable_arg
+        {
+            let capture_bindings = thread_closure_captures(
+                &mut cloner,
+                target,
+                &mut new_decl,
+                remapped_param,
+                captures,
+                capture_offset,
+            );
+            capture_offset += capture_bindings.len();
+            closure_infos.push(Some((closure_target, capture_bindings)));
+        } else {
+            closure_infos.push(None);
+        }
+    }
+    let total_captures = capture_offset;
+
+    // Recover the assigner from the cloner so all subsequent allocations flow
+    // through the shared pipeline assigner.
+    *assigner = cloner.into_assigner();
+
+    // Transform the body once per parameter against the shared clone. A single
+    // dedup set is shared across parameters so a lifted lambda captured by more
+    // than one parameter is specialized once. Each closure's capture-prepend is
+    // scoped to the calls that parameter retargeted, the set difference of calls
+    // to the closure target before and after the transform, which keeps
+    // same-target producer closures from double-prepending each other's
+    // captures.
+    let impl_clone = new_decl.implementation.clone();
+    let mut specialized_capture_targets: FxHashSet<LocalItemId> = FxHashSet::default();
+    for (((call_site, _), remapped_param), closure_info) in group
+        .iter()
+        .zip(remapped_params.iter())
+        .zip(closure_infos.iter())
+    {
+        if let Some((closure_target, capture_bindings)) = closure_info {
+            let before =
+                collect_calls_to_closure_target(target, &impl_clone, package_id, *closure_target);
+            transform_callable_body(
+                target,
+                package_id,
+                &impl_clone,
+                remapped_param,
+                &call_site.callable_arg,
+                &mut specialized_capture_targets,
+                assigner,
+            );
+            let after =
+                collect_calls_to_closure_target(target, &impl_clone, package_id, *closure_target);
+            let retargeted: Vec<ExprId> = after.difference(&before).copied().collect();
+            prepend_captures_to_calls(
+                target,
+                &retargeted,
+                package_id,
+                *closure_target,
+                capture_bindings,
+                assigner,
+            );
+        } else {
+            transform_callable_body(
+                target,
+                package_id,
+                &impl_clone,
+                remapped_param,
+                &call_site.callable_arg,
+                &mut specialized_capture_targets,
+                assigner,
+            );
+        }
+    }
+
+    // Remove every arrow parameter slot in a single pass and refresh types.
+    // A tuple-valued parameter specialized through all of its arrow fields
+    // leaves a dead `let (a, b, …) = ops` destructuring that still references
+    // the slot about to be removed; drop those statements first so the removed
+    // slot has no dangling references.
+    let nested_param_vars: FxHashSet<LocalVarId> = remapped_params
+        .iter()
+        .filter(|p| !p.field_path.is_empty())
+        .map(|p| p.param_var)
+        .collect();
+    if !nested_param_vars.is_empty() {
+        remove_param_destructuring_stmts(target, &new_decl.implementation, &nested_param_vars);
+    }
+    let param_refs: Vec<&CallableParam> = remapped_params.iter().collect();
+    remove_callable_params(target, &mut new_decl, &param_refs, total_captures);
+    refresh_rewritten_value_types(target, &new_decl.implementation);
+
+    let new_item = Item {
+        id: new_item_id,
+        span: Span::default(),
+        parent: None,
+        doc: Rc::from(""),
+        attrs: Vec::new(),
+        visibility: Visibility::Internal,
+        kind: ItemKind::Callable(Box::new(new_decl)),
+    };
+    target.items.insert(new_item_id, new_item);
+
+    Some(StoreItemId {
+        package: package_id,
+        item: new_item_id,
+    })
+}
+
 /// Clones a HOF callable, transforms its body to replace the callable
 /// parameter with the concrete callee, and inserts the specialized callable
 /// into the target (`package_id`) package. The HOF body is read from
@@ -467,6 +897,7 @@ fn specialize_one(
             &mut new_decl,
             &remapped_param,
             captures,
+            0,
         );
         Some((closure_target, capture_bindings))
     } else {
@@ -478,15 +909,25 @@ fn specialize_one(
     *assigner = cloner.into_assigner();
 
     // Transform the body to replace callable param with the concrete callee.
+    // A callable's functored specs share one lifted lambda item, so a fresh
+    // dedup set guards against re-specializing it across this param's specs.
     let impl_clone = new_decl.implementation.clone();
+    let mut specialized_capture_targets: FxHashSet<LocalItemId> = FxHashSet::default();
     transform_callable_body(
         target,
         package_id,
         &impl_clone,
         &remapped_param,
         &call_site.callable_arg,
+        &mut specialized_capture_targets,
         assigner,
     );
+
+    // Whether the removed callable threaded closure captures as new input
+    // slots. This governs how a fully consumed tuple parameter is handled below.
+    let had_closure_captures = closure_info
+        .as_ref()
+        .is_some_and(|(_, caps)| !caps.is_empty());
 
     if let Some((closure_target, capture_bindings)) = closure_info {
         rewrite_closure_target_call_args(
@@ -500,7 +941,11 @@ fn specialize_one(
     }
 
     // Remove the callable parameter from the input pattern and update types.
-    remove_callable_param(target, &mut new_decl, &remapped_param);
+    // When the removed callable was a closure with captures, those captures were
+    // threaded as new input slots and the call site drops the consumed slot, so
+    // a fully consumed tuple parameter must be dropped rather than retyped to
+    // unit.
+    remove_callable_param(target, &mut new_decl, &remapped_param, had_closure_captures);
     refresh_rewritten_value_types(target, &new_decl.implementation);
 
     // Insert the new item.
@@ -524,21 +969,21 @@ fn specialize_one(
 /// Transforms all specialization bodies in a callable implementation,
 /// replacing uses of the callable parameter with direct calls to the concrete
 /// callee.
+///
+/// `specialized_capture_targets` tracks lifted lambda items already specialized
+/// for a captured callable parameter. It is supplied by the caller so a
+/// multi-argument specialization can share one set across every parameter's
+/// transform pass; single-argument callers pass a fresh set.
 fn transform_callable_body(
     package: &mut Package,
     package_id: PackageId,
     callable_impl: &CallableImpl,
     param: &CallableParam,
     concrete: &ConcreteCallable,
+    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
     assigner: &mut Assigner,
 ) {
     let mut alias_set = AliasSet::default();
-    // A callable's functored specs share one lifted lambda item. When a closure
-    // captures the param being specialized, the shared lambda must be
-    // specialized only once, or sibling specs would corrupt it; each spec's
-    // closure still drops its own capture independently. Track which lambda
-    // targets are already specialized to enforce this.
-    let mut specialized_capture_targets: FxHashSet<LocalItemId> = FxHashSet::default();
     match callable_impl {
         CallableImpl::Intrinsic => {}
         CallableImpl::Spec(spec_impl) => {
@@ -549,7 +994,7 @@ fn transform_callable_body(
                 param,
                 concrete,
                 &mut alias_set,
-                &mut specialized_capture_targets,
+                specialized_capture_targets,
                 assigner,
             );
             if let Some(ref adj) = spec_impl.adj {
@@ -560,7 +1005,7 @@ fn transform_callable_body(
                     param,
                     concrete,
                     &mut alias_set,
-                    &mut specialized_capture_targets,
+                    specialized_capture_targets,
                     assigner,
                 );
             }
@@ -572,7 +1017,7 @@ fn transform_callable_body(
                     param,
                     concrete,
                     &mut alias_set,
-                    &mut specialized_capture_targets,
+                    specialized_capture_targets,
                     assigner,
                 );
             }
@@ -584,7 +1029,7 @@ fn transform_callable_body(
                     param,
                     concrete,
                     &mut alias_set,
-                    &mut specialized_capture_targets,
+                    specialized_capture_targets,
                     assigner,
                 );
             }
@@ -597,7 +1042,7 @@ fn transform_callable_body(
                 param,
                 concrete,
                 &mut alias_set,
-                &mut specialized_capture_targets,
+                specialized_capture_targets,
                 assigner,
             );
         }
@@ -1501,13 +1946,16 @@ fn specialize_closure_target_for_captured_param(
     );
 
     // Step 3: Transform the target callable's body to replace uses of the
-    // captured param with the concrete callable.
+    // captured param with the concrete callable. This rewrites a distinct
+    // callable, the closure target, so it uses its own fresh dedup set.
+    let mut specialized_capture_targets: FxHashSet<LocalItemId> = FxHashSet::default();
     transform_callable_body(
         package,
         package_id,
         &target_decl.implementation,
         &closure_param,
         concrete,
+        &mut specialized_capture_targets,
         assigner,
     );
 
@@ -1621,6 +2069,7 @@ fn thread_closure_captures(
     decl: &mut CallableDecl,
     _param: &CallableParam,
     captures: &[CapturedVar],
+    name_offset: usize,
 ) -> Vec<(LocalVarId, Ty)> {
     if captures.is_empty() {
         return Vec::new();
@@ -1636,7 +2085,11 @@ fn thread_closure_captures(
         let new_local_var = cloner.alloc_local(capture.var);
         capture_bindings.push((new_local_var, capture.ty.clone()));
 
-        let name: Rc<str> = Rc::from(format!("{CAPTURE_NAME_PREFIX}_{i}"));
+        // `name_offset` continues the capture counter across parameters so a
+        // multi-argument specialization gets `_.capture_0`, `_.capture_1`, …
+        // without collisions; single-argument callers pass `0`, preserving the
+        // original spelling.
+        let name: Rc<str> = Rc::from(format!("{CAPTURE_NAME_PREFIX}_{}", name_offset + i));
         let new_pat = Pat {
             id: new_pat_id,
             span: Span::default(),
@@ -1693,6 +2146,129 @@ fn thread_closure_captures(
     }
 
     capture_bindings
+}
+
+/// Read-only collector that records every `Call` expression whose callee
+/// resolves to a specific closure-target item in `package_id` after peeling
+/// functor wrappers. Mirrors the matcher in
+/// [`rewrite_closure_target_call_args_in_expr`] so the call sets agree.
+struct ClosureTargetCallCollector<'a> {
+    package: &'a Package,
+    package_id: PackageId,
+    closure_target: LocalItemId,
+    calls: FxHashSet<ExprId>,
+}
+
+impl<'a> Visitor<'a> for ClosureTargetCallCollector<'a> {
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.package.get_block(id)
+    }
+
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.package.get_expr(id)
+    }
+
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.package.get_pat(id)
+    }
+
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.package.get_stmt(id)
+    }
+
+    fn visit_expr(&mut self, id: ExprId) {
+        if let ExprKind::Call(callee_id, _) = self.package.get_expr(id).kind {
+            let (base_id, _) = peel_body_functors(self.package, callee_id);
+            if matches!(
+                self.package.get_expr(base_id).kind,
+                ExprKind::Var(
+                    Res::Item(ItemId {
+                        package: callee_package,
+                        item: callee_item,
+                    }),
+                    _,
+                ) if callee_package == self.package_id && callee_item == self.closure_target
+            ) {
+                self.calls.insert(id);
+            }
+        }
+        visit::walk_expr(self, id);
+    }
+}
+
+/// Collects the set of `Call` expressions in a callable implementation whose
+/// callee resolves to `closure_target`. Used by [`specialize_many`] to scope a
+/// closure's capture-prepend to exactly the calls a parameter retargeted.
+fn collect_calls_to_closure_target(
+    package: &Package,
+    callable_impl: &CallableImpl,
+    package_id: PackageId,
+    closure_target: LocalItemId,
+) -> FxHashSet<ExprId> {
+    let mut collector = ClosureTargetCallCollector {
+        package,
+        package_id,
+        closure_target,
+        calls: FxHashSet::default(),
+    };
+    match callable_impl {
+        CallableImpl::Intrinsic => {}
+        CallableImpl::Spec(spec_impl) => {
+            collector.visit_block(spec_impl.body.block);
+            if let Some(adj) = &spec_impl.adj {
+                collector.visit_block(adj.block);
+            }
+            if let Some(ctl) = &spec_impl.ctl {
+                collector.visit_block(ctl.block);
+            }
+            if let Some(ctl_adj) = &spec_impl.ctl_adj {
+                collector.visit_block(ctl_adj.block);
+            }
+        }
+        CallableImpl::SimulatableIntrinsic(spec_decl) => {
+            collector.visit_block(spec_decl.block);
+        }
+    }
+    collector.calls
+}
+
+/// Prepends a closure's captured operands to a specific set of already-located
+/// `Call` expressions, the calls a single parameter retargeted, re-peeling each
+/// call's functor wrappers to recover its controlled-layer count. This is the
+/// scoped counterpart to [`rewrite_closure_target_call_args`], which walks a
+/// whole body for one closure target.
+fn prepend_captures_to_calls(
+    package: &mut Package,
+    call_ids: &[ExprId],
+    package_id: PackageId,
+    closure_target: LocalItemId,
+    capture_bindings: &[(LocalVarId, Ty)],
+    assigner: &mut Assigner,
+) {
+    for &call_id in call_ids {
+        let ExprKind::Call(callee_id, args_id) = package.get_expr(call_id).kind else {
+            continue;
+        };
+        let (base_id, outer_functor) = peel_body_functors(package, callee_id);
+        if matches!(
+            package.get_expr(base_id).kind,
+            ExprKind::Var(
+                Res::Item(ItemId {
+                    package: callee_package,
+                    item: callee_item,
+                }),
+                _,
+            ) if callee_package == package_id && callee_item == closure_target
+        ) {
+            prepend_capture_args_to_call(
+                package,
+                args_id,
+                capture_bindings,
+                usize::from(outer_functor.controlled),
+                assigner,
+            );
+        }
+    }
 }
 
 /// Rewrites the call-argument expression for a closure target by splicing
@@ -2175,25 +2751,178 @@ fn prepend_capture_args_to_call(
     args_expr.ty = Ty::Tuple(tuple_tys);
 }
 
-/// Removes the callable parameter from the specialized callable's input
-/// pattern and updates the corresponding types.
+/// Collects the block ids of every specialization of a callable implementation:
+/// `body`, `adj`, `ctl`, and `ctl_adj`.
+fn spec_block_ids(callable_impl: &CallableImpl) -> Vec<qsc_fir::fir::BlockId> {
+    let mut ids = Vec::new();
+    match callable_impl {
+        CallableImpl::Intrinsic => {}
+        CallableImpl::Spec(spec_impl) => {
+            ids.push(spec_impl.body.block);
+            if let Some(ref adj) = spec_impl.adj {
+                ids.push(adj.block);
+            }
+            if let Some(ref ctl) = spec_impl.ctl {
+                ids.push(ctl.block);
+            }
+            if let Some(ref ctl_adj) = spec_impl.ctl_adj {
+                ids.push(ctl_adj.block);
+            }
+        }
+        CallableImpl::SimulatableIntrinsic(spec_decl) => ids.push(spec_decl.block),
+    }
+    ids
+}
+
+/// Drops `let <pat> = <param_var>` destructuring statements from every
+/// specialization block.
+///
+/// The combined nested path in [`specialize_many`] removes a tuple-valued
+/// parameter slot once all of its arrow fields have been specialized away and
+/// their projected calls retargeted. The destructuring that bound those fields
+/// is then dead and still references the slot about to be removed, so it must
+/// be dropped to avoid a dangling parameter reference. Orphaned statement nodes
+/// are reclaimed by the later unreachable-node collection.
+///
+/// Only statements whose initializer is a direct `Var(Local(param_var))` are
+/// removed; tuple fields reached through intermediate alias bindings are not
+/// covered, which keeps the combined path scoped to direct destructuring.
+fn remove_param_destructuring_stmts(
+    package: &mut Package,
+    callable_impl: &CallableImpl,
+    param_vars: &FxHashSet<LocalVarId>,
+) {
+    for block_id in spec_block_ids(callable_impl) {
+        let stmt_ids = package
+            .blocks
+            .get(block_id)
+            .expect("block not found")
+            .stmts
+            .clone();
+        let mut retained = Vec::with_capacity(stmt_ids.len());
+        for stmt_id in stmt_ids {
+            let stmt = package.stmts.get(stmt_id).expect("stmt not found");
+            let drop_stmt = if let qsc_fir::fir::StmtKind::Local(_, _, expr_id) = &stmt.kind {
+                let init = package.exprs.get(*expr_id).expect("expr not found");
+                matches!(&init.kind, ExprKind::Var(Res::Local(var), _) if param_vars.contains(var))
+            } else {
+                false
+            };
+            if !drop_stmt {
+                retained.push(stmt_id);
+            }
+        }
+        package
+            .blocks
+            .get_mut(block_id)
+            .expect("block not found")
+            .stmts = retained;
+    }
+}
+
+/// Removes several callable parameter slots from a specialized callable's input
+/// pattern in a single pass, updating the corresponding types.
 ///
 /// # Before
 /// ```text
-/// input = (param_0, callable_param, param_2)   // top_level_param = 1
+/// input = (param_0, callable_param, param_2)   // a removed slot at index 1
 /// ```
 /// # After
 /// ```text
-/// input = (param_0, param_2)   // callable_param removed
+/// input = (param_0, param_2)   // removed slots dropped
 /// ```
 ///
 /// # Mutations
 /// - Rewrites the input `Pat` node's `kind` and `ty` in place.
 /// - Flattens single-element tuples.
 /// - For nested params, delegates to [`remove_nested_callable_param`].
-fn remove_callable_param(package: &mut Package, decl: &mut CallableDecl, param: &CallableParam) {
+///
+/// Used by [`specialize_many`] when more than one arrow parameter is removed at
+/// once: filtering the slots one at a time would shift the surviving indices
+/// between removals. Each member is removed by its top-level slot. A nested
+/// member, one selecting an arrow field of a tuple-valued parameter, only
+/// reaches here when its group covers every field of that tuple, which
+/// [`super::is_combined_eligible`] checks, so its whole top-level slot is
+/// dropped and the dead destructuring of that slot is removed beforehand by
+/// [`remove_param_destructuring_stmts`].
+///
+/// `num_appended_captures` is the count of capture patterns already appended to
+/// the input by [`thread_closure_captures`]. The surviving input is flattened to
+/// a scalar only when exactly one element remains and no captures were appended,
+/// so a lone surviving capture keeps its tuple shape and stays aligned with the
+/// call-site rewrite that supplies the capture operand.
+fn remove_callable_params(
+    package: &mut Package,
+    decl: &mut CallableDecl,
+    params: &[&CallableParam],
+    num_appended_captures: usize,
+) {
+    // Every member is removed by its top-level slot. A nested member, one that
+    // selects an arrow field of a tuple-valued parameter, reaches here only when
+    // its group covers the whole tuple, which `is_combined_eligible` checks, so
+    // the entire slot is dropped; the now-dead destructuring of that slot is
+    // removed separately by `remove_param_destructuring_stmts`.
+    let remove: FxHashSet<usize> = params.iter().map(|p| p.top_level_param).collect();
+
+    let input_pat = package
+        .pats
+        .get(decl.input)
+        .expect("input pat not found")
+        .clone();
+
+    match &input_pat.kind {
+        PatKind::Tuple(pats) => {
+            let tys = match &input_pat.ty {
+                Ty::Tuple(tys) => tys.clone(),
+                _ => vec![input_pat.ty.clone(); pats.len()],
+            };
+
+            let mut new_pats: Vec<PatId> = Vec::new();
+            let mut new_tys: Vec<Ty> = Vec::new();
+            for (i, (&pat_id, ty)) in pats.iter().zip(tys.iter()).enumerate() {
+                if !remove.contains(&i) {
+                    new_pats.push(pat_id);
+                    new_tys.push(ty.clone());
+                }
+            }
+
+            if new_pats.len() == 1 && num_appended_captures == 0 {
+                // Flatten single-element tuple to the single pattern.
+                decl.input = new_pats[0];
+            } else {
+                let input_pat_mut = package.pats.get_mut(decl.input).expect("pat not found");
+                input_pat_mut.kind = PatKind::Tuple(new_pats);
+                input_pat_mut.ty = Ty::Tuple(new_tys);
+            }
+        }
+        PatKind::Bind(_) => {
+            // A single tuple-valued parameter whose every arrow field is
+            // specialized away leaves no surviving input. Captures, when
+            // present, are threaded by wrapping the bind in a tuple before this
+            // runs, so reaching the bind arm means no captures were appended and
+            // the input collapses to unit.
+            debug_assert!(
+                num_appended_captures == 0,
+                "captures wrap the input in a tuple before removal"
+            );
+            let input_pat_mut = package.pats.get_mut(decl.input).expect("pat not found");
+            input_pat_mut.kind = PatKind::Tuple(Vec::new());
+            input_pat_mut.ty = Ty::UNIT;
+        }
+        PatKind::Discard => {
+            // A discard input binds nothing to remove.
+        }
+    }
+}
+
+fn remove_callable_param(
+    package: &mut Package,
+    decl: &mut CallableDecl,
+    param: &CallableParam,
+    had_closure_captures: bool,
+) {
     if !param.field_path.is_empty() {
-        remove_nested_callable_param(package, decl, param);
+        remove_nested_callable_param(package, decl, param, had_closure_captures);
         return;
     }
 
@@ -2261,6 +2990,7 @@ fn remove_nested_callable_param(
     package: &mut Package,
     decl: &mut CallableDecl,
     param: &CallableParam,
+    had_closure_captures: bool,
 ) {
     let input_pat = package
         .pats
@@ -2270,6 +3000,15 @@ fn remove_nested_callable_param(
 
     let outer_idx = param.top_level_param;
     let inner_path = param.field_path.as_slice();
+
+    // Set when the nested removal consumes the parameter's entire tuple, a
+    // single-field tuple whose only element was an inlined arrow, and closure
+    // captures were threaded as new slots. In that case the parameter's slot and
+    // its destructuring are removed rather than retyped to unit, matching the
+    // call site that drops the consumed slot and supplies the captures. Without
+    // threaded captures the call site keeps the slot as `()`, so the parameter
+    // is retyped to unit; the captureless path is unchanged.
+    let mut fully_consumed = false;
 
     // Structural type of the parameter before its callable field is removed.
     // Captured so sibling field accesses in the body can be reindexed against
@@ -2281,13 +3020,44 @@ fn remove_nested_callable_param(
             let sub_pat = package.pats.get(sub_pat_id).expect("pat not found").clone();
             let orig_ty = sub_pat.ty.clone();
             let new_ty = remove_ty_at_nested_path(package, &sub_pat.ty, inner_path);
-            let sub_pat_mut = package.pats.get_mut(sub_pat_id).expect("pat not found");
-            sub_pat_mut.ty = new_ty.clone();
+            fully_consumed =
+                had_closure_captures && matches!(new_ty, Ty::Tuple(ref t) if t.is_empty());
 
-            // Update the outer tuple's type to reflect the changed sub-parameter.
-            let input_pat_mut = package.pats.get_mut(decl.input).expect("pat not found");
-            if let Ty::Tuple(ref mut tys) = input_pat_mut.ty {
-                tys[outer_idx] = new_ty;
+            if fully_consumed {
+                // The removal consumed the parameter's entire tuple, a
+                // single-field tuple whose only element was an inlined arrow.
+                // The sub-slot carries no surviving input, so drop it from the
+                // outer tuple, mirroring the non-nested removal, instead of
+                // leaving a phantom unit parameter that the call site does not
+                // supply. The dead destructuring of this slot is removed below.
+                let tys = match &input_pat.ty {
+                    Ty::Tuple(tys) => tys.clone(),
+                    _ => vec![input_pat.ty.clone(); pats.len()],
+                };
+                let mut new_pats: Vec<PatId> = Vec::new();
+                let mut new_tys: Vec<Ty> = Vec::new();
+                for (i, (&pat_id, ty)) in pats.iter().zip(tys.iter()).enumerate() {
+                    if i != outer_idx {
+                        new_pats.push(pat_id);
+                        new_tys.push(ty.clone());
+                    }
+                }
+                // Keep the surviving slots as a tuple rather than flattening a
+                // lone survivor. The call-site rewrite preserves the outer
+                // tuple shape, swapping the consumed callable for its appended
+                // capture, so the specialized input must stay a tuple to match.
+                let input_pat_mut = package.pats.get_mut(decl.input).expect("pat not found");
+                input_pat_mut.kind = PatKind::Tuple(new_pats);
+                input_pat_mut.ty = Ty::Tuple(new_tys);
+            } else {
+                let sub_pat_mut = package.pats.get_mut(sub_pat_id).expect("pat not found");
+                sub_pat_mut.ty = new_ty.clone();
+
+                // Update the outer tuple's type to reflect the changed sub-parameter.
+                let input_pat_mut = package.pats.get_mut(decl.input).expect("pat not found");
+                if let Ty::Tuple(ref mut tys) = input_pat_mut.ty {
+                    tys[outer_idx] = new_ty;
+                }
             }
             Some(orig_ty)
         }
@@ -2321,7 +3091,15 @@ fn remove_nested_callable_param(
 
     // Rewrite destructuring patterns in the body that bind param_var's tuple.
     if !inner_path.is_empty() {
-        if let CallableImpl::Spec(spec_impl) = &decl.implementation {
+        if fully_consumed {
+            // The parameter's entire tuple was consumed, so its destructuring
+            // binding `let (a,) = ops` is dead; the body's calls were already
+            // rewritten to the inlined callable. Remove the binding rather than
+            // rewriting it to a dangling `let () = ops`.
+            let mut param_vars = FxHashSet::default();
+            param_vars.insert(param.param_var);
+            remove_param_destructuring_stmts(package, &decl.implementation, &param_vars);
+        } else if let CallableImpl::Spec(spec_impl) = &decl.implementation {
             rewrite_destructuring_pat_in_block(
                 package,
                 spec_impl.body.block,

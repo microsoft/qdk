@@ -40,7 +40,10 @@ use super::types::{
     AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, DirectCallSite,
     SpecKey, peel_body_functors,
 };
-use super::{build_spec_key, ty_contains_arrow};
+use super::{
+    build_combined_spec_key, build_spec_key, is_combined_eligible, partition_mixed_branch_split,
+    ty_contains_arrow,
+};
 use crate::EMPTY_EXEC_RANGE;
 use crate::walk_utils::{DirectChild, UseClass, classify_block_use, for_each_direct_child};
 use qsc_data_structures::functors::FunctorApp;
@@ -85,7 +88,9 @@ pub(super) fn rewrite(
     let expr_owner_lookup = build_expr_owner_lookup(package);
     let mut rewritten_callable_arg_locals = FxHashSet::default();
 
-    // Build a lookup from each HOF's StoreItemId → CallableParam.
+    // Lowest-index lookup serves the per-row and branch-split paths, where
+    // every row of a group resolves the same parameter; it cannot distinguish
+    // between separate arrow parameters.
     let param_lookup: FxHashMap<StoreItemId, &CallableParam> = {
         let mut map = FxHashMap::default();
         for p in &analysis.callable_params {
@@ -94,40 +99,202 @@ pub(super) fn rewrite(
         map
     };
 
-    // Group resolved call sites by call_expr_id so that multi-callee sites
-    // (from branch-split analysis) are handled together.
-    let mut grouped: FxHashMap<ExprId, Vec<HofDispatchTarget>> = FxHashMap::default();
+    // Precise lookup keyed by parameter position recovers the exact parameter
+    // for each distinct slot of a combined multi-argument call.
+    let param_by_position: FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam> = {
+        let mut map = FxHashMap::default();
+        for p in &analysis.callable_params {
+            map.insert((p.callable_id, p.top_level_param, p.field_path.clone()), p);
+        }
+        map
+    };
 
+    // Group this package's static call sites by call expression. A combined
+    // multi-argument call contributes one row per arrow parameter; those rows
+    // rewrite together so the single call shape matches the one combined
+    // specialization. Rows that share an expression but resolve the same
+    // parameter, which are the branch-split candidate sets, keep their dispatch
+    // path.
+    let mut grouped: FxHashMap<ExprId, Vec<&CallSite>> = FxHashMap::default();
     for call_site in &analysis.call_sites {
         // This pass rewrites one package at a time; skip call sites that live
         // in a different package's body.
         if call_site.call_pkg_id != package_id {
             continue;
         }
-
         // Skip dynamic callables — they have no specialization.
         if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
             continue;
         }
-
-        let spec_key = build_spec_key(call_site);
-        let Some(&spec_store_id) = spec_map.get(&spec_key) else {
-            continue;
-        };
-
-        let hof_store_id =
-            StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item));
-        let Some(&param) = param_lookup.get(&hof_store_id) else {
-            continue;
-        };
-
         grouped
             .entry(call_site.call_expr_id)
             .or_default()
-            .push((call_site, spec_store_id, param));
+            .push(call_site);
     }
 
-    for (call_expr_id, entries) in &grouped {
+    for (call_expr_id, group) in &grouped {
+        // Combined multi-argument rewrite: specialize and rewrite consult the
+        // same predicate so they agree on which call sites are combined.
+        if is_combined_eligible(package, group) {
+            let hof_item_id = group[0].hof_item_id;
+            let spec_key = build_combined_spec_key(hof_item_id, group);
+            let Some(&spec_store_id) = spec_map.get(&spec_key) else {
+                continue;
+            };
+            let hof_store_id = StoreItemId::from((hof_item_id.package, hof_item_id.item));
+
+            // Recover the exact parameter per row, then order the members
+            // ascending by parameter position so the rewritten argument tuple
+            // lines up with the specialize-side combined input pattern.
+            let mut members: Vec<(&CallSite, &CallableParam)> = Vec::with_capacity(group.len());
+            let mut all_resolved = true;
+            for call_site in group {
+                let position_key = (
+                    hof_store_id,
+                    call_site.top_level_param,
+                    call_site.field_path.clone(),
+                );
+                if let Some(&param) = param_by_position.get(&position_key) {
+                    members.push((call_site, param));
+                } else {
+                    all_resolved = false;
+                    break;
+                }
+            }
+            if !all_resolved {
+                continue;
+            }
+            members.sort_by(|a, b| {
+                a.1.top_level_param
+                    .cmp(&b.1.top_level_param)
+                    .then_with(|| a.1.field_path.cmp(&b.1.field_path))
+            });
+
+            for (call_site, _) in &members {
+                collect_rewritten_callable_arg_local(
+                    package,
+                    &expr_owner_lookup,
+                    call_site.call_expr_id,
+                    call_site.arg_expr_id,
+                    &mut rewritten_callable_arg_locals,
+                );
+            }
+            rewrite_multi(
+                package,
+                *call_expr_id,
+                &members,
+                spec_store_id,
+                &expr_owner_lookup,
+                assigner,
+            );
+            continue;
+        }
+
+        // Per-leaf producer-closure inline. The specialize side built one
+        // combined spec per dispatch candidate, formed as `[candidate] +
+        // single-valued siblings`, for this mixed branch-split group. Route the
+        // synthesized dispatch leaves through those combined specs so each leaf
+        // inlines the single-valued producer closure, consumed in the same pass
+        // before any later-iteration producer-body clearing.
+        if let Some((dispatch, constants)) = partition_mixed_branch_split(group) {
+            let hof_item_id = group[0].hof_item_id;
+            let hof_store_id = StoreItemId::from((hof_item_id.package, hof_item_id.item));
+
+            // Resolve constant sibling params; operand order is handled in the
+            // leaf builder `create_combined_branch_call`.
+            let mut const_members: Vec<(&CallSite, &CallableParam)> =
+                Vec::with_capacity(constants.len());
+            let mut resolved = true;
+            for cs in &constants {
+                let position_key = (hof_store_id, cs.top_level_param, cs.field_path.clone());
+                if let Some(&param) = param_by_position.get(&position_key) {
+                    const_members.push((*cs, param));
+                } else {
+                    resolved = false;
+                    break;
+                }
+            }
+
+            // Build dispatch entries keyed by the per-candidate combined spec.
+            let mut entries: Vec<HofDispatchTarget> = Vec::with_capacity(dispatch.len());
+            if resolved {
+                for candidate in &dispatch {
+                    let mut members_cs: Vec<&CallSite> = Vec::with_capacity(constants.len() + 1);
+                    members_cs.push(*candidate);
+                    members_cs.extend(constants.iter().copied());
+                    let spec_key = build_combined_spec_key(hof_item_id, &members_cs);
+                    let position_key = (
+                        hof_store_id,
+                        candidate.top_level_param,
+                        candidate.field_path.clone(),
+                    );
+                    if let (Some(&spec_store_id), Some(&param)) = (
+                        spec_map.get(&spec_key),
+                        param_by_position.get(&position_key),
+                    ) {
+                        entries.push((*candidate, spec_store_id, param));
+                    } else {
+                        resolved = false;
+                        break;
+                    }
+                }
+            }
+
+            if resolved && !entries.is_empty() {
+                for call_site in group {
+                    collect_rewritten_callable_arg_local(
+                        package,
+                        &expr_owner_lookup,
+                        call_site.call_expr_id,
+                        call_site.arg_expr_id,
+                        &mut rewritten_callable_arg_locals,
+                    );
+                }
+                branch_split_rewrite(
+                    package,
+                    package_id,
+                    *call_expr_id,
+                    &entries,
+                    &const_members,
+                    &expr_owner_lookup,
+                    assigner,
+                );
+                continue;
+            }
+            // Combined specs not found — fall through to the per-row path, which
+            // surfaces an honest `DynamicCallable` diagnostic instead of wrong QIR.
+        }
+
+        // Per-row / branch-split path: resolve each row under its
+        // single-argument key, then dispatch by candidate count.
+        let mut entries: Vec<HofDispatchTarget> = Vec::with_capacity(group.len());
+        for call_site in group {
+            let spec_key = build_spec_key(call_site);
+            let Some(&spec_store_id) = spec_map.get(&spec_key) else {
+                continue;
+            };
+            let hof_store_id =
+                StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item));
+            // Resolve the exact parameter for this row's position so a removed
+            // sibling drops its own slot rather than the lowest-index slot.
+            let position_key = (
+                hof_store_id,
+                call_site.top_level_param,
+                call_site.field_path.clone(),
+            );
+            let Some(&param) = param_by_position
+                .get(&position_key)
+                .or_else(|| param_lookup.get(&hof_store_id))
+            else {
+                continue;
+            };
+            entries.push((call_site, spec_store_id, param));
+        }
+
+        if entries.is_empty() {
+            continue;
+        }
+
         if entries.len() == 1 {
             let (call_site, spec_store_id, param) = entries[0];
             collect_rewritten_callable_arg_local(
@@ -147,7 +314,7 @@ pub(super) fn rewrite(
                 assigner,
             );
         } else {
-            for (call_site, _, _) in entries {
+            for (call_site, _, _) in &entries {
                 collect_rewritten_callable_arg_local(
                     package,
                     &expr_owner_lookup,
@@ -160,7 +327,8 @@ pub(super) fn rewrite(
                 package,
                 package_id,
                 *call_expr_id,
-                entries,
+                &entries,
+                &[],
                 &expr_owner_lookup,
                 assigner,
             );
@@ -2087,6 +2255,232 @@ fn rewrite_one(
     );
 }
 
+/// Rewrites a single multi-argument higher-order call so it invokes the
+/// combined specialization produced on the specialize side.
+///
+/// Every arrow argument slot is removed from the call's argument tuple in one
+/// pass, and each closure argument's captures are appended in ascending
+/// parameter order. The resulting argument tuple and callee type mirror the
+/// combined specialization's input pattern built by `remove_callable_params` on
+/// the specialize side: surviving arguments keep their order, all captures
+/// follow in ascending parameter order, and the tuple flattens to a scalar only
+/// when a single argument survives and no captures are appended.
+///
+/// `members` must be ordered ascending by parameter position so the appended
+/// captures line up with the specialized input pattern.
+fn rewrite_multi(
+    package: &mut Package,
+    call_expr_id: ExprId,
+    members: &[(&CallSite, &CallableParam)],
+    spec_store_id: StoreItemId,
+    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    assigner: &mut Assigner,
+) {
+    let call_expr = package.get_expr(call_expr_id).clone();
+    let ExprKind::Call(callee_id, args_id) = call_expr.kind else {
+        return;
+    };
+
+    let spec_item_id = ItemId {
+        package: spec_store_id.package,
+        item: spec_store_id.item,
+    };
+
+    // Collect the slots to remove and resolve every closure's captures in
+    // ascending parameter order.
+    //
+    // For a multi-parameter HOF the call argument is a tuple of parameters, so
+    // each member's top-level parameter index selects the slot to drop. For a
+    // single tuple-valued parameter the whole call argument is that tuple, so
+    // each member's immediate field index selects the element to drop instead;
+    // the gate guarantees a single-level field path that covers the tuple.
+    let uses_tuple_input = members
+        .first()
+        .is_none_or(|(call_site, _)| call_site.hof_input_is_tuple);
+    let mut remove_indices: Vec<usize> = Vec::with_capacity(members.len());
+    let mut captures: Vec<CapturedVar> = Vec::new();
+    for (call_site, _param) in members {
+        let remove_idx = if uses_tuple_input {
+            call_site.top_level_param
+        } else {
+            *call_site
+                .field_path
+                .first()
+                .unwrap_or(&call_site.top_level_param)
+        };
+        remove_indices.push(remove_idx);
+        if let ConcreteCallable::Closure {
+            captures: member_captures,
+            ..
+        } = &call_site.callable_arg
+        {
+            captures.extend(resolve_rewrite_captures(
+                package,
+                call_site.arg_expr_id,
+                member_captures,
+            ));
+        }
+    }
+
+    // Retarget the callee to the combined specialization with the rebuilt type.
+    let new_callee_ty =
+        build_specialized_multi_callee_ty(package, callee_id, &remove_indices, &captures);
+    rewrite_specialized_callee(package, callee_id, spec_item_id, new_callee_ty, assigner);
+
+    // Rebuild the argument tuple to match the combined input pattern. The
+    // owner callable lets a non-inline tuple argument be projected through its
+    // local initializer.
+    let owner_callable = expr_owner_lookup.get(&call_expr_id).copied();
+    rewrite_args_remove_tuple_elements(
+        package,
+        args_id,
+        owner_callable,
+        &remove_indices,
+        &captures,
+        assigner,
+    );
+}
+
+/// Computes the callee arrow type for a combined multi-argument rewrite by
+/// removing every arrow input slot in `remove_indices` and appending all
+/// capture types in parameter order.
+fn build_specialized_multi_callee_ty(
+    package: &Package,
+    callee_id: ExprId,
+    remove_indices: &[usize],
+    captures: &[CapturedVar],
+) -> Option<Ty> {
+    let callee_expr = package.get_expr(callee_id);
+    let Ty::Arrow(ref arrow) = callee_expr.ty else {
+        return None;
+    };
+    let new_input = remove_tys_at_indices(package, &arrow.input, remove_indices, captures);
+    Some(Ty::Arrow(Box::new(Arrow {
+        kind: arrow.kind,
+        input: Box::new(new_input),
+        output: arrow.output.clone(),
+        functors: arrow.functors,
+    })))
+}
+
+/// Removes the tuple element types at `remove_indices` and appends the capture
+/// types, flattening to a scalar only when a single element survives and no
+/// captures are appended, matching the specialize-side input pattern flatten
+/// rule in `remove_callable_params`.
+fn remove_tys_at_indices(
+    package: &Package,
+    ty: &Ty,
+    remove_indices: &[usize],
+    captures: &[CapturedVar],
+) -> Ty {
+    let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
+    let ty = resolve_udt_ty(package, ty);
+    let Ty::Tuple(tys) = &ty else {
+        // A multi-argument HOF always has a tuple input.
+        return ty.clone();
+    };
+    let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
+    let mut remaining: Vec<Ty> = tys
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !remove.contains(i))
+        .map(|(_, t)| t.clone())
+        .collect();
+    remaining.extend(capture_tys);
+    if remaining.len() == 1 && captures.is_empty() {
+        remaining
+            .into_iter()
+            .next()
+            .expect("single element should exist")
+    } else {
+        Ty::Tuple(remaining)
+    }
+}
+
+/// Removes the top-level tuple elements at `remove_indices` from a call's
+/// argument expression and appends closure captures.
+///
+/// The rebuilt tuple matches the combined specialization's input pattern:
+/// surviving arguments keep their order, captures follow in ascending parameter
+/// order, and the tuple flattens to a scalar only when a single argument
+/// survives and no captures are appended.
+fn rewrite_args_remove_tuple_elements(
+    package: &mut Package,
+    args_id: ExprId,
+    owner_callable: Option<LocalItemId>,
+    remove_indices: &[usize],
+    captures: &[CapturedVar],
+    assigner: &mut Assigner,
+) {
+    let args_expr = package
+        .exprs
+        .get(args_id)
+        .expect("args expr not found")
+        .clone();
+
+    let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
+
+    if let ExprKind::Tuple(elements) = &args_expr.kind {
+        let mut new_elements: Vec<ExprId> = elements
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !remove.contains(i))
+            .map(|(_, &id)| id)
+            .collect();
+
+        let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
+        new_elements.extend(capture_ids);
+
+        let new_ty = remove_tys_at_indices(package, &args_expr.ty, remove_indices, captures);
+
+        if new_elements.len() == 1 && captures.is_empty() {
+            let single_id = new_elements[0];
+            let single_expr = package
+                .exprs
+                .get(single_id)
+                .expect("expr not found")
+                .clone();
+            let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
+            args_mut.kind = single_expr.kind;
+            args_mut.ty = single_expr.ty;
+        } else {
+            let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
+            args_mut.kind = ExprKind::Tuple(new_elements);
+            args_mut.ty = new_ty;
+        }
+        return;
+    }
+
+    // Non-inline argument: a local bound to a tuple or struct literal of
+    // callables. The callee was already retargeted to the reduced combined
+    // spec, so the arguments must be reduced to match. Resolve the local's
+    // initializer and project the surviving slots through the same removal
+    // helper the per-row nested path uses, then overwrite the argument
+    // expression in place with the rebuilt aggregate. The now-dead initializer
+    // binding is pruned later by the dead-callable-local cleanup.
+    if let ExprKind::Var(Res::Local(local_var), _) = args_expr.kind
+        && let Some(owner_callable) = owner_callable
+        && let Some(init_expr_id) =
+            find_local_init_expr_in_callable(package, owner_callable, local_var)
+        && let Some((kind, ty)) = remove_top_level_field_from_expr_data(
+            package,
+            init_expr_id,
+            &remove,
+            captures,
+            assigner,
+        )
+    {
+        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
+        args_mut.kind = kind;
+        args_mut.ty = ty;
+    }
+
+    // Any other shape, for example a function-returning-tuple result, is
+    // outside the combined rewrite's scope and is left untouched; the
+    // defunctionalization fixpoint surfaces an honest dynamic-callable
+    // diagnostic for shapes the analysis cannot project.
+}
+
 /// Removes the callable argument selected by `param` from the call arguments
 /// and appends closure captures when needed.
 ///
@@ -2387,10 +2781,12 @@ fn rewrite_local_single_arg_nested(
     else {
         return false;
     };
+    let mut remove_indices = FxHashSet::default();
+    remove_indices.insert(field_path[0]);
     let Some((kind, ty)) = remove_top_level_field_from_expr_data(
         package,
         init_expr_id,
-        field_path[0],
+        &remove_indices,
         captures,
         assigner,
     ) else {
@@ -2404,17 +2800,17 @@ fn rewrite_local_single_arg_nested(
 }
 
 /// Builds replacement expression data for a call-argument aggregate after the
-/// top-level callable field has been removed.
+/// top-level callable fields have been removed.
 ///
 /// Before, the tuple or struct represented by `expr_id` still contains the
-/// callable-valued field selected by `field_index`. After, the returned
-/// `ExprKind`/`Ty` pair describes the same aggregate with that field removed,
+/// callable-valued fields selected by `remove_indices`. After, the returned
+/// `ExprKind`/`Ty` pair describes the same aggregate with those fields removed,
 /// collapsed when only one element remains, and widened with any closure
 /// captures that must become explicit call arguments.
 fn remove_top_level_field_from_expr_data(
     package: &mut Package,
     expr_id: ExprId,
-    field_index: usize,
+    remove_indices: &FxHashSet<usize>,
     captures: &[CapturedVar],
     assigner: &mut Assigner,
 ) -> Option<(ExprKind, Ty)> {
@@ -2424,7 +2820,7 @@ fn remove_top_level_field_from_expr_data(
             return remove_top_level_field_from_expr_data(
                 package,
                 *args_id,
-                field_index,
+                remove_indices,
                 captures,
                 assigner,
             );
@@ -2432,13 +2828,18 @@ fn remove_top_level_field_from_expr_data(
         ExprKind::Tuple(elements) => elements
             .iter()
             .enumerate()
-            .filter(|(idx, _)| *idx != field_index)
+            .filter(|(idx, _)| !remove_indices.contains(idx))
             .map(|(_, &expr_id)| expr_id)
             .collect::<Vec<_>>(),
         ExprKind::Struct(_, _, fields) => fields
             .iter()
             .filter_map(|field| match &field.field {
-                Field::Path(path) if path.indices.first() != Some(&field_index) => {
+                Field::Path(path)
+                    if path
+                        .indices
+                        .first()
+                        .is_none_or(|idx| !remove_indices.contains(idx)) =>
+                {
                     Some(field.value)
                 }
                 _ => None,
@@ -2895,6 +3296,48 @@ fn rewrite_item_callee_with_functor(
     expr.ty = callee_ty;
 }
 
+/// Restricts a mixed branch-split candidate set to the single parameter
+/// position whose callable is selected by the loop index.
+///
+/// A per-row group can mix a dispatched parameter, the same position carrying
+/// two or more candidates such as `[H, X]` at slot 0, with siblings at other
+/// positions such as a global `Y` at slot 1. Only the dispatched parameter
+/// should drive the index dispatch; the siblings stay in the original call
+/// arguments and are threaded as runtime values by each specialized leaf. When
+/// exactly one position has two or more candidates and at least one sibling
+/// exists, the result keeps only that position's entries. The input is returned
+/// unchanged when no position is dispatched, or when two or more positions form
+/// a genuine product of dispatched parameters.
+fn restrict_to_dispatched_parameter<'a>(
+    entries: &[HofDispatchTarget<'a>],
+) -> Vec<HofDispatchTarget<'a>> {
+    let mut candidates_per_position: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
+    for entry in entries {
+        *candidates_per_position
+            .entry((entry.0.top_level_param, entry.0.field_path.clone()))
+            .or_default() += 1;
+    }
+    let dispatched_positions: Vec<(usize, Vec<usize>)> = candidates_per_position
+        .iter()
+        .filter(|(_, count)| **count >= 2)
+        .map(|(position, _)| position.clone())
+        .collect();
+    if dispatched_positions.len() != 1 {
+        return entries.to_vec();
+    }
+    let kept_position = &dispatched_positions[0];
+    let filtered: Vec<HofDispatchTarget> = entries
+        .iter()
+        .filter(|entry| (entry.0.top_level_param, entry.0.field_path.clone()) == *kept_position)
+        .copied()
+        .collect();
+    if filtered.len() == entries.len() {
+        entries.to_vec()
+    } else {
+        filtered
+    }
+}
+
 /// Rewrites a call site that has multiple callee candidates (from branch-split
 /// analysis) into an if/elif/else dispatch chain where each branch calls the
 /// appropriate specialization.
@@ -2920,6 +3363,7 @@ fn branch_split_rewrite(
     package_id: PackageId,
     call_expr_id: ExprId,
     entries: &[HofDispatchTarget],
+    constants: &[(&CallSite, &CallableParam)],
     expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     assigner: &mut Assigner,
 ) {
@@ -2929,6 +3373,24 @@ fn branch_split_rewrite(
     };
     let span = orig_call.span;
     let result_ty = orig_call.ty.clone();
+
+    // A per-row mixed group, built when defunctionalization cannot prove a
+    // combined specialization, can mix a dispatched parameter, the same
+    // position carrying two or more empty-condition candidates such as `[H, X]`
+    // at slot 0, with a sibling at a different position such as a global `Y` at
+    // slot 1. The sibling is not selected by the loop index, so it must not
+    // enter the index-dispatch candidate set; if it does,
+    // `synthesize_callsite_index_dispatch` cannot locate it among the indexed
+    // callables, aborts, and the call collapses to a single default, dropping
+    // the real candidates.
+    //
+    // Restrict the candidate set to the single dispatched parameter. The
+    // sibling at the other position stays in the original arguments, so each
+    // specialized leaf threads it as a runtime argument in its original
+    // position through `create_branch_call`, which removes only the dispatch
+    // slot, preserving call order.
+    let restricted = restrict_to_dispatched_parameter(entries);
+    let entries: &[HofDispatchTarget] = &restricted;
 
     let mut conditioned: Vec<ConditionedHofTarget> = Vec::new();
     let mut default: Option<HofDispatchTarget> = None;
@@ -2971,6 +3433,14 @@ fn branch_split_rewrite(
     };
 
     if conditioned.is_empty() {
+        // Single effective entry. For a combined group the entry's spec id is a
+        // per-candidate combined spec whose input pattern removes every member
+        // slot, so the single-slot `create_branch_call` would mis-shape the
+        // call. Bail instead so the fixpoint surfaces an honest diagnostic
+        // rather than emitting wrong QIR.
+        if !constants.is_empty() {
+            return;
+        }
         // Single effective entry — use normal rewrite.
         rewrite_one(
             package,
@@ -2989,18 +3459,33 @@ fn branch_split_rewrite(
     let orig_args = package.get_expr(orig_args_id).clone();
 
     let mut build_call = |package: &mut Package, assigner: &mut Assigner, (cs, spec_id, param)| {
-        create_branch_call(
-            package,
-            package_id,
-            &orig_callee,
-            &orig_args,
-            span,
-            &result_ty,
-            cs,
-            param,
-            spec_id,
-            assigner,
-        )
+        if constants.is_empty() {
+            create_branch_call(
+                package,
+                package_id,
+                &orig_callee,
+                &orig_args,
+                span,
+                &result_ty,
+                cs,
+                param,
+                spec_id,
+                assigner,
+            )
+        } else {
+            create_combined_branch_call(
+                package,
+                &orig_callee,
+                &orig_args,
+                span,
+                &result_ty,
+                cs,
+                param,
+                constants,
+                spec_id,
+                assigner,
+            )
+        }
     };
     let dispatch_id = build_branch_tree(
         package,
@@ -3113,6 +3598,159 @@ fn create_branch_call(
     call_id
 }
 
+/// Creates a single dispatch leaf for the combined branch-split path, returning
+/// its [`ExprId`]. The leaf calls one per-candidate combined specialization
+/// formed as `[dispatch candidate] + single-valued siblings`. Every member's
+/// argument slot is removed from the call's argument tuple in one pass and each
+/// closure member's captures are appended in ascending parameter order,
+/// mirroring [`rewrite_multi`] so the leaf's argument shape matches the combined
+/// spec's input pattern. The single-valued producer closures are therefore
+/// inlined into the leaf in this pass, consumed before any later-iteration body
+/// clearing.
+///
+/// # Mutations
+/// - Allocates callee, args, and call `Expr` nodes through `assigner`.
+#[allow(clippy::too_many_arguments)]
+fn create_combined_branch_call(
+    package: &mut Package,
+    orig_callee: &Expr,
+    orig_args: &Expr,
+    span: Span,
+    result_ty: &Ty,
+    candidate: &CallSite,
+    candidate_param: &CallableParam,
+    constants: &[(&CallSite, &CallableParam)],
+    spec_store_id: StoreItemId,
+    assigner: &mut Assigner,
+) -> ExprId {
+    let spec_item_id = ItemId {
+        package: spec_store_id.package,
+        item: spec_store_id.item,
+    };
+
+    // Order members ascending by parameter position so the removed slots and
+    // the appended captures line up with the combined spec's input pattern.
+    let mut members: Vec<(&CallSite, &CallableParam)> = Vec::with_capacity(constants.len() + 1);
+    members.push((candidate, candidate_param));
+    members.extend(constants.iter().copied());
+    members.sort_by(|a, b| {
+        a.1.top_level_param
+            .cmp(&b.1.top_level_param)
+            .then_with(|| a.1.field_path.cmp(&b.1.field_path))
+    });
+
+    // Collect the slots to remove and resolve every closure's captures in
+    // ascending parameter order, mirroring `rewrite_multi`.
+    let uses_tuple_input = members.first().is_none_or(|(cs, _)| cs.hof_input_is_tuple);
+    let mut remove_indices: Vec<usize> = Vec::with_capacity(members.len());
+    let mut captures: Vec<CapturedVar> = Vec::new();
+    for (cs, _param) in &members {
+        let remove_idx = if uses_tuple_input {
+            cs.top_level_param
+        } else {
+            *cs.field_path.first().unwrap_or(&cs.top_level_param)
+        };
+        remove_indices.push(remove_idx);
+        if let ConcreteCallable::Closure {
+            captures: member_captures,
+            ..
+        } = &cs.callable_arg
+        {
+            captures.extend(resolve_rewrite_captures(
+                package,
+                cs.arg_expr_id,
+                member_captures,
+            ));
+        }
+    }
+
+    // Combined specialized callee type and expression.
+    let new_callee_ty =
+        build_specialized_multi_callee_ty(package, orig_callee.id, &remove_indices, &captures);
+    let callee_id = alloc_specialized_callee_expr(
+        package,
+        orig_callee,
+        spec_item_id,
+        &new_callee_ty.unwrap_or_else(|| orig_callee.ty.clone()),
+        assigner,
+    );
+
+    // Build the leaf argument tuple: drop every member slot and append captures.
+    let (args_kind, args_ty) = build_combined_branch_args_data(
+        package,
+        orig_args,
+        &remove_indices,
+        &captures,
+        span,
+        assigner,
+    );
+    let args_id = assigner.next_expr();
+    package.exprs.insert(
+        args_id,
+        Expr {
+            id: args_id,
+            span,
+            ty: args_ty,
+            kind: args_kind,
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+
+    let call_id = assigner.next_expr();
+    package.exprs.insert(
+        call_id,
+        Expr {
+            id: call_id,
+            span,
+            ty: result_ty.clone(),
+            kind: ExprKind::Call(callee_id, args_id),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    call_id
+}
+
+/// Builds the `(ExprKind, Ty)` for a combined dispatch leaf's argument tuple:
+/// every element at `remove_indices` is dropped and the resolved capture
+/// expressions are appended, flattening to a scalar only when a single element
+/// survives and no captures are appended, matching the combined spec's input
+/// pattern in [`remove_tys_at_indices`]. Surviving element expressions are
+/// reused, mirroring the single-slot [`build_branch_args_data`] branch-split
+/// behavior.
+fn build_combined_branch_args_data(
+    package: &mut Package,
+    orig_args: &Expr,
+    remove_indices: &[usize],
+    captures: &[CapturedVar],
+    span: Span,
+    assigner: &mut Assigner,
+) -> (ExprKind, Ty) {
+    let new_ty = remove_tys_at_indices(package, &orig_args.ty, remove_indices, captures);
+    match &orig_args.kind {
+        ExprKind::Tuple(elements) => {
+            let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
+            let mut new_elements: Vec<ExprId> = elements
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !remove.contains(i))
+                .map(|(_, &id)| id)
+                .collect();
+            let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
+            new_elements.extend(capture_ids);
+            if new_elements.len() == 1 && captures.is_empty() {
+                let single_id = new_elements[0];
+                let single_expr = package.exprs.get(single_id).expect("expr not found");
+                (single_expr.kind.clone(), single_expr.ty.clone())
+            } else {
+                (ExprKind::Tuple(new_elements), new_ty)
+            }
+        }
+        // A combined multi-argument HOF always has a tuple argument; fall back
+        // to the original kind defensively.
+        _ => (orig_args.kind.clone(), new_ty),
+    }
+}
+
 /// Resolves the defining expressions for the captures referenced in a
 /// direct-call rewrite, using the combined call-argument and block-scope
 /// lookups.
@@ -3191,7 +3829,7 @@ fn resolve_capture_expr_from_block(
     None
 }
 
-/// Builds a `LocalVarId → ExprId` map from a block's statements, capturing
+/// Builds a `LocalVarId => ExprId` map from a block's statements, capturing
 /// the initializer expressions for every immutable local binding.
 fn collect_block_local_exprs(
     package: &Package,

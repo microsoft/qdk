@@ -342,6 +342,7 @@ fn collect_call_sites(
 
 /// Inspects a single expression for HOF call-site patterns.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn inspect_call_expr(
     store: &PackageStore,
     pkg: &Package,
@@ -395,6 +396,9 @@ fn inspect_call_expr(
                             package: hof_store_id.package,
                             item: hof_store_id.item,
                         },
+                        top_level_param: cp.top_level_param,
+                        field_path: cp.field_path.clone(),
+                        hof_input_is_tuple: cp.hof_input_is_tuple,
                         callable_arg: cc,
                         arg_expr_id: resolved_arg_id,
                         condition: vec![],
@@ -409,6 +413,9 @@ fn inspect_call_expr(
                                 package: hof_store_id.package,
                                 item: hof_store_id.item,
                             },
+                            top_level_param: cp.top_level_param,
+                            field_path: cp.field_path.clone(),
+                            hof_input_is_tuple: cp.hof_input_is_tuple,
                             callable_arg: cc,
                             arg_expr_id: resolved_arg_id,
                             condition: cond,
@@ -423,6 +430,9 @@ fn inspect_call_expr(
                             package: hof_store_id.package,
                             item: hof_store_id.item,
                         },
+                        top_level_param: cp.top_level_param,
+                        field_path: cp.field_path.clone(),
+                        hof_input_is_tuple: cp.hof_input_is_tuple,
                         callable_arg: ConcreteCallable::Dynamic,
                         arg_expr_id: resolved_arg_id,
                         condition: vec![],
@@ -2132,7 +2142,7 @@ fn collect_binding_types_from_pat(
     map
 }
 
-/// Recursively records `LocalVarId` → `Ty` for every binding in a pattern.
+/// Recursively records `LocalVarId` => `Ty` for every binding in a pattern.
 fn collect_binding_types_from_pat_into(
     pkg: &Package,
     pat_id: qsc_fir::fir::PatId,
@@ -2857,7 +2867,7 @@ fn collect_assigned_vars_expr(pkg: &Package, expr_id: ExprId, vars: &mut Vec<Loc
 }
 
 /// Extracts bindings from a pattern. For `Bind(ident)` patterns, records
-/// `ident.id → init_expr_id`. For `Tuple` patterns, we cannot easily
+/// `ident.id => init_expr_id`. For `Tuple` patterns, we cannot easily
 /// split the init expression, so we skip those.
 fn collect_bindings_from_pat(
     pkg: &Package,

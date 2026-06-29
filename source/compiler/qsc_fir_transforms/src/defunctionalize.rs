@@ -22,10 +22,10 @@
 //!   `ExprKind::Closure`, no arrow-typed parameters, and all dispatch is
 //!   direct in reachable code.
 //! - **Fixpoint loop.** Each iteration runs: pre-pass (promote single-use
-//!   callable locals, collapse identity closures `(a) => f(a)` to `f`) →
-//!   analysis (find callable params + concrete call sites) → specialize (clone
-//!   per concrete arg combo, deduped by [`types::SpecKey`]) → rewrite (redirect
-//!   call sites, drop the callable arg, thread captures as extra args) →
+//!   callable locals, collapse identity closures `(a) => f(a)` to `f`) =>
+//!   analysis (find callable params + concrete call sites) => specialize (clone
+//!   per concrete arg combo, deduped by [`types::SpecKey`]) => rewrite (redirect
+//!   call sites, drop the callable arg, thread captures as extra args) =>
 //!   closure tracking/cleanup. **Closure cleanup is convergence-critical:** it
 //!   replaces consumed closures with `Tuple([])` so they stop counting as
 //!   work. The iteration cap is scaled dynamically between `MIN_ITERATIONS`
@@ -59,8 +59,8 @@ use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
-    ExprId, ExprKind, ItemKind, LocalItemId, Package, PackageId, PackageLookup, PackageStore, Res,
-    StoreItemId,
+    ExprId, ExprKind, ItemId, ItemKind, LocalItemId, Package, PackageId, PackageLookup,
+    PackageStore, Res, StoreItemId,
 };
 use qsc_fir::ty::Ty;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -69,7 +69,7 @@ use types::{
     peel_body_functors,
 };
 
-/// Lower bound on the analysis → specialize → rewrite iteration limit.
+/// Lower bound on the analysis => specialize => rewrite iteration limit.
 ///
 /// The loop always runs at least this many iterations. After the first
 /// iteration the limit is recomputed (see [`check_convergence`]) as
@@ -286,12 +286,67 @@ fn track_specialized_closures(
     specialized_closure_targets: &mut FxHashSet<StoreItemId>,
     specialized_items: &mut FxHashSet<StoreItemId>,
 ) {
+    // Group by package and call expression once, shared by the consistency
+    // check below and the combined-keying registration. Grouping matches the
+    // specializer's grouping and stays correct when call sites span packages.
+    let mut groups: FxHashMap<(PackageId, ExprId), Vec<&CallSite>> = FxHashMap::default();
+    for cs in &analysis.call_sites {
+        groups
+            .entry((cs.call_pkg_id, cs.call_expr_id))
+            .or_default()
+            .push(cs);
+    }
+
+    // Single-arg keying: records producer closures consumed by branch-split /
+    // condition-dispatch specializations, whose per-candidate specs are keyed
+    // individually.
     for cs in &analysis.call_sites {
         let spec_key = build_spec_key(cs);
         if spec_map.contains_key(&spec_key)
             && let ConcreteCallable::Closure { target, .. } = &cs.callable_arg
         {
+            // Internal consistency check. When a producer-closure argument is a
+            // single-valued sibling of a parameter that is dispatched over
+            // several candidates, recording it as consumed here would let
+            // `cleanup_consumed_closures` clear its producer body while the
+            // dispatched siblings are still live, un-inlined call sites. The
+            // next iteration
+            // would then re-read the cleared body as `Dynamic` and the call
+            // would compile to incorrect output. The combined per-candidate
+            // specialization handles this shape instead, so this
+            // single-argument per-row specialization should never exist for it.
+            // If it does, that specialization did not run, so stop with a clear
+            // error rather than emitting incorrect QIR.
+            if let Some(group) = groups.get(&(cs.call_pkg_id, cs.call_expr_id))
+                && closure_constant_sibling_of_dispatch(group, cs)
+            {
+                panic!(
+                    "internal error in defunctionalize: producer-closure target {target:?} is a \
+                     single-valued sibling of a parameter dispatched over several candidates at \
+                     call expression {:?} in package {:?}, but is being recorded as consumed via \
+                     its own per-row specialization without combined specialization. Clearing its \
+                     producer body now would leave the dispatched siblings referring to a removed \
+                     body and produce incorrect output.",
+                    cs.call_expr_id, cs.call_pkg_id,
+                );
+            }
             specialized_closure_targets.insert(StoreItemId::from((cs.call_pkg_id, *target)));
+        }
+    }
+    // Combined keying: a multi-arrow-param call produces one specialization
+    // keyed by the combined key, so every participating producer body must be
+    // recorded under that combined key. The combined and single-arg key spaces
+    // are disjoint by argument count, so this is additive: missing a member
+    // here would leave a stray `Closure` that `exec_graph_rebuild` rejects.
+    for group in groups.values() {
+        let combined_key = build_combined_spec_key(group[0].hof_item_id, group);
+        if spec_map.contains_key(&combined_key) {
+            for cs in group {
+                if let ConcreteCallable::Closure { target, .. } = &cs.callable_arg {
+                    specialized_closure_targets
+                        .insert(StoreItemId::from((cs.call_pkg_id, *target)));
+                }
+            }
         }
     }
     for direct_call_site in &analysis.direct_call_sites {
@@ -304,7 +359,8 @@ fn track_specialized_closures(
 }
 
 /// Checks whether the fixed-point loop should terminate. Returns `true` when
-/// the loop should break (converged or stuck).
+/// the loop should break, either because it has converged or because it is
+/// stuck.
 fn check_convergence(
     store: &PackageStore,
     package_id: PackageId,
@@ -700,9 +756,18 @@ fn ty_contains_arrow_through_udts(store: &PackageStore, ty: &Ty) -> bool {
     }
 }
 
-/// Builds the deduplication key for a call site's specialization.
-pub(crate) fn build_spec_key(call_site: &CallSite) -> SpecKey {
-    let concrete_key = match &call_site.callable_arg {
+/// Maps a single concrete callable argument to its hashable dedup key.
+///
+/// Closures are keyed only by their package-qualified target and functor;
+/// captured values are threaded as ordinary call arguments and are not part of
+/// the dispatch identity. A `Dynamic` argument is filtered out before reaching
+/// specialization but still yields a deterministic key.
+fn concrete_callable_key(
+    call_pkg_id: PackageId,
+    callable_arg: &ConcreteCallable,
+    hof_item_id: ItemId,
+) -> ConcreteCallableKey {
+    match callable_arg {
         ConcreteCallable::Global { item_id, functor } => ConcreteCallableKey::Global {
             item_id: *item_id,
             functor: *functor,
@@ -710,21 +775,46 @@ pub(crate) fn build_spec_key(call_site: &CallSite) -> SpecKey {
         ConcreteCallable::Closure {
             target, functor, ..
         } => ConcreteCallableKey::Closure {
-            target: StoreItemId::from((call_site.call_pkg_id, *target)),
+            target: StoreItemId::from((call_pkg_id, *target)),
             functor: *functor,
         },
-        ConcreteCallable::Dynamic => {
-            // Dynamic callables are filtered out before reaching here, but
-            // provide a deterministic key regardless.
-            ConcreteCallableKey::Global {
-                item_id: call_site.hof_item_id,
-                functor: FunctorApp::default(),
-            }
-        }
-    };
+        ConcreteCallable::Dynamic => ConcreteCallableKey::Global {
+            item_id: hof_item_id,
+            functor: FunctorApp::default(),
+        },
+    }
+}
+
+/// Builds the deduplication key for a single call site's specialization. This
+/// is the length-1 shim over [`build_combined_spec_key`]; single-arrow-param
+/// HOF keys are therefore byte-identical to the pre-combined behavior.
+pub(crate) fn build_spec_key(call_site: &CallSite) -> SpecKey {
+    build_combined_spec_key(call_site.hof_item_id, &[call_site])
+}
+
+/// Builds the combined deduplication key for a group of `Single`-resolved call
+/// sites that share one `call_expr_id`, one per arrow parameter of the HOF.
+///
+/// The group is sorted by `(top_level_param, field_path)` ascending so that the
+/// resulting `concrete_args` ordering is deterministic and position-aligned
+/// with the parameter order the specialize/rewrite sides consume. Distinct
+/// argument combinations therefore map to distinct keys, while identical
+/// combinations deduplicate to one specialization, including same-target
+/// producer closures whose differing captures are not part of the key.
+pub(crate) fn build_combined_spec_key(hof_id: ItemId, group: &[&CallSite]) -> SpecKey {
+    let mut members: Vec<&CallSite> = group.to_vec();
+    members.sort_by(|a, b| {
+        a.top_level_param
+            .cmp(&b.top_level_param)
+            .then_with(|| a.field_path.cmp(&b.field_path))
+    });
+    let concrete_args = members
+        .iter()
+        .map(|cs| concrete_callable_key(cs.call_pkg_id, &cs.callable_arg, cs.hof_item_id))
+        .collect();
     SpecKey {
-        hof_id: StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item)),
-        concrete_args: vec![concrete_key],
+        hof_id: StoreItemId::from((hof_id.package, hof_id.item)),
+        concrete_args,
     }
 }
 
@@ -742,4 +832,217 @@ pub(crate) fn build_param_input_path(
     }
     path.extend(param.field_path.iter().copied());
     path
+}
+
+/// Determines whether a group of call sites that share one call expression
+/// forms a genuine multi-argument higher-order call eligible for combined
+/// specialization, where every arrow parameter is specialized together against
+/// one clone in a single fixpoint iteration.
+///
+/// Both the specialize and rewrite phases consult this predicate so they agree
+/// on exactly which call sites are combined. Any disagreement would strand a
+/// combined specialization without a matching call-site rewrite, or a rewrite
+/// without its specialization. A group qualifies only when all of the following
+/// hold:
+///
+/// - it has at least two members. A single arrow parameter stays on the per-row
+///   path, byte-identical to the pre-combined behavior.
+/// - every member resolves a static callable with no branch condition and is
+///   not `Dynamic`, so branch-split candidate sets keep their dispatch path.
+/// - every member supplies a callable for a distinct parameter position, which
+///   is its top-level slot plus the field path into any nested tuple. This makes
+///   the group a genuine multi-argument call rather than a branch-split
+///   candidate set that resolves the same parameter many ways.
+/// - the call carries no outer controlled functor, whose nested argument tuple
+///   the top-level combined removal does not model.
+/// - every nested member, meaning one that selects an arrow field of a
+///   tuple-valued parameter, is single-level, and the group covers every field
+///   of that parameter's tuple, so the combined removal can drop the whole
+///   top-level slot. Partial field coverage such as a surviving non-arrow
+///   element, deeper nesting, or a slot whose type does not resolve to a direct
+///   tuple keeps the call on the per-row path.
+///
+/// `package` must own `group`'s shared call expression.
+pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bool {
+    if group.len() < 2 {
+        return false;
+    }
+    if group
+        .iter()
+        .any(|s| !s.condition.is_empty() || matches!(s.callable_arg, ConcreteCallable::Dynamic))
+    {
+        return false;
+    }
+    // Distinct parameter positions mean a genuine multi-argument call rather
+    // than a branch-split candidate set that resolves the same parameter many
+    // ways.
+    let mut param_positions: Vec<(usize, &[usize])> = group
+        .iter()
+        .map(|s| (s.top_level_param, s.field_path.as_slice()))
+        .collect();
+    param_positions.sort_unstable();
+    if !param_positions.windows(2).all(|w| w[0] != w[1]) {
+        return false;
+    }
+    // An outer controlled functor nests the argument tuple one level per
+    // control layer; the combined top-level removal does not model that
+    // nesting, so such calls stay on the per-row path.
+    let call_expr = package.get_expr(group[0].call_expr_id);
+    let ExprKind::Call(callee_id, _) = call_expr.kind else {
+        return false;
+    };
+    let (_, functor) = peel_body_functors(package, callee_id);
+    if functor.controlled != 0 {
+        return false;
+    }
+    // A member selects either a top-level arrow parameter, identified by an
+    // empty field path, or a single immediate arrow field of a tuple-valued
+    // parameter. The combined removal drops a whole top-level slot, so a nested
+    // member is only eligible when its group covers every field of that slot's
+    // tuple; otherwise the surviving fields would be dropped along with the
+    // removed ones.
+    let Ty::Arrow(ref arrow) = package.get_expr(callee_id).ty else {
+        return false;
+    };
+    let mut nested_fields: FxHashMap<usize, Vec<usize>> = FxHashMap::default();
+    let mut uses_tuple_input = false;
+    for s in group {
+        match s.field_path.as_slice() {
+            [] => {}
+            [field] => {
+                uses_tuple_input = s.hof_input_is_tuple;
+                nested_fields
+                    .entry(s.top_level_param)
+                    .or_default()
+                    .push(*field);
+            }
+            // Deeper nesting is not modeled by the single-level combined
+            // removal, so the whole group stays on the per-row path.
+            _ => return false,
+        }
+    }
+    for (slot, mut fields) in nested_fields {
+        // For a multi-parameter HOF the arrow input is a tuple of parameters
+        // and the tuple-valued parameter sits at `slot`; for a single
+        // tuple-valued parameter the arrow input is that tuple.
+        let container = if uses_tuple_input {
+            match arrow.input.as_ref() {
+                Ty::Tuple(tys) => tys.get(slot),
+                _ => None,
+            }
+        } else {
+            Some(arrow.input.as_ref())
+        };
+        let Some(Ty::Tuple(slot_tys)) = container else {
+            return false;
+        };
+        fields.sort_unstable();
+        fields.dedup();
+        if fields.len() != slot_tys.len() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Splits a per-row group that shares one call expression into the parameter
+/// that is dispatched over several candidates and its single-valued sibling
+/// parameters, when the group has the mixed branch-split shape that the
+/// combined per-candidate specialization handles.
+///
+/// Returns `Some((dispatch_candidates, constants))` only when all of the
+/// following hold:
+///
+/// - exactly one parameter position, meaning a top-level slot plus field path,
+///   carries two or more candidates. This is the dispatched parameter, for
+///   example `f = [H, X]`.
+/// - at least one member sits at a different position. These are the
+///   single-valued siblings, for example `g = Make(0.5)` and `h = Z`.
+/// - at least one sibling is a producer `Closure`. This is the case the per-row
+///   path compiles incorrectly; sibling globals alone keep the
+///   restricted-dispatch path, which already threads them as runtime arguments.
+/// - no sibling is `Dynamic`. An unresolved sibling cannot be specialized
+///   together and must surface its own `DynamicCallable` diagnostic.
+///
+/// `dispatch_candidates` are every member at the dispatched position, with their
+/// conditions preserved; `constants` are every other member. Both the
+/// specialize and rewrite phases consult this predicate so they agree on which
+/// groups route through the combined per-candidate specializations.
+pub(super) fn partition_mixed_branch_split<'a>(
+    group: &[&'a CallSite],
+) -> Option<(Vec<&'a CallSite>, Vec<&'a CallSite>)> {
+    let mut candidates_per_position: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
+    for cs in group {
+        *candidates_per_position
+            .entry((cs.top_level_param, cs.field_path.clone()))
+            .or_default() += 1;
+    }
+    let dispatched_positions: Vec<(usize, Vec<usize>)> = candidates_per_position
+        .iter()
+        .filter(|(_, count)| **count >= 2)
+        .map(|(position, _)| position.clone())
+        .collect();
+    if dispatched_positions.len() != 1 {
+        return None;
+    }
+    let dispatch_position = &dispatched_positions[0];
+    let dispatch: Vec<&CallSite> = group
+        .iter()
+        .copied()
+        .filter(|cs| (cs.top_level_param, cs.field_path.clone()) == *dispatch_position)
+        .collect();
+    let constants: Vec<&CallSite> = group
+        .iter()
+        .copied()
+        .filter(|cs| (cs.top_level_param, cs.field_path.clone()) != *dispatch_position)
+        .collect();
+    if constants.is_empty() {
+        return None;
+    }
+    if constants
+        .iter()
+        .any(|cs| matches!(cs.callable_arg, ConcreteCallable::Dynamic))
+    {
+        return None;
+    }
+    if !constants
+        .iter()
+        .any(|cs| matches!(cs.callable_arg, ConcreteCallable::Closure { .. }))
+    {
+        return None;
+    }
+    Some((dispatch, constants))
+}
+
+/// Consistency-check predicate: returns `true` when `cs` is a single-valued
+/// producer-closure sibling, meaning its own parameter position carries exactly
+/// one candidate, of a parameter that is dispatched over several candidates at a
+/// different position with two or more candidates within `group`.
+///
+/// This is exactly the shape whose producer body `track_specialized_closures`
+/// must not record as consumed before the combined per-candidate specialization
+/// removes it from the live call sites. Recording it clears the producer body
+/// while the dispatched siblings still reference it, reintroducing the incorrect
+/// output. The combined specialization prevents the per-row specialization that
+/// triggers the recording, so this predicate is only true when that
+/// specialization did not run.
+fn closure_constant_sibling_of_dispatch(group: &[&CallSite], cs: &CallSite) -> bool {
+    if !matches!(cs.callable_arg, ConcreteCallable::Closure { .. }) {
+        return false;
+    }
+    let own_position = (cs.top_level_param, cs.field_path.clone());
+    let mut candidates_per_position: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
+    for member in group {
+        *candidates_per_position
+            .entry((member.top_level_param, member.field_path.clone()))
+            .or_default() += 1;
+    }
+    let own_count = candidates_per_position
+        .get(&own_position)
+        .copied()
+        .unwrap_or(0);
+    let has_other_dispatched_position = candidates_per_position
+        .iter()
+        .any(|(position, count)| *position != own_position && *count >= 2);
+    own_count == 1 && has_other_dispatched_position
 }
