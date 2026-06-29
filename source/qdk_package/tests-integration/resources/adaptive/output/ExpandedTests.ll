@@ -207,41 +207,41 @@ declare void @__quantum__qis__cz__body(ptr, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-define void @CNOT(ptr %var_53, ptr %var_54) {
+define void @CNOT(ptr %var_54, ptr %var_55) {
 block_31:
-  call void @__quantum__qis__cx__body(ptr %var_53, ptr %var_54)
+  call void @__quantum__qis__cx__body(ptr %var_54, ptr %var_55)
   ret void
 }
 
 declare void @__quantum__qis__cx__body(ptr, ptr)
 
-define void @Rx(double %var_55, ptr %var_56) {
+define void @Rx(double %var_56, ptr %var_57) {
 block_32:
-  call void @__quantum__qis__rx__body(double %var_55, ptr %var_56)
+  call void @__quantum__qis__rx__body(double %var_56, ptr %var_57)
   ret void
 }
 
 declare void @__quantum__qis__rx__body(double, ptr)
 
-define void @Rz(double %var_57, ptr %var_58) {
+define void @Rz(double %var_58, ptr %var_59) {
 block_33:
-  call void @__quantum__qis__rz__body(double %var_57, ptr %var_58)
+  call void @__quantum__qis__rz__body(double %var_58, ptr %var_59)
   ret void
 }
 
 declare void @__quantum__qis__rz__body(double, ptr)
 
-define void @Rzz(double %var_62, ptr %var_63, ptr %var_64) {
+define void @Rzz(double %var_63, ptr %var_64, ptr %var_65) {
 block_34:
-  call void @__quantum__qis__rzz__body(double %var_62, ptr %var_63, ptr %var_64)
+  call void @__quantum__qis__rzz__body(double %var_63, ptr %var_64, ptr %var_65)
   ret void
 }
 
 declare void @__quantum__qis__rzz__body(double, ptr, ptr)
 
-define void @CNOT__Adj(ptr %var_65, ptr %var_66) {
+define void @CNOT__Adj(ptr %var_66, ptr %var_67) {
 block_35:
-  call void @__quantum__qis__cx__body(ptr %var_65, ptr %var_66)
+  call void @__quantum__qis__cx__body(ptr %var_66, ptr %var_67)
   ret void
 }
 

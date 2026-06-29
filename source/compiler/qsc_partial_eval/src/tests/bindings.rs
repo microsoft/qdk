@@ -109,6 +109,7 @@ fn mutable_result_binding_does_not_generate_store_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Result) = Store Result(0)
                 Call id(3), args( Result(0), Tag(0, 3), )
                 Return Integer(0)"#]],
     );

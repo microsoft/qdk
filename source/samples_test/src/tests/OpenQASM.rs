@@ -25,7 +25,7 @@ pub const GROVER_EXPECT_QIR: Expect = expect!["generated QIR of length 20376"];
 pub const RANDOMNUMBER_EXPECT: Expect = expect!["9"];
 pub const RANDOMNUMBER_EXPECT_DEBUG: Expect = expect!["9"];
 pub const RANDOMNUMBER_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 3559"];
-pub const RANDOMNUMBER_EXPECT_QIR: Expect = expect!["generated QIR of length 4064"];
+pub const RANDOMNUMBER_EXPECT_QIR: Expect = expect!["generated QIR of length 4066"];
 pub const SIMPLE1DISINGORDER1_EXPECT: Expect =
     expect!["[Zero, One, One, Zero, Zero, One, One, One, One]"];
 pub const SIMPLE1DISINGORDER1_EXPECT_DEBUG: Expect =
