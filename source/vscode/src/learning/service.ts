@@ -966,9 +966,9 @@ export class LearningService {
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
 
-    const unit = this.requireWorkspace().catalog.units.find(
-      (u) => u.id === location.unitId,
-    );
+    const units = this.requireWorkspace().catalog.units;
+    const unitIndex = units.findIndex((u) => u.id === location.unitId);
+    const unit = unitIndex >= 0 ? units[unitIndex] : undefined;
     const exercises =
       unit?.activities.filter((s) => s.type === "exercise") ?? [];
     const exerciseIndex = exercises.findIndex(
@@ -978,6 +978,7 @@ export class LearningService {
       EventType.LearningExerciseCompleted,
       {},
       {
+        unitNumber: unitIndex + 1,
         exerciseNumber: exerciseIndex + 1,
         totalExercises: exercises.length,
       },
