@@ -232,4 +232,4 @@ def test_config(context: qdk.Context) -> None:
 
 def test_config_invalid_type(context: qdk.Context) -> None:
     with pytest.raises(TypeError):
-        context.set_config("invalid", {"a": 1})
+        context.set_config("invalid", {"a": 1}) # type: ignore

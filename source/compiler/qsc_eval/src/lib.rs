@@ -295,7 +295,7 @@ pub fn eval<B: Backend>(
 /// Evaluates the given code with the given context and config map.
 /// # Errors
 /// Returns the first error encountered during execution.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::implicit_hasher)]
 pub fn eval_with_config<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
@@ -356,7 +356,7 @@ pub fn invoke<B: Backend>(
 /// Evaluates the given callable with the given context and config map.
 /// # Errors
 /// Returns the first error encountered during execution.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::implicit_hasher)]
 pub fn invoke_with_config<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
