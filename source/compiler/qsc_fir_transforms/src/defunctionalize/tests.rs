@@ -574,24 +574,22 @@ fn closure_inside_parallel_defunctionalizes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Apply(f : (Int -> Int), x : Int) : Int {
                 f(x)
             }
             operation Main() : Int {
                 parallel {
-                    Apply(/ * closure item = 3 captures = [] * / _lambda_, 5)
+                    Apply(/ * closure item = 3 captures = [] * / _lambda_3, 5)
                 }
 
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda_3(x : Int, ) : Int {
                 x + 1
             }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             function Apply(f : (Int -> Int), x : Int) : Int {
                 f(x)
             }
@@ -601,11 +599,11 @@ fn closure_inside_parallel_defunctionalizes() {
                 }
 
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda_3(x : Int, ) : Int {
                 x + 1
             }
             function Apply_closure_(x : Int) : Int {
-                _lambda_(x, )
+                _lambda_3(x, )
             }
             // entry
             Main()
@@ -631,24 +629,22 @@ fn closure_inside_parallel_within_limit_defunctionalizes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Apply(f : (Int -> Int), x : Int) : Int {
                 f(x)
             }
             operation Main() : Int {
                 parallel within 4 {
-                    Apply(/ * closure item = 3 captures = [] * / _lambda_, 5)
+                    Apply(/ * closure item = 3 captures = [] * / _lambda_3, 5)
                 }
 
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda_3(x : Int, ) : Int {
                 x + 1
             }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             function Apply(f : (Int -> Int), x : Int) : Int {
                 f(x)
             }
@@ -658,11 +654,11 @@ fn closure_inside_parallel_within_limit_defunctionalizes() {
                 }
 
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda_3(x : Int, ) : Int {
                 x + 1
             }
             function Apply_closure_(x : Int) : Int {
-                _lambda_(x, )
+                _lambda_3(x, )
             }
             // entry
             Main()
@@ -688,24 +684,22 @@ fn closure_inside_parallel_within_limit_expr_defunctionalizes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Apply(f : (Int -> Int), x : Int) : Int {
                 f(x)
             }
             operation Main() : Int {
-                parallel within Apply(/ * closure item = 3 captures = [] * / _lambda_, 3) {
+                parallel within Apply(/ * closure item = 3 captures = [] * / _lambda_3, 3) {
                     42
                 }
 
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda_3(x : Int, ) : Int {
                 x + 1
             }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             function Apply(f : (Int -> Int), x : Int) : Int {
                 f(x)
             }
@@ -715,11 +709,11 @@ fn closure_inside_parallel_within_limit_expr_defunctionalizes() {
                 }
 
             }
-            function _lambda_(x : Int, ) : Int {
+            function _lambda_3(x : Int, ) : Int {
                 x + 1
             }
             function Apply_closure_(x : Int) : Int {
-                _lambda_(x, )
+                _lambda_3(x, )
             }
             // entry
             Main()

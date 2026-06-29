@@ -1337,7 +1337,6 @@ fn parallel_body_without_returns_passes_through() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 parallel {
                     let x : Int = 1;
@@ -1367,7 +1366,6 @@ fn parallel_within_limit_without_returns_passes_through() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Int {
                 parallel within 4 {
                     let x : Int = 1;
@@ -1400,7 +1398,6 @@ fn return_inside_parallel_body_is_unified() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -1419,6 +1416,36 @@ fn return_inside_parallel_body_is_unified() {
                 } else {
                     __trailing_result
                 }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_body_without_explicit_block_is_unified() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel (1 + return 42);
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                parallel {
+                    let _ : Int = 1;
+                    {
+                        __ret_val = 42;
+                        __has_returned = true;
+                    };
+                };
+                __ret_val
             }
             // entry
             Main()
@@ -1446,7 +1473,6 @@ fn return_inside_parallel_body_with_remaining_code() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -1495,7 +1521,6 @@ fn return_inside_parallel_within_limit_body() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -1538,7 +1563,6 @@ fn return_inside_parallel_within_limit_expr() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;

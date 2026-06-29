@@ -2490,7 +2490,6 @@ fn mono_generic_call_as_parallel_within_limit_expr() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function ToInt(x : 'T0) : Int {
                 4
             }
@@ -2504,7 +2503,6 @@ fn mono_generic_call_as_parallel_within_limit_expr() {
             Main()
 
             AFTER:
-            // namespace test
             function ToInt(x : 'T0) : Int {
                 4
             }

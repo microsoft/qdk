@@ -365,7 +365,6 @@ fn parallel_expression_renders() {
             }
         "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Unit {
                 body {
                     parallel {
@@ -375,9 +374,6 @@ fn parallel_expression_renders() {
                     }
 
                 }
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()
@@ -400,7 +396,6 @@ fn parallel_within_limit_renders() {
             }
         "#},
         &expect![[r#"
-            // namespace Test
             operation Main() : Unit {
                 body {
                     parallel within 4 {
@@ -410,9 +405,6 @@ fn parallel_within_limit_renders() {
                     }
 
                 }
-            }
-            function Length(a : Qubit[]) : Int {
-                body intrinsic;
             }
             // entry
             Main()

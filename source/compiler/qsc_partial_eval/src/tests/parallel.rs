@@ -36,7 +36,7 @@ fn baseline_qubit_ids_recycled_without_parallel() {
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(1), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
@@ -74,7 +74,7 @@ fn parallel_defers_qubit_release() {
                 Call id(2), args( Qubit(2), )
                 Call id(2), args( Qubit(3), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 4);
     assert_eq!(program.num_results, 0);
@@ -109,7 +109,7 @@ fn parallel_releases_available_after_block_ends() {
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(0), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 0);
@@ -151,7 +151,7 @@ fn parallel_nested_defers_inner_releases_to_outer() {
                 Call id(2), args( Qubit(2), )
                 Call id(2), args( Qubit(3), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 4);
     assert_eq!(program.num_results, 0);
@@ -188,7 +188,7 @@ fn parallel_within_reuses_ids_after_limit() {
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(1), )
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 0);
@@ -241,7 +241,7 @@ fn parallel_within_nested_defers_through_outer_limit() {
                 Call id(2), args( Qubit(2), )
                 Variable(0, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 6);
     assert_eq!(program.num_results, 0);
@@ -294,7 +294,7 @@ fn parallel_nested_unlimited_outer_defers_all() {
                 Call id(2), args( Qubit(8), )
                 Variable(0, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 9);
     assert_eq!(program.num_results, 0);
@@ -332,8 +332,8 @@ fn parallel_forces_loop_unrolling_with_adaptive_rifla() {
                 Variable(2, Boolean) = Store Bool(true)
                 Branch Variable(1, Boolean), 3, 4
             Block 2:Block:
-                Call id(3), args( Integer(0), Tag(0, 3), )
-                Return
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
             Block 3:Block:
                 Branch Variable(2, Boolean), 5, 2
             Block 4:Block:
@@ -341,9 +341,12 @@ fn parallel_forces_loop_unrolling_with_adaptive_rifla() {
                 Jump(3)
             Block 5:Block:
                 Call id(2), args( Qubit(0), )
-                Variable(3, Integer) = Add Variable(0, Integer), Integer(1)
-                Variable(0, Integer) = Store Variable(3, Integer)
-                Jump(1)"#]],
+                Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(4, Integer)
+                Jump(1)
+            Block 6:Block:
+                Call id(3), args( Variable(3, Qubit), )
+                Return"#]],
     );
 
     // With parallel, the same loop is unrolled into a single block.
@@ -374,7 +377,10 @@ fn parallel_forces_loop_unrolling_with_adaptive_rifla() {
                 Variable(0, Integer) = Store Integer(1)
                 Call id(2), args( Qubit(1), )
                 Variable(0, Integer) = Store Integer(2)
-                Call id(3), args( Integer(0), Tag(0, 3), )
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Call id(3), args( Variable(1, Qubit), )
                 Return"#]],
     );
 }
