@@ -3080,8 +3080,9 @@ fn parallel_without_block_lowers_into_block() {
                         functors: empty set
                         body: SpecDecl 3 [0-46]: Impl:
                             Block 4 [24-46] [Type Unit]:
-                                Stmt 5 [30-44]: Semi: Expr 6 [30-43] [Type Bool]: Parallel: Expr 10 [0-0] [Type Bool]: Expr Block: Block 9 [0-0] [Type Bool]:
-                                    Stmt 8 [0-0]: Expr: Expr 7 [39-43] [Type Bool]: Lit: Bool(true)
+                                Stmt 5 [30-44]: Semi: Expr 6 [30-43] [Type Bool]: Parallel:
+                                    Body: Expr 10 [0-0] [Type Bool]: Expr Block: Block 9 [0-0] [Type Bool]:
+                                        Stmt 8 [0-0]: Expr: Expr 7 [39-43] [Type Bool]: Lit: Bool(true)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
@@ -3109,8 +3110,9 @@ fn parallel_with_block_lowers_into_existing_block() {
                         functors: empty set
                         body: SpecDecl 3 [0-48]: Impl:
                             Block 4 [24-48] [Type Unit]:
-                                Stmt 5 [30-46]: Semi: Expr 6 [30-45] [Type Bool]: Parallel: Expr 7 [39-45] [Type Bool]: Expr Block: Block 8 [39-45] [Type Bool]:
-                                    Stmt 9 [40-44]: Expr: Expr 10 [40-44] [Type Bool]: Lit: Bool(true)
+                                Stmt 5 [30-46]: Semi: Expr 6 [30-45] [Type Bool]: Parallel:
+                                    Body: Expr 7 [39-45] [Type Bool]: Expr Block: Block 8 [39-45] [Type Bool]:
+                                        Stmt 9 [40-44]: Expr: Expr 10 [40-44] [Type Bool]: Lit: Bool(true)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
@@ -3138,8 +3140,10 @@ fn parallel_limited_without_block_lowers_into_block() {
                         functors: empty set
                         body: SpecDecl 3 [0-55]: Impl:
                             Block 4 [24-55] [Type Unit]:
-                                Stmt 5 [30-53]: Semi: Expr 6 [30-52] [Type Bool]: Parallel(Expr 7 [46-47] [Type Int]: Lit: Int(3)): Expr 11 [0-0] [Type Bool]: Expr Block: Block 10 [0-0] [Type Bool]:
-                                    Stmt 9 [0-0]: Expr: Expr 8 [48-52] [Type Bool]: Lit: Bool(true)
+                                Stmt 5 [30-53]: Semi: Expr 6 [30-52] [Type Bool]: Parallel:
+                                    Limit: Expr 7 [46-47] [Type Int]: Lit: Int(3)
+                                    Body: Expr 11 [0-0] [Type Bool]: Expr Block: Block 10 [0-0] [Type Bool]:
+                                        Stmt 9 [0-0]: Expr: Expr 8 [48-52] [Type Bool]: Lit: Bool(true)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
@@ -3167,8 +3171,10 @@ fn parallel_limited_with_block_lowers_into_existing_block() {
                         functors: empty set
                         body: SpecDecl 3 [0-57]: Impl:
                             Block 4 [24-57] [Type Unit]:
-                                Stmt 5 [30-55]: Semi: Expr 6 [30-54] [Type Bool]: Parallel(Expr 7 [46-47] [Type Int]: Lit: Int(3)): Expr 8 [48-54] [Type Bool]: Expr Block: Block 9 [48-54] [Type Bool]:
-                                    Stmt 10 [49-53]: Expr: Expr 11 [49-53] [Type Bool]: Lit: Bool(true)
+                                Stmt 5 [30-55]: Semi: Expr 6 [30-54] [Type Bool]: Parallel:
+                                    Limit: Expr 7 [46-47] [Type Int]: Lit: Int(3)
+                                    Body: Expr 8 [48-54] [Type Bool]: Expr Block: Block 9 [48-54] [Type Bool]:
+                                        Stmt 10 [49-53]: Expr: Expr 11 [49-53] [Type Bool]: Lit: Bool(true)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
