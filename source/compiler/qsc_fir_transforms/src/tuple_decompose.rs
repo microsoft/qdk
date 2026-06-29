@@ -44,7 +44,10 @@ mod semantic_equivalence_tests;
 use crate::fir_builder::{
     alloc_local_var_expr, decompose_binding, functored_specs, reachable_local_callables,
 };
-use crate::reachability::collect_reachable_with_seeds;
+use crate::package_assigners::PackageAssigners;
+use crate::reachability::{
+    collect_reachable_from_entry, collect_reachable_package_closure, collect_reachable_with_seeds,
+};
 use crate::tuple_destructuring::{normalize_tuple_copy_assignment, normalize_tuple_destructuring};
 use crate::walk_utils::{UseClass, classify_block_use, collect_expr_ids_in_local_callables};
 use qsc_data_structures::span::Span;
@@ -56,18 +59,18 @@ use qsc_fir::fir::{
 };
 use qsc_fir::ty::Ty;
 use qsc_fir::visit::{self, Visitor};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::rc::Rc;
 
 use crate::EMPTY_EXEC_RANGE;
 
-/// Runs the tuple-decompose pass on the entry-reachable portion of a package.
+/// Runs the tuple-decompose pass across the entry-reachable package closure.
 ///
 /// For each local binding whose type resolves to a multi-field tuple,
 /// the pass decomposes the binding into one scalar local per
 /// element when **every** use of the binding falls into one of the
 /// shapes the in-pass classifier accepts (see
-/// [`crate::walk_utils::for_each_use_event`]):
+/// `crate::walk_utils::for_each_use_event`):
 ///
 /// - `Field(Var(t), Path(..))` — a field projection out of the binding,
 ///   rewritten by [`rewrite_field_accesses`] into a direct
@@ -101,39 +104,43 @@ use crate::EMPTY_EXEC_RANGE;
 pub fn tuple_decompose(
     store: &mut PackageStore,
     package_id: PackageId,
-    assigner: &mut Assigner,
+    assigners: &mut PackageAssigners,
 ) -> bool {
-    tuple_decompose_with_seeds(store, package_id, assigner, &[])
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let pkg_ids: Vec<PackageId> = collect_reachable_package_closure(package_id, &reachable)
+        .into_iter()
+        .collect();
+    let mut changed = false;
+    for pkg in pkg_ids {
+        let assigner = assigners.get_mut(store, pkg);
+        changed |= tuple_decompose_in_package_to_fixpoint(store, pkg, assigner, &reachable);
+    }
+    changed
 }
 
-/// Seed-rooted variant of [`tuple_decompose`] for the signature-preserving
-/// sub-pipeline.
+/// Runs the tuple-decompose fixpoint over the reachable callables that live in
+/// `package_id`, minting fresh locals through that package's `assigner`.
 ///
-/// Decomposes tuple-typed locals in entry-reachable code **and** in the
-/// `seeds` roots (pinned target bodies and their transitive callees). The same
-/// seed slice re-roots every fixpoint round so freshly exposed tuple leaves in
-/// the seeded bodies keep being decomposed. Entry-reachable code already
-/// processed by this pass exposes no further candidates, so the re-walk is a
-/// no-op there.
-pub fn tuple_decompose_with_seeds(
+/// `reachable` is the entry-rooted closure (spanning every package); the
+/// per-package helpers filter it to `package_id`. tuple-decompose is body-only,
+/// so the closure is stable across rounds and is computed once by the caller.
+fn tuple_decompose_in_package_to_fixpoint(
     store: &mut PackageStore,
     package_id: PackageId,
     assigner: &mut Assigner,
-    seeds: &[StoreItemId],
+    reachable: &FxHashSet<StoreItemId>,
 ) -> bool {
     let mut changed = false;
     loop {
-        let reachable = collect_reachable_with_seeds(store, package_id, seeds);
-
-        changed |= normalize_tuple_destructuring(store, package_id, assigner, seeds);
-        changed |= normalize_tuple_copy_assignment(store, package_id, assigner, seeds);
+        changed |= normalize_tuple_destructuring(store, package_id, assigner, reachable);
+        changed |= normalize_tuple_copy_assignment(store, package_id, assigner, reachable);
 
         let package = store.get(package_id);
 
-        // Collect candidates across all reachable callables.
+        // Collect candidates across all reachable callables in this package.
         let mut all_candidates: Vec<TupleDecomposeCandidate> = Vec::new();
 
-        for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
+        for (item_id, decl) in reachable_local_callables(package, package_id, reachable) {
             collect_candidates_in_callable(store, package_id, item_id, decl, &mut all_candidates);
         }
 
@@ -147,6 +154,32 @@ pub fn tuple_decompose_with_seeds(
         for candidate in &all_candidates {
             decompose_candidate(package, assigner, candidate);
         }
+    }
+    changed
+}
+
+/// Seed-rooted variant of [`tuple_decompose`] for the signature-preserving
+/// sub-pipeline.
+///
+/// Decomposes tuple-typed locals in entry-reachable code and in the `seeds`
+/// roots (pinned target bodies and their transitive callees), each in its
+/// owning package via [`PackageAssigners`]. Entry-reachable code already
+/// processed by this pass exposes no further candidates, so the re-walk is a
+/// no-op there.
+pub fn tuple_decompose_with_seeds(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+    seeds: &[StoreItemId],
+) -> bool {
+    let reachable = collect_reachable_with_seeds(store, package_id, seeds);
+    let pkg_ids: Vec<PackageId> = collect_reachable_package_closure(package_id, &reachable)
+        .into_iter()
+        .collect();
+    let mut changed = false;
+    for pkg in pkg_ids {
+        let assigner = assigners.get_mut(store, pkg);
+        changed |= tuple_decompose_in_package_to_fixpoint(store, pkg, assigner, &reachable);
     }
     changed
 }
@@ -211,7 +244,7 @@ fn collect_candidates_in_spec(
     let bindings = find_tuple_bindings_in_block(package, spec.block);
 
     for binding in bindings {
-        // Verify ALL uses are field-only.
+        // Verify all uses are field-only.
         if all_uses_are_field_access(package, spec.block, binding.local_id) {
             candidates.push(TupleDecomposeCandidate {
                 local_id: binding.local_id,
@@ -334,7 +367,7 @@ fn decompose_candidate(
     );
 
     // Split `Assign(Var(Local(old)), Tuple([e0, e1, ...]))` into per-element
-    // assignments. This must run AFTER field access rewriting so that any
+    // assignments. This must run after field access rewriting so that any
     // `Field(Var(Local(old)), Path([i]))` references in the RHS elements
     // have already been rewritten to `Var(Local(new_i))`.
     rewrite_assign_tuples(
@@ -490,6 +523,9 @@ fn replace_expr_references(
     }
 }
 
+/// Redirects a statement's direct expression edge from `old_expr_id` to
+/// `new_expr_id`. Companion to [`replace_expr_in_expr`] for
+/// [`replace_expr_references`].
 fn replace_expr_in_stmt(stmt: &mut Stmt, old_expr_id: ExprId, new_expr_id: ExprId) {
     match &mut stmt.kind {
         StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
@@ -499,6 +535,10 @@ fn replace_expr_in_stmt(stmt: &mut Stmt, old_expr_id: ExprId, new_expr_id: ExprI
     }
 }
 
+/// Redirects an expression's direct child edges from `old_expr_id` to
+/// `new_expr_id`. Rewrites only the immediate children (one structural level);
+/// [`replace_expr_references`] visits every expression in the callable, so deep
+/// recursion here would be redundant.
 fn replace_expr_in_expr(expr: &mut Expr, old_expr_id: ExprId, new_expr_id: ExprId) {
     match &mut expr.kind {
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {

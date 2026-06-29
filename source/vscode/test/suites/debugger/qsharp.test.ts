@@ -3,7 +3,11 @@
 
 import * as vscode from "vscode";
 import { assert } from "chai";
-import { activateExtension, waitForCondition } from "../extensionUtils";
+import {
+  activateExtension,
+  waitForCondition,
+  TEST_TIMEOUT_MS,
+} from "../extensionUtils";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { qsharpExtensionId } from "../../../src/common";
 import { Tracker } from "./tracker";
@@ -66,7 +70,7 @@ suite("Q# Debugger Tests", function suite() {
       setTimeout(
         () =>
           reject(new Error("Timed out waiting for debug session to terminate")),
-        2000,
+        TEST_TIMEOUT_MS,
       );
     });
 
@@ -171,7 +175,7 @@ suite("Q# Debugger Tests", function suite() {
     await waitForCondition(
       () => !vscode.debug.activeDebugSession,
       vscode.debug.onDidChangeActiveDebugSession,
-      9000,
+      TEST_TIMEOUT_MS,
       "timed out waiting for the debugger to be terminated",
     );
   });
@@ -531,7 +535,7 @@ async function terminateSession() {
   await waitForCondition(
     () => !vscode.debug.activeDebugSession,
     vscode.debug.onDidChangeActiveDebugSession,
-    9000,
+    TEST_TIMEOUT_MS,
     "timed out waiting for the debugger to be terminated",
   );
 }
@@ -545,7 +549,7 @@ async function waitForTextEditorOn(uri: vscode.Uri) {
       vscode.window.activeTextEditor?.document.uri.toString() ===
       uri.toString(),
     vscode.window.onDidChangeActiveTextEditor,
-    500,
+    TEST_TIMEOUT_MS,
     `timed out waiting for the text editor to open to ${uri}.\nactive text editor is ${vscode.window.activeTextEditor?.document.uri}`,
   );
 }

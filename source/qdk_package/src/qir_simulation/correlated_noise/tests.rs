@@ -16,14 +16,13 @@ XX,0.033";
     let noise_table = parse_noise_table(contents).expect("parsing should succeed");
 
     assert_eq!(noise_table.qubits, 2);
-    assert_eq!(noise_table.loss, 0.0);
     assert_eq!(noise_table.pauli_noise.len(), 3);
     // II (key=0) is the identity — should be excluded.
     assert!(!noise_table.pauli_noise.contains_key(&0));
-    // IX=1, XI=4, XX=5
+    // IX=1, XI=8, XX=9
     assert_eq!(noise_table.pauli_noise[&1], 0.033);
-    assert_eq!(noise_table.pauli_noise[&4], 0.033);
-    assert_eq!(noise_table.pauli_noise[&5], 0.033);
+    assert_eq!(noise_table.pauli_noise[&8], 0.033);
+    assert_eq!(noise_table.pauli_noise[&9], 0.033);
 }
 
 #[allow(clippy::float_cmp, clippy::unreadable_literal)]
@@ -38,14 +37,13 @@ XX,1.401857148503582e-08";
     let noise_table = parse_noise_table(contents).expect("parsing should succeed");
 
     assert_eq!(noise_table.qubits, 2);
-    assert_eq!(noise_table.loss, 0.0);
     assert_eq!(noise_table.pauli_noise.len(), 3);
     // II (key=0) is the identity — should be excluded.
     assert!(!noise_table.pauli_noise.contains_key(&0));
-    // IX=1, XI=4, XX=5
+    // IX=1, XI=8, XX=9
     assert_eq!(noise_table.pauli_noise[&1], 3.071369852930967e-08);
-    assert_eq!(noise_table.pauli_noise[&4], 1.2949870973525467e-06);
-    assert_eq!(noise_table.pauli_noise[&5], 1.401857148503582e-08);
+    assert_eq!(noise_table.pauli_noise[&8], 1.2949870973525467e-06);
+    assert_eq!(noise_table.pauli_noise[&9], 1.401857148503582e-08);
 }
 
 #[allow(clippy::float_cmp)]
@@ -62,14 +60,13 @@ XX,0.033";
     let noise_table = parse_noise_table(contents).expect("parsing should succeed");
 
     assert_eq!(noise_table.qubits, 2);
-    assert_eq!(noise_table.loss, 0.0);
     assert_eq!(noise_table.pauli_noise.len(), 3);
     // II (key=0) is the identity — should be excluded.
     assert!(!noise_table.pauli_noise.contains_key(&0));
-    // IX=1, XI=4, XX=5
+    // IX=1, XI=8, XX=9
     assert_eq!(noise_table.pauli_noise[&1], 0.033);
-    assert_eq!(noise_table.pauli_noise[&4], 0.033);
-    assert_eq!(noise_table.pauli_noise[&5], 0.033);
+    assert_eq!(noise_table.pauli_noise[&8], 0.033);
+    assert_eq!(noise_table.pauli_noise[&9], 0.033);
 }
 
 #[allow(clippy::float_cmp)]
@@ -85,14 +82,13 @@ XX,0.033";
     let noise_table = parse_noise_table(contents).expect("parsing should succeed");
 
     assert_eq!(noise_table.qubits, 2);
-    assert_eq!(noise_table.loss, 0.0);
     assert_eq!(noise_table.pauli_noise.len(), 3);
     // II (key=0) is the identity — should be excluded.
     assert!(!noise_table.pauli_noise.contains_key(&0));
-    // IX=1, XI=4, XX=5
+    // IX=1, XI=8, XX=9
     assert_eq!(noise_table.pauli_noise[&1], 0.033);
-    assert_eq!(noise_table.pauli_noise[&4], 0.033);
-    assert_eq!(noise_table.pauli_noise[&5], 0.033);
+    assert_eq!(noise_table.pauli_noise[&8], 0.033);
+    assert_eq!(noise_table.pauli_noise[&9], 0.033);
 }
 
 #[allow(clippy::float_cmp)]
@@ -107,14 +103,13 @@ fn noise_table_with_whitespaces() {
     let noise_table = parse_noise_table(contents).expect("parsing should succeed");
 
     assert_eq!(noise_table.qubits, 2);
-    assert_eq!(noise_table.loss, 0.0);
     assert_eq!(noise_table.pauli_noise.len(), 3);
     // II (key=0) is the identity — should be excluded.
     assert!(!noise_table.pauli_noise.contains_key(&0));
-    // IX=1, XI=4, XX=5
+    // IX=1, XI=8, XX=9
     assert_eq!(noise_table.pauli_noise[&1], 0.033);
-    assert_eq!(noise_table.pauli_noise[&4], 0.033);
-    assert_eq!(noise_table.pauli_noise[&5], 0.033);
+    assert_eq!(noise_table.pauli_noise[&8], 0.033);
+    assert_eq!(noise_table.pauli_noise[&9], 0.033);
 }
 
 #[allow(clippy::float_cmp)]
@@ -135,14 +130,13 @@ XX, 0.033
     let noise_table = parse_noise_table(contents).expect("parsing should succeed");
 
     assert_eq!(noise_table.qubits, 2);
-    assert_eq!(noise_table.loss, 0.0);
     assert_eq!(noise_table.pauli_noise.len(), 3);
     // II (key=0) is the identity — should be excluded.
     assert!(!noise_table.pauli_noise.contains_key(&0));
-    // IX=1, XI=4, XX=5
+    // IX=1, XI=8, XX=9
     assert_eq!(noise_table.pauli_noise[&1], 0.033);
-    assert_eq!(noise_table.pauli_noise[&4], 0.033);
-    assert_eq!(noise_table.pauli_noise[&5], 0.033);
+    assert_eq!(noise_table.pauli_noise[&8], 0.033);
+    assert_eq!(noise_table.pauli_noise[&9], 0.033);
 }
 
 #[test]

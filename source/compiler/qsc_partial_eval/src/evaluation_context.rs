@@ -323,7 +323,7 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
             }
             ValueKind::Constant
         }
-        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Variable,
+        Value::Result(Result::Loss) | Value::Var(_) => ValueKind::Variable,
         Value::BigInt(_)
         | Value::Bool(_)
         | Value::Closure(_)
@@ -333,7 +333,7 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Pauli(_)
         | Value::Qubit(_)
         | Value::Range(_)
-        | Value::Result(Result::Val(_))
+        | Value::Result(Result::Val(_) | Result::Id(_))
         | Value::String(_) => ValueKind::Constant,
     }
 }

@@ -228,6 +228,58 @@ fn intrinsic_with_multiple_primitive_params() {
 }
 
 #[test]
+fn intrinsic_with_nested_tuple_param() {
+    // A single parameter whose type is a nested tuple is rejected, and the
+    // diagnostic reports the full nested tuple type.
+    check_precheck_errors(
+        indoc! {r#"
+                namespace Test {
+                    operation Foo(p : (Int, (Int, Int))) : Unit { body intrinsic; }
+                    @EntryPoint()
+                    operation Main() : Unit { Foo((1, (2, 3))); }
+                }
+            "#},
+        &expect!["intrinsic callable `Foo` has unsupported parameter type `(Int, (Int, Int))`"],
+    );
+}
+
+#[test]
+fn intrinsic_with_mixed_tuple_and_primitive_params() {
+    // The precheck flattens the callable input pattern and validates each
+    // parameter independently: the primitive `a` is fine while the tuple `b`
+    // is rejected.
+    check_precheck_errors(
+        indoc! {r#"
+                namespace Test {
+                    operation Foo(a : Qubit, b : (Int, Int)) : Unit { body intrinsic; }
+                    @EntryPoint()
+                    operation Main() : Unit {
+                        use q = Qubit();
+                        Foo(q, (1, 2));
+                    }
+                }
+            "#},
+        &expect!["intrinsic callable `Foo` has unsupported parameter type `(Int, Int)`"],
+    );
+}
+
+#[test]
+fn intrinsic_with_array_of_tuple_param_is_allowed() {
+    // The precheck only rejects top-level tuple/UDT parameter types. An array
+    // whose element type is a tuple is not itself a tuple type, so it passes.
+    check_precheck_errors(
+        indoc! {r#"
+                namespace Test {
+                    operation Foo(xs : (Int, Int)[]) : Unit { body intrinsic; }
+                    @EntryPoint()
+                    operation Main() : Unit { Foo([(1, 2)]); }
+                }
+            "#},
+        &expect![[""]],
+    );
+}
+
+#[test]
 fn unreachable_intrinsic_not_checked() {
     check_precheck_errors(
         indoc! {r#"

@@ -25,7 +25,6 @@ fn operand_lift_return_in_binop_operand_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -75,7 +74,6 @@ fn operand_lift_return_in_call_tuple_arg_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Add(a : Int, b : Int) : Int {
                 a + b
             }
@@ -126,7 +124,6 @@ fn operand_lift_return_in_index_operand_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -176,7 +173,6 @@ fn operand_lift_return_in_tuple_element_block() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
@@ -226,7 +222,6 @@ fn operand_lift_return_in_call_arg_block_unit_call() {
         }
     "#},
         &expect![[r#"
-            // namespace Test
             function Use(a : Int) : Int {
                 a
             }

@@ -52,6 +52,11 @@ pub struct FirCloner {
 impl FirCloner {
     /// Creates a new cloner whose counters start above the maximum existing IDs
     /// in `package`.
+    ///
+    /// Production code seeds cloners through the per-package assigner pool via
+    /// [`FirCloner::from_assigner`]; this constructor is retained for tests that
+    /// build a cloner directly from a package.
+    #[cfg(test)]
     #[must_use]
     pub fn new(package: &Package) -> Self {
         let assigner = Assigner::from_package(package);
@@ -71,8 +76,7 @@ impl FirCloner {
     /// Creates a new cloner initialized with the provided `Assigner`.
     ///
     /// Use this when an `Assigner` with correct watermarks is already
-    /// available (e.g., captured from the lowerer), avoiding the O(n)
-    /// scan performed by [`FirCloner::new`].
+    /// available, avoiding the O(n) scan performed by `FirCloner::new`.
     #[must_use]
     pub fn from_assigner(assigner: Assigner) -> Self {
         Self {
@@ -186,7 +190,7 @@ impl FirCloner {
         spec: &SpecDecl,
         target: &mut Package,
     ) -> SpecDecl {
-        // Clone input BEFORE block so that `local_map` contains input
+        // Clone the input before the block so `local_map` holds the input
         // parameter mappings when body expressions are walked.
         let new_input = spec
             .input
@@ -329,9 +333,7 @@ impl FirCloner {
                     attrs: decl.attrs.clone(),
                 }))
             }
-            ItemKind::Namespace(ident, items) => ItemKind::Namespace(ident.clone(), items.clone()),
             ItemKind::Ty(ident, udt) => ItemKind::Ty(ident.clone(), udt.clone()),
-            ItemKind::Export(ident, res) => ItemKind::Export(ident.clone(), *res),
         };
 
         let new_item = Item {
@@ -530,6 +532,9 @@ impl FirCloner {
         self.assigner
     }
 
+    /// Allocates a fresh `LocalVarId` for `old` and records the old-to-new
+    /// mapping so later references to `old` in the cloned subtree are remapped
+    /// to the new id.
     pub(crate) fn alloc_local(&mut self, old: LocalVarId) -> LocalVarId {
         let new = LocalVarId::from(self.next_local);
         self.next_local += 1;

@@ -85,6 +85,62 @@ pub(crate) fn write_package_qsharp_parseable(
     format_str(&emitter.output)
 }
 
+/// Renders every item reachable from the root package's entry expression as
+/// parseable Q#, spanning **all** packages rather than a single one.
+///
+/// Unlike [`write_package_qsharp_parseable`], which renders one package, this
+/// walks the cross-package reachable set
+/// ([`crate::reachability::collect_reachable_from_entry`]) and emits each
+/// reachable item grouped under its owning package. Packages are emitted in
+/// ascending `PackageId` order and items in ascending `LocalItemId` order so
+/// snapshots remain stable across runs. The root package's entry expression
+/// is emitted last.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn write_reachable_qsharp_parseable(
+    store: &PackageStore,
+    root_package_id: PackageId,
+) -> String {
+    use std::collections::BTreeMap;
+
+    let reachable = crate::reachability::collect_reachable_from_entry(store, root_package_id);
+
+    // Group reachable items by their owning package so each package can be
+    // emitted with its own emitter (which resolves local names and item
+    // references relative to that package).
+    let mut items_by_package: BTreeMap<PackageId, Vec<LocalItemId>> = BTreeMap::new();
+    for store_id in &reachable {
+        items_by_package
+            .entry(store_id.package)
+            .or_default()
+            .push(store_id.item);
+    }
+
+    let mut output = String::new();
+    for (package_id, mut item_ids) in items_by_package {
+        item_ids.sort_unstable();
+        let _ = writeln!(output, "// package {package_id}");
+        let mut emitter = FirQSharpGen::new_with_mode(store, package_id, RenderMode::Parseable);
+        for item_id in item_ids {
+            emitter.emit_item(item_id);
+        }
+        output.push_str(&emitter.output);
+    }
+
+    // Emit the root package's entry expression last, after every reachable
+    // item definition.
+    let root_package = store.get(root_package_id);
+    if let Some(entry) = root_package.entry {
+        let mut emitter =
+            FirQSharpGen::new_with_mode(store, root_package_id, RenderMode::Parseable);
+        emitter.writeln("// entry");
+        emitter.emit_expr(entry);
+        output.push_str(&emitter.output);
+    }
+
+    format_str(&output)
+}
+
 /// Renders a single expression as Q# source.
 ///
 /// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
@@ -148,11 +204,6 @@ impl<'a> FirQSharpGen<'a> {
         let kind = self.package().get_item(id).kind.clone();
         match kind {
             ItemKind::Callable(decl) => self.emit_callable_decl(&decl),
-            ItemKind::Namespace(name, _) => {
-                self.write("// namespace ");
-                self.write(&name.name);
-                self.writeln("");
-            }
             ItemKind::Ty(name, udt) => {
                 let ty = udt.get_pure_ty();
                 self.write("newtype ");
@@ -160,13 +211,6 @@ impl<'a> FirQSharpGen<'a> {
                 self.write(" = ");
                 self.emit_ty(&ty);
                 self.writeln(";");
-            }
-            ItemKind::Export(name, res) => {
-                self.write("// export ");
-                self.write(&name.name);
-                self.write(" = ");
-                self.emit_res(&res);
-                self.writeln("");
             }
         }
     }
@@ -942,7 +986,6 @@ impl<'a> FirQSharpGen<'a> {
         match &pkg.get_item(item).kind {
             ItemKind::Callable(decl) => self.render_ident(&decl.name.name),
             ItemKind::Ty(name, _) => self.render_ident(&name.name),
-            _ => format!("Item({item})"),
         }
     }
 
@@ -957,7 +1000,6 @@ impl<'a> FirQSharpGen<'a> {
             match &self.store.get_item(store_id).kind {
                 ItemKind::Callable(decl) => self.render_ident(&decl.name.name),
                 ItemKind::Ty(name, _) => self.render_ident(&name.name),
-                _ => format!("{item_id}"),
             }
         }
     }
@@ -1004,7 +1046,7 @@ impl<'a> FirQSharpGen<'a> {
         let item = self.store.get_item(store_id);
         match &item.kind {
             ItemKind::Ty(_, udt) => Some(udt),
-            _ => None,
+            ItemKind::Callable(_) => None,
         }
     }
 

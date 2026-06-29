@@ -28,12 +28,10 @@
 //!   and later it additionally walks the reachable-package closure to apply
 //!   the package-wide UDT-erase invariants to every reachable external
 //!   package.
-//! - [`check_external_spec_exec_graphs`] (crate-private) is a narrower
-//!   companion entry point that validates only the exec-graph surface of
-//!   selected callable specs in *external* packages that an earlier pass
-//!   mutated. The pipeline calls it after `exec_graph_rebuild` to confirm
-//!   that rebuilt external exec graphs are structurally well-formed without
-//!   applying the full target-package invariant set to library packages.
+//! - The reachable-spec exec-graph surface (structural well-formedness and
+//!   non-empty ranges) is validated for every reachable spec in every
+//!   reachable package at [`InvariantLevel::PostAll`], since
+//!   `exec_graph_rebuild` now rebuilds the whole reachable closure.
 
 #[cfg(test)]
 mod tests;
@@ -52,8 +50,8 @@ use qsc_fir::ty::{FunctorSet, Prim, Ty};
 use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::reachability::{collect_reachable_package_closure, collect_reachable_with_seeds};
-use crate::{CallableSpecId, CallableSpecKind};
+use crate::reachability::collect_reachable_with_seeds;
+use crate::walk_utils::{CallableNode, for_each_node_from_expr_root, for_each_node_in_callable};
 
 /// The level of invariant checking to perform, corresponding to which passes
 /// have already been applied.
@@ -68,19 +66,13 @@ pub enum InvariantLevel {
     /// pinned `ReinvokeOriginal` target bodies).
     ///
     /// This level is **off the strict-linear pipeline axis**: it enforces only
-    /// the checks established by the passes the sub-pipeline actually runs
-    /// (`return_unify` → `tuple_compare_lower` → `tuple_decompose`): no
-    /// `ExprKind::Return` and no tuple `BinOp(Eq/Neq)`, with matching
-    /// tuple-decompose patterns. It deliberately **allows** everything those
-    /// passes do not touch: the pinned bodies are NOT monomorphized,
-    /// defunctionalized, UDT-erased, or argument-promoted, so residual
-    /// `Ty::Param` / `FunctorSet::Param` (monomorphization residue),
-    /// `Ty::Arrow` parameters, `ExprKind::Closure`, `Ty::Udt`,
-    /// `ExprKind::Struct`, and `Field::Path` are all permitted.
-    ///
-    /// Membership is special-cased in [`InvariantLevel::enforces`] rather than
-    /// expressed as a single linear threshold; see that method for the per-pass
-    /// include/exclude decisions.
+    /// the checks those three passes establish — no `ExprKind::Return` and no
+    /// tuple `BinOp(Eq/Neq)`, with matching tuple-decompose patterns. Because
+    /// the pinned bodies are never monomorphized, defunctionalized, UDT-erased,
+    /// or argument-promoted, it deliberately **allows** residual `Ty::Param` /
+    /// `FunctorSet::Param`, `Ty::Arrow` parameters, `ExprKind::Closure`,
+    /// `Ty::Udt`, `ExprKind::Struct`, and `Field::Path`. Membership is
+    /// special-cased in `InvariantLevel::enforces`.
     PostSignaturePreserving,
     /// After defunctionalization: additionally no `Ty::Arrow` params and no
     /// `ExprKind::Closure` in reachable code.
@@ -148,7 +140,7 @@ impl InvariantLevel {
     /// `tuple_compare_lower`, and `tuple_decompose` on pinned `ReinvokeOriginal`
     /// bodies that were never monomorphized, defunctionalized, UDT-erased, or
     /// argument-promoted. It therefore enforces exactly those three checks and
-    /// none of the others — in particular it must NOT enforce [`StageCheck::Mono`]
+    /// none of the others — in particular it must not enforce [`StageCheck::Mono`]
     /// (the un-monomorphized bodies legitimately retain `Ty::Param` /
     /// `FunctorSet::Param`).
     fn enforces(self, check: StageCheck) -> bool {
@@ -181,13 +173,13 @@ impl InvariantLevel {
 /// reachability closure.
 ///
 /// This entry point checks every reachable callable. The pipeline uses
-/// [`check_with_skip`] to bypass the residual-`Return` checks on callables that
+/// `check_with_skip` to bypass the residual-`Return` checks on callables that
 /// return unification deliberately left un-rewritten.
 ///
 /// # Ordering
 ///
 /// `check_id_references` must run on the target package *before*
-/// `collect_reachable_from_entry`. The reachability walker dereferences IDs
+/// `collect_reachable_with_seeds`. The reachability walker dereferences IDs
 /// through [`qsc_fir::fir::PackageLookup`], which panics with a generic
 /// `"Statement not found"` message on a malformed `block.stmts` list. Running
 /// the ID-reference check first surfaces the targeted invariant diagnostic
@@ -215,7 +207,7 @@ pub(crate) fn check_with_skip(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
     level: InvariantLevel,
-    skip: &FxHashSet<LocalItemId>,
+    skip: &FxHashSet<StoreItemId>,
 ) {
     check_with_skip_and_seeds(store, package_id, level, skip, &[]);
 }
@@ -258,7 +250,7 @@ pub(crate) fn check_with_skip_and_seeds(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
     level: InvariantLevel,
-    skip: &FxHashSet<LocalItemId>,
+    skip: &FxHashSet<StoreItemId>,
     seeds: &[StoreItemId],
 ) {
     let package = store.get(package_id);
@@ -270,17 +262,19 @@ pub(crate) fn check_with_skip_and_seeds(
 
     let reachable = collect_reachable_with_seeds(store, package_id, seeds);
     if level.enforces(StageCheck::UdtErase) {
-        let reachable_packages = collect_reachable_package_closure(package_id, &reachable);
-        for reachable_package_id in reachable_packages {
-            let reachable_package = store.get(reachable_package_id);
-            if reachable_package_id != package_id {
-                check_id_references(reachable_package);
-            }
-            check_package_udt_erase_invariants(reachable_package);
-        }
+        check_package_udt_erase_invariants_in_reachable_items(store, &reachable, package_id);
+        check_id_references_in_reachable_items(store, &reachable, package_id);
     }
 
-    check_reachable_invariants(store, package_id, &reachable, level, skip);
+    check_reachable_invariants(store, &reachable, level, skip);
+
+    // After all passes, `exec_graph_rebuild` rebuilds the exec graph of every
+    // reachable spec in every reachable package. Validate that whole reachable
+    // closure here for structural well-formedness and non-empty, in-bounds
+    // ranges, regardless of which package owns each spec.
+    if level == InvariantLevel::PostAll {
+        check_reachable_spec_exec_graphs(store, &reachable);
+    }
 
     if let Some(entry_id) = package.entry {
         if level.enforces(StageCheck::Defunc) {
@@ -289,7 +283,7 @@ pub(crate) fn check_with_skip_and_seeds(
 
         if level.enforces(StageCheck::ReturnUnify) {
             check_non_unit_block_tails(store, package_id, &reachable, skip);
-            check_no_flag_writes_in_operand_position(store, package_id, &reachable, skip);
+            check_no_flag_writes_in_operand_position(store, &reachable, skip);
         }
 
         // Check type invariants on the entry expression tree.
@@ -308,93 +302,160 @@ pub(crate) fn check_with_skip_and_seeds(
     }
 }
 
-/// Checks exec graph integrity for selected external callable specs.
+/// Validates the exec-graph surface of every reachable callable spec across the
+/// entry-reachable package closure: structural well-formedness and non-empty,
+/// in-bounds `exec_graph_range`s for each expression.
 ///
-/// This intentionally validates only the exec graph surface needed after UDT
-/// erasure mutates reachable external specs; it does not apply the full
-/// target-package `PostAll` invariant set to external packages.
-pub(crate) fn check_external_spec_exec_graphs(
-    store: &PackageStore,
-    external_specs: &[CallableSpecId],
-) {
-    for spec_id in external_specs {
-        let package = store.get(spec_id.callable.package);
-        let item = package.get_item(spec_id.callable.item);
+/// `exec_graph_rebuild` rebuilds the exec graph of every reachable spec in
+/// every reachable package, so this validation spans all packages rather than
+/// only the entry package. `ExprId`s are package-relative, so each spec is
+/// validated against its own owning package.
+fn check_reachable_spec_exec_graphs(store: &PackageStore, reachable: &FxHashSet<StoreItemId>) {
+    for item_id in reachable {
+        let package = store.get(item_id.package);
+        let item = package.get_item(item_id.item);
         let ItemKind::Callable(decl) = &item.kind else {
-            panic!("external exec graph invariant expected callable item {spec_id:?}");
+            continue;
         };
-        let spec = get_spec_decl(package, decl, spec_id.kind);
-        let context = format!(
-            "external {}/{}",
-            decl.name.name,
-            spec_kind_label(spec_id.kind)
-        );
-        check_spec_exec_graph(package, spec, &context);
-        check_spec_exec_graph_ranges(package, spec, &context);
-    }
-}
-
-/// Selects the requested specialization declaration from a callable.
-fn get_spec_decl<'a>(
-    _package: &'a Package,
-    decl: &'a CallableDecl,
-    kind: CallableSpecKind,
-) -> &'a SpecDecl {
-    match (kind, &decl.implementation) {
-        (CallableSpecKind::Body, CallableImpl::Spec(spec_impl)) => &spec_impl.body,
-        (CallableSpecKind::Adj, CallableImpl::Spec(spec_impl)) => {
-            spec_impl.adj.as_ref().expect("adjoint spec should exist")
+        let name = &decl.name.name;
+        match &decl.implementation {
+            CallableImpl::Spec(spec_impl) => {
+                check_spec_exec_graph(package, &spec_impl.body, &format!("{name}/body"));
+                check_spec_exec_graph_ranges(package, &spec_impl.body, &format!("{name}/body"));
+                for (label, spec) in [
+                    ("adj", &spec_impl.adj),
+                    ("ctl", &spec_impl.ctl),
+                    ("ctl_adj", &spec_impl.ctl_adj),
+                ] {
+                    if let Some(s) = spec {
+                        check_spec_exec_graph(package, s, &format!("{name}/{label}"));
+                        check_spec_exec_graph_ranges(package, s, &format!("{name}/{label}"));
+                    }
+                }
+            }
+            CallableImpl::SimulatableIntrinsic(spec) => {
+                check_spec_exec_graph(package, spec, &format!("{name}/sim_intrinsic"));
+                check_spec_exec_graph_ranges(package, spec, &format!("{name}/sim_intrinsic"));
+            }
+            CallableImpl::Intrinsic => {}
         }
-        (CallableSpecKind::Ctl, CallableImpl::Spec(spec_impl)) => spec_impl
-            .ctl
-            .as_ref()
-            .expect("controlled spec should exist"),
-        (CallableSpecKind::CtlAdj, CallableImpl::Spec(spec_impl)) => spec_impl
-            .ctl_adj
-            .as_ref()
-            .expect("controlled adjoint spec should exist"),
-        (CallableSpecKind::SimulatableIntrinsic, CallableImpl::SimulatableIntrinsic(spec)) => spec,
-        _ => panic!(
-            "external exec graph invariant expected spec kind {} on callable '{}'",
-            spec_kind_label(kind),
-            decl.name.name
-        ),
     }
 }
 
-/// Returns a stable diagnostic label for a callable specialization kind.
-fn spec_kind_label(kind: CallableSpecKind) -> &'static str {
-    match kind {
-        CallableSpecKind::Body => "body",
-        CallableSpecKind::Adj => "adj",
-        CallableSpecKind::Ctl => "ctl",
-        CallableSpecKind::CtlAdj => "ctl_adj",
-        CallableSpecKind::SimulatableIntrinsic => "sim_intrinsic",
-    }
-}
-
-/// Validates the package-wide surfaces that `udt_erase` mutates.
+/// Reachable-item-scoped UDT-erase invariant checker.
 ///
-/// The pass rewrites expression types and kinds, pattern types, block types,
-/// and callable output types across every package in the reachable package
-/// closure. This checker mirrors that mutation boundary without applying the
-/// stronger target-package-only assumptions from later passes.
-fn check_package_udt_erase_invariants(package: &Package) {
-    for (expr_id, _expr) in &package.exprs {
-        check_expr_udt_erase_invariants(package, expr_id);
-    }
+/// UDT erasure rewrites every reachable callable across the package closure, so
+/// every reachable callable is guaranteed erased; unreachable callables are
+/// dead-code-eliminated and never emitted, so re-validating the full std/core
+/// arenas only adds cost. This walks the reachable callables of every reachable
+/// package, applying the same per-node UDT-erase assertions as the full-arena
+/// scan over exactly the nodes that are actually emitted.
+///
+/// The target package's entry expression lives outside any callable body, so it
+/// is walked as a separate root to preserve parity with the full-arena scan.
+fn check_package_udt_erase_invariants_in_reachable_items(
+    store: &PackageStore,
+    reachable: &FxHashSet<StoreItemId>,
+    target_package_id: qsc_fir::fir::PackageId,
+) {
+    let check_node = |pkg: &Package, node: CallableNode| match node {
+        CallableNode::Expr(id) => check_expr_udt_erase_invariants(pkg, id),
+        CallableNode::Pat(id) => {
+            check_type_udt_erase_invariants(&pkg.get_pat(id).ty, &format!("Pat {id}"));
+        }
+        CallableNode::Block(id) => {
+            check_type_udt_erase_invariants(&pkg.get_block(id).ty, &format!("Block {id}"));
+        }
+        CallableNode::Stmt(_) => {}
+    };
 
-    for (pat_id, pat) in &package.pats {
-        check_type_udt_erase_invariants(&pat.ty, &format!("Pat {pat_id}"));
-    }
-
-    for (block_id, block) in &package.blocks {
-        check_type_udt_erase_invariants(&block.ty, &format!("Block {block_id}"));
-    }
-
-    for (item_id, item) in &package.items {
+    for item_id in reachable {
+        let pkg = store.get(item_id.package);
+        let item = pkg.get_item(item_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
             check_type_udt_erase_invariants(&decl.output, &format!("Callable {item_id} output"));
+            for_each_node_in_callable(pkg, decl, &mut |node| check_node(pkg, node));
+        }
+    }
+
+    // The target package's entry expression lives outside any callable body, so
+    // the reachable-callable walk above does not reach it. The funnel's
+    // `check_expr_types(entry_id)` call already validates the entry expression
+    // nodes under `StageCheck::UdtErase`; the residual full-arena gap is entry-nested
+    // Block `.ty` and Local Pat `.ty`, which this entry-root walk covers
+    // (re-covering entry exprs here is redundant but harmless).
+    let target_pkg = store.get(target_package_id);
+    if let Some(entry_id) = target_pkg.entry {
+        for_each_node_from_expr_root(target_pkg, entry_id, &mut |node| {
+            check_node(target_pkg, node);
+        });
+    }
+}
+
+/// Reachable-item-scoped variant of [`check_id_references`] for foreign
+/// packages.
+///
+/// The target package keeps its full-arena [`check_id_references`] ordering
+/// guard (run at the top of the funnel) so a malformed `block.stmts` list
+/// surfaces the targeted diagnostic before reachability dereferences it.
+/// Foreign packages never had that ordering guard (reachability already
+/// dereferenced their IDs), so scoping their id-reference check to reachable
+/// callables loses no diagnostic while skipping the dead std/core arenas. This
+/// applies the same per-node id-existence and self-id-field assertions as
+/// [`check_id_references`] over each reachable foreign callable's nodes.
+fn check_id_references_in_reachable_items(
+    store: &PackageStore,
+    reachable: &FxHashSet<StoreItemId>,
+    target_package_id: qsc_fir::fir::PackageId,
+) {
+    for item_id in reachable {
+        if item_id.package == target_package_id {
+            continue;
+        }
+        let pkg = store.get(item_id.package);
+        let item = pkg.get_item(item_id.item);
+        if let ItemKind::Callable(decl) = &item.kind {
+            for_each_node_in_callable(pkg, decl, &mut |node| match node {
+                CallableNode::Block(id) => {
+                    let block = pkg.get_block(id);
+                    assert_eq!(block.id, id, "Block {id} has mismatched id field");
+                    for &stmt_id in &block.stmts {
+                        assert!(
+                            pkg.stmts.get(stmt_id).is_some(),
+                            "Block {id} references nonexistent Stmt {stmt_id}"
+                        );
+                    }
+                }
+                CallableNode::Stmt(id) => {
+                    let stmt = pkg.get_stmt(id);
+                    assert_eq!(stmt.id, id, "Stmt {id} has mismatched id field");
+                    match &stmt.kind {
+                        StmtKind::Expr(e) | StmtKind::Semi(e) => {
+                            assert!(
+                                pkg.exprs.get(*e).is_some(),
+                                "Stmt {id} references nonexistent Expr {e}"
+                            );
+                        }
+                        StmtKind::Local(_, pat, expr) => {
+                            assert!(
+                                pkg.pats.get(*pat).is_some(),
+                                "Stmt {id} references nonexistent Pat {pat}"
+                            );
+                            assert!(
+                                pkg.exprs.get(*expr).is_some(),
+                                "Stmt {id} references nonexistent Expr {expr}"
+                            );
+                        }
+                        StmtKind::Item(_) => {}
+                    }
+                }
+                CallableNode::Expr(id) => {
+                    let expr = pkg.get_expr(id);
+                    assert_eq!(expr.id, id, "Expr {id} has mismatched id field");
+                    check_expr_sub_ids(pkg, id, &expr.kind);
+                }
+                CallableNode::Pat(_) => {}
+            });
         }
     }
 }
@@ -483,7 +544,7 @@ pub(crate) fn check_non_unit_block_tails(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
     reachable: &FxHashSet<StoreItemId>,
-    skip: &FxHashSet<LocalItemId>,
+    skip: &FxHashSet<StoreItemId>,
 ) {
     let package = store.get(package_id);
     let Some(entry_id) = package.entry else {
@@ -491,7 +552,9 @@ pub(crate) fn check_non_unit_block_tails(
     };
 
     for item_id in reachable {
-        if item_id.package != package_id {
+        // Return unification runs across the whole reachable closure, so this
+        // block-tail check applies to every reachable package.
+        if !structural_check_in_scope(StageCheck::ReturnUnify) {
             continue;
         }
 
@@ -500,7 +563,7 @@ pub(crate) fn check_non_unit_block_tails(
         // rather than the collapsed single-exit tail. Skip only this
         // per-callable fan-out for such callables; the entry-scoped nested
         // block-tail walk below still covers every other reachable block.
-        if skip.contains(&item_id.item) {
+        if skip.contains(item_id) {
             continue;
         }
 
@@ -843,19 +906,15 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
 /// - `check_spec_exec_graph` once exec graphs have been rebuilt at `PostAll`.
 fn check_reachable_invariants(
     store: &PackageStore,
-    target_package_id: qsc_fir::fir::PackageId,
     reachable: &FxHashSet<StoreItemId>,
     level: InvariantLevel,
-    skip: &FxHashSet<LocalItemId>,
+    skip: &FxHashSet<StoreItemId>,
 ) {
     for item_id in reachable {
-        // Only check invariants on items in the target package. Cross-package
-        // items (e.g. stdlib) are not transformed by the surrounding stages
-        // and may still contain Ty::Param, Arrow types, or closures. Their
-        // package-wide UDT-erasure invariants are checked separately.
-        if item_id.package != target_package_id {
-            continue;
-        }
+        // Every structural pass runs across the whole reachable closure, so
+        // `enforces_stage` admits every reachable callable once its level is
+        // reached. Package-wide UDT-erase invariants and reachable-spec exec
+        // graphs are validated separately across the closure.
         let item_pkg = store.get(item_id.package);
         let item = item_pkg.get_item(item_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
@@ -864,15 +923,21 @@ fn check_reachable_invariants(
             // invariant checks.
             check_type_invariants(&decl.output, level, "callable output type");
 
-            if level.enforces(StageCheck::Defunc) {
+            // Check the input parameter pattern types too: the
+            // `check_spec_decl_types` statement walk only covers `let`
+            // bindings, so a stage-eliminated form left in the input signature
+            // would otherwise go unchecked.
+            check_pat_types(item_pkg, decl.input, level);
+
+            if enforces_stage(level, StageCheck::Defunc) {
                 check_no_arrow_params(item_pkg, decl);
             }
 
-            if level.enforces(StageCheck::ArgPromote) {
+            if enforces_stage(level, StageCheck::ArgPromote) {
                 check_callable_input_pattern_shapes(item_pkg, decl);
             }
 
-            if level.enforces(StageCheck::ReturnUnify) && !skip.contains(&item_id.item) {
+            if enforces_stage(level, StageCheck::ReturnUnify) && !skip.contains(item_id) {
                 check_no_returns(item_pkg, decl);
             }
 
@@ -889,34 +954,43 @@ fn check_reachable_invariants(
                 CallableImpl::Intrinsic => {}
             }
 
-            if level.enforces(StageCheck::Mono) {
+            if enforces_stage(level, StageCheck::Mono) {
                 check_local_var_consistency(item_pkg, decl);
-            }
-
-            // After all passes, validate exec graph structural integrity.
-            if level == InvariantLevel::PostAll {
-                let name = &decl.name.name;
-                match &decl.implementation {
-                    CallableImpl::Spec(spec_impl) => {
-                        check_spec_exec_graph(item_pkg, &spec_impl.body, &format!("{name}/body"));
-                        for (label, spec) in [
-                            ("adj", &spec_impl.adj),
-                            ("ctl", &spec_impl.ctl),
-                            ("ctl_adj", &spec_impl.ctl_adj),
-                        ] {
-                            if let Some(s) = spec {
-                                check_spec_exec_graph(item_pkg, s, &format!("{name}/{label}"));
-                            }
-                        }
-                    }
-                    CallableImpl::SimulatableIntrinsic(spec) => {
-                        check_spec_exec_graph(item_pkg, spec, &format!("{name}/sim_intrinsic"));
-                    }
-                    CallableImpl::Intrinsic => {}
-                }
             }
         }
     }
+}
+
+/// Per-stage forcing function for the structural invariant checks.
+///
+/// Every structural pass runs across the whole reachable package closure, so
+/// each stage's invariant holds for every reachable package and this admits
+/// every stage. The exhaustive match is kept so that adding a stage forces an
+/// explicit decision about whether its invariant holds across the closure.
+fn structural_check_in_scope(check: StageCheck) -> bool {
+    match check {
+        // Every structural pass rewrites the whole reachable callable closure,
+        // so each stage's invariant holds for every reachable package.
+        StageCheck::ReturnUnify
+        | StageCheck::UdtErase
+        | StageCheck::TupleCompLower
+        | StageCheck::TupleDecompose
+        | StageCheck::ArgPromote
+        | StageCheck::Mono
+        | StageCheck::Defunc => true,
+    }
+}
+
+/// Returns `true` when `level` enforces `check` and `check`'s structural
+/// invariant is established across the whole reachable package closure.
+///
+/// Composes [`InvariantLevel::enforces`] with the forcing function
+/// [`structural_check_in_scope`]. Every structural pass runs across the
+/// closure, so this currently reduces to `level.enforces(check)`; the
+/// composition is kept so a future not-yet-established stage has a single place
+/// to be gated.
+fn enforces_stage(level: InvariantLevel, check: StageCheck) -> bool {
+    level.enforces(check) && structural_check_in_scope(check)
 }
 
 /// Validates that callable input patterns no longer expose arrow-typed leaves.
@@ -990,31 +1064,36 @@ const RETURN_FLAG_LOCAL_LABELS: [&str; 2] = [
 /// Panics if a synthesized flag write is found in an operand position.
 fn check_no_flag_writes_in_operand_position(
     store: &PackageStore,
-    package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
-    skip: &FxHashSet<LocalItemId>,
+    skip: &FxHashSet<StoreItemId>,
 ) {
-    let package = store.get(package_id);
-    let flag_locals = collect_return_flag_locals(package);
-    if flag_locals.is_empty() {
-        return;
-    }
+    // Return unification runs across the whole reachable closure, so a foreign
+    // callable may carry synthesized flag locals too. Collect them lazily per
+    // owning package, since each package has an independent `LocalVarId` space.
+    let mut flag_locals_by_pkg: FxHashMap<PackageId, FxHashSet<LocalVarId>> = FxHashMap::default();
 
     for item_id in reachable {
-        if item_id.package != package_id || skip.contains(&item_id.item) {
+        if !structural_check_in_scope(StageCheck::ReturnUnify) || skip.contains(item_id) {
             continue;
         }
-        let item = package.get_item(item_id.item);
+        let item_pkg = store.get(item_id.package);
+        let flag_locals = flag_locals_by_pkg
+            .entry(item_id.package)
+            .or_insert_with(|| collect_return_flag_locals(item_pkg));
+        if flag_locals.is_empty() {
+            continue;
+        }
+        let item = item_pkg.get_item(item_id.item);
         let ItemKind::Callable(decl) = &item.kind else {
             continue;
         };
         let callable_name = &decl.name.name;
         for block_id in callable_root_blocks(decl) {
             scan_block_for_operand_flag_writes(
-                package,
+                item_pkg,
                 block_id,
                 false,
-                &flag_locals,
+                flag_locals,
                 callable_name,
             );
         }
@@ -1446,6 +1525,12 @@ fn check_spec_decl_types(
     spec: &qsc_fir::fir::SpecDecl,
     level: InvariantLevel,
 ) {
+    // A specialization may carry its own input pattern (for example the
+    // controlled specialization's added control register). Validate its types
+    // against the stage invariants alongside the body statements.
+    if let Some(input) = spec.input {
+        check_pat_types(package, input, level);
+    }
     let block = package.get_block(spec.block);
     for &stmt_id in &block.stmts {
         check_stmt_types(store, package, stmt_id, level);
@@ -1475,7 +1560,7 @@ fn check_stmt_types(
         StmtKind::Expr(e) | StmtKind::Semi(e) => check_expr_types(store, package, *e, level),
         StmtKind::Local(_, pat, expr) => {
             check_pat_types(package, *pat, level);
-            if level.enforces(StageCheck::TupleDecompose) {
+            if enforces_stage(level, StageCheck::TupleDecompose) {
                 check_tuple_pat_shape_matches_type(package, *pat, "local binding");
                 check_local_pat_for_nested_tuple_arrow(package, *pat);
             }
@@ -1525,10 +1610,11 @@ fn check_expr_types(
 /// The `PostUdtErase`-era expression-kind assertions here (for
 /// [`ExprKind::Struct`], [`Field::Path`] in `UpdateField`/`AssignField`, and
 /// [`Field::Path`] on non-tuple records) intentionally overlap with
-/// `check_package_udt_erase_invariants`: this walker fires on every
-/// reachable expression in the target package, while the package-wide walker
-/// visits every expression in every reachable package. Both paths must agree
-/// so a regression caught in either scope produces the same diagnostic.
+/// `check_package_udt_erase_invariants_in_reachable_items`: this walker fires on
+/// every reachable expression in the target package, while the reachable-scoped
+/// walker visits every reachable callable expression in every reachable
+/// package. Both paths must agree so a regression caught in either scope
+/// produces the same diagnostic.
 fn check_expr_type(
     store: &PackageStore,
     package: &Package,
@@ -1547,7 +1633,7 @@ fn check_expr_type(
     }
 
     // After defunctionalization, no closures should remain in reachable code.
-    if level.enforces(StageCheck::Defunc) {
+    if enforces_stage(level, StageCheck::Defunc) {
         assert!(
             !matches!(&expr.kind, ExprKind::Closure(_, _)),
             "Expr {expr_id} is a Closure after defunctionalization"
@@ -1555,7 +1641,7 @@ fn check_expr_type(
     }
 
     // PostMono: no remaining generic args on Var references.
-    if level.enforces(StageCheck::Mono)
+    if enforces_stage(level, StageCheck::Mono)
         && let ExprKind::Var(_, args) = &expr.kind
     {
         assert!(
@@ -1565,7 +1651,7 @@ fn check_expr_type(
     }
 
     // After UDT erasure, all Struct expressions must have been lowered.
-    if level.enforces(StageCheck::UdtErase) {
+    if enforces_stage(level, StageCheck::UdtErase) {
         if matches!(&expr.kind, ExprKind::Struct(_, _, _)) {
             panic!(
                 "PostUdtErase invariant violation: Expr {expr_id} contains \
@@ -1596,7 +1682,7 @@ fn check_expr_type(
     }
 
     // After tuple comparison lowering, no BinOp(Eq/Neq) on non-empty tuple operands.
-    if level.enforces(StageCheck::TupleCompLower)
+    if enforces_stage(level, StageCheck::TupleCompLower)
         && let ExprKind::BinOp(BinOp::Eq | BinOp::Neq, lhs_id, _) = &expr.kind
     {
         let lhs_ty = &package.get_expr(*lhs_id).ty;
@@ -1610,7 +1696,7 @@ fn check_expr_type(
     }
 
     // After defunctionalization, tuple expressions must have types with matching arity.
-    if level.enforces(StageCheck::Defunc)
+    if enforces_stage(level, StageCheck::Defunc)
         && let ExprKind::Tuple(es) = &expr.kind
         && let Ty::Tuple(tys) = &expr.ty
     {
@@ -1622,7 +1708,7 @@ fn check_expr_type(
         );
     }
 
-    if level.enforces(StageCheck::ArgPromote)
+    if enforces_stage(level, StageCheck::ArgPromote)
         && let ExprKind::Call(callee_id, arg_id) = &expr.kind
     {
         check_call_shape_matches_callee(store, package, expr_id, *callee_id, *arg_id);
@@ -1774,7 +1860,9 @@ fn check_pat_types(package: &Package, pat_id: PatId, level: InvariantLevel) {
 ///
 /// This is the common type checker used by callable signatures, patterns, and
 /// expressions. It enforces the type-form restrictions guaranteed by each
-/// pipeline stage while walking into nested array, tuple, and arrow types.
+/// pipeline stage while walking into nested array, tuple, and arrow types. Each
+/// stage's assertion is gated by `enforces_stage`, so a type is only checked
+/// against an invariant once the establishing pass's pipeline level is reached.
 ///
 /// # Panics
 ///
@@ -1785,18 +1873,18 @@ fn check_type_invariants(ty: &Ty, level: InvariantLevel, context: &str) {
     match ty {
         Ty::Param(_) => {
             assert!(
-                !level.enforces(StageCheck::Mono),
+                !enforces_stage(level, StageCheck::Mono),
                 "{context} contains Ty::Param after monomorphization"
             );
         }
         Ty::Arrow(arrow) => {
-            if level.enforces(StageCheck::Mono) {
+            if enforces_stage(level, StageCheck::Mono) {
                 assert!(
                     !matches!(arrow.functors, FunctorSet::Param(_)),
                     "{context} contains FunctorSet::Param after monomorphization"
                 );
             }
-            if level.enforces(StageCheck::Defunc) {
+            if enforces_stage(level, StageCheck::Defunc) {
                 // `Ty::Arrow` leaves are allowed on callable outputs and
                 // cross-package items; the `PostDefunc` invariant targets
                 // arrow-typed callable *parameters*, enforced by
@@ -1813,7 +1901,7 @@ fn check_type_invariants(ty: &Ty, level: InvariantLevel, context: &str) {
         }
         Ty::Udt(_) => {
             assert!(
-                !level.enforces(StageCheck::UdtErase),
+                !enforces_stage(level, StageCheck::UdtErase),
                 "{context} contains Ty::Udt after UDT erasure"
             );
         }
@@ -2146,15 +2234,14 @@ fn check_expr_id_ownership(
     reachable: &FxHashSet<StoreItemId>,
     entry_id: ExprId,
 ) {
-    let package = store.get(package_id);
-
-    // Map each ExprId to the (item, spec_label) that owns it.
-    let mut seen: FxHashMap<ExprId, (LocalItemId, &'static str)> = FxHashMap::default();
+    // `ExprId`s are package-relative, so ownership is tracked with a separate
+    // `seen` map per package. The same `ExprId` value may legitimately appear
+    // in two different packages without being a genuine collision.
+    let mut seen_by_package: FxHashMap<PackageId, FxHashMap<ExprId, (LocalItemId, &'static str)>> =
+        FxHashMap::default();
 
     for item_id in reachable {
-        if item_id.package != package_id {
-            continue;
-        }
+        let package = store.get(item_id.package);
         let item = package.get_item(item_id.item);
         let ItemKind::Callable(decl) = &item.kind else {
             continue;
@@ -2180,6 +2267,7 @@ fn check_expr_id_ownership(
             CallableImpl::Intrinsic => continue,
         };
 
+        let seen = seen_by_package.entry(item_id.package).or_default();
         for (spec, label) in specs {
             let mut expr_ids = FxHashSet::default();
             collect_expr_ids_in_block(package, spec.block, &mut expr_ids);
@@ -2187,8 +2275,8 @@ fn check_expr_id_ownership(
                 if let Some((prev_item, prev_label)) = seen.get(eid) {
                     panic!(
                         "PostDefunc ExprId uniqueness violation: {eid} appears in \
-                         both {prev_item}/{prev_label} and {}/{label}",
-                        item_id.item,
+                         both {prev_item}/{prev_label} and {}/{label} in package {}",
+                        item_id.item, item_id.package,
                     );
                 }
                 seen.insert(*eid, (item_id.item, label));
@@ -2196,15 +2284,20 @@ fn check_expr_id_ownership(
         }
     }
 
-    // Check entry expression ExprIds are disjoint from spec body ExprIds.
+    // Check entry expression ExprIds are disjoint from spec body ExprIds in
+    // the target package (the entry expression lives in the target package,
+    // so only that package's `seen` map is relevant).
+    let package = store.get(package_id);
     let mut entry_expr_ids = FxHashSet::default();
     collect_expr_ids_in_expr(package, entry_id, &mut entry_expr_ids);
-    for eid in &entry_expr_ids {
-        if let Some((owner_item, owner_label)) = seen.get(eid) {
-            panic!(
-                "PostDefunc entry/spec disjointness violation: {eid} appears in \
-                 both the entry expression and {owner_item}/{owner_label}",
-            );
+    if let Some(seen) = seen_by_package.get(&package_id) {
+        for eid in &entry_expr_ids {
+            if let Some((owner_item, owner_label)) = seen.get(eid) {
+                panic!(
+                    "PostDefunc entry/spec disjointness violation: {eid} appears in \
+                     both the entry expression and {owner_item}/{owner_label}",
+                );
+            }
         }
     }
 }

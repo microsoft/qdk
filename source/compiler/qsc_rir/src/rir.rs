@@ -2,8 +2,11 @@
 // Licensed under the MIT License.
 
 use crate::debug::{DbgInfo, InstructionDbgMetadata};
-use indenter::{Indented, indented};
-use qsc_data_structures::{attrs::Attributes, index_map::IndexMap, target::TargetCapabilityFlags};
+use indenter::indented;
+use qsc_data_structures::{
+    attrs::Attributes, display::core::set_indentation, index_map::IndexMap,
+    target::TargetCapabilityFlags,
+};
 use std::fmt::{self, Display, Formatter, Write};
 
 /// The root of the RIR.
@@ -19,6 +22,10 @@ pub struct Program {
     pub tags: Vec<String>,
     pub array_literals: Vec<ArrayLiteral>,
     pub dbg_info: DbgInfo,
+    /// Whether the program actually emits dynamic qubit allocation/release runtime calls. Drives
+    /// the `dynamic_qubit_management` QIR module flag. Set only when a dynamic allocation is
+    /// generated, not merely when the capability is enabled.
+    pub use_dynamic_qubit_management: bool,
 }
 
 impl Display for Program {
@@ -87,6 +94,7 @@ impl Program {
                 Callable {
                     name: "entry".into(),
                     input_type: vec![],
+                    input_vars: vec![],
                     output_type: None,
                     body: Some(entry_block_id),
                     call_type: CallableType::Regular,
@@ -217,6 +225,11 @@ pub struct Callable {
     pub name: String,
     /// The input type of the callable.
     pub input_type: Vec<Ty>,
+    /// The body-local variable ids bound to the input parameters, in order.
+    /// These are the `VariableId`s that the body references for each `input_type`
+    /// entry, enabling codegen to name `define` parameters consistently with the
+    /// body. Empty for intrinsics and the entry point.
+    pub input_vars: Vec<VariableId>,
     /// The output type of the callable.
     pub output_type: Option<Ty>,
     /// The callable body.
@@ -240,6 +253,14 @@ impl Display for Callable {
             indent = set_indentation(indent, 2);
             for (index, ty) in self.input_type.iter().enumerate() {
                 write!(indent, "\n[{index}]: {ty}")?;
+            }
+            indent = set_indentation(indent, 1);
+        }
+        if !self.input_vars.is_empty() {
+            write!(indent, "\ninput_vars:")?;
+            indent = set_indentation(indent, 2);
+            for (index, var) in self.input_vars.iter().enumerate() {
+                write!(indent, "\n[{index}]: {}", var.0)?;
             }
             indent = set_indentation(indent, 1);
         }
@@ -394,7 +415,7 @@ pub enum Instruction {
     Load(Variable, Variable),
     Alloca(Variable),
     Index(Operand, Operand, Variable),
-    Return,
+    Return(Option<Operand>),
 }
 
 impl Instruction {
@@ -499,7 +520,8 @@ impl Display for Instruction {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{result_var} = Index {array_var}, {index_opr}")?;
             }
-            Self::Return => write!(f, "Return")?,
+            Self::Return(None) => write!(f, "Return")?,
+            Self::Return(Some(operand)) => write!(f, "Return {operand}")?,
         }
         Ok(())
     }
@@ -761,18 +783,6 @@ impl Display for ArrayLiteral {
 impl PartialEq for ArrayLiteral {
     fn eq(&self, other: &Self) -> bool {
         self.ty == other.ty && self.contents == other.contents
-    }
-}
-
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
     }
 }
 

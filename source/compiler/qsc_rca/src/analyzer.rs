@@ -2,8 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    PackageStoreComputeProperties, core, cyclic_callables,
-    scaffolding::InternalPackageStoreComputeProperties,
+    PackageStoreComputeProperties, core, scaffolding::InternalPackageStoreComputeProperties,
 };
 use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_fir::fir::{PackageId, PackageStore};
@@ -45,12 +44,6 @@ impl<'a> Analyzer<'a> {
     pub fn analyze_all(self) -> PackageStoreComputeProperties {
         let scaffolding = InternalPackageStoreComputeProperties::init(self.package_store);
 
-        // Then, we need to analyze the callable specializations with cycles. Otherwise, we cannot safely analyze the
-        // rest of the items without causing an infinite analysis loop.
-        let cyclic_callables_analyzer =
-            cyclic_callables::Analyzer::new(self.package_store, scaffolding);
-        let scaffolding = cyclic_callables_analyzer.analyze_all();
-
         // Now we can safely analyze the rest of the items.
         let core_analyzer =
             core::Analyzer::new(self.package_store, scaffolding, self.target_capabilities);
@@ -64,13 +57,11 @@ impl<'a> Analyzer<'a> {
 
     #[must_use]
     pub fn analyze_package(self, package_id: PackageId) -> PackageStoreComputeProperties {
-        // Even when analyzing just one package we need to first analyze cyclic callables and then the rest of the items
-        // to avoid an infinite analysis loop.
-        let cyclic_callables_analyzer =
-            cyclic_callables::Analyzer::new(self.package_store, self.scaffolding);
-        let scaffolding = cyclic_callables_analyzer.analyze_package(package_id);
-        let core_analyzer =
-            core::Analyzer::new(self.package_store, scaffolding, self.target_capabilities);
+        let core_analyzer = core::Analyzer::new(
+            self.package_store,
+            self.scaffolding,
+            self.target_capabilities,
+        );
         let result: PackageStoreComputeProperties =
             core_analyzer.analyze_package(package_id).into();
 

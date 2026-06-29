@@ -1788,6 +1788,11 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         FEASIBILITY,
         TARGET_YEAR,
         BLOCK_SIZE,
+        BASE_SYSTEM_COST,
+        SHOT_COST,
+        COST_PER_QUBIT,
+        COST_PER_HOUR,
+        COST_PER_QUBIT_PER_HOUR,
     );
 
     m.add_submodule(&property_keys)?;

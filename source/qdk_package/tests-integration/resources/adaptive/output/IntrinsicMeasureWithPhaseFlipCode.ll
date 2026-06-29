@@ -13,37 +13,37 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   call void @__quantum__rt__initialize(ptr null)
-  call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+  call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
+  call void @H(ptr inttoptr (i64 0 to ptr))
+  call void @H(ptr inttoptr (i64 1 to ptr))
+  call void @H(ptr inttoptr (i64 2 to ptr))
+  call void @H(ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+  call void @H__Adj(ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+  call void @H(ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 2 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+  call void @H__Adj(ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__z__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+  call void @Z(ptr inttoptr (i64 1 to ptr))
+  call void @H(ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+  call void @H__Adj(ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 2 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+  call void @H(ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 2 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 3 to ptr))
+  call void @H__Adj(ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-  call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @H__Adj(ptr inttoptr (i64 2 to ptr))
+  call void @H__Adj(ptr inttoptr (i64 1 to ptr))
+  call void @H__Adj(ptr inttoptr (i64 0 to ptr))
+  call void @CNOT__Adj(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
+  call void @CNOT__Adj(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 4 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 5 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 6 to ptr))
@@ -63,13 +63,43 @@ block_0:
 
 declare void @__quantum__rt__initialize(ptr)
 
+define void @CNOT(ptr %var_2, ptr %var_3) {
+block_1:
+  call void @__quantum__qis__cx__body(ptr %var_2, ptr %var_3)
+  ret void
+}
+
 declare void @__quantum__qis__cx__body(ptr, ptr)
+
+define void @H(ptr %var_4) {
+block_2:
+  call void @__quantum__qis__h__body(ptr %var_4)
+  ret void
+}
 
 declare void @__quantum__qis__h__body(ptr)
 
+define void @H__Adj(ptr %var_6) {
+block_3:
+  call void @__quantum__qis__h__body(ptr %var_6)
+  ret void
+}
+
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
+define void @Z(ptr %var_8) {
+block_4:
+  call void @__quantum__qis__z__body(ptr %var_8)
+  ret void
+}
+
 declare void @__quantum__qis__z__body(ptr)
+
+define void @CNOT__Adj(ptr %var_11, ptr %var_12) {
+block_5:
+  call void @__quantum__qis__cx__body(ptr %var_11, ptr %var_12)
+  ret void
+}
 
 declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
@@ -82,7 +112,7 @@ attributes #1 = { "irreversible" }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -92,3 +122,4 @@ attributes #1 = { "irreversible" }
 !5 = !{i32 5, !"float_computations", !{!"double"}}
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
+!8 = !{i32 1, !"ir_functions", i1 true}

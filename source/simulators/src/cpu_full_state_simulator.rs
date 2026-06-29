@@ -1,15 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-pub mod noise;
-
 use crate::{
     MeasurementResult, QubitID, Simulator,
-    noise_config::{CumulativeNoiseConfig, IntrinsicID},
+    noise_config::{CumulativeNoiseConfig, Fault, FaultTerm, IntrinsicID},
 };
 use core::f64;
 use nalgebra::Complex;
-use noise::Fault;
 use noisy_simulator::{
     Instrument, NoisySimulator as _, Operation, StateVectorSimulator, operation,
 };
@@ -419,7 +416,7 @@ impl Simulator for NoiselessSimulator {
 /// A noisy state-vector simulator.
 pub struct NoisySimulator {
     /// The noise configuration for the simulation.
-    noise_config: Arc<CumulativeNoiseConfig<Fault>>,
+    noise_config: Arc<CumulativeNoiseConfig>,
     /// Random number generator used to sample from [`Self::noise_config`].
     rng: StdRng,
     /// The current state of the simulation.
@@ -462,49 +459,35 @@ impl NoisySimulator {
     fn apply_idle_noise(&mut self, target: QubitID) {
         let idle_time = self.time - self.last_operation_time[target];
         self.last_operation_time[target] = self.time;
-        let fault = self.noise_config.gen_idle_fault(&mut self.rng, idle_time);
-        if !self.loss[target] && matches!(fault, Fault::S) {
+        let idle_fault = self.noise_config.gen_idle_fault(&mut self.rng, idle_time);
+        if idle_fault && !self.loss[target] {
             self.state
                 .apply_operation(&S, &[target])
                 .expect("apply_operation should succeed");
         }
     }
 
-    fn apply_fault(&mut self, fault: Fault, targets: &[QubitID]) {
-        match fault {
-            Fault::None => (),
-            Fault::Pauli(pauli_string) => {
-                for (pauli, target) in pauli_string.iter().zip(targets) {
-                    // We don't apply faults on lost qubits.
-                    if self.loss[*target] {
-                        continue;
-                    }
-                    match pauli {
-                        noise::PauliFault::I => (),
-                        noise::PauliFault::X => self
-                            .state
-                            .apply_operation(&X, &[*target])
-                            .expect("apply_operation should succeed"),
-                        noise::PauliFault::Y => self
-                            .state
-                            .apply_operation(&Y, &[*target])
-                            .expect("apply_operation should succeed"),
-                        noise::PauliFault::Z => self
-                            .state
-                            .apply_operation(&Z, &[*target])
-                            .expect("apply_operation should succeed"),
-                    }
-                }
+    fn apply_fault(&mut self, fault: &Fault, targets: &[QubitID]) {
+        for (term, target) in fault.0.iter().zip(targets) {
+            // We don't apply faults on lost qubits.
+            if self.loss[*target] {
+                continue;
             }
-            Fault::S => {
-                if !self.loss[targets[0]] {
-                    self.state
-                        .apply_operation(&S, targets)
-                        .expect("apply_operation should succeed");
-                }
-            }
-            Fault::Loss => {
-                for target in targets {
+            match term {
+                FaultTerm::I => (),
+                FaultTerm::X => self
+                    .state
+                    .apply_operation(&X, &[*target])
+                    .expect("apply_operation should succeed"),
+                FaultTerm::Y => self
+                    .state
+                    .apply_operation(&Y, &[*target])
+                    .expect("apply_operation should succeed"),
+                FaultTerm::Z => self
+                    .state
+                    .apply_operation(&Z, &[*target])
+                    .expect("apply_operation should succeed"),
+                FaultTerm::Loss => {
                     self.mresetz_impl(*target);
                     self.loss[*target] = true;
                 }
@@ -574,18 +557,17 @@ impl NoisySimulator {
 ///   reference to `self` at the same time. So, the obvious way express
 ///   this,
 ///   ```ignore
-///   fn apply_loss(&mut self, noise_table: &CumulativeNoiseTable<Fault>, targets: &[QubitID]) {
+///   fn apply_noise(&mut self, noise_table: &CumulativeNoiseTable, targets: &[QubitID]) {
 ///       for target in targets {
-///           if matches!(noise_table.sample_loss(&mut self.rng), Fault::Loss) {
-///               self.mresetz_impl(*target);
-///               self.loss[*target] = true;
+///           if matches!(noise_table.sample_noise(&mut self.rng), Fault::Loss) {
+///               ...
 ///           }
 ///       }
 ///   }
 ///   ```
 ///   and then doing,
 ///   ```ignore
-///   self.apply_loss(&self.noise_config.rxx, targets)
+///   self.apply_noise(&self.noise_config.rxx, targets)
 ///   ```
 ///   is not valid rust.
 ///
@@ -594,7 +576,7 @@ impl NoisySimulator {
 ///   that way rust doesn't see the cloned Arc as attached to self anymore.
 ///   ```ignore
 ///   let noise_config = Arc::clone(&self.noise_config);
-///   self.apply_loss(&noise_config.rxx, targets);
+///   self.apply_noise(&noise_config.rxx, targets);
 ///   ```
 ///   However, this is not ideal. We don't want to be increasing and decreasing
 ///   the reference count of an Arc in the hot-loop of the simulation.
@@ -602,9 +584,9 @@ impl NoisySimulator {
 ///   The other alternative is creating a function that takes all the necessary
 ///   members of self as inputs independently,
 ///   ```ignore
-///   fn apply_loss(
+///   fn apply_noise(
 ///     state: &mut StateType,
-///     noise_table: &CumulativeNoiseTable<Fault>,
+///     noise_table: &CumulativeNoiseTable,
 ///     targets: &[QubitID],
 ///     rng: &mut Rng,
 ///     loss: &mut Vec<bool>
@@ -622,51 +604,17 @@ impl NoisySimulator {
 ///   However, this is not very elegant. We would even need to re-implement mresetz.
 ///
 ///   The remaining alternative is using a macro.
-macro_rules! apply_loss {
-    ($slf:expr, $noise_table:ident, $targets:expr) => {
-        for target in $targets {
-            if !$slf.loss[*target] {
-                let fault = $slf.noise_config.$noise_table.sample_loss(&mut $slf.rng);
-                if matches!(fault, Fault::Loss) {
-                    $slf.mresetz_impl(*target);
-                    $slf.loss[*target] = true;
-                }
-            }
-        }
-    };
-}
-
 macro_rules! apply_noise {
     ($slf:expr, $noise_table:ident, $targets:expr) => {{
         let fault = $slf.noise_config.$noise_table.sample_noise(&mut $slf.rng);
-        if let Fault::Pauli(pauli_string) = fault {
-            for (pauli, target) in pauli_string.iter().zip($targets) {
-                // We don't apply faults on lost qubits.
-                if $slf.loss[*target] {
-                    continue;
-                }
-                match pauli {
-                    noise::PauliFault::I => (),
-                    noise::PauliFault::X => $slf
-                        .state
-                        .apply_operation(&X, &[*target])
-                        .expect("apply_operation should succeed"),
-                    noise::PauliFault::Y => $slf
-                        .state
-                        .apply_operation(&Y, &[*target])
-                        .expect("apply_operation should succeed"),
-                    noise::PauliFault::Z => $slf
-                        .state
-                        .apply_operation(&Z, &[*target])
-                        .expect("apply_operation should succeed"),
-                }
-            }
-        };
+        if let Some(fault) = fault {
+            $slf.apply_fault(&fault, $targets);
+        }
     }};
 }
 
 impl Simulator for NoisySimulator {
-    type Noise = Arc<CumulativeNoiseConfig<Fault>>;
+    type Noise = Arc<CumulativeNoiseConfig>;
     type StateDumpData = noisy_simulator::StateVector;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
@@ -687,7 +635,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&X, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, x, &[target]);
             apply_noise!(self, x, &[target]);
         }
     }
@@ -698,7 +645,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&Y, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, y, &[target]);
             apply_noise!(self, y, &[target]);
         }
     }
@@ -709,7 +655,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&Z, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, z, &[target]);
             apply_noise!(self, z, &[target]);
         }
     }
@@ -720,7 +665,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&H, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, h, &[target]);
             apply_noise!(self, h, &[target]);
         }
     }
@@ -731,7 +675,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&S, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, s, &[target]);
             apply_noise!(self, s, &[target]);
         }
     }
@@ -742,7 +685,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&S_ADJ, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, s_adj, &[target]);
             apply_noise!(self, s_adj, &[target]);
         }
     }
@@ -753,7 +695,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&SX, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, sx, &[target]);
             apply_noise!(self, sx, &[target]);
         }
     }
@@ -764,7 +705,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&SX_ADJ, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, sx_adj, &[target]);
             apply_noise!(self, sx_adj, &[target]);
         }
     }
@@ -775,7 +715,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&T, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, t, &[target]);
             apply_noise!(self, t, &[target]);
         }
     }
@@ -786,7 +725,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&T_ADJ, &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, t_adj, &[target]);
             apply_noise!(self, t_adj, &[target]);
         }
     }
@@ -797,7 +735,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&rx(angle), &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, rx, &[target]);
             apply_noise!(self, rx, &[target]);
         }
     }
@@ -808,7 +745,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&ry(angle), &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, ry, &[target]);
             apply_noise!(self, ry, &[target]);
         }
     }
@@ -819,7 +755,6 @@ impl Simulator for NoisySimulator {
             self.state
                 .apply_operation(&rz(angle), &[target])
                 .expect("apply_operation should succeed");
-            apply_loss!(self, rz, &[target]);
             apply_noise!(self, rz, &[target]);
         }
     }
@@ -833,7 +768,6 @@ impl Simulator for NoisySimulator {
                 .expect("apply_operation should succeed");
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cx, &[control, target]);
         apply_noise!(self, cx, &[control, target]);
     }
 
@@ -846,7 +780,6 @@ impl Simulator for NoisySimulator {
                 .expect("apply_operation should succeed");
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cy, &[control, target]);
         apply_noise!(self, cy, &[control, target]);
     }
 
@@ -859,7 +792,6 @@ impl Simulator for NoisySimulator {
                 .expect("apply_operation should succeed");
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cz, &[control, target]);
         apply_noise!(self, cz, &[control, target]);
     }
 
@@ -874,7 +806,6 @@ impl Simulator for NoisySimulator {
                 self.state
                     .apply_operation(&rxx(angle), &[q1, q2])
                     .expect("apply_operation should succeed");
-                apply_loss!(self, rxx, &[q1, q2]);
                 apply_noise!(self, rxx, &[q1, q2]);
             }
         }
@@ -891,7 +822,6 @@ impl Simulator for NoisySimulator {
                 self.state
                     .apply_operation(&ryy(angle), &[q1, q2])
                     .expect("apply_operation should succeed");
-                apply_loss!(self, ryy, &[q1, q2]);
                 apply_noise!(self, ryy, &[q1, q2]);
             }
         }
@@ -908,7 +838,6 @@ impl Simulator for NoisySimulator {
                 self.state
                     .apply_operation(&rzz(angle), &[q1, q2])
                     .expect("apply_operation should succeed");
-                apply_loss!(self, rzz, &[q1, q2]);
                 apply_noise!(self, rzz, &[q1, q2]);
             }
         }
@@ -949,45 +878,42 @@ impl Simulator for NoisySimulator {
 
         // Is up to the user if swap is a virtual operation or not.
         // If they don't specify noise/loss probability for swap, then it is virtual.
-        apply_loss!(self, swap, &[q1, q2]);
         apply_noise!(self, swap, &[q1, q2]);
     }
 
     fn mz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_idle_noise(target);
         self.record_mz(target, result_id);
-        apply_loss!(self, mz, &[target]);
         apply_noise!(self, mz, &[target]);
     }
 
     fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_idle_noise(target);
         self.record_mresetz(target, result_id);
-        apply_loss!(self, mresetz, &[target]);
         apply_noise!(self, mresetz, &[target]);
     }
 
     fn resetz(&mut self, target: QubitID) {
         self.apply_idle_noise(target);
         self.mresetz_impl(target);
-        apply_loss!(self, mresetz, &[target]);
         apply_noise!(self, mresetz, &[target]);
     }
 
     fn mov(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            apply_loss!(self, mov, &[target]);
             apply_noise!(self, mov, &[target]);
         }
     }
 
     fn correlated_noise_intrinsic(&mut self, intrinsic_id: IntrinsicID, targets: &[usize]) {
         let fault = match self.noise_config.intrinsics.get(&intrinsic_id) {
-            Some(correlated_noise) => correlated_noise.sample(&mut self.rng),
+            Some(correlated_noise) => correlated_noise.sample(&mut self.rng).cloned(),
             None => return,
         };
-        self.apply_fault(fault, targets);
+        if let Some(fault) = fault {
+            self.apply_fault(&fault, targets);
+        }
     }
 
     fn measurements(&self) -> &[MeasurementResult] {

@@ -670,8 +670,8 @@ fn entry_expr_allocates_qubits() {
         &expect![[r#"
             AllocateQubitArray@qsharp-library-source:core/qir.qs:21:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:21:29[1] -> (1)@qsharp-library-source:core/qir.qs:22:23 -> qubit_allocate(q_0)
             AllocateQubitArray@qsharp-library-source:core/qir.qs:21:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:21:29[2] -> (2)@qsharp-library-source:core/qir.qs:22:23 -> qubit_allocate(q_1)
-            Test@A.qs:1:5 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, Id(0))
-            Test@A.qs:1:12 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, Id(1))
+            Test@A.qs:1:5 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, Id(0))
+            Test@A.qs:1:12 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_1, Id(1))
             ReleaseQubitArray@qsharp-library-source:core/qir.qs:39:8 -> loop: qs@qsharp-library-source:core/qir.qs:39:20[1] -> (1)@qsharp-library-source:core/qir.qs:40:12 -> qubit_release(q_0)
             ReleaseQubitArray@qsharp-library-source:core/qir.qs:39:8 -> loop: qs@qsharp-library-source:core/qir.qs:39:20[2] -> (2)@qsharp-library-source:core/qir.qs:40:12 -> qubit_release(q_1)
         "#]],
@@ -728,7 +728,7 @@ fn lambda_in_entry_expr() {
         ExecGraphConfig::Debug,
         &expect![[r#"
             AllocateQubitArray@qsharp-library-source:core/qir.qs:21:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:21:29[1] -> (1)@qsharp-library-source:core/qir.qs:22:23 -> qubit_allocate(q_0)
-            <lambda>@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            .lambda_1@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             ReleaseQubitArray@qsharp-library-source:core/qir.qs:39:8 -> loop: qs@qsharp-library-source:core/qir.qs:39:20[1] -> (1)@qsharp-library-source:core/qir.qs:40:12 -> qubit_release(q_0)
         "#]],
     );

@@ -12,6 +12,7 @@ use crate::ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Scheme, Ty, Type
 use indenter::{Indented, indented};
 use num_bigint::BigInt;
 use qsc_data_structures::{
+    display::core::set_indentation,
     index_map::{IndexMap, Iter},
     span::Span,
 };
@@ -22,18 +23,6 @@ use std::{
     result,
     str::FromStr,
 };
-
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
-    }
-}
 
 macro_rules! fir_id {
     ($id:ident) => {
@@ -189,7 +178,7 @@ impl From<LocalItemId> for usize {
 /// A unique identifier for an item within a package store.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ItemId {
-    /// The package ID or `None` for the local package.
+    /// The ID of the package that owns this item.
     pub package: PackageId,
     /// The item ID.
     pub item: LocalItemId,
@@ -549,9 +538,7 @@ impl PackageLookup for Package {
     fn get_global(&self, id: LocalItemId) -> Option<Global<'_>> {
         match &self.items.get(id)?.kind {
             ItemKind::Callable(callable) => Some(Global::Callable(callable)),
-            ItemKind::Namespace(..) => None,
             ItemKind::Ty(..) => Some(Global::Udt),
-            ItemKind::Export(_name, _id) => None,
         }
     }
 
@@ -622,33 +609,15 @@ impl Display for Item {
 pub enum ItemKind {
     /// A `function` or `operation` declaration.
     Callable(Box<CallableDecl>),
-    /// A `namespace` declaration.
-    Namespace(Ident, Vec<LocalItemId>),
     /// A `newtype` declaration.
     Ty(Ident, Udt),
-    /// An export referring to another item
-    Export(Ident, Res),
 }
 
 impl Display for ItemKind {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             ItemKind::Callable(decl) => write!(f, "{decl}"),
-            ItemKind::Namespace(name, items) => {
-                write!(f, "Namespace ({name}):")?;
-                let mut items = items.iter();
-                if let Some(item) = items.next() {
-                    write!(f, " Item {item}")?;
-                    for item in items {
-                        write!(f, ", Item {item}")?;
-                    }
-                    Ok(())
-                } else {
-                    write!(f, " <empty>")
-                }
-            }
             ItemKind::Ty(name, udt) => write!(f, "Type ({name}): {udt}"),
-            ItemKind::Export(name, item) => write!(f, "Export ({name}): {item}"),
         }
     }
 }

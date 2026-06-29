@@ -13,6 +13,7 @@ use super::analysis as defunc_analysis;
 use super::defunctionalize;
 use super::types::{CallableParam, CalleeLattice, ConcreteCallable};
 use crate::fir_builder::reachable_local_callables;
+use crate::package_assigners::PackageAssigners;
 use crate::reachability::collect_reachable_from_entry;
 use crate::test_utils::{
     compile_to_monomorphized_fir, compile_to_monomorphized_fir_with_capabilities,
@@ -89,8 +90,8 @@ fn check(source: &str, expect: &Expect) {
 
 fn compile_and_defunctionalize(source: &str) -> (fir::PackageStore, fir::PackageId) {
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     (fir_store, fir_pkg_id)
 }
@@ -113,8 +114,8 @@ fn check_rewrite_with_capabilities(
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let before = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
@@ -131,6 +132,62 @@ fn callable_decl<'a>(package: &'a fir::Package, callable_name: &str) -> &'a fir:
             _ => None,
         })
         .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
+}
+
+/// Lifted lambdas are renamed `.lambda_<item>`, embedding the defining item id
+/// so distinct lambdas in the same package receive distinct names. This guards
+/// the prefix-preserving lambda rename at the FIR layer.
+#[test]
+fn lifted_lambda_names_embed_item_id_and_are_distinct() {
+    let (store, pkg_id) = compile_to_monomorphized_fir(
+        r#"
+        operation ApplyOp(f : Qubit => Unit, q : Qubit) : Unit {
+            f(q);
+        }
+        operation Parametrized(angle : Double, q : Qubit) : Unit {
+            Rz(angle, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let op1 = Parametrized(0.5, _);
+            let op2 = Parametrized(1.5, _);
+            ApplyOp(op1, q);
+            ApplyOp(op2, q);
+        }
+        "#,
+    );
+    let package = store.get(pkg_id);
+    let lambda_names: Vec<String> = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with(".lambda") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        lambda_names.len(),
+        2,
+        "expected two lifted lambdas; got: {lambda_names:?}"
+    );
+    // Each lifted lambda keeps the `.lambda_` prefix and embeds a numeric item id.
+    for name in &lambda_names {
+        let suffix = name
+            .strip_prefix(".lambda_")
+            .unwrap_or_else(|| panic!("lambda name must keep the `.lambda_` prefix; got {name:?}"));
+        assert!(
+            !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()),
+            "lambda name must embed a numeric item id; got {name:?}"
+        );
+    }
+    // The two lifted lambdas receive distinct names.
+    assert_ne!(
+        lambda_names[0], lambda_names[1],
+        "expected distinct lambda names; got {lambda_names:?}"
+    );
 }
 
 fn call_arg_tuple_lengths_after_defunc(source: &str, callee_name: &str) -> Vec<usize> {
@@ -371,8 +428,8 @@ fn check_invariants(source: &str) {
 fn check_invariants_with_capabilities(source: &str, capabilities: TargetCapabilityFlags) {
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     fir_invariants::check(&fir_store, fir_pkg_id, InvariantLevel::PostDefunc);
 }
@@ -381,8 +438,8 @@ fn check_invariants_with_capabilities(source: &str, capabilities: TargetCapabili
 /// error messages for comparison.
 fn check_errors(source: &str, expect: &Expect) {
     let (mut store, package_id) = compile_to_monomorphized_fir(source);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(package_id));
-    let errors = defunctionalize(&mut store, package_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners);
     expect.assert_eq(&format_defunctionalization_errors(&errors));
 }
 
@@ -435,11 +492,11 @@ namespace Test {
 }
 ";
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     // The callable stored in the field originates from a dynamic array index,
     // so defunctionalize cannot fully resolve it (non-convergence is expected
     // and orthogonal to this regression). We only assert binding survival.
-    let _ = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    let _ = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     let package = fir_store.get(fir_pkg_id);
     assert!(
         body_binds_local(package, "Pick", "f"),
@@ -486,18 +543,16 @@ fn empty_entrypoint_remains_unchanged() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        // namespace test
-        operation Main() : Unit {}
-        // entry
-        Main()
+            BEFORE:
+            operation Main() : Unit {}
+            // entry
+            Main()
 
-        AFTER:
-        // namespace test
-        operation Main() : Unit {}
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            operation Main() : Unit {}
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -734,7 +789,7 @@ fn hof_with_nested_item_in_body_specializes_correctly() {
             .values()
             .filter_map(|item| match &item.kind {
                 ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
-                _ => None,
+                ItemKind::Ty(..) => None,
             })
             .collect();
         // The original generic HOF remains (item DCE has not run yet), plus a
@@ -800,14 +855,14 @@ fn unreachable_closure_structure_preserved() {
             }
         }
     "});
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("unreachable_closure_structure_preserved", &errors);
 
     // Structure preserved: defunctionalize only rewrites *reachable* call
     // sites, so DeadFn's body must still contain the un-specialized HOF call
     // `Apply(x -> x * 2, 10)` — its lifted closure survives and the `Apply`
-    // arrow argument was NOT eliminated for the dead site.
+    // arrow argument was not eliminated for the dead site.
     let package = fir_store.get(fir_pkg_id);
     let dead_decl = package
         .items
@@ -848,23 +903,26 @@ fn unreachable_closure_structure_preserved() {
 }
 
 /// The `StmtKind::Semi(Return(_))` arm in defunctionalize analysis
-/// (`resolve_same_package_callable_return`) is genuinely live for bodies that
-/// originate cross-package. `check_no_returns` skips cross-package items and
-/// return-unification runs local-package-only, so a generic library callable
-/// that returns a callable via an explicit `return` keeps its `Semi(Return)`
-/// tail. Monomorphization clones that generic body into the user package, where
-/// defunctionalize then analyzes it through the same-package arm. If the arm
-/// were dead or broken, the HOF argument could not be resolved statically and
-/// defunctionalization would surface an error; asserting no errors proves the
-/// arm is reached and resolves the returned callable.
+/// (`resolve_callable_return`) is genuinely live for bodies that originate
+/// cross-package. `check_no_returns` skips cross-package items and
+/// return-unification runs local-package-only, so a library callable that
+/// returns a callable via an explicit `return` keeps its `Semi(Return)` tail.
+/// Monomorphization specializes the generic helper in place in its owning
+/// (library) package, where defunctionalize then analyzes the `Semi(Return)`
+/// arm cross-package. A returned `Global` callable carries its own package and
+/// resolves across packages; if the arm were dead or broken, the HOF argument
+/// could not be resolved statically and defunctionalization would surface an
+/// error; asserting no errors proves the arm is reached and resolves the
+/// returned callable.
 #[test]
 fn cross_package_return_stmt_is_analyzed() {
     let lib_source = r#"
         namespace TestLib {
-            function MakeIdentity<'T>() : ('T -> 'T) {
-                return x -> x;
+            function LibStep(x : Int) : Int { x + 1 }
+            function MakeStep<'T>(unused : 'T) : (Int -> Int) {
+                return LibStep;
             }
-            export MakeIdentity;
+            export MakeStep, LibStep;
         }
     "#;
     let user_source = r#"
@@ -873,23 +931,27 @@ fn cross_package_return_stmt_is_analyzed() {
         function Apply(f : Int -> Int, x : Int) : Int { f(x) }
         @EntryPoint()
         operation Main() : Int {
-            Apply(MakeIdentity(), 5)
+            Apply(MakeStep(0), 5)
         }
     "#;
     let (mut fir_store, fir_pkg_id) =
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
 
-    // Monomorphization clones `MakeIdentity<Int>` into the user package; its
-    // body still ends in `return x -> x;` (`Semi(Return)`), since return
-    // unification has not run on the freshly cloned cross-package body.
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
-    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigner);
+    // Monomorphization specializes `MakeIdentity<Int>` in place in its owning
+    // (library) package; its body still ends in `return x -> x;`
+    // (`Semi(Return)`), since return unification has not run on the freshly
+    // cloned cross-package body.
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    // Precondition: a user-package callable now ends in `Semi(Return)` of a
-    // callable-typed value — exactly the shape the analysis arm consumes.
+    // Precondition: a reachable callable (in whichever package owns the
+    // specialization) now ends in `Semi(Return)` of a callable-typed value —
+    // exactly the shape the analysis arm consumes.
     let semi_return_callable_present = {
-        let package = fir_store.get(fir_pkg_id);
-        package.items.values().any(|item| {
+        let reachable = crate::reachability::collect_reachable_from_entry(&fir_store, fir_pkg_id);
+        reachable.iter().any(|store_id| {
+            let package = fir_store.get(store_id.package);
+            let item = package.get_item(store_id.item);
             let ItemKind::Callable(decl) = &item.kind else {
                 return false;
             };
@@ -918,6 +980,6 @@ fn cross_package_return_stmt_is_analyzed() {
 
     // Defunctionalize analysis traverses the `Semi(Return)` arm to resolve the
     // returned callable; success (no errors) proves the arm is live.
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
     assert_no_defunctionalization_errors("cross_package_return_stmt_is_analyzed", &errors);
 }

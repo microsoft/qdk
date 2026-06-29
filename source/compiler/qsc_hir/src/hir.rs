@@ -7,7 +7,7 @@
 use crate::ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Scheme, Ty, TypeParameter, Udt};
 use indenter::{Indented, indented};
 use num_bigint::BigInt;
-use qsc_data_structures::{index_map::IndexMap, span::Span};
+use qsc_data_structures::{display::core::set_indentation, index_map::IndexMap, span::Span};
 use std::{
     cell::RefCell,
     cmp::Ordering,
@@ -17,18 +17,6 @@ use std::{
     result,
     str::FromStr,
 };
-
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
-    }
-}
 
 /// A unique identifier for an HIR node.
 #[derive(Clone, Copy, Debug)]

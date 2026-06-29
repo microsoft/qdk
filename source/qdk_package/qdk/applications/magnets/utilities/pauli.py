@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Pauli operator representation for quantum spin systems."""
+"""Pauli operator representations for quantum spin systems."""
 
 from collections.abc import Sequence
 
@@ -234,6 +234,49 @@ class PauliString:
         """Scale the coefficient of this PauliString by a complex scalar."""
         return PauliString(self._paulis, coefficient=self._coefficient * scalar)
 
+    def normalize(self) -> None:
+        """Normalize this Pauli string in place.
+
+        The normalization performs three steps:
+
+        - reorder terms by ascending qubit index,
+        - combine repeated uses of the same qubit by multiplying adjacent Pauli terms,
+        - remove identity terms from the stored Pauli sequence.
+        """
+        multiplication_table = {
+            (0, 0): (1, 0),
+            (0, 1): (1, 1),
+            (0, 2): (1, 2),
+            (0, 3): (1, 3),
+            (1, 0): (1, 1),
+            (1, 1): (1, 0),
+            (1, 2): (-1j, 3),
+            (1, 3): (1j, 2),
+            (2, 0): (1, 2),
+            (2, 1): (1j, 3),
+            (2, 2): (1, 0),
+            (2, 3): (-1j, 1),
+            (3, 0): (1, 3),
+            (3, 1): (-1j, 2),
+            (3, 2): (1j, 1),
+            (3, 3): (1, 0),
+        }
+
+        sorted_paulis = sorted(self._paulis, key=lambda pauli: pauli.qubit)
+        normalized: list[Pauli] = []
+        coefficient = self._coefficient
+
+        for pauli in sorted_paulis:
+            if normalized and normalized[-1].qubit == pauli.qubit:
+                phase, op = multiplication_table[(normalized[-1].op, pauli.op)]
+                coefficient *= phase
+                normalized[-1] = Pauli(op, pauli.qubit)
+            else:
+                normalized.append(pauli)
+
+        self._paulis = tuple(pauli for pauli in normalized if pauli.op != 0)
+        self._coefficient = coefficient
+
     def __str__(self) -> str:
         labels = {0: "I", 1: "X", 2: "Z", 3: "Y"}
         s = "".join(map(str, self._paulis))
@@ -257,14 +300,17 @@ class PauliString:
         """Return the corresponding Cirq ``PauliString``.
 
         Constructs a ``cirq.PauliString`` by applying each single-qubit
-        Pauli to its corresponding ``cirq.LineQubit``.
+        Pauli to its corresponding ``cirq.LineQubit`` after normalizing any
+        repeated qubit indices.
 
         Returns:
             A ``cirq.PauliString`` on ``cirq.LineQubit`` instances with
             ``self._coefficient`` as its coefficient.
         """
+        normalized = PauliString(self._paulis, coefficient=self._coefficient)
+        normalized.normalize()
         _INT_TO_CIRQ = (cirq.I, cirq.X, cirq.Z, cirq.Y)
         return cirq.PauliString(
-            {cirq.LineQubit(p.qubit): _INT_TO_CIRQ[p.op] for p in self._paulis},
-            coefficient=self._coefficient,
+            {cirq.LineQubit(p.qubit): _INT_TO_CIRQ[p.op] for p in normalized._paulis},
+            coefficient=normalized._coefficient,
         )

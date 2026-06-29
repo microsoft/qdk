@@ -595,8 +595,8 @@ fn entry_expr_allocates_qubits() {
             r
         }"},
         &expect![[r#"
-            Test@A.qs:1:5 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
-            Test@A.qs:1:12 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_1)
+            Test@A.qs:1:5 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
+            Test@A.qs:1:12 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_1, c_1)
         "#]],
     );
 }
@@ -646,7 +646,7 @@ fn lambda_in_entry_expr() {
             r
         }"},
         &expect![[r#"
-            <lambda>@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            .lambda_1@<entry>:2:10 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
         "#]],
     );
 }
@@ -667,7 +667,7 @@ fn if_only() {
         "},
         "A.Main()",
         &expect![[r#"
-            Main@A.qs:3:17 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
+            Main@A.qs:3:17 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
             Main@A.qs:4:4[true] -> if: c_0 = |0〉@A.qs:5:8 -> gate(G, targets=(q_0), controls=())
             Main@A.qs:7:4 -> gate(G, targets=(q_0), controls=())
         "#]],
@@ -692,7 +692,7 @@ fn if_else() {
         "},
         "A.Main()",
         &expect![[r#"
-            Main@A.qs:3:17 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
+            Main@A.qs:3:17 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
             Main@A.qs:4:4[true] -> if: c_0 = |0〉@A.qs:5:8 -> gate(G, targets=(q_0), controls=())
             Main@A.qs:4:4[false] -> if: c_0 = |1〉@A.qs:7:8 -> gate(G, targets=(q_0), controls=())
             Main@A.qs:9:4 -> gate(G, targets=(q_0), controls=())
@@ -718,7 +718,7 @@ fn else_only() {
         "},
         "A.Main()",
         &expect![[r#"
-            Main@A.qs:3:17 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
+            Main@A.qs:3:17 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
             Main@A.qs:4:4[false] -> if: c_0 = |0〉@A.qs:7:8 -> gate(G, targets=(q_0), controls=())
             Main@A.qs:9:4 -> gate(G, targets=(q_0), controls=())
         "#]],
@@ -748,9 +748,9 @@ fn if_else_elseif() {
         "},
         "A.Main()",
         &expect![[r#"
-            Main@A.qs:3:17 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
+            Main@A.qs:3:17 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
             Main@A.qs:4:4[true] -> if: c_0 = |0〉@A.qs:5:8 -> gate(G, targets=(q_0), controls=())
-            Main@A.qs:4:4[false] -> if: c_0 = |1〉@A.qs:7:22 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_1)
+            Main@A.qs:4:4[false] -> if: c_0 = |1〉@A.qs:7:22 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_1)
             Main@A.qs:4:4[false] -> if: c_0 = |1〉@A.qs:8:8[true] -> if: c_1 = |0〉@A.qs:9:12 -> gate(G, targets=(q_0), controls=())
             Main@A.qs:4:4[false] -> if: c_0 = |1〉@A.qs:8:8[false] -> if: c_1 = |1〉@A.qs:11:12 -> gate(G, targets=(q_0), controls=())
             Main@A.qs:14:4 -> gate(G, targets=(q_0), controls=())
@@ -781,7 +781,7 @@ fn nested_callables_and_if() {
         "A.Main()",
         &expect![[r#"
             Main@A.qs:2:4 -> Foo@A.qs:7:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:2:4 -> Foo@A.qs:8:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
+            Main@A.qs:2:4 -> Foo@A.qs:8:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
             Main@A.qs:2:4 -> Foo@A.qs:9:4[true] -> if: c_0 = |1〉@A.qs:10:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
             Main@A.qs:3:4 -> ResetAll@qsharp-library-source:Std/Intrinsic.qs:437:4 -> loop: qubits@qsharp-library-source:Std/Intrinsic.qs:437:20[1] -> (1)@qsharp-library-source:Std/Intrinsic.qs:438:8 -> Reset@qsharp-library-source:Std/Intrinsic.qs:426:4 -> reset(q_0)
             Main@A.qs:3:4 -> ResetAll@qsharp-library-source:Std/Intrinsic.qs:437:4 -> loop: qubits@qsharp-library-source:Std/Intrinsic.qs:437:20[2] -> (2)@qsharp-library-source:Std/Intrinsic.qs:438:8 -> Reset@qsharp-library-source:Std/Intrinsic.qs:426:4 -> reset(q_1)
@@ -913,9 +913,9 @@ fn dynamic_double_arg() {
         "A.Main()",
         &expect![[r#"
             Main@A.qs:3:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:4:12 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
+            Main@A.qs:4:12 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
             Main@A.qs:14:4 -> Rx@qsharp-library-source:Std/Intrinsic.qs:510:8 -> using: c_0@qsharp-library-source:Std/Intrinsic.qs:510:8 -> gate(Rx, targets=(q_1), controls=())
-            Main@A.qs:15:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_1)
+            Main@A.qs:15:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_1, c_1)
         "#]],
     );
 }
@@ -937,10 +937,10 @@ fn binop_short_circuit() {
         &expect![[r#"
             Main@A.qs:3:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:4:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_1), controls=())
-            Main@A.qs:5:14 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
-            Main@A.qs:5:34[true] -> if: c_0 = |0〉@A.qs:5:36 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_1)
-            Main@A.qs:6:15 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_2)
-            Main@A.qs:6:34[false] -> if: c_2 = |1〉@A.qs:6:36 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_3)
+            Main@A.qs:5:14 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
+            Main@A.qs:5:34[true] -> if: c_0 = |0〉@A.qs:5:36 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_1, c_1)
+            Main@A.qs:6:15 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_2)
+            Main@A.qs:6:34[false] -> if: c_2 = |1〉@A.qs:6:36 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_1, c_3)
         "#]],
     );
 }
@@ -965,8 +965,8 @@ fn result_to_result_comparison() {
         "},
         "A.Main()",
         &expect![[r#"
-            Main@A.qs:4:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
-            Main@A.qs:5:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_1)
+            Main@A.qs:4:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_0)
+            Main@A.qs:5:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_1, c_1)
             Main@A.qs:6:4[true] -> if: c_0c_1 = |00〉 or c_0c_1 = |11〉@A.qs:7:8 -> gate(G, targets=(q_0), controls=())
             Main@A.qs:9:4[true] -> if: c_0c_1 = |01〉 or c_0c_1 = |10〉@A.qs:10:8 -> gate(G, targets=(q_0), controls=())
         "#]],

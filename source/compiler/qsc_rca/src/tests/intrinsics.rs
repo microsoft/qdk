@@ -15,7 +15,7 @@ fn check_rca_for_quantum_rt_qubit_allocate() {
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
-                        runtime_features: RuntimeFeatureFlags(0x0)
+                        runtime_features: RuntimeFeatureFlags(QubitAllocation)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
@@ -63,7 +63,7 @@ fn check_rca_for_quantum_qis_m_body() {
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        value_kind: Variable
+                        value_kind: Constant
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] ElementParamApplication:
                             constant: Dynamic:
@@ -114,7 +114,7 @@ fn check_rca_for_quantum_qis_mresetz_body() {
                 body: ApplicationsGeneratorSet:
                     inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
-                        value_kind: Variable
+                        value_kind: Constant
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] ElementParamApplication:
                             constant: Dynamic:

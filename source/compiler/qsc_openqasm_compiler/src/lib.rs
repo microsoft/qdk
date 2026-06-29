@@ -16,7 +16,6 @@
 
 mod ast_builder;
 pub mod compiler;
-pub mod display_utils;
 mod functor_constraints;
 mod types;
 
@@ -29,7 +28,7 @@ use std::{fmt::Write, sync::Arc};
 
 use miette::Diagnostic;
 use qsc_ast::ast::Package;
-use qsc_data_structures::{error::WithSource, source::SourceMap, span::Span, target::Profile};
+use qsc_data_structures::{error::WithSource, source::SourceMap, target::Profile};
 use qsc_openqasm_parser::semantic::QasmSemanticParseResult;
 use thiserror::Error;
 

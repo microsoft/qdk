@@ -5,7 +5,7 @@ use expect_test::{Expect, expect};
 use indoc::indoc;
 
 use super::*;
-use crate::test_utils::local_names;
+use crate::test_utils::{find_callable_body_block, local_name_or_placeholder, local_names};
 use qsc_data_structures::index_map::IndexMap;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
@@ -503,8 +503,8 @@ fn extract_types_after_erasure(source: &str) -> String {
     use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
 
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
@@ -528,29 +528,6 @@ fn extract_types_after_erasure(source: &str) -> String {
 
 fn check_erasure(source: &str, expect: &Expect) {
     expect.assert_eq(&extract_types_after_erasure(source));
-}
-
-fn find_callable_body_block(package: &Package, callable_name: &str) -> BlockId {
-    for item in package.items.values() {
-        if let ItemKind::Callable(decl) = &item.kind
-            && decl.name.name.as_ref() == callable_name
-        {
-            return match &decl.implementation {
-                CallableImpl::Spec(spec_impl) => spec_impl.body.block,
-                CallableImpl::SimulatableIntrinsic(spec) => spec.block,
-                CallableImpl::Intrinsic => continue,
-            };
-        }
-    }
-
-    panic!("callable '{callable_name}' not found");
-}
-
-fn local_name(local_names: &FxHashMap<LocalVarId, String>, local_id: LocalVarId) -> String {
-    local_names
-        .get(&local_id)
-        .cloned()
-        .unwrap_or_else(|| format!("<{local_id:?}>"))
 }
 
 fn format_pat_name(package: &Package, pat_id: PatId) -> String {
@@ -595,7 +572,7 @@ fn describe_expr(
                 .join(", ")
         ),
         ExprKind::Var(Res::Local(local_id), _) => {
-            format!("Var({})", local_name(local_names, *local_id))
+            format!("Var({})", local_name_or_placeholder(local_names, *local_id))
         }
         ExprKind::Var(res, _) => format!("Var({res})"),
         _ => crate::test_utils::expr_kind_short(package, expr_id),
@@ -703,7 +680,6 @@ fn simple_newtype_erased_to_inner_type() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Wrapper = Int;
             function Main() : Unit {
                 let w : __UDT_Item_1__Package_2_ = Wrapper(42);
@@ -712,7 +688,6 @@ fn simple_newtype_erased_to_inner_type() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Wrapper = Int;
             function Main() : Unit {
                 let w : Int = 42;
@@ -748,7 +723,6 @@ fn tuple_udt_erased_to_tuple() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Pair = (Int, Double);
             function MakePair() : (Int, Double) {
                 let p : __UDT_Item_1__Package_2_ = Pair(1, 2.);
@@ -761,7 +735,6 @@ fn tuple_udt_erased_to_tuple() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Pair = (Int, Double);
             function MakePair() : (Int, Double) {
                 let p : (Int, Double) = (1, 2.);
@@ -802,7 +775,6 @@ fn nested_udt_erased_to_nested_tuple() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function MakeOuter() : __UDT_Item_2__Package_2_ {
@@ -816,7 +788,6 @@ fn nested_udt_erased_to_nested_tuple() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function MakeOuter() : ((Int, Int), Bool) {
@@ -1048,7 +1019,6 @@ fn udt_as_callable_parameter_type() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Pair = (Int, Double);
             function UsePair(p : __UDT_Item_1__Package_2_) : Int {
                 p::Fst
@@ -1060,7 +1030,6 @@ fn udt_as_callable_parameter_type() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Pair = (Int, Double);
             function UsePair(p : (Int, Double)) : Int {
                 p::Item < 0 >
@@ -1097,7 +1066,6 @@ fn udt_as_callable_return_type() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Pair = (Int, Double);
             function MakeIt() : __UDT_Item_1__Package_2_ {
                 Pair(1, 2.)
@@ -1109,7 +1077,6 @@ fn udt_as_callable_return_type() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Pair = (Int, Double);
             function MakeIt() : (Int, Double) {
                 (1, 2.)
@@ -1145,7 +1112,6 @@ fn udt_zero_fields_erased_to_unit() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Marker = Unit;
             function Main() : Unit {
                 let m : __UDT_Item_1__Package_2_ = Marker();
@@ -1154,7 +1120,6 @@ fn udt_zero_fields_erased_to_unit() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Marker = Unit;
             function Main() : Unit {
                 let m : Unit = ();
@@ -1183,7 +1148,6 @@ fn udt_zero_fields_erased_to_unit() {
         struct_source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Empty = Unit;
             function Main() : Unit {
                 let e : __UDT_Item_1__Package_2_ = new Empty {};
@@ -1192,7 +1156,6 @@ fn udt_zero_fields_erased_to_unit() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Empty = Unit;
             function Main() : Unit {
                 let e : Unit = ();
@@ -1230,7 +1193,6 @@ fn udt_used_in_nested_callable() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Pair = (Int, Int);
             function MakeAndSum(x : Int) : Int {
                 let p : __UDT_Item_1__Package_2_ = Pair(x, x + 1);
@@ -1243,7 +1205,6 @@ fn udt_used_in_nested_callable() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Pair = (Int, Int);
             function MakeAndSum(x : Int) : Int {
                 let p : (Int, Int) = (x, x + 1);
@@ -1379,7 +1340,6 @@ fn three_level_nested_udt_fully_erased() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Inner = (Int, );
             newtype Middle = (__UDT_Item_1__Package_2_, Double);
             newtype Outer = (__UDT_Item_2__Package_2_, Bool);
@@ -1399,7 +1359,6 @@ fn three_level_nested_udt_fully_erased() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Inner = (Int, );
             newtype Middle = (__UDT_Item_1__Package_2_, Double);
             newtype Outer = (__UDT_Item_2__Package_2_, Bool);
@@ -1439,7 +1398,6 @@ fn udt_as_callable_return_type_erased() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Double);
             function MakePair(x : Int, y : Double) : __UDT_Item_1__Package_2_ {
                 new Pair {
@@ -1456,7 +1414,6 @@ fn udt_as_callable_return_type_erased() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Double);
             function MakePair(x : Int, y : Double) : (Int, Double) {
                 (x, y)
@@ -1472,7 +1429,7 @@ fn udt_as_callable_return_type_erased() {
 }
 
 #[test]
-fn resolve_ty_cache_miss_returns_original_udt() {
+fn defensive_resolve_ty_cache_miss_returns_original_udt() {
     // When a Ty::Udt references an item not present in the cache,
     // resolve_ty returns the original type unchanged. This is a
     // defensive code path — in practice, all UDT items should be
@@ -1529,8 +1486,8 @@ fn erase_udts_rewrites_reachable_external_package_but_leaves_unreachable_package
         ),
     );
 
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(target_pkg_id));
-    erase_udts(&mut store, target_pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, target_pkg_id);
+    erase_udts(&mut store, target_pkg_id, &mut assigners);
     crate::invariants::check(
         &store,
         target_pkg_id,
@@ -1571,8 +1528,8 @@ fn post_udt_erase_invariants_cover_reachable_external_packages() {
         ),
     );
 
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(target_pkg_id));
-    erase_udts(&mut store, target_pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, target_pkg_id);
+    erase_udts(&mut store, target_pkg_id, &mut assigners);
 
     let reachable_package = store.get_mut(reachable_pkg_id);
     let reachable_item = reachable_package
@@ -1661,7 +1618,6 @@ fn single_field_struct_return_type_erased_to_single_element_tuple() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Wrapper = (Int, );
             function Make() : __UDT_Item_1__Package_2_ {
                 new Wrapper {
@@ -1676,7 +1632,6 @@ fn single_field_struct_return_type_erased_to_single_element_tuple() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Wrapper = (Int, );
             function Make() : (Int, ) {
                 (42, )
@@ -1715,7 +1670,6 @@ fn non_trailing_comma_newtype_single_field_erased_to_scalar() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Wrapper = Int;
             function Make() : __UDT_Item_1__Package_2_ {
                 Wrapper(42)
@@ -1727,7 +1681,6 @@ fn non_trailing_comma_newtype_single_field_erased_to_scalar() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Wrapper = Int;
             function Make() : Int {
                 42
@@ -1782,8 +1735,8 @@ fn udt_erase_is_idempotent() {
     let (mut store, pkg_id) =
         crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::UdtErase);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "udt_erase should be idempotent");
 }
@@ -1792,8 +1745,8 @@ fn render_before_after_udt_erase(source: &str) -> (String, String) {
     let (mut store, pkg_id) =
         crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Defunc);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
@@ -1818,7 +1771,6 @@ fn before_after_udt_erasure_snapshot() {
         "},
         &expect![[r#"
             BEFORE:
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : (Int, Int) {
                 let p : __UDT_Item_1__Package_2_ = new Pair {
@@ -1831,7 +1783,6 @@ fn before_after_udt_erasure_snapshot() {
             Main()
 
             AFTER:
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : (Int, Int) {
                 let p : (Int, Int) = (1, 2);
@@ -1840,6 +1791,140 @@ fn before_after_udt_erasure_snapshot() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn struct_field_access_lowered_in_adjoint_and_controlled_specs() {
+    // Field reads of a struct parameter must be erased in every specialization,
+    // not just `body`. This operation reads `p.X`/`p.Y` from the body, adjoint,
+    // controlled, and controlled-adjoint specs; after erasure each `p::Field`
+    // access must become a positional `p::Item < n >` tuple projection.
+    check_before_after_udt_erase(
+        indoc! {"
+            namespace Test {
+                struct Pair { X : Int, Y : Int }
+                operation Op(p : Pair) : Unit is Adj + Ctl {
+                    body ... {
+                        let _ = p.X;
+                    }
+                    adjoint ... {
+                        let _ = p.Y;
+                    }
+                    controlled (cs, ...) {
+                        let _ = p.X + p.Y;
+                    }
+                }
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Controlled Op([q], new Pair { X = 1, Y = 2 });
+                }
+            }
+        "},
+        &expect![[r#"
+            BEFORE:
+            newtype Pair = (Int, Int);
+            operation Op(p : __UDT_Item_1__Package_2_) : Unit is Adj + Ctl {
+                body ... {
+                    let _ : Int = p::X;
+                }
+                adjoint ... {
+                    let _ : Int = p::Y;
+                }
+                controlled (cs, ...) {
+                    let _ : Int = p::X + p::Y;
+                }
+                controlled adjoint (ctls, ...) {
+                    let _ : Int = p::Y;
+                }
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Controlled Op([q], new Pair {
+                    X = 1,
+                    Y = 2
+                });
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Pair = (Int, Int);
+            operation Op(p : (Int, Int)) : Unit is Adj + Ctl {
+                body ... {
+                    let _ : Int = p::Item < 0 >;
+                }
+                adjoint ... {
+                    let _ : Int = p::Item < 1 >;
+                }
+                controlled (cs, ...) {
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
+                }
+                controlled adjoint (ctls, ...) {
+                    let _ : Int = p::Item < 1 >;
+                }
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Controlled Op([q], (1, 2));
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn nested_udt_mixing_scalar_and_tuple_fields_erased() {
+    // An outer struct whose fields mix a scalar (`S : Int`) and a nested struct
+    // (`P : Inner`). Reads of both the scalar field and a field of the nested
+    // struct must lower to the correct positional projections after erasure:
+    // `o.S` -> `o::Item < 0 >` and `o.P.A` -> `o::Item < 1 >::Item < 0 >`.
+    let source = indoc! {"
+        namespace Test {
+            struct Inner { A : Int, B : Int }
+            struct Outer { S : Int, P : Inner }
+            @EntryPoint()
+            function Main() : Int {
+                let o = new Outer { S = 10, P = new Inner { A = 1, B = 2 } };
+                o.S + o.P.A
+            }
+        }
+    "};
+    check_erasure(source, &expect!["Main: input=Unit, output=Int"]);
+    check_before_after_udt_erase(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype Inner = (Int, Int);
+        newtype Outer = (Int, __UDT_Item_1__Package_2_);
+        function Main() : Int {
+            let o : __UDT_Item_2__Package_2_ = new Outer {
+                S = 10,
+                P = new Inner {
+                    A = 1,
+                    B = 2
+                }
+
+            };
+            o::S + o::P::A
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype Inner = (Int, Int);
+        newtype Outer = (Int, __UDT_Item_1__Package_2_);
+        function Main() : Int {
+            let o : (Int, (Int, Int)) = (10, (1, 2));
+            o::Item < 0 > + o::Item < 1 >::Item < 0 >
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
@@ -1921,8 +2006,8 @@ fn cross_package_udt_copy_update_erased() {
     "};
 
     let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
 
     // After erasure the user package's IR must be UDT-free: no `Pair` struct
     // constructions survive, no expression carries a `Udt` type, and every
@@ -2017,8 +2102,8 @@ fn cross_package_simulatable_intrinsic_with_struct_param_and_return() {
     "};
 
     let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
-    erase_udts(&mut store, pkg_id, &mut assigner);
+    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
+    erase_udts(&mut store, pkg_id, &mut assigners);
 
     // Run post-UDT-erase invariants to confirm no Ty::Udt survives in
     // reachable packages and no Field::Path on non-tuple types remains.

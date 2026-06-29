@@ -10,6 +10,7 @@ mod classical_args;
 mod debug_metadata;
 mod dynamic_vars;
 mod intrinsics;
+mod ir_functions;
 mod loops;
 mod misc;
 mod operators;
@@ -180,6 +181,25 @@ pub fn get_rir_program_with_capabilities(
         Ok(program) => program,
         Err(error) => panic!("partial evaluation failed: {error:?}"),
     }
+}
+
+/// Partially evaluates a program targeting the `Adaptive` profile, which enables the `CallSupport`
+/// capability that gates IR-function emission.
+#[must_use]
+pub fn get_rir_program_with_adaptive_profile(source: &str) -> Program {
+    get_rir_program_with_capabilities(source, Profile::Adaptive.into())
+}
+
+/// Partially evaluates a program targeting the `Adaptive` profile with the internal
+/// `DynamicQubitAllocation` capability enabled, which allows qubit-allocating callables to be
+/// emitted as IR functions.
+#[must_use]
+pub fn get_rir_program_with_dynamic_qubit_allocation(source: &str) -> Program {
+    get_rir_program_with_capabilities(
+        source,
+        TargetCapabilityFlags::from(Profile::Adaptive)
+            | TargetCapabilityFlags::DynamicQubitAllocation,
+    )
 }
 
 fn compile_and_partially_evaluate(

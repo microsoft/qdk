@@ -2,17 +2,18 @@
 // Licensed under the MIT License.
 
 use super::*;
+use crate::package_assigners::PackageAssigners;
 use crate::test_utils::{
     PipelineStage, check_semantic_equivalence, compile_and_run_pipeline_to, compile_to_fir,
     find_callable, format_pat, local_names,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, CallableImpl, ExprId, ExprKind, Field, FieldPath, Functor, ItemKind, LocalVarId,
     Mutability, PackageLookup, PatKind, Res, StmtKind, UnOp,
 };
+
 use rustc_hash::FxHashMap;
 
 fn check(source: &str, expect: &Expect) {
@@ -83,7 +84,7 @@ fn item_name(package: &qsc_fir::fir::Package, item_id: &qsc_fir::fir::ItemId) ->
         .get(item_id.item)
         .and_then(|item| match &item.kind {
             ItemKind::Callable(decl) => Some(decl.name.name.to_string()),
-            _ => None,
+            ItemKind::Ty(..) => None,
         })
         .unwrap_or_else(|| format!("{item_id:?}"))
 }
@@ -478,12 +479,11 @@ fn callable_input_binding_names(
 }
 
 fn closure_target_names(store: &PackageStore, pkg_id: PackageId) -> Vec<String> {
-    let package = store.get(pkg_id);
     let reachable = crate::reachability::collect_reachable_from_entry(store, pkg_id);
-    let mut names = super::collect_closure_targets(package, pkg_id, &reachable)
+    let mut names = super::collect_closure_targets(store, pkg_id, &reachable)
         .iter()
-        .map(|item_id| {
-            let item = package.get_item(*item_id);
+        .map(|store_id| {
+            let item = store.get(store_id.package).get_item(store_id.item);
             let ItemKind::Callable(decl) = &item.kind else {
                 panic!("closure target should be callable");
             };
@@ -509,7 +509,6 @@ fn param_field_access_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -521,7 +520,6 @@ fn param_field_access_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -554,7 +552,6 @@ fn call_site_rewritten_for_variable_arg() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -567,7 +564,6 @@ fn call_site_rewritten_for_variable_arg() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Foo(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -605,7 +601,6 @@ fn whole_param_use_skips_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Identity(p : (Int, Int)) : (Int, Int) {
                 p
@@ -618,7 +613,6 @@ fn whole_param_use_skips_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Identity(p : (Int, Int)) : (Int, Int) {
                 p
@@ -635,6 +629,8 @@ fn whole_param_use_skips_promotion() {
 
 #[test]
 fn triple_param_decomposes() {
+    // Three-field counterpart of `param_field_access_decomposes` (two fields).
+    // Kept separate because the promoted-input snapshot differs by arity.
     let source = "struct Triple { A : Int, B : Int, C : Int }
             function Sum(t : Triple) : Int { t.A + t.B + t.C }
             function Main() : Int { Sum(new Triple { A = 1, B = 2, C = 3 }) }";
@@ -648,7 +644,6 @@ fn triple_param_decomposes() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Triple = (Int, Int, Int);
             function Sum(t : (Int, Int, Int)) : Int {
                 t::Item < 0 > + t::Item < 1 > + t::Item < 2 >
@@ -660,7 +655,6 @@ fn triple_param_decomposes() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Triple = (Int, Int, Int);
             function Sum(t_0 : Int, t_1 : Int, t_2 : Int) : Int {
                 t_0 + t_1 + t_2
@@ -689,7 +683,6 @@ fn callable_with_empty_tuple_parameter() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(u : Unit) : Int {
                 42
             }
@@ -700,7 +693,6 @@ fn callable_with_empty_tuple_parameter() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(u : Unit) : Int {
                 42
             }
@@ -731,7 +723,6 @@ fn callable_with_single_field_param() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Wrapper = (Int, );
             function Foo(w : (Int, )) : Int {
                 w::Item < 0 >
@@ -743,7 +734,6 @@ fn callable_with_single_field_param() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Wrapper = (Int, );
             function Foo(w_0 : Int, ) : Int {
                 w_0
@@ -778,7 +768,6 @@ fn callable_with_nested_tuple_parameter() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Int);
             function Foo(o : ((Int, Int), Int)) : Int {
@@ -791,7 +780,6 @@ fn callable_with_nested_tuple_parameter() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Int);
             function Foo(o_0_0 : Int, o_0_1 : Int, o_1 : Int) : Int {
@@ -831,7 +819,6 @@ fn operation_with_adj_spec() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Foo(p : (Int, Int)) : Unit is Adj {
                 body ... {
@@ -848,7 +835,6 @@ fn operation_with_adj_spec() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Foo(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
@@ -897,7 +883,6 @@ fn recursive_callable_whole_value_self_use_is_promoted() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Loop(p : (Int, Int), n : Int) : Int {
                 if n <= 0 {
@@ -914,7 +899,6 @@ fn recursive_callable_whole_value_self_use_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Loop(p_0 : Int, p_1 : Int, n : Int) : Int {
                 if n <= 0 {
@@ -956,7 +940,6 @@ fn recursive_promoted_self_call_dissolves_to_clean_flat_form_through_pipeline() 
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Loop(p : (Int, Int), n : Int) : Int {
                 if n <= 0 {
@@ -973,7 +956,6 @@ fn recursive_promoted_self_call_dissolves_to_clean_flat_form_through_pipeline() 
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Loop(p_0 : Int, p_1 : Int, n : Int) : Int {
                 if n <= 0 {
@@ -1039,7 +1021,6 @@ fn mixed_field_and_whole_use_is_promoted() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Mixed(p : (Int, Int)) : (Int, Int) {
                 let _ : Int = p::Item < 0 >;
@@ -1053,7 +1034,6 @@ fn mixed_field_and_whole_use_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Mixed(p_0 : Int, p_1 : Int) : (Int, Int) {
                 let _ : Int = p_0;
@@ -1087,7 +1067,6 @@ fn return_whole_param_is_reconstructed() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Echo(p : (Int, Int)) : (Int, Int) {
                 let _ : Int = p::Item < 0 > + p::Item < 1 >;
@@ -1101,7 +1080,6 @@ fn return_whole_param_is_reconstructed() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Echo(p_0 : Int, p_1 : Int) : (Int, Int) {
                 let _ : Int = p_0 + p_1;
@@ -1135,7 +1113,6 @@ fn tuple_element_whole_value_use_is_reconstructed() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Pack(p : (Int, Int), x : Int) : ((Int, Int), Int) {
                 let _ : Int = p::Item < 0 >;
@@ -1149,7 +1126,6 @@ fn tuple_element_whole_value_use_is_reconstructed() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Pack(p_0 : Int, p_1 : Int, x : Int) : ((Int, Int), Int) {
                 let _ : Int = p_0;
@@ -1191,7 +1167,6 @@ fn whole_value_call_arg_is_reconstructed() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Consume(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -1207,7 +1182,6 @@ fn whole_value_call_arg_is_reconstructed() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Consume(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -1222,6 +1196,72 @@ fn whole_value_call_arg_is_reconstructed() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn promoted_param_forwarded_to_unpromoted_callable_is_reconstructed() {
+    // `Forward` reads `p.X` (field use) so it is promoted to scalar leaves, but it
+    // also passes `p` whole to `Identity`, which only ever reads `p` as a whole
+    // value and is therefore NOT promoted (it keeps a tuple parameter). At the
+    // call site the whole-value argument must be reconstructed from the promoted
+    // leaves `(p_0, p_1)` to match `Identity`'s unflattened tuple signature.
+    // Contrast with `whole_value_call_arg_is_reconstructed`, where the callee is
+    // itself promoted and the reconstructed value is projected to scalars.
+    let source = "struct Pair { X : Int, Y : Int }
+            function Identity(p : Pair) : Pair { p }
+            function Forward(p : Pair) : Pair {
+                let _ = p.X;
+                Identity(p)
+            }
+            function Main() : Int {
+                let r = Forward(new Pair { X = 1, Y = 2 });
+                r.X
+            }";
+    check(
+        source,
+        &expect![[r#"
+        Callable Forward: input=Tuple(Bind(p.0: Int), Bind(p.1: Int))
+          local: Discard(Int)
+        Callable Identity: input=Bind(p: (Int, Int))
+        Callable Main: input=Tuple()
+          local: Tuple(Bind(r.0: Int), Bind(r.1: Int))"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype Pair = (Int, Int);
+        function Identity(p : (Int, Int)) : (Int, Int) {
+            p
+        }
+        function Forward(p : (Int, Int)) : (Int, Int) {
+            let _ : Int = p::Item < 0 >;
+            Identity(p)
+        }
+        function Main() : Int {
+            let (r_0 : Int, r_1 : Int) = Forward(1, 2);
+            r_0
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype Pair = (Int, Int);
+        function Identity(p : (Int, Int)) : (Int, Int) {
+            p
+        }
+        function Forward(p_0 : Int, p_1 : Int) : (Int, Int) {
+            let _ : Int = p_0;
+            Identity(p_0, p_1)
+        }
+        function Main() : Int {
+            let (r_0 : Int, r_1 : Int) = Forward(1, 2);
+            r_0
+        }
+        // entry
+        Main()
+    "#]],
     );
 }
 
@@ -1245,8 +1285,8 @@ fn arg_promote_is_idempotent_for_reconstructed_body() {
             }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(
         first, second,
@@ -1277,8 +1317,8 @@ fn promoted_whole_value_reads_leave_no_dangling_param_var() {
         find_pat_binding_id_by_name(package, loop_callable.input, "p")
             .expect("Loop should bind a parameter named p before promotion")
     };
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let loop_callable = find_callable(package, "Loop");
@@ -1329,7 +1369,7 @@ fn entry_point_mixed_use_input_is_not_flattened() {
 #[test]
 fn callable_with_promoted_args_full_pipeline() {
     // Full pipeline integration: tuple-decompose + arg_promote both run.
-    // Verifies the combined effect: locals decomposed AND params promoted.
+    // Verifies the combined effect: locals decomposed and params promoted.
     let source = "struct Pair { X : Int, Y : Int }
             function Add(p : Pair) : Int { p.X + p.Y }
             function Main() : Int {
@@ -1349,7 +1389,6 @@ fn callable_with_promoted_args_full_pipeline() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Add(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -1363,7 +1402,6 @@ fn callable_with_promoted_args_full_pipeline() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Add(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -1405,7 +1443,6 @@ fn functor_applied_callee_not_first_class() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Op(p : (Int, Int)) : Unit is Adj {
                 body ... {
@@ -1422,7 +1459,6 @@ fn functor_applied_callee_not_first_class() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Op(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
@@ -1463,7 +1499,6 @@ fn multiple_tuple_params_promotion_behavior() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a : (Int, Int), b : (Int, Int)) : Int {
@@ -1476,7 +1511,6 @@ fn multiple_tuple_params_promotion_behavior() {
             Main()
 
             AFTER:
-            // namespace test
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a_0 : Int, a_1 : Int, b_0 : Int, b_1 : Int) : Int {
@@ -1517,7 +1551,6 @@ fn unused_first_class_callable_ref_does_not_block_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function Sum(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -1530,7 +1563,6 @@ fn unused_first_class_callable_ref_does_not_block_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function Sum(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -1572,7 +1604,6 @@ fn unreachable_partial_application_does_not_block_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation UsePair(p : (Int, Int), q : Qubit) : Unit {
                 let _ : Int = p::Item < 0 > + p::Item < 1 >;
@@ -1586,14 +1617,13 @@ fn unreachable_partial_application_does_not_block_promotion() {
                 UsePair((1, 2), q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(arg : Qubit, hole : (Int, Int)) : Unit {
+            operation _lambda_5(arg : Qubit, hole : (Int, Int)) : Unit {
                 UsePair(hole, arg)
             }
             // entry
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation UsePair(p_0 : Int, p_1 : Int, q : Qubit) : Unit {
                 let _ : Int = p_0 + p_1;
@@ -1607,7 +1637,7 @@ fn unreachable_partial_application_does_not_block_promotion() {
                 UsePair(1, 2, q);
                 __quantum__rt__qubit_release(q);
             }
-            operation _lambda_(arg : Qubit, hole : (Int, Int)) : Unit {
+            operation _lambda_5(arg : Qubit, hole : (Int, Int)) : Unit {
                 UsePair(hole, arg)
             }
             // entry
@@ -1642,7 +1672,6 @@ fn unreachable_first_class_reference_does_not_block_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation UsePair(p : (Int, Int), q : Qubit) : Unit {
                 let _ : Int = p::Item < 0 > + p::Item < 1 >;
@@ -1657,7 +1686,6 @@ fn unreachable_first_class_reference_does_not_block_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation UsePair(p_0 : Int, p_1 : Int, q : Qubit) : Unit {
                 let _ : Int = p_0 + p_1;
@@ -1706,7 +1734,6 @@ fn controlled_specialization_params_promoted() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Foo(p : (Int, Int)) : Unit is Adj + Ctl {
                 body ... {
@@ -1731,7 +1758,6 @@ fn controlled_specialization_params_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Foo(p_0 : Int, p_1 : Int) : Unit is Adj + Ctl {
                 body ... {
@@ -1789,7 +1815,6 @@ fn controlled_callable_whole_value_use_reconstructs_at_controlled_call_site() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Helper(p : (Int, Int)) : Unit is Ctl {
                 body ... {
@@ -1818,7 +1843,6 @@ fn controlled_callable_whole_value_use_reconstructs_at_controlled_call_site() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Helper(p_0 : Int, p_1 : Int) : Unit is Ctl {
                 body ... {
@@ -1875,7 +1899,6 @@ fn adjoint_specialization_whole_value_use_reconstructs_like_body() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Sink(p : (Int, Int)) : Unit is Adj {
                 body ... {
@@ -1902,7 +1925,6 @@ fn adjoint_specialization_whole_value_use_reconstructs_like_body() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             operation Sink(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
@@ -1968,8 +1990,8 @@ fn controlled_adjoint_specializations_promote_without_dangling_param_var() {
         find_pat_binding_id_by_name(package, foo_callable.input, "p")
             .expect("Foo should bind a parameter named p before promotion")
     };
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     let foo_callable = find_callable(package, "Foo");
@@ -2020,6 +2042,9 @@ fn functor_applied_adjoint_call_site_payload_is_projected() {
 
 #[test]
 fn functor_applied_controlled_call_site_payload_is_projected() {
+    // Controlled counterpart of `functor_applied_adjoint_call_site_payload_is_projected`.
+    // Kept separate: `Controlled` wraps the payload in a control-register tuple
+    // `(controls, payload)`, so only the payload component is projected here.
     let source = "struct Pair { X : Int, Y : Int }
         operation Foo(p : Pair) : Unit is Ctl + Adj {
             body ... {
@@ -2132,7 +2157,6 @@ fn direct_callable_alias_does_not_block_promotion() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             newtype Pair = (Int, Int);
             function UsePair(p : (Int, Int)) : Int {
                 p::Item < 0 > + p::Item < 1 >
@@ -2144,7 +2168,6 @@ fn direct_callable_alias_does_not_block_promotion() {
             Main()
 
             AFTER:
-            // namespace test
             newtype Pair = (Int, Int);
             function UsePair(p_0 : Int, p_1 : Int) : Int {
                 p_0 + p_1
@@ -2240,8 +2263,8 @@ fn simulatable_intrinsic_tuple_parameter_is_not_promoted() {
 
     let (mut store, pkg_id) = compile_to_fir(source);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     // Signature unchanged: parameter stays a single whole binding.
@@ -2267,8 +2290,8 @@ fn regular_intrinsic_tuple_parameter_is_not_promoted() {
 
     let (mut store, pkg_id) = compile_to_fir(source);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     // Parameter stays a single whole binding; the tuple was not decomposed.
@@ -2292,8 +2315,8 @@ fn intrinsic_nested_tuple_parameter_is_not_promoted() {
     fn assert_nested_tuple_param_untouched(source: &str, callable: &str, expected_call: &str) {
         let (mut store, pkg_id) = compile_to_fir(source);
 
-        let mut assigner = Assigner::from_package(store.get(pkg_id));
-        arg_promote(&mut store, pkg_id, &mut assigner);
+        let mut assigners = PackageAssigners::new(&store, pkg_id);
+        arg_promote(&mut store, pkg_id, &mut assigners);
 
         let package = store.get(pkg_id);
         // Signature unchanged: the parameter stays a single whole binding, not
@@ -2383,8 +2406,8 @@ fn shared_nested_field_aliases_are_rewritten_with_fresh_inner_nodes() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     force_shared_nested_field_inner_expr(&mut store, pkg_id, "Sum", "o");
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let result = extract_field_access_shapes(&store, pkg_id, "Sum");
     assert!(
@@ -2406,15 +2429,49 @@ fn closure_targets_are_excluded_from_promotion() {
         }";
 
     let (mut store, pkg_id) = compile_to_fir(source);
-    assert_eq!(closure_target_names(&store, pkg_id), vec!["<lambda>"]);
+    let lambda_names = closure_target_names(&store, pkg_id);
+    assert_eq!(lambda_names.len(), 1, "expected a single lifted lambda");
+    assert!(
+        lambda_names[0].starts_with(".lambda"),
+        "expected lifted lambda name to start with `.lambda`, got `{}`",
+        lambda_names[0]
+    );
+    let lambda_name = lambda_names[0].clone();
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
 
     let package = store.get(pkg_id);
     assert_eq!(
-        callable_input_binding_names(package, "<lambda>"),
+        callable_input_binding_names(package, &lambda_name),
         vec!["pair"]
+    );
+}
+
+#[test]
+fn param_captured_by_nested_closure_is_not_promoted() {
+    // `Foo` reads `p.X` as a field (normally promotable), but a nested closure
+    // also captures `p`. Capturing the parameter is a whole-value (hard) use, so
+    // the promotability gate must leave `p` as a single tuple binding rather than
+    // flattening it into scalar leaves.
+    let source = "struct Pair { X : Int, Y : Int }
+        function Foo(p : Pair) : Int {
+            let f = () -> p.X + p.Y;
+            p.X + f()
+        }
+        function Main() : Int {
+            Foo(new Pair { X = 1, Y = 2 })
+        }";
+
+    let (mut store, pkg_id) = compile_to_fir(source);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
+
+    let package = store.get(pkg_id);
+    assert_eq!(
+        callable_input_binding_names(package, "Foo"),
+        vec!["p"],
+        "a parameter captured by a nested closure must not be promoted"
     );
 }
 
@@ -2425,8 +2482,8 @@ fn arg_promote_is_idempotent() {
             function Main() : Int { Foo(new Pair { X = 1, Y = 2 }) }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "arg_promote should be idempotent");
 }
@@ -2447,8 +2504,8 @@ fn arg_promote_preserves_invariants() {
 fn render_before_after_arg_promote(source: &str) -> (String, String) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleDecompose);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     (before, after)
 }
@@ -2458,7 +2515,7 @@ fn check_before_after(source: &str, expect: &Expect) {
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
 }
 
-/// Like [`check_before_after`], but renders AFTER at an arbitrary pipeline
+/// Like [`check_before_after`], but renders the after snapshot at an arbitrary pipeline
 /// `stage` (e.g. [`PipelineStage::TupleDecompose2`]) so tests can show the effect of
 /// passes that run after `arg_promote`, such as the second tuple-decompose pass that
 /// scalar-replaces caller-side tuple locals.
@@ -2499,7 +2556,6 @@ fn before_after_non_parameter_local_destructure_is_normalized_and_scalar_replace
         }",
         PipelineStage::TupleDecompose2,
         &expect![[r#"
-            // namespace test
             function Main() : Int {
                 let a : Int = 10;
                 let b : Int = 20;
@@ -2537,7 +2593,6 @@ fn pretty_print_after_arg_promote_flattens_callable_param() {
     // with `body { ... }` spec syntax. This snapshot fails if the pass produced
     // parseable-but-unpromoted output.
     expect![[r#"
-        // namespace Test
         function Add(pair.0 : Int, pair.1 : Int) : Int {
             body {
                 let a : Int = pair.0;
@@ -2597,7 +2652,6 @@ fn reachable_caller_call_site_promoted_dead_caller_unobserved() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace Test
             operation Main() : Int {
                 Foo(1, 2)
             }
@@ -2613,7 +2667,6 @@ fn reachable_caller_call_site_promoted_dead_caller_unobserved() {
             Main()
 
             AFTER:
-            // namespace Test
             operation Main() : Int {
                 Foo(1, 2)
             }
@@ -2644,7 +2697,6 @@ fn non_udt_tuple_destructure_is_promoted() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, Int)) : Int {
                 let a : Int = x::Item < 0 >;
                 let b : Int = x::Item < 1 >;
@@ -2658,7 +2710,6 @@ fn non_udt_tuple_destructure_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let a : Int = x_0;
                 let b : Int = x_1;
@@ -2685,7 +2736,6 @@ fn non_udt_tuple_destructure_with_discard_is_promoted() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, Int)) : Int {
                 let a : Int = x::Item < 0 >;
                 a + 1
@@ -2698,7 +2748,6 @@ fn non_udt_tuple_destructure_with_discard_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let a : Int = x_0;
                 a + 1
@@ -2725,7 +2774,6 @@ fn non_udt_tuple_destructure_name_shadowing() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, Int)) : Int {
                 let x : Int = x::Item < 0 >;
                 x + 1
@@ -2738,7 +2786,6 @@ fn non_udt_tuple_destructure_name_shadowing() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let x : Int = x_0;
                 x + 1
@@ -2764,7 +2811,6 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : ((Int, Int), Int)) : Int {
                 let a : Int = x::Item < 0 >::Item < 0 >;
                 let b : Int = x::Item < 0 >::Item < 1 >;
@@ -2779,7 +2825,6 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0_0 : Int, x_0_1 : Int, x_1 : Int) : Int {
                 let a : Int = x_0_0;
                 let b : Int = x_0_1;
@@ -2808,7 +2853,6 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, (Int, (Int, Int)))) : Int {
                 let a : Int = x::Item < 0 >;
                 let b : Int = x::Item < 1 >::Item < 0 >;
@@ -2824,7 +2868,6 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1_0 : Int, x_1_1_0 : Int, x_1_1_1 : Int) : Int {
                 let a : Int = x_0;
                 let b : Int = x_1_0;
@@ -2853,7 +2896,6 @@ fn flat_abi_mixed_discard_nested_param() {
         PipelineStage::TupleDecompose2,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(x : (Int, (Int, Int))) : Int {
                 let a : Int = x::Item < 0 >;
                 let c : Int = x::Item < 1 >::Item < 1 >;
@@ -2867,7 +2909,6 @@ fn flat_abi_mixed_discard_nested_param() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(x_0 : Int, x_1_0 : Int, x_1_1 : Int) : Int {
                 let a : Int = x_0;
                 let c : Int = x_1_1;
@@ -2970,7 +3011,6 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
         source,
         &expect![[r#"
             BEFORE:
-            // namespace test
             function Foo(a : (Int, (Int, Int)), b : ((Int, Int), Int)) : Int {
                 let a0 : Int = a::Item < 0 >;
                 let a1 : Int = a::Item < 1 >::Item < 0 >;
@@ -2987,7 +3027,6 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
             Main()
 
             AFTER:
-            // namespace test
             function Foo(a_0 : Int, a_1_0 : Int, a_1_1 : Int, b_0_0 : Int, b_0_1 : Int, b_1 : Int) : Int {
                 let a0 : Int = a_0;
                 let a1 : Int = a_1_0;
@@ -3035,8 +3074,8 @@ fn flat_abi_is_idempotent_on_already_flattened_callable() {
             function Main() : Int { Foo((1, (2, (3, 4)))) }";
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let first = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    arg_promote(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    arg_promote(&mut store, pkg_id, &mut assigners);
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(
         first, second,
@@ -3110,7 +3149,6 @@ fn whole_tuple_copy_assignment_is_decomposed() {
         "function Main() : Unit { mutable x = (1, 2); let y = (3, 4); x = y; }",
         PipelineStage::TupleDecompose2,
         &expect![[r#"
-            // namespace test
             function Main() : Unit {
                 mutable (x_0 : Int, x_1 : Int) = (1, 2);
                 let (y_0 : Int, y_1 : Int) = (3, 4);
@@ -3181,7 +3219,6 @@ fn nested_whole_tuple_copy_assignment_preserves_values() {
         "function Main() : Unit { mutable x = (0, (0, 0)); let y = (7, (8, 9)); x = y; }",
         PipelineStage::TupleDecompose2,
         &expect![[r#"
-            // namespace test
             function Main() : Unit {
                 mutable (x_0 : Int, (x_1_0 : Int, x_1_1 : Int)) = (0, (0, 0));
                 let (y_0 : Int, (y_1_0 : Int, y_1_1 : Int)) = (7, (8, 9));

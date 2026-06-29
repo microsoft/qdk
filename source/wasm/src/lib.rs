@@ -198,8 +198,17 @@ pub fn get_circuit(
             .map_err(interpret_errors_into_qsharp_errors_json)?;
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     } else {
-        let (source_map, capabilities, language_features, store, deps) =
+        let (source_map, mut capabilities, language_features, store, deps) =
             into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
+
+        if method == qsc::interpret::CircuitGenerationMethod::Static
+            && capabilities > Profile::AdaptiveRIF.into()
+        {
+            // If the program itself is annotated for a profile that is more capable than Adaptive_RIF,
+            // we need to fall back to Adaptive_RIF. Higher profiles generate patterns that static circuit
+            // construction cannot handle.
+            capabilities = Profile::AdaptiveRIF.into();
+        }
 
         let (package_type, entry_point) = match operation {
             Some(p) => {
@@ -784,13 +793,19 @@ fn get_configured_interpreter_from_openqasm(
         .expect("There should be at least one source");
     let mut resolver = sources.iter().cloned().collect::<InMemorySourceResolver>();
 
-    let CompileRawQasmResult(store, source_package_id, dependencies, sig, errors) =
+    let CompileRawQasmResult(store, source_package_id, dependencies, sig, errors, profile) =
         qsc::openqasm::parse_and_compile_raw_qasm(
             source.clone(),
             file.clone(),
             Some(&mut resolver),
             PackageType::Exe,
         );
+
+    let capabilities = if let Some(profile) = profile {
+        profile.into()
+    } else {
+        capabilities
+    };
 
     if !errors.is_empty() {
         return Err(errors
@@ -816,7 +831,7 @@ fn get_configured_interpreter_from_openqasm(
 
 #[wasm_bindgen(typescript_custom_section)]
 const TARGET_PROFILE: &'static str = r#"
-export type TargetProfile = "base" | "adaptive_ri" | "adaptive_rif" | "unrestricted";
+export type TargetProfile = "base" | "adaptive_ri" | "adaptive_rif" | "adaptive" | "unrestricted";
 "#;
 
 #[wasm_bindgen(typescript_custom_section)]

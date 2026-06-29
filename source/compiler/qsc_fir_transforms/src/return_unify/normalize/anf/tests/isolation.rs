@@ -27,7 +27,6 @@ fn isolated_anf_lifts_return_in_binop_operand_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 let x : Int = 1 + {
                     return 2;
@@ -39,7 +38,6 @@ fn isolated_anf_lifts_return_in_binop_operand_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 let __operand_tmp_0 : Int = 1;
                 let __operand_tmp_1 : Int = {
@@ -57,12 +55,12 @@ fn isolated_anf_lifts_return_in_binop_operand_block() {
 
 #[test]
 fn isolated_anf_lifts_index_target_block() {
-    // `({ return 1; arr })[5]` — the Index TARGET operand is a statement-
+    // `({ return 1; arr })[5]` — the Index target operand is a statement-
     // carrying block burying a `return`. The target is eagerly evaluated before
     // the access, so the ANF phase binds the block to a spine `let __operand_tmp`
     // and rewrites the Index target slot to read the temp; the `[5]` index
-    // literal stays inline. This is the Index TARGET shape (distinct from the
-    // already-witnessed Index INDEX-slot lift).
+    // literal stays inline. This is the Index target shape (distinct from the
+    // already-witnessed Index index-slot lift).
     check_anf_isolated_q(
         indoc! {r#"
         namespace Test {
@@ -75,7 +73,6 @@ fn isolated_anf_lifts_index_target_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 let arr : Int[] = [10, 20, 30];
                 {
@@ -88,7 +85,6 @@ fn isolated_anf_lifts_index_target_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 let arr : Int[] = [10, 20, 30];
                 let __operand_tmp_0 : Int[] = {
@@ -105,7 +101,7 @@ fn isolated_anf_lifts_index_target_block() {
 
 #[test]
 fn isolated_anf_lifts_update_field_receiver_block() {
-    // `({ return 7; p }) w/ First <- 9` — the UpdateField RECEIVER operand is a
+    // `({ return 7; p }) w/ First <- 9` — the UpdateField receiver operand is a
     // statement-carrying block burying a `return`. The receiver is eagerly
     // evaluated before the copy-and-update, so the ANF phase binds the block to
     // a spine `let __operand_tmp` and rewrites the record slot to read the temp;
@@ -124,7 +120,6 @@ fn isolated_anf_lifts_update_field_receiver_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let p : __UDT_Item_1__Package_2_ = new Pair {
@@ -142,7 +137,6 @@ fn isolated_anf_lifts_update_field_receiver_block() {
             Main()
 
             // after anf
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let p : __UDT_Item_1__Package_2_ = new Pair {
@@ -164,7 +158,7 @@ fn isolated_anf_lifts_update_field_receiver_block() {
 
 #[test]
 fn isolated_anf_lifts_update_field_value_block() {
-    // `p w/ First <- { return 7; 9 }` — the UpdateField VALUE operand is a
+    // `p w/ First <- { return 7; 9 }` — the UpdateField value operand is a
     // statement-carrying block burying a `return`. The ANF phase pins the
     // earlier-sibling receiver `p` to a temp, then binds the value block to a
     // second spine `let __operand_tmp` and rewrites both slots to read the
@@ -183,7 +177,6 @@ fn isolated_anf_lifts_update_field_value_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let p : __UDT_Item_1__Package_2_ = new Pair {
@@ -200,7 +193,6 @@ fn isolated_anf_lifts_update_field_value_block() {
             Main()
 
             // after anf
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let p : __UDT_Item_1__Package_2_ = new Pair {
@@ -223,7 +215,7 @@ fn isolated_anf_lifts_update_field_value_block() {
 
 #[test]
 fn isolated_anf_lifts_assign_field_value_block() {
-    // `set p w/= First <- { return 7; 9 }` — the AssignField VALUE operand is a
+    // `set p w/= First <- { return 7; 9 }` — the AssignField value operand is a
     // statement-carrying block burying a `return`. The ANF phase binds the value
     // block to a spine `let __operand_tmp` and rewrites the `w/=` value slot to
     // read the temp. The assignment place `p` is preserved (not pinned to a
@@ -246,7 +238,6 @@ fn isolated_anf_lifts_assign_field_value_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable p : __UDT_Item_1__Package_2_ = new Pair {
@@ -263,7 +254,6 @@ fn isolated_anf_lifts_assign_field_value_block() {
             Main()
 
             // after anf
-            // namespace Test
             newtype Pair = (Int, Int);
             function Main() : Int {
                 mutable p : __UDT_Item_1__Package_2_ = new Pair {
@@ -302,7 +292,6 @@ fn isolated_anf_lifts_fail_operand_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 fail {
                     return 1;
@@ -314,7 +303,6 @@ fn isolated_anf_lifts_fail_operand_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 let __operand_tmp_0 : String = {
                     return 1;
@@ -334,7 +322,7 @@ fn isolated_anf_lifts_whole_block_with_if_in_binop_operand() {
     // `return`. A bare `if` is a statement in Q#, never an operand on its own,
     // so the nearest surface-expressible witness wraps it in a statement-
     // carrying block. That block sits in the non-`Call` right operand slot of a
-    // `BinOp`, so the ANF phase binds the WHOLE block (carrying the `if`) to a
+    // `BinOp`, so the ANF phase binds the whole block (carrying the `if`) to a
     // spine `let __operand_tmp` before the addition runs. The before/after
     // delta isolates this whole-construct lift to the ANF phase alone.
     check_anf_isolated_q(
@@ -355,7 +343,6 @@ fn isolated_anf_lifts_whole_block_with_if_in_binop_operand() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 mutable c : Bool = true;
                 let x : Int = 1 + {
@@ -371,7 +358,6 @@ fn isolated_anf_lifts_whole_block_with_if_in_binop_operand() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 mutable c : Bool = true;
                 let __operand_tmp_0 : Int = 1;
@@ -397,7 +383,7 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
     // can only appear inside a statement-carrying block at the Q# surface
     // (`while` is a statement, never an operand on its own). That block sits in
     // the non-`Call` right operand slot of a `BinOp`, so the ANF phase binds the
-    // WHOLE block (carrying the loop) to a spine `let __operand_tmp` before the
+    // whole block (carrying the loop) to a spine `let __operand_tmp` before the
     // addition runs. This is the nearest surface-expressible witness for a
     // loop-bearing operand in a non-`Call` position.
     check_anf_isolated_q(
@@ -419,7 +405,6 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 mutable c : Bool = true;
                 let x : Int = 1 + {
@@ -436,7 +421,6 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 mutable c : Bool = true;
                 let __operand_tmp_0 : Int = 1;
@@ -475,7 +459,6 @@ fn isolated_anf_lifts_if_condition_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 if {
                     return 1;
@@ -492,7 +475,6 @@ fn isolated_anf_lifts_if_condition_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 let __operand_tmp_0 : Bool = {
                     return 1;
@@ -529,7 +511,6 @@ fn isolated_anf_lifts_range_end_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 let r : Range = 0..{
                     return 1;
@@ -541,7 +522,6 @@ fn isolated_anf_lifts_range_end_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 let __operand_tmp_0 : Int = 0;
                 let __operand_tmp_1 : Int = {
@@ -575,7 +555,6 @@ fn isolated_anf_lifts_array_repeat_size_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 let a : Int[] = [0, size = {
                     return 1;
@@ -587,7 +566,6 @@ fn isolated_anf_lifts_array_repeat_size_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 let __operand_tmp_0 : Int = 0;
                 let __operand_tmp_1 : Int = {
@@ -605,7 +583,7 @@ fn isolated_anf_lifts_array_repeat_size_block() {
 
 #[test]
 fn isolated_anf_lifts_assign_rhs_block() {
-    // `set x = { return 1; 5 }` — the Assign VALUE slot is a statement-carrying
+    // `set x = { return 1; 5 }` — the Assign value slot is a statement-carrying
     // block burying a `return`. The ANF phase binds the value block to a spine
     // `let __operand_tmp` and rewrites the `=` value slot to read the temp. The
     // assignment place `x` is preserved (not pinned to a by-value copy), so the
@@ -625,7 +603,6 @@ fn isolated_anf_lifts_assign_rhs_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 mutable x : Int = 0;
                 x = {
@@ -638,7 +615,6 @@ fn isolated_anf_lifts_assign_rhs_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 mutable x : Int = 0;
                 let __operand_tmp_0 : Int = {
@@ -656,7 +632,7 @@ fn isolated_anf_lifts_assign_rhs_block() {
 
 #[test]
 fn isolated_anf_lifts_assignop_rhs_block() {
-    // `set x += { return 2; 5 }` — the AssignOp VALUE slot is a statement-
+    // `set x += { return 2; 5 }` — the AssignOp value slot is a statement-
     // carrying block burying a `return`. The ANF phase binds the value block to
     // a spine `let __operand_tmp` and rewrites the `+=` value slot to read the
     // temp. The assignment place `x` is preserved (not pinned to a by-value
@@ -674,7 +650,6 @@ fn isolated_anf_lifts_assignop_rhs_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 mutable x : Int = 10;
                 x += {
@@ -687,7 +662,6 @@ fn isolated_anf_lifts_assignop_rhs_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 mutable x : Int = 10;
                 let __operand_tmp_0 : Int = {
@@ -705,7 +679,7 @@ fn isolated_anf_lifts_assignop_rhs_block() {
 
 #[test]
 fn isolated_anf_lifts_assignindex_replacement_block() {
-    // `set arr w/= 0 <- { return 3; 5 }` — the AssignIndex REPLACEMENT (value)
+    // `set arr w/= 0 <- { return 3; 5 }` — the AssignIndex replacement (value)
     // slot is a statement-carrying block burying a `return`. The ANF phase binds
     // the value block to a spine `let __operand_tmp` and rewrites the `w/=`
     // value slot to read the temp. The assignment place `arr` is preserved (not
@@ -724,7 +698,6 @@ fn isolated_anf_lifts_assignindex_replacement_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 mutable arr : Int[] = [1, 2, 3];
                 arr w/= 0 <- {
@@ -737,7 +710,6 @@ fn isolated_anf_lifts_assignindex_replacement_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 mutable arr : Int[] = [1, 2, 3];
                 let __operand_tmp_0 : Int = 0;
@@ -756,7 +728,7 @@ fn isolated_anf_lifts_assignindex_replacement_block() {
 
 #[test]
 fn isolated_anf_lifts_assignindex_index_block() {
-    // `set arr w/= { return 4; 0 } <- 5` — the AssignIndex INDEX slot is a
+    // `set arr w/= { return 4; 0 } <- 5` — the AssignIndex index slot is a
     // statement-carrying block burying a `return`. The ANF phase binds the index
     // block to a spine `let __operand_tmp` and rewrites the `w/=` index slot to
     // read the temp. The assignment place `arr` is preserved (not pinned to a
@@ -775,7 +747,6 @@ fn isolated_anf_lifts_assignindex_index_block() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function Main() : Int {
                 mutable arr : Int[] = [1, 2, 3];
                 arr w/= {
@@ -788,7 +759,6 @@ fn isolated_anf_lifts_assignindex_index_block() {
             Main()
 
             // after anf
-            // namespace Test
             function Main() : Int {
                 mutable arr : Int[] = [1, 2, 3];
                 let __operand_tmp_0 : Int = {
@@ -806,7 +776,7 @@ fn isolated_anf_lifts_assignindex_index_block() {
 
 #[test]
 fn isolated_anf_lifts_short_circuit_and_lhs_block_leaving_rhs_inline() {
-    // `{ return 7; true } and G()` — the `and` LEFT operand is a statement-
+    // `{ return 7; true } and G()` — the `and` left operand is a statement-
     // carrying block burying a `return`. The lift rewrites only the LHS: it is
     // unconditionally evaluated, so the block is bound to a spine
     // `let __operand_tmp` and the LHS slot reads the temp. The RHS `G()` is
@@ -827,7 +797,6 @@ fn isolated_anf_lifts_short_circuit_and_lhs_block_leaving_rhs_inline() {
         "Main",
         &expect![[r#"
             // before anf (changed=true)
-            // namespace Test
             function G() : Bool {
                 true
             }
@@ -842,7 +811,6 @@ fn isolated_anf_lifts_short_circuit_and_lhs_block_leaving_rhs_inline() {
             Main()
 
             // after anf
-            // namespace Test
             function G() : Bool {
                 true
             }

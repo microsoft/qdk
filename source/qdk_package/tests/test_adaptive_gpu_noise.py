@@ -275,7 +275,7 @@ def test_noise_intrinsics_load_csv_dir():
     noise = NoiseConfig()
     noise.load_csv_dir("./csv_dir_test")
     output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="gpu")
-    assert output == [[Result.One, Result.Zero, Result.One]]
+    assert output == [[Result.One, Result.Zero, Result.Loss]]
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
@@ -284,7 +284,7 @@ def test_noise_intrinsics_gpu_sim_class():
     sim.load_noise_tables("./csv_dir_test")
     sim.set_program(QIR_WITH_CORRELATED_NOISE)
     output = sim.run_shots(shots=1)["shot_results"]
-    assert output == [[Result.One, Result.Zero, Result.One]]
+    assert output == [[Result.One, Result.Zero, Result.Loss]]
 
 
 NOISE_INTRINSICS_WITH_REGISTERS_QIR = r"""

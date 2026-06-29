@@ -83,6 +83,9 @@ fn add_alloca_load_to_block(
                     should_load_operand(operand, vars_to_alloca),
                 );
                 block.0.push(Instruction::Store(new_operand, *var));
+                // Drop the cached load for this variable so a later read in this
+                // block reloads the freshly stored value instead of a stale one.
+                var_map.remove(&var.variable_id);
                 *next_var_id = next_var_id.successor();
                 continue;
             }
@@ -154,7 +157,8 @@ fn add_alloca_load_to_block(
             // Single variable instructions, replace operand with new value.
             Instruction::BitwiseNot(operand, _)
             | Instruction::LogicalNot(operand, _)
-            | Instruction::Convert(operand, _) => {
+            | Instruction::Convert(operand, _)
+            | Instruction::Return(Some(operand)) => {
                 *operand = map_or_load_operand(
                     operand,
                     &mut var_map,
@@ -184,7 +188,7 @@ fn add_alloca_load_to_block(
 
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
-            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
+            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
             Instruction::Alloca(..) => {
                 panic!("alloca not expected in alloca insertion")

@@ -18,10 +18,13 @@ mod type_preservation;
 use expect_test::{Expect, expect};
 use rustc_hash::FxHashSet;
 
+use crate::package_assigners::PackageAssigners;
 use crate::reachability::collect_reachable_from_entry;
 use crate::test_utils::{
-    PipelineStage, check_semantic_equivalence, compile_and_run_pipeline_to,
-    compile_and_run_pipeline_to_with_errors, compile_to_fir, eval_qsharp_original,
+    PipelineStage, check_semantic_equivalence, check_semantic_equivalence_with_library,
+    compile_and_run_pipeline_to, compile_and_run_pipeline_to_with_errors,
+    compile_and_run_pipeline_to_with_library, compile_to_fir, eval_qsharp_original,
+    find_library_callable,
 };
 use crate::walk_utils::{for_each_expr, for_each_expr_in_callable_impl};
 use indoc::indoc;
@@ -125,8 +128,8 @@ fn compile_no_hoist_return_unified(source: &str) -> NoHoistReturnUnifyResult {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
 
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    let (errors, _skipped) = super::unify_returns(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    let (errors, _skipped) = super::unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),
         "direct no-hoist return_unify produced errors: {errors:?}\n// before direct no-hoist return_unify\n{before}"
@@ -457,8 +460,8 @@ pub(crate) fn check_simplify_rule_q(
 }
 
 /// Run the compound-position hoist fixpoint to completion on `callable_name`'s
-/// body block, snapshot the PRE-ANF FIR, run the standalone ANF operand-lift
-/// fixpoint, snapshot the POST-ANF FIR, and pin both via `expect_test`.
+/// body block, snapshot the pre-ANF FIR, run the standalone ANF operand-lift
+/// fixpoint, snapshot the post-ANF FIR, and pin both via `expect_test`.
 ///
 /// This is the isolation seam for the ANF phase: by driving the hoist fixpoint
 /// to completion first and only then running the ANF fixpoint, every change
@@ -851,8 +854,8 @@ fn check_idempotency(source: &str) {
     let before = format!("{:?}", Assigner::from_package(store.get(pkg_id)));
 
     // Run unify_returns a second time.
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    let (errors, _skipped) = super::unify_returns(&mut store, pkg_id, &mut assigner);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    let (errors, _skipped) = super::unify_returns(&mut store, pkg_id, &mut assigners);
     assert!(
         errors.is_empty(),
         "second unify_returns pass produced errors: {errors:?}"
@@ -863,5 +866,169 @@ fn check_idempotency(source: &str) {
     assert_eq!(
         before, after,
         "second unify_returns pass allocated new nodes (not idempotent)"
+    );
+}
+
+/// Cross-package: a library callable with an early `Return`, reachable from a
+/// user entry, is return-unified in place — no residual `Return` survives in
+/// its body, its single-parameter arity is preserved (return unification is
+/// body-only), and the program's result is unchanged.
+#[test]
+fn cross_package_library_early_return_unified() {
+    let lib_source = indoc! {r#"
+        namespace TestLib {
+            function EarlyReturn(x : Int) : Int {
+                if x > 0 {
+                    return x + 1;
+                }
+                x - 1
+            }
+            export EarlyReturn;
+        }
+    "#};
+    let user_source = indoc! {r#"
+        import TestLib.*;
+        @EntryPoint()
+        function Main() : Int {
+            EarlyReturn(5) + EarlyReturn(-3)
+        }
+    "#};
+
+    let (store, pkg_id) = compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        PipelineStage::ReturnUnify,
+    );
+    let lib_callable = find_library_callable(&store, pkg_id, "EarlyReturn");
+    let package = store.get(lib_callable.package);
+    let item = package.get_item(lib_callable.item);
+    let ItemKind::Callable(decl) = &item.kind else {
+        panic!("EarlyReturn should be a callable");
+    };
+
+    // No residual `Return` survives in the cross-package library body.
+    let mut residual_return = false;
+    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_id, expr| {
+        if matches!(expr.kind, ExprKind::Return(_)) {
+            residual_return = true;
+        }
+    });
+    assert!(
+        !residual_return,
+        "library body should have no residual Return after cross-package return unification"
+    );
+
+    // Arity is preserved: return unification never reshapes the single-parameter
+    // input pattern.
+    assert!(
+        matches!(package.get_pat(decl.input).kind, PatKind::Bind(_)),
+        "single-parameter input arity must be preserved"
+    );
+
+    // End-to-end behavior is unchanged.
+    check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+/// Cross-package: two packages (a library callable and a user callable) that
+/// both return an identical arrow type and early-return each synthesize their
+/// own arrow-typed early-return default. Because [`super::slot::ArrowDefaultCache`]
+/// is keyed by `PackageId`, the package processed second still misses the cache
+/// and mints its own fail-callable into its own arena, instead of reusing a
+/// `LocalItemId` minted into the other package (a dangling cross-package reference).
+#[test]
+fn cross_package_arrow_default_not_aliased_across_packages() {
+    let lib_source = indoc! {r#"
+        namespace TestLib {
+            function LibInc(y : Int) : Int { y + 1 }
+            function LibDec(y : Int) : Int { y - 1 }
+            function LibArrow(x : Int) : (Int -> Int) {
+                if x > 0 {
+                    return LibInc;
+                }
+                LibDec
+            }
+            export LibArrow;
+        }
+    "#};
+    let user_source = indoc! {r#"
+        import TestLib.*;
+        function UserInc(y : Int) : Int { y + 2 }
+        function UserDec(y : Int) : Int { y - 2 }
+        function UserArrow(x : Int) : (Int -> Int) {
+            if x > 0 {
+                return UserInc;
+            }
+            UserDec
+        }
+        @EntryPoint()
+        function Main() : Int {
+            let f = UserArrow(5);
+            let g = LibArrow(3);
+            f(0) + g(0)
+        }
+    "#};
+
+    let (store, pkg_id) = compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        PipelineStage::ReturnUnify,
+    );
+
+    // Both arrow-returning callables live in distinct packages: `LibArrow` in
+    // the library package and `UserArrow` in the user (entry) package. Each
+    // requires an arrow-typed default to initialize its return slot, with an
+    // identical `(Int -> Int)` cache key.
+    let lib_pkg = find_library_callable(&store, pkg_id, "LibArrow").package;
+    let user_pkg = pkg_id;
+    assert_ne!(
+        lib_pkg, user_pkg,
+        "library and user callables must live in distinct packages"
+    );
+
+    // The fail-callable synthesized for each package's arrow default persists as
+    // a package-local item. Collect them per package: each package must mint
+    // exactly its own, referenced via its own package id. Under the shared-cache
+    // bug the package processed second hits the cache and synthesizes nothing,
+    // leaving it with zero fail-callables and a dangling cross-package reference.
+    let fail_callables_in = |target_pkg: PackageId| -> Vec<StoreItemId> {
+        let package = store.get(target_pkg);
+        let mut out = Vec::new();
+        for (item_id, item) in &package.items {
+            if let ItemKind::Callable(decl) = &item.kind
+                && decl.name.name.starts_with("__return_unify_fail_")
+            {
+                out.push(StoreItemId {
+                    package: target_pkg,
+                    item: item_id,
+                });
+            }
+        }
+        out
+    };
+
+    let lib_fail = fail_callables_in(lib_pkg);
+    let user_fail = fail_callables_in(user_pkg);
+
+    assert_eq!(
+        lib_fail.len(),
+        1,
+        "library package must mint its own arrow-default fail-callable"
+    );
+    assert_eq!(
+        user_fail.len(),
+        1,
+        "user package must mint its own arrow-default fail-callable"
+    );
+    assert_eq!(
+        lib_fail[0].package, lib_pkg,
+        "library fail-callable must carry the library package id"
+    );
+    assert_eq!(
+        user_fail[0].package, user_pkg,
+        "user fail-callable must carry the user package id"
+    );
+    assert_ne!(
+        lib_fail[0].package, user_fail[0].package,
+        "each package's synthesized arrow default must carry its own distinct package id"
     );
 }

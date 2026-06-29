@@ -289,42 +289,17 @@ fn call_cyclic_function_with_dynamic_argument_yields_errors() {
                         hi: 243,
                     },
                 ),
-                CallToCyclicFunctionWithDynamicArg(
-                    Span {
-                        lo: 211,
-                        hi: 243,
-                    },
-                ),
             ]
         "#]],
     );
 }
 
 #[test]
-fn call_cyclic_operation_with_classical_argument_yields_errors() {
+fn call_cyclic_operation_with_classical_argument_yields_no_errors() {
     check_profile(
         CALL_TO_CYCLIC_OPERATION_WITH_CLASSICAL_ARGUMENT,
         &expect![[r#"
-            [
-                CyclicOperationSpec(
-                    Span {
-                        lo: 15,
-                        hi: 23,
-                    },
-                ),
-                UseOfDynamicInt(
-                    Span {
-                        lo: 187,
-                        hi: 199,
-                    },
-                ),
-                CallToCyclicOperation(
-                    Span {
-                        lo: 187,
-                        hi: 199,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }
@@ -335,19 +310,7 @@ fn call_cyclic_operation_with_dynamic_argument_yields_errors() {
         CALL_TO_CYCLIC_OPERATION_WITH_DYNAMIC_ARGUMENT,
         &expect![[r#"
             [
-                CyclicOperationSpec(
-                    Span {
-                        lo: 15,
-                        hi: 23,
-                    },
-                ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 212,
-                        hi: 244,
-                    },
-                ),
-                CallToCyclicOperation(
                     Span {
                         lo: 212,
                         hi: 244,
@@ -569,6 +532,12 @@ fn return_within_dynamic_scope_yields_errors() {
         RETURN_WITHIN_DYNAMIC_SCOPE,
         &expect![[r#"
             [
+                UseOfDynamicQubitRelease(
+                    Span {
+                        lo: 66,
+                        hi: 82,
+                    },
+                ),
                 ReturnWithinDynamicScope(
                     Span {
                         lo: 128,

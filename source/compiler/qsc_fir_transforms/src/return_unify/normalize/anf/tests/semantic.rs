@@ -29,7 +29,7 @@ fn return_in_first_tuple_element_short_circuits_before_sibling_out_of_range() {
 fn dead_return_in_tuple_operand_of_controlled_call_preserves_effect() {
     // `Controlled Foo([c], ({ if false { return One; } 0 }, q))` — the operand
     // is a functor-applied (`Controlled`) call whose tuple argument has a
-    // statement-carrying Block element burying a DEAD return. The block must be
+    // statement-carrying Block element burying a dead return. The block must be
     // lifted out of the tuple operand without disturbing the functor
     // application or the qubit sibling. With `c` prepared to |1>, the
     // `Controlled X` inside `Foo` fires on `q`, so a correct lift yields
@@ -58,7 +58,7 @@ fn dead_return_in_tuple_operand_of_controlled_call_preserves_effect() {
 
 #[test]
 fn firing_return_in_tuple_operand_of_controlled_call_short_circuits() {
-    // Same shape, but the buried return FIRES before the `Controlled Foo` call
+    // Same shape, but the buried return fires before the `Controlled Foo` call
     // runs, so `Foo` is never invoked and `q` stays |0>. The early-return value
     // `One` is observed (the `(Ok, Ok)` arm) iff the lift short-circuits the
     // whole functor-applied call exactly as the untransformed program does.
@@ -323,7 +323,7 @@ fn return_in_update_index_value_short_circuits_before_copy_and_update() {
     "#});
 }
 
-// The following assign-family fixtures bury a NON-FIRING `return` in the value
+// The following assign-family fixtures bury a non-firing `return` in the value
 // (and AssignIndex index) operand, guarded by a runtime-false flag so the
 // assignment write must actually land. Each then reads the mutated binding,
 // asserting the surviving write is observed. The buried operand stays a lift
@@ -413,13 +413,13 @@ fn nonfiring_return_in_assignindex_index_preserves_element_write() {
     "#});
 }
 
-// The following fixtures pin qubit-handle IDENTITY through an array-backed
-// operand value: the buried `return` is DEAD (`if false { return … }`), so the
+// The following fixtures pin qubit-handle identity through an array-backed
+// operand value: the buried `return` is dead (`if false { return … }`), so the
 // operand stays a lift candidate and is array-backed (its value type is a
 // qubit-bearing tuple/UDT, hence non-defaultable), yet the qubit handle flows
 // through the `[t][0]` backing to a downstream gate. Identity is asserted
 // observationally (Q# has no surface `===` for qubits): gate through the
-// operand value, then measure the ORIGINAL qubit. A lost handle would land the
+// operand value, then measure the original qubit. A lost handle would land the
 // gate elsewhere and diverge the value/effect-trace, failing the assert.
 
 #[test]
@@ -427,7 +427,7 @@ fn dead_return_in_tuple_qubit_operand_preserves_qubit_identity() {
     // `xs = [{ if false { return Zero; } (q, 0) }, (q, 1)]` — the first array
     // element is a `(Qubit, Int)` Block operand burying a dead return, forcing
     // the array-backed lift. `X(qq)` (with `let (qq, _) = xs[0]`) gates through
-    // the array-backed handle; `M(q)` on the ORIGINAL qubit is `One` iff the
+    // the array-backed handle; `M(q)` on the original qubit is `One` iff the
     // handle identity survives.
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
@@ -461,7 +461,7 @@ fn dead_return_in_udt_qubit_operand_preserves_qubit_identity() {
     "#});
 }
 
-// The following fixtures pin `Result` seed-UNOBSERVABILITY. `Result` is
+// The following fixtures pin `Result` seed-unobservability. `Result` is
 // defaultable (seed `Zero`), so a `Result` operand temp takes the direct Var
 // branch seeded by `if not __has_returned { init } else { Zero }`. These pin
 // that the `Zero` seed is bound only on the dead path and is never observed on
@@ -470,7 +470,7 @@ fn dead_return_in_udt_qubit_operand_preserves_qubit_identity() {
 #[test]
 fn dead_return_in_result_operand_does_not_leak_seed_on_live_path() {
     // `X(q)` prepares |1>, so a correct measurement yields `One` (distinct from
-    // the seed `Zero`). The first array element buries a DEAD return, so the
+    // the seed `Zero`). The first array element buries a dead return, so the
     // live path binds `rs[0] = M(q) = One`; if the `Zero` seed ever leaked onto
     // the live path, `rs[0]` would be `Zero`.
     check_semantic_equivalence(indoc! {r#"
@@ -488,7 +488,7 @@ fn dead_return_in_result_operand_does_not_leak_seed_on_live_path() {
 #[test]
 fn firing_return_in_sibling_result_operand_leaves_seed_unobserved() {
     // `rs = [M(q), { return One; M(q) }]` — the first operand `M(q)` is a
-    // `Result` temp whose post-return seed (`Zero`) is bound, but the SIBLING
+    // `Result` temp whose post-return seed (`Zero`) is bound, but the sibling
     // fires `return One`, so the function returns `One` before the seed can be
     // observed.
     check_semantic_equivalence(indoc! {r#"
@@ -504,8 +504,8 @@ fn firing_return_in_sibling_result_operand_leaves_seed_unobserved() {
 }
 
 // The following P1 fixtures bury a `return` in an operand slot that no other
-// fixture exercises: the Index TARGET, the UpdateField RECEIVER and VALUE, the
-// AssignField VALUE, and the Fail operand. Each buries the `return` ahead of a
+// fixture exercises: the Index target, the UpdateField receiver and value, the
+// AssignField value, and the Fail operand. Each buries the `return` ahead of a
 // sibling or surrounding operation that would fault or diverge (out-of-range
 // index, copy-and-update, field assignment, `fail`) if the lift failed to
 // short-circuit, so an equal result witnesses that the lifted spine preserves
@@ -515,7 +515,7 @@ fn firing_return_in_sibling_result_operand_leaves_seed_unobserved() {
 
 #[test]
 fn return_in_index_target_short_circuits_before_out_of_range_access() {
-    // `({ return 1; arr })[5]` — the Index TARGET operand returns before the
+    // `({ return 1; arr })[5]` — the Index target operand returns before the
     // out-of-range `[5]` access runs, so the early-return value `1` is observed
     // rather than faulting on the sibling index.
     check_semantic_equivalence(indoc! {r#"
@@ -530,7 +530,7 @@ fn return_in_index_target_short_circuits_before_out_of_range_access() {
 
 #[test]
 fn return_in_update_field_receiver_short_circuits_before_copy_and_update() {
-    // `({ return 7; p }) w/ First <- 9` — the UpdateField RECEIVER operand
+    // `({ return 7; p }) w/ First <- 9` — the UpdateField receiver operand
     // returns before the copy-and-update runs, so the early-return value `7` is
     // observed rather than the updated record.
     check_semantic_equivalence(indoc! {r#"
@@ -547,7 +547,7 @@ fn return_in_update_field_receiver_short_circuits_before_copy_and_update() {
 
 #[test]
 fn return_in_update_field_value_short_circuits_before_copy_and_update() {
-    // `p w/ First <- { return 7; 9 }` — the UpdateField VALUE operand returns
+    // `p w/ First <- { return 7; 9 }` — the UpdateField value operand returns
     // before the copy-and-update runs, so the early-return value `7` is observed
     // rather than the updated record.
     check_semantic_equivalence(indoc! {r#"
@@ -564,7 +564,7 @@ fn return_in_update_field_value_short_circuits_before_copy_and_update() {
 
 #[test]
 fn return_in_assign_field_value_short_circuits_before_field_assignment() {
-    // `set p w/= First <- { return 7; 9 }` — the AssignField VALUE operand
+    // `set p w/= First <- { return 7; 9 }` — the AssignField value operand
     // returns before the field is written, so the early-return value `7` is
     // observed rather than the mutated field.
     check_semantic_equivalence(indoc! {r#"
@@ -613,9 +613,9 @@ fn bare_fail_diverges_identically() {
 // The following P2 fixtures complete the operand-slot coverage for the three
 // eagerly-evaluated slots that previously had only a spine-shape snapshot
 // (isolation.rs `isolated_anf_lifts_array_repeat_size_block`,
-// `isolated_anf_lifts_range_end_block`, and the Range STEP slot): the
-// ArrayRepeat SIZE, the Range END, and the Range STEP operand. Each buries a
-// NON-FIRING `return` (guarded by a runtime-false `go` flag) in the targeted
+// `isolated_anf_lifts_range_end_block`, and the Range step slot): the
+// ArrayRepeat size, the Range end, and the Range step operand. Each buries a
+// non-firing `return` (guarded by a runtime-false `go` flag) in the targeted
 // slot so the operand stays a lift candidate yet the value is actually
 // consumed; the trailing read then observes the consumed size/iteration. An
 // equal value and effect-trace witness that the lifted spine feeds the original
@@ -624,7 +624,7 @@ fn bare_fail_diverges_identically() {
 
 #[test]
 fn nonfiring_return_in_array_repeat_size_preserves_array_length() {
-    // `[0, size = { if go { return 7; } 3 }]` with `go` false — the SIZE operand
+    // `[0, size = { if go { return 7; } 3 }]` with `go` false — the size operand
     // buries a non-firing return, so the array is built with size `3` and the
     // trailing `Length` observes `3`, not the early-return `7`.
     check_semantic_equivalence(indoc! {r#"
@@ -640,7 +640,7 @@ fn nonfiring_return_in_array_repeat_size_preserves_array_length() {
 
 #[test]
 fn nonfiring_return_in_range_end_preserves_iteration() {
-    // `0..{ if go { return 7; } 5 }` with `go` false — the END operand buries a
+    // `0..{ if go { return 7; } 5 }` with `go` false — the end operand buries a
     // non-firing return, so the range `0..5` is iterated in full and the trailing
     // sum observes `0+1+2+3+4+5 = 15`, not the early-return `7`.
     check_semantic_equivalence(indoc! {r#"
@@ -660,7 +660,7 @@ fn nonfiring_return_in_range_end_preserves_iteration() {
 
 #[test]
 fn nonfiring_return_in_range_step_preserves_iteration() {
-    // `0..{ if go { return 7; } 2 }..10` with `go` false — the STEP operand
+    // `0..{ if go { return 7; } 2 }..10` with `go` false — the step operand
     // buries a non-firing return, so the range `0..2..10` is iterated in full and
     // the trailing sum observes `0+2+4+6+8+10 = 30`, not the early-return `7`.
     check_semantic_equivalence(indoc! {r#"

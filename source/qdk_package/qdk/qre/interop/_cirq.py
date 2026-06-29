@@ -279,7 +279,7 @@ class _CirqTraceBuilder:
                     for sub_op in gate._to_trace(self, op):  # type: ignore
                         self.handle_op(sub_op)
                 elif hasattr(gate, "_decompose_with_context_"):
-                    for sub_op in gate._decompose_with_context_(op.qubits, self.decomp_context):  # type: ignore
+                    for sub_op in gate._decompose_with_context_(op.qubits, context=self.decomp_context):  # type: ignore
                         self.handle_op(sub_op)
                 elif hasattr(gate, "_decompose_"):
                     # decompose the gate and handle the resulting operations recursively

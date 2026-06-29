@@ -241,7 +241,7 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_bin_op(
         &mut self,
-        bin_op: BinOp,
+        op: BinOp,
         lhs_expr_id: ExprId,
         rhs_expr_id: ExprId,
         expr_type: &Ty,
@@ -259,7 +259,7 @@ impl<'a> Analyzer<'a> {
         compute_kind = compute_kind.aggregate(rhs_compute_kind);
 
         if self.in_parallel_expr
-            && matches!(bin_op, BinOp::AndL | BinOp::OrL)
+            && matches!(op, BinOp::AndL | BinOp::OrL)
             && lhs_compute_kind.is_variable_value_kind()
         {
             // Binary boolean operators with a variable left-hand side are short-circuiting expressions, which means they incur
@@ -280,13 +280,21 @@ impl<'a> Analyzer<'a> {
             value_kind,
         } = &mut compute_kind
         {
+            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
+            if (op == BinOp::Eq || op == BinOp::Neq) && is_any_result(lhs_expr_ty) {
+                // When binary operators on result types are equality or inequality, the Boolean outcome may be a dynamic variable.
+                // In this path, we know at least one side of the comparison is dynamic (constant or variable), so the boolean
+                // that comes from the comparison must be variable. This is the critical source of dynamic variable values
+                // in a program that operates on qubits measurements.
+                *value_kind = ValueKind::Variable;
+            }
+
             *runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(*value_kind, expr_type);
 
-            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
             if *value_kind == ValueKind::Variable
-                && matches!(lhs_expr_ty, Ty::Prim(Prim::String))
-                && expr_type == &Ty::Prim(Prim::Bool)
+                && *lhs_expr_ty == Ty::Prim(Prim::String)
+                && *expr_type == Ty::Prim(Prim::Bool)
             {
                 // Strings can only be concatenated or compared for equality, and only equality comparison
                 // can affect control flow of the program in a way that required runtime features,
@@ -361,7 +369,7 @@ impl<'a> Analyzer<'a> {
                 value_kind,
             }
         } else {
-            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id, expr_type)
+            self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
         };
 
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
@@ -487,15 +495,41 @@ impl<'a> Analyzer<'a> {
             compute_kind.aggregate_value_kind(value_kind);
         }
 
-        // To distinguish between a cyclic operation and a call to a cyclic operation, replace the cyclic operation
-        // runtime feature (if any) by a call to a cyclic operation.
-        if let ComputeKind::Dynamic {
-            runtime_features, ..
-        } = &mut compute_kind
-            && runtime_features.contains(RuntimeFeatureFlags::CyclicOperationSpec)
+        if !self.target_capabilities.is_empty()
+            && callable_decl.name.name.as_ref() == "__quantum__rt__qubit_release"
         {
-            runtime_features.remove(RuntimeFeatureFlags::CyclicOperationSpec);
-            runtime_features.insert(RuntimeFeatureFlags::CallToCyclicOperation);
+            // If the analysis is for a target non-empty capabilities, we need to check if this is
+            // a non-deterministic qubit release, which requires the dynamic qubit allocation feature.
+            // (We ignore this check for Base Profile as other dynamism will already be flagged and this
+            // specific case does not come up in isolation).
+            // We know that only one intrinsic callable named "__quantum__rt__qubit_release" is allowed by the compiler
+            // and that the argument is a local variable of type "Qubit" so we unwrap to it and check its scoping.
+            // It is valid to release a qubit from a dynamic scope as long as it is the same scope the qubit was allocated in.
+            // If it is not the same scope, that means we will not be able to unconditional perform a single release during
+            // partial evaluation and would need to emit a dynamic call to a release function. Without the dynamic qubit release
+            // feature, this manifests as a double release during codegen, which we want to avoid. Adding the dynamic qubit release
+            // feature to the compute kind will flag this as requiring the dynamic qubit release feature.
+            let args_expr = self.get_expr(args_expr_id);
+            let ExprKind::Var(res, _) = args_expr.kind else {
+                panic!("expected a variable expression for qubit release arguments");
+            };
+            let Res::Local(local_var_id) = res else {
+                panic!("expected a local variable for qubit release arguments");
+            };
+            let local_var_compute_kind = application_instance
+                .locals_map
+                .find_local_compute_kind(local_var_id)
+                .expect("local compute kind should be defined before update");
+            let in_matching_dynamic_scope = matches!(
+                local_var_compute_kind.local.kind,
+                LocalKind::Immutable(_, dynamic_scope) | LocalKind::Mutable(dynamic_scope) if dynamic_scope.as_ref() == application_instance.active_dynamic_scopes.last()
+            );
+            if !in_matching_dynamic_scope {
+                compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicQubitRelease,
+                    value_kind: ValueKind::Constant,
+                });
+            }
         }
 
         compute_kind
@@ -505,7 +539,6 @@ impl<'a> Analyzer<'a> {
         &mut self,
         callee_expr_id: ExprId,
         args_expr_id: ExprId,
-        expr_type: &Ty,
     ) -> ComputeKind {
         // Try to resolve the callee.
         let package_id = self.get_current_package_id();
@@ -534,23 +567,18 @@ impl<'a> Analyzer<'a> {
         };
 
         if self.callee_in_active_contexts(&callee) {
-            assert_eq!(
-                expr_type,
-                &Ty::UNIT,
-                "output type for allowed recursive call should be Unit"
-            );
-
             // This is a recursive call, which we allow with some deferred capabilities checks at runtime.
-            // We treat the call as an unresolved callee, like above, such that partial evaluation will perform
-            // extra validation on the capabilities at runtime.
-            // This covers the corner case where a recursive call is made with a dynamic argument whose
+            // We treat the call as if it were an unresolved callee, like above, such that partial evaluation will perform
+            // extra validation on the capabilities at runtime. By adding the call expression to the list of unresolved callees,
+            // we ensure that the call is additionally validated at runtime regardless of any runtime flags.
+            // This runtime check covers the corner case where a recursive call is made with a dynamic argument whose
             // type is allowed to be dynamic but whose usage in later recursion could require additional
             // capabilities.
             self.get_current_application_instance_mut()
                 .unresolved_callee_exprs
                 .push(callee_expr_id);
             return ComputeKind::Dynamic {
-                runtime_features: RuntimeFeatureFlags::CallToUnresolvedCallee,
+                runtime_features: RuntimeFeatureFlags::empty(),
                 value_kind: ValueKind::Constant,
             };
         }
@@ -780,6 +808,11 @@ impl<'a> Analyzer<'a> {
                     // runtime feature since the result of the index expression can be used in a context that requires tuple-specific runtime features.
                     dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicTuple;
                 }
+                Ty::Prim(Prim::Result) => {
+                    // If the type of the index expression is a Result, we need to add the `UseOfDynamicResult`
+                    // runtime feature since the output will need to be stored in a variable of type Result.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicResult;
+                }
                 _ => {
                     // Other dynamic content types are already handled by the `derive_runtime_features_for_value_kind_associated_to_type` function
                     // called below, so we don't need to do anything else here.
@@ -928,8 +961,9 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_string(&mut self, components: &Vec<StringComponent>) -> ComputeKind {
         // Visit the string components to determine their compute kind, aggregate its runtime features and track whether
-        // any of them is variable to construct the compute kind of the string expression itself.
+        // any of them is variable or a result to construct the compute kind of the string expression itself.
         let mut has_variable_components = false;
+        let mut has_dynamic_result = false;
         let mut compute_kind = ComputeKind::Static;
         for component in components {
             match component {
@@ -941,6 +975,8 @@ impl<'a> Analyzer<'a> {
                     compute_kind = compute_kind
                         .aggregate_runtime_features(component_compute_kind, ValueKind::Constant);
                     has_variable_components |= component_compute_kind.is_variable_value_kind();
+                    has_dynamic_result |= is_any_result(&self.get_expr(*expr_id).ty)
+                        && !matches!(component_compute_kind, ComputeKind::Static);
                 }
                 StringComponent::Lit(_) => {
                     // Nothing to aggregate.
@@ -948,8 +984,8 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        // If any of the string components is variable, then the string expression is variable as well.
-        if has_variable_components {
+        // If any of the string components is variable or contains a dynamic result, then the string expression is variable as well.
+        if has_variable_components || has_dynamic_result {
             compute_kind.set_variable_value_kind();
         }
 
@@ -1423,7 +1459,9 @@ impl<'a> Analyzer<'a> {
         match &pat.kind {
             PatKind::Bind(ident) => {
                 let local_kind = match mutability {
-                    Mutability::Immutable => LocalKind::Immutable(expr_id),
+                    Mutability::Immutable => {
+                        LocalKind::Immutable(expr_id, self.get_current_dynamic_scope())
+                    }
                     Mutability::Mutable => LocalKind::Mutable(self.get_current_dynamic_scope()),
                 };
                 let application_instance = self.get_current_application_instance();
@@ -1456,7 +1494,9 @@ impl<'a> Analyzer<'a> {
         match &pat.kind {
             PatKind::Bind(ident) => {
                 let local_kind = match mutability {
-                    Mutability::Immutable => LocalKind::Immutable(expr_id),
+                    Mutability::Immutable => {
+                        LocalKind::Immutable(expr_id, self.get_current_dynamic_scope())
+                    }
                     Mutability::Mutable => LocalKind::Mutable(self.get_current_dynamic_scope()),
                 };
                 let application_instance = self.get_current_application_instance();
@@ -1957,8 +1997,8 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::BinOp(BinOp::Exp, lhs_expr_id, rhs_expr_id) => {
                 self.analyze_expr_bin_op_exp(*lhs_expr_id, *rhs_expr_id)
             }
-            ExprKind::BinOp(bin_op, lhs_expr_id, rhs_expr_id) => {
-                self.analyze_expr_bin_op(*bin_op, *lhs_expr_id, *rhs_expr_id, &expr.ty)
+            ExprKind::BinOp(op, lhs_expr_id, rhs_expr_id) => {
+                self.analyze_expr_bin_op(*op, *lhs_expr_id, *rhs_expr_id, &expr.ty)
             }
             ExprKind::Block(block_id) => self.analyze_expr_block(*block_id),
             ExprKind::Call(callee_expr_id, args_expr_id) => {
@@ -2044,7 +2084,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ItemKind::Callable(decl) => {
                 self.visit_callable_decl(decl);
             }
-            ItemKind::Export(_, _) | ItemKind::Namespace(_, _) | ItemKind::Ty(_, _) => {
+            ItemKind::Ty(_, _) => {
                 // Items that are not callables do not have compute properties by themselves so we just record them as
                 // such in the package store compute properties data structure.
                 self.package_store_compute_properties.insert_item(
@@ -2420,10 +2460,12 @@ fn derive_instrinsic_operation_application_generator_set(
 ) -> ApplicationGeneratorSet {
     assert!(matches!(callable_context.kind, CallableKind::Operation));
 
-    // The value kind of intrinsic operations is inherently dynamic if their output is not `Unit` or `Qubit`.
+    // The value kind of intrinsic operations is inherently variable if their output is not `Unit`, `Qubit`, or `Result`.
     let runtime_kind = if callable_context.output_type == Ty::UNIT
-        || callable_context.output_type == Ty::Prim(Prim::Qubit)
-    {
+        || matches!(
+            callable_context.output_type,
+            Ty::Prim(Prim::Qubit | Prim::Result)
+        ) {
         ValueKind::Constant
     } else {
         ValueKind::new_variable_from_type(&callable_context.output_type)
@@ -2435,6 +2477,12 @@ fn derive_instrinsic_operation_application_generator_set(
     }
     if callable_context.attrs.contains(&Attr::Reset) {
         inherent_runtime_features |= RuntimeFeatureFlags::CallToCustomReset;
+    }
+    // The only intrinsic operations whose output is a qubit (or an array of qubits) are the qubit
+    // allocate/borrow intrinsics. Tag the allocate leaf so that qubit allocation is surfaced as an
+    // inherent runtime feature and propagated bottom-up to every transitive caller.
+    if is_qubit_allocation_output(&callable_context.output_type) {
+        inherent_runtime_features |= RuntimeFeatureFlags::QubitAllocation;
     }
 
     // The compute kind of intrinsic operations is always dynamic.
@@ -2480,6 +2528,17 @@ fn derive_instrinsic_operation_application_generator_set(
     ApplicationGeneratorSet {
         inherent: inherent_compute_kind,
         dynamic_param_applications,
+    }
+}
+
+/// Returns true when the type is a qubit or an array (of any nesting) whose ultimate element type
+/// is a qubit. Used to identify the qubit allocate/borrow intrinsics, whose output is the only way
+/// an intrinsic operation can produce qubits.
+fn is_qubit_allocation_output(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(Prim::Qubit) => true,
+        Ty::Array(content_type) => is_qubit_allocation_output(content_type),
+        _ => false,
     }
 }
 

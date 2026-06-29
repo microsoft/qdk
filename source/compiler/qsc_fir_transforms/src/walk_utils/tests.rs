@@ -7,25 +7,13 @@ use crate::fir_builder::{
     alloc_local_var_expr,
 };
 use crate::test_utils::compile_to_fir;
+use crate::test_utils::find_callable_body_block as find_callable_block;
 use expect_test::expect;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
-use qsc_fir::fir::{CallableImpl, CallableKind, ItemKind, Lit, PatKind};
+use qsc_fir::fir::{CallableDecl, CallableImpl, CallableKind, ItemKind, Lit, PatKind};
 use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty};
 use std::rc::Rc;
-
-/// Finds the body block of the named callable in the user package.
-fn find_callable_block(package: &Package, name: &str) -> BlockId {
-    for item in package.items.values() {
-        if let ItemKind::Callable(decl) = &item.kind
-            && decl.name.name.as_ref() == name
-            && let CallableImpl::Spec(spec) = &decl.implementation
-        {
-            return spec.body.block;
-        }
-    }
-    panic!("callable '{name}' not found");
-}
 
 /// Finds the `LocalVarId` for the first pattern binding with the given name.
 fn find_local_var(package: &Package, name: &str) -> LocalVarId {
@@ -37,6 +25,18 @@ fn find_local_var(package: &Package, name: &str) -> LocalVarId {
         }
     }
     panic!("local var '{name}' not found");
+}
+
+/// Finds the [`CallableDecl`] of the named callable in the user package.
+fn find_callable_decl<'a>(package: &'a Package, name: &str) -> &'a CallableDecl {
+    for item in package.items.values() {
+        if let ItemKind::Callable(decl) = &item.kind
+            && decl.name.name.as_ref() == name
+        {
+            return decl;
+        }
+    }
+    panic!("callable '{name}' not found");
 }
 
 #[test]
@@ -95,6 +95,36 @@ fn decomposable_assign_tuple_literal_rhs() {
 }
 
 #[test]
+fn mutable_reassignment_non_tuple_rhs_classified_as_general_use() {
+    // Reassigning a mutable local from a *non*-tuple-literal right-hand side
+    // (here another whole value) is a promotion-blocking whole-value write,
+    // unlike the decomposable tuple-literal reassignment above.
+    let (store, pkg_id) = compile_to_fir(
+        "function Main() : (Int, Int) {
+                 let src = (5, 6);
+                 mutable t = (1, 2);
+                 t = src;
+                 t
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+    let local_id = find_local_var(package, "t");
+
+    // Aggregate: the blocking write forces the whole aggregate to general use.
+    assert_eq!(
+        classify_block_use(package, block_id, local_id),
+        UseClass::GeneralUse
+    );
+
+    // Per-site: the reassignment is a `HardBlock`, the trailing read a
+    // `WholeValueRead`.
+    let mut uses = Vec::new();
+    classify_uses_in_block(package, block_id, local_id, &mut uses);
+    assert_eq!(variant_names(&uses), ["HardBlock", "WholeValueRead"]);
+}
+
+#[test]
 fn closure_capture_classified_as_whole_use() {
     let (store, pkg_id) = compile_to_fir(
         "function Apply(f : Int -> Int, x : Int) : Int { f(x) }
@@ -127,6 +157,27 @@ fn nested_field_access_classified_as_field_use() {
     let local_id = find_local_var(package, "o");
     let class = classify_block_use(package, block_id, local_id);
     // o.I.X is a nested field access — still field-only.
+    assert_eq!(class, UseClass::FieldOnly);
+}
+
+#[test]
+fn deeply_nested_field_access_classified_as_field_use() {
+    // A three-level field projection (`c.B.A.V`) must remain field-only: each
+    // intermediate projection keeps the access on the field path rather than
+    // escalating to a whole-value read.
+    let (store, pkg_id) = compile_to_fir(
+        "struct Leaf { V : Int }
+             struct Mid { L : Leaf }
+             struct Top { M : Mid }
+             function Main() : Int {
+                 let c = new Top { M = new Mid { L = new Leaf { V = 7 } } };
+                 c.M.L.V
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+    let local_id = find_local_var(package, "c");
+    let class = classify_block_use(package, block_id, local_id);
     assert_eq!(class, UseClass::FieldOnly);
 }
 
@@ -265,16 +316,40 @@ fn collect_entry_expr_ids_returns_all_entry_descendants() {
     );
     let package = store.get(pkg_id);
     let ids = collect_expr_ids_in_entry(package);
-    // The entry expression wraps the call to Main. It should contain at least
-    // the call expression and the callee/args sub-expressions.
+    // The entry expression wraps the call to Main. The collected set must
+    // contain the entry expression itself plus the specific descendant kinds:
+    // the `Call` node and the callee `Var` that resolves to the `Main` item.
+    let entry_id = package
+        .entry
+        .expect("program should have an entry expression");
     assert!(
-        !ids.is_empty(),
-        "entry expression IDs should be non-empty for a program with an entry point"
+        ids.contains(&entry_id),
+        "collected entry IDs should include the entry expression itself"
     );
     // All returned IDs should be valid expression IDs in the package.
     for &id in &ids {
         let _ = package.get_expr(id);
     }
+    let has_call = ids
+        .iter()
+        .any(|&id| matches!(&package.get_expr(id).kind, ExprKind::Call(_, _)));
+    assert!(
+        has_call,
+        "entry descendants should include the Call to Main"
+    );
+    let calls_main = ids.iter().any(|&id| {
+        let ExprKind::Var(Res::Item(item_id), _) = &package.get_expr(id).kind else {
+            return false;
+        };
+        matches!(
+            &package.get_item(item_id.item).kind,
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Main"
+        )
+    });
+    assert!(
+        calls_main,
+        "entry descendants should include the callee Var resolving to Main"
+    );
 }
 
 #[test]
@@ -304,15 +379,33 @@ fn collect_callable_expr_ids_covers_all_specs() {
         .expect("Op callable not found");
 
     let ids = collect_expr_ids_in_local_callables(package, &[op_local_id]);
-    // Op has body, adj, and ctl specs — each contains at least a Call expression.
-    assert!(
-        ids.len() >= 3,
-        "expected at least 3 expression IDs covering multiple specs, got {}",
-        ids.len()
-    );
     // No duplicates.
     let unique: FxHashSet<_> = ids.iter().copied().collect();
     assert_eq!(ids.len(), unique.len(), "expression IDs should be unique");
+
+    // Each of the three specs (body, adj, ctl) contains a distinct
+    // `Message("...")` call. Collecting the string-literal payloads of every
+    // visited expression must therefore surface all three markers, proving the
+    // walk actually descended into each specialization rather than merely
+    // counting three expressions from one spec.
+    let mut markers: Vec<String> = Vec::new();
+    for &id in &ids {
+        if let ExprKind::String(components) = &package.get_expr(id).kind
+            && let [StringComponent::Lit(text)] = components.as_slice()
+        {
+            markers.push(text.to_string());
+        }
+    }
+    markers.sort();
+    // The auto-generated controlled-adjoint spec re-derives the adjoint body, so
+    // the "adj" marker can appear more than once; dedup to assert that each
+    // user-written spec's marker was visited at least once.
+    markers.dedup();
+    assert_eq!(
+        markers,
+        ["adj", "body", "ctl"],
+        "every specialization's Message marker should be visited"
+    );
 }
 
 #[test]
@@ -444,7 +537,7 @@ fn classify_closure_capture_is_hard_block() {
 
 #[test]
 fn classify_local_used_only_in_struct_field_is_recorded() {
-    // Regression guard: a local used ONLY inside a struct-literal field value must
+    // Regression guard: a local used only inside a struct-literal field value must
     // be classified (as a whole-value read), not silently dropped. Before the
     // fix, `ExprKind::Struct` was not recursed and this produced an empty list.
     let (store, pkg_id) = compile_to_fir(
@@ -838,5 +931,165 @@ fn walker_visits_parallel_expression() {
     assert!(
         kinds.contains(&"BinOp".to_string()),
         "walker should visit BinOp inside Parallel body; found: {kinds:?}"
+    );
+}
+
+#[test]
+fn structural_walker_covers_blocks_locals_and_spec_inputs() {
+    // A controlled operation with a nested block (the `if` body) and tuple-pattern
+    // `let` bindings in both the body and the explicit controlled specialization,
+    // so each present `SpecDecl.input` (including the control-register input) is
+    // exercised alongside nested-block and Local-pat coverage.
+    let (store, pkg_id) = compile_to_fir(
+        "operation Op(q : Qubit) : Unit is Ctl {
+             body ... {
+                 let (a, b) = (1, 2);
+                 if a > 0 {
+                     let c = a + b;
+                 }
+             }
+             controlled (cs, ...) {
+                 let (d, e) = (3, 4);
+             }
+         }
+         operation Main() : Unit { use q = Qubit(); Op(q); }",
+    );
+    let package = store.get(pkg_id);
+    let decl = find_callable_decl(package, "Op");
+
+    let mut blocks: FxHashSet<BlockId> = FxHashSet::default();
+    let mut stmts: FxHashSet<StmtId> = FxHashSet::default();
+    let mut exprs: FxHashSet<ExprId> = FxHashSet::default();
+    let mut pats: FxHashSet<PatId> = FxHashSet::default();
+    for_each_node_in_callable(package, decl, &mut |node| match node {
+        CallableNode::Block(b) => {
+            blocks.insert(b);
+        }
+        CallableNode::Stmt(s) => {
+            stmts.insert(s);
+        }
+        CallableNode::Expr(ex) => {
+            exprs.insert(ex);
+        }
+        CallableNode::Pat(p) => {
+            pats.insert(p);
+        }
+    });
+
+    // The callable input pattern is covered.
+    assert!(
+        pats.contains(&decl.input),
+        "decl.input pat {} should be visited",
+        decl.input
+    );
+
+    // Every present `SpecDecl.input` pat (body + functored specs) is covered.
+    let CallableImpl::Spec(spec_impl) = &decl.implementation else {
+        panic!("Op should have a Spec implementation");
+    };
+    let mut spec_inputs = Vec::new();
+    if let Some(input) = spec_impl.body.input {
+        spec_inputs.push(input);
+    }
+    for spec in crate::fir_builder::functored_specs(spec_impl) {
+        if let Some(input) = spec.input {
+            spec_inputs.push(input);
+        }
+    }
+    // The explicit `controlled (cs, ...)` spec carries a control-register input.
+    assert!(
+        !spec_inputs.is_empty(),
+        "the controlled spec should carry an input pattern"
+    );
+    for input in spec_inputs {
+        assert!(
+            pats.contains(&input),
+            "SpecDecl.input pat {input} should be visited"
+        );
+    }
+
+    // Nested-block coverage: body block + nested `if` block + controlled block.
+    assert!(
+        blocks.len() >= 3,
+        "expected at least body, nested-if, and ctl blocks, got {}",
+        blocks.len()
+    );
+
+    // Every Local binding is visited as a Pat, including those nested in the
+    // tuple `let` patterns of both specializations.
+    for name in ["a", "b", "c", "d", "e"] {
+        let found = pats.iter().any(|&p| {
+            matches!(&package.get_pat(p).kind, PatKind::Bind(ident) if ident.name.as_ref() == name)
+        });
+        assert!(found, "local binding '{name}' should be visited as a Pat");
+    }
+
+    // The tuple Local patterns themselves are visited (the `(a, b)` and `(d, e)`
+    // `let` patterns), confirming recursive tuple-pat descent.
+    let tuple_pats = pats
+        .iter()
+        .filter(|&&p| matches!(&package.get_pat(p).kind, PatKind::Tuple(_)))
+        .count();
+    assert!(
+        tuple_pats >= 2,
+        "expected at least two tuple Local pats, got {tuple_pats}"
+    );
+
+    // Statements and expressions are collected too.
+    assert!(!stmts.is_empty(), "expected statements to be visited");
+    assert!(!exprs.is_empty(), "expected expressions to be visited");
+}
+
+#[test]
+fn structural_walker_from_expr_root_covers_nested_blocks() {
+    // Driving the walker from a bare `ExprId` (here, the `if` expression) must
+    // descend into the nested block, yielding its statements, the tuple Local
+    // pat, and the inner expressions — exercising the entry-root reuse path.
+    let (store, pkg_id) = compile_to_fir(
+        "function Main() : Int {
+             if true {
+                 let (a, b) = (1, 2);
+                 a + b
+             } else {
+                 0
+             }
+         }",
+    );
+    let package = store.get(pkg_id);
+    let if_expr = package
+        .exprs
+        .iter()
+        .find_map(|(id, e)| matches!(&e.kind, ExprKind::If(..)).then_some(id))
+        .expect("program should contain an `if` expression");
+
+    let mut blocks: FxHashSet<BlockId> = FxHashSet::default();
+    let mut pats: FxHashSet<PatId> = FxHashSet::default();
+    let mut saw_expr = false;
+    for_each_node_from_expr_root(package, if_expr, &mut |node| match node {
+        CallableNode::Block(b) => {
+            blocks.insert(b);
+        }
+        CallableNode::Pat(p) => {
+            pats.insert(p);
+        }
+        CallableNode::Expr(_) => saw_expr = true,
+        CallableNode::Stmt(_) => {}
+    });
+
+    assert!(saw_expr, "expected expressions to be visited from the root");
+    // The then/else blocks nested in the `if` are reached from the bare root.
+    assert!(
+        blocks.len() >= 2,
+        "expected the then and else blocks to be visited, got {}",
+        blocks.len()
+    );
+    // A tuple Local pat reachable through the nested then-block is visited.
+    let tuple_pats = pats
+        .iter()
+        .filter(|&&p| matches!(&package.get_pat(p).kind, PatKind::Tuple(_)))
+        .count();
+    assert!(
+        tuple_pats >= 1,
+        "expected the nested tuple Local pat to be visited, got {tuple_pats}"
     );
 }

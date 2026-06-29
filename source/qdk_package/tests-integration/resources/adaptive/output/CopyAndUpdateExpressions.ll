@@ -11,28 +11,28 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  %var_3 = alloca i64
+  %var_4 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
-  call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
+  call void @X(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__x__body(ptr inttoptr (i64 2 to ptr))
+  call void @X(ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 4 to ptr))
-  store i64 0, ptr %var_3
+  store i64 0, ptr %var_4
   br label %block_1
 block_1:
-  %var_9 = load i64, ptr %var_3
-  %var_4 = icmp slt i64 %var_9, 2
-  br i1 %var_4, label %block_2, label %block_3
+  %var_10 = load i64, ptr %var_4
+  %var_5 = icmp slt i64 %var_10, 2
+  br i1 %var_5, label %block_2, label %block_3
 block_2:
-  %var_10 = load i64, ptr %var_3
-  %var_5 = getelementptr ptr, ptr @array0, i64 %var_10
-  %var_11 = load ptr, ptr %var_5
-  call void @__quantum__qis__x__body(ptr %var_11)
-  %var_7 = add i64 %var_10, 1
-  store i64 %var_7, ptr %var_3
+  %var_11 = load i64, ptr %var_4
+  %var_6 = getelementptr ptr, ptr @array0, i64 %var_11
+  %var_12 = load ptr, ptr %var_6
+  call void @X(ptr %var_12)
+  %var_8 = add i64 %var_11, 1
+  store i64 %var_8, ptr %var_4
   br label %block_1
 block_3:
   call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 5 to ptr))
@@ -51,6 +51,12 @@ block_3:
 
 declare void @__quantum__rt__initialize(ptr)
 
+define void @X(ptr %var_1) {
+block_4:
+  call void @__quantum__qis__x__body(ptr %var_1)
+  ret void
+}
+
 declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
@@ -68,7 +74,7 @@ attributes #1 = { "irreversible" }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -78,3 +84,4 @@ attributes #1 = { "irreversible" }
 !5 = !{i32 5, !"float_computations", !{!"double"}}
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
+!8 = !{i32 1, !"ir_functions", i1 true}

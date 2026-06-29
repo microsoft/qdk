@@ -8,11 +8,14 @@ mod instruction_tests;
 mod tests;
 
 use qsc_data_structures::attrs::Attributes;
+use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::{
     rir::{self, ConditionCode, FcmpConditionCode},
     utils::get_all_block_successors,
 };
 use std::fmt::Write;
+
+use super::name::llvm_global_name;
 
 /// A trait for converting a type into QIR of type `T`.
 /// This can be used to generate QIR strings or other representations.
@@ -131,6 +134,7 @@ impl ToQir<String> for rir::ConditionCode {
 }
 
 impl ToQir<String> for rir::Instruction {
+    #[allow(clippy::too_many_lines)]
     fn to_qir(&self, program: &rir::Program) -> String {
         match self {
             rir::Instruction::Add(lhs, rhs, variable) => {
@@ -204,7 +208,14 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Phi(..) => {
                 unreachable!("phi nodes should not be inserted for QIR v2 generation")
             }
-            rir::Instruction::Return => "  ret i64 0".to_string(),
+            rir::Instruction::Return(operand) => match operand {
+                None => "  ret void".to_string(),
+                Some(operand) => format!(
+                    "  ret {} {}",
+                    get_value_ty(operand),
+                    get_value_as_str(operand, program)
+                ),
+            },
             rir::Instruction::Sdiv(lhs, rhs, variable) => {
                 binop_to_qir("sdiv", lhs, rhs, *variable, program)
             }
@@ -377,18 +388,19 @@ fn call_to_qir(
         .collect::<Vec<_>>()
         .join(", ");
     let callable = program.get_callable(call_id);
+    let callable_name = llvm_global_name(&callable.name);
     if let Some(output) = output {
         format!(
-            "  {} = call {} @{}({args})",
+            "  {} = call {} {}({args})",
             ToQir::<String>::to_qir(&output.variable_id, program),
             ToQir::<String>::to_qir(&callable.output_type, program),
-            callable.name
+            callable_name
         )
     } else {
         format!(
-            "  call {} @{}({args})",
+            "  call {} {}({args})",
             ToQir::<String>::to_qir(&callable.output_type, program),
-            callable.name
+            callable_name
         )
     }
 }
@@ -621,45 +633,76 @@ impl ToQir<String> for rir::Block {
 
 impl ToQir<String> for rir::Callable {
     fn to_qir(&self, program: &rir::Program) -> String {
-        let input_type = self
+        // The trait entry point preserves the historical behavior of treating a bodied callable
+        // as the program entry point. Non-entry IR functions are emitted via `callable_to_qir`
+        // from `Program::to_qir`, where the callable's id is known.
+        callable_to_qir(self, true, program)
+    }
+}
+
+/// Converts a callable to its QIR string representation.
+///
+/// `is_entry` selects how a bodied callable is rendered: the entry point is emitted as
+/// `@ENTRYPOINT__main()` returning `i64 0`, while a non-entry `Regular` callable is emitted as a
+/// real LLVM `define void @<name>(<params>)` IR function with typed parameters named after the
+/// callable's `input_vars`. Bodyless callables (intrinsics) always render as `declare`.
+fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Program) -> String {
+    let output_type = ToQir::<String>::to_qir(&callable.output_type, program);
+    let Some(entry_id) = callable.body else {
+        let input_type = callable
             .input_type
             .iter()
             .map(|t| ToQir::<String>::to_qir(t, program))
             .collect::<Vec<_>>()
             .join(", ");
-        let output_type = ToQir::<String>::to_qir(&self.output_type, program);
-        let Some(entry_id) = self.body else {
-            return format!(
-                "declare {output_type} @{}({input_type}){}",
-                self.name,
-                match self.call_type {
-                    rir::CallableType::Measurement | rir::CallableType::Reset => {
-                        // These callables are a special case that need the irreversible attribute.
-                        " #1"
-                    }
-                    rir::CallableType::NoiseIntrinsic => " #2",
-                    _ => "",
+        let callable_name = llvm_global_name(&callable.name);
+        return format!(
+            "declare {output_type} {callable_name}({input_type}){}",
+            match callable.call_type {
+                rir::CallableType::Measurement | rir::CallableType::Reset => {
+                    // These callables are a special case that need the irreversible attribute.
+                    " #1"
                 }
-            );
-        };
-        let mut body = String::new();
-        let mut all_blocks = vec![entry_id];
-        all_blocks.extend(get_all_block_successors(entry_id, program));
-        for block_id in all_blocks {
-            let block = program.get_block(block_id);
-            write!(
-                body,
-                "{}:\n{}\n",
-                ToQir::<String>::to_qir(&block_id, program),
-                ToQir::<String>::to_qir(block, program)
-            )
-            .expect("writing to string should succeed");
-        }
+                rir::CallableType::NoiseIntrinsic => " #2",
+                _ => "",
+            }
+        );
+    };
+    let mut body = String::new();
+    let mut all_blocks = vec![entry_id];
+    all_blocks.extend(get_all_block_successors(entry_id, program));
+    for block_id in all_blocks {
+        let block = program.get_block(block_id);
+        write!(
+            body,
+            "{}:\n{}\n",
+            ToQir::<String>::to_qir(&block_id, program),
+            ToQir::<String>::to_qir(block, program)
+        )
+        .expect("writing to string should succeed");
+    }
+    if is_entry {
         assert!(
-            input_type.is_empty(),
+            callable.input_type.is_empty(),
             "entry point should not have an input"
         );
         format!("define {output_type} @ENTRYPOINT__main() #0 {{\n{body}}}")
+    } else {
+        let callable_name = llvm_global_name(&callable.name);
+        let params = callable
+            .input_type
+            .iter()
+            .zip(callable.input_vars.iter())
+            .map(|(ty, var_id)| {
+                format!(
+                    "{} {}",
+                    ToQir::<String>::to_qir(ty, program),
+                    ToQir::<String>::to_qir(var_id, program)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("define {output_type} {callable_name}({params}) {{\n{body}}}")
     }
 }
 
@@ -681,7 +724,7 @@ impl ToQir<String> for rir::Program {
         let callables = self
             .callables
             .iter()
-            .map(|(_, callable)| ToQir::<String>::to_qir(callable, self))
+            .map(|(id, callable)| callable_to_qir(callable, id == self.entry, self))
             .collect::<Vec<_>>()
             .join("\n\n");
         let mut constants = String::default();
@@ -703,13 +746,27 @@ impl ToQir<String> for rir::Program {
             )
             .expect("writing to string should succeed");
         }
+        // When dynamic qubit allocation is enabled, qubits are allocated via the
+        // runtime API rather than declared up front. The spec states that the
+        // `required_num_qubits` entry-point attribute is not required in that case,
+        // and the `dynamic_qubit_management` module flag must be set to true.
+        let dynamic_qubit_management = self
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::DynamicQubitAllocation);
+        let required_num_qubits = if dynamic_qubit_management {
+            String::new()
+        } else {
+            format!("\"required_num_qubits\"=\"{}\" ", self.num_qubits)
+        };
         let body = format!(
             include_str!("./v2/template.ll"),
             constants,
             callables,
-            self.num_qubits,
+            required_num_qubits,
             self.num_results,
-            get_additional_module_attributes(self)
+            get_additional_module_attributes(self),
+            dynamic_qubit_management,
         );
         body
     }

@@ -24,14 +24,14 @@ use qsc_fir::{
         Item, ItemKind, LocalItemId, LocalVarId, Package, PackageLookup, Pat, PatId, PatKind, Res,
         SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
     },
-    ty::{FunctorSetValue, Prim, Ty},
+    ty::{Prim, Ty},
     visit::{Visitor, walk_callable_decl},
 };
 
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_rca::{
-    Analyzer, ComputeKind, ItemComputeProperties, PackageComputeProperties,
-    PackageStoreComputeProperties, RuntimeFeatureFlags,
+    Analyzer, ComputeKind, PackageComputeProperties, PackageStoreComputeProperties,
+    RuntimeFeatureFlags,
     errors::{Error, generate_errors_from_runtime_features, get_missing_runtime_features},
 };
 use rustc_hash::FxHashMap;
@@ -171,18 +171,18 @@ impl<'a> Visitor<'a> for Checker<'a> {
     fn visit_callable_impl(&mut self, callable_impl: &'a CallableImpl) {
         match callable_impl {
             CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
-                self.check_spec_decl(FunctorSetValue::Empty, None);
+                self.check_spec_decl(None);
             }
             CallableImpl::Spec(spec_impl) => {
-                self.check_spec_decl(FunctorSetValue::Empty, Some(&spec_impl.body));
+                self.check_spec_decl(Some(&spec_impl.body));
                 spec_impl.adj.iter().for_each(|spec_decl| {
-                    self.check_spec_decl(FunctorSetValue::Adj, Some(spec_decl));
+                    self.check_spec_decl(Some(spec_decl));
                 });
                 spec_impl.ctl.iter().for_each(|spec_decl| {
-                    self.check_spec_decl(FunctorSetValue::Ctl, Some(spec_decl));
+                    self.check_spec_decl(Some(spec_decl));
                 });
                 spec_impl.ctl_adj.iter().for_each(|spec_decl| {
-                    self.check_spec_decl(FunctorSetValue::CtlAdj, Some(spec_decl));
+                    self.check_spec_decl(Some(spec_decl));
                 });
             }
         }
@@ -347,63 +347,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_spec_decl(
-        &mut self,
-        functor_set_value: FunctorSetValue,
-        spec_decl: Option<&'a SpecDecl>,
-    ) {
-        let current_callable_id = self.get_current_callable();
-        let ItemComputeProperties::Callable(callable_compute_properties) =
-            self.compute_properties.get_item(current_callable_id)
-        else {
-            panic!("expected callable variant of item compute properties");
-        };
-
-        let spec_compute_properties = match functor_set_value {
-            FunctorSetValue::Empty => &callable_compute_properties.body,
-            FunctorSetValue::Adj => callable_compute_properties
-                .adj
-                .as_ref()
-                .expect("adj specialization is none"),
-            FunctorSetValue::Ctl => callable_compute_properties
-                .ctl
-                .as_ref()
-                .expect("ctl specialization is none"),
-            FunctorSetValue::CtlAdj => callable_compute_properties
-                .ctl_adj
-                .as_ref()
-                .expect("ctl_adj specialization is none"),
-        };
-
-        if let ComputeKind::Dynamic {
-            runtime_features, ..
-        } = spec_compute_properties.inherent
-        {
-            let missing_features =
-                get_missing_runtime_features(runtime_features, self.target_capabilities);
-            let missing_spec_level_runtime_features =
-                get_spec_level_runtime_features(missing_features);
-
-            // If there are any missing specialization-level runtime features, runtime features that affect the whole
-            // specialization, just generate errors for the missing specialization-level runtime features and do not
-            // generate statement-level or expression-level errors for these specializations.
-            if !missing_spec_level_runtime_features.is_empty() {
-                let current_callable = self
-                    .package
-                    .get_global(current_callable_id)
-                    .expect("callable not present in package");
-                let Global::Callable(callable_decl) = current_callable else {
-                    panic!("");
-                };
-
-                self.missing_features_map
-                    .entry(callable_decl.name.span)
-                    .and_modify(|f| *f |= missing_spec_level_runtime_features)
-                    .or_insert(missing_spec_level_runtime_features);
-                return;
-            }
-        }
-
+    fn check_spec_decl(&mut self, spec_decl: Option<&'a SpecDecl>) {
         // Visit the specialization block.
         if let Some(spec_decl) = spec_decl {
             self.visit_block(spec_decl.block);
@@ -487,10 +431,6 @@ impl<'a> Checker<'a> {
         errors
     }
 
-    fn get_current_callable(&self) -> LocalItemId {
-        self.current_callable.expect("current callable is not set")
-    }
-
     fn is_expr_auto_generated(&self, expr: &Expr) -> bool {
         if expr.span.hi == 0 && expr.span.lo == 0 {
             return true;
@@ -510,12 +450,6 @@ impl<'a> Checker<'a> {
         assert!(self.current_callable.is_none());
         self.current_callable = Some(id);
     }
-}
-
-fn get_spec_level_runtime_features(runtime_features: RuntimeFeatureFlags) -> RuntimeFeatureFlags {
-    const SPEC_LEVEL_RUNTIME_FEATURES: RuntimeFeatureFlags =
-        RuntimeFeatureFlags::CyclicOperationSpec;
-    runtime_features & SPEC_LEVEL_RUNTIME_FEATURES
 }
 
 fn output_recording_runtime_features_for_ty(ty: &Ty) -> RuntimeFeatureFlags {

@@ -64,10 +64,7 @@ pub fn walk_package<'a>(vis: &mut impl Visitor<'a>, package: &'a Package) {
 pub fn walk_item<'a>(vis: &mut impl Visitor<'a>, item: &'a Item) {
     match &item.kind {
         ItemKind::Callable(decl) => vis.visit_callable_decl(decl),
-        ItemKind::Namespace(name, _) | ItemKind::Ty(name, _) => vis.visit_ident(name),
-        ItemKind::Export(name, _) => {
-            vis.visit_ident(name);
-        }
+        ItemKind::Ty(name, _) => vis.visit_ident(name),
     }
 }
 
