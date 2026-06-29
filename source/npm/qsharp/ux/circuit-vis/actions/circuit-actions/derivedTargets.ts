@@ -242,12 +242,10 @@ const _resolveOverlapAfterExtend = (
  * ancestor's cache depends only on its own immediate
  * children's caches.
  *
- * This is the **single centralized mechanism** for keeping the
- * eager `.targets` cache in sync with the children, used by
- * both the source-side post-prune refresh and the dest-side
- * post-insert refresh in `moveOperation`. See D7 in
- * [`CIRCUIT_EDITOR_TODO.md`](../../CIRCUIT_EDITOR_TODO.md) for the
- * rationale and the per-call-site history this replaces.
+ * This is the single centralized mechanism for keeping the eager
+ * `.targets` cache in sync with the children, used by both the
+ * source-side post-prune refresh and the dest-side post-insert
+ * refresh in `moveOperation`.
  *
  * # Why immediate children only
  *

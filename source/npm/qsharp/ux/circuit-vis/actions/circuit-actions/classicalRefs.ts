@@ -197,9 +197,7 @@ const collectExternalProducerLocations = (
  * cascade-delete in
  * [`removeMeasurementWithDependents`](circuitActions.ts) would then
  * wipe out the entire ancestor group — including unrelated sibling
- * children that don't depend on the M at all. The user-visible
- * symptom is "deleting one M emptied my circuit." See B2 in
- * [CIRCUIT_EDITOR_TODO.md](../../CIRCUIT_EDITOR_TODO.md).
+ * children that don't depend on the M at all.
  *
  * A classically-controlled group is still correctly flagged:
  * its OWN `.controls` carries the classical ref (the eager

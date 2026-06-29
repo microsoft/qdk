@@ -44,13 +44,6 @@ import {
  * shift-extend reach) but the wrong tool for collision detection —
  * those wires the classical-control connector visually occupies
  * absolutely DO collide with a sibling that overlaps them.
- *
- * Earlier versions of this helper routed through `getQuantumWireRange`
- * and missed classical-control wires; the visible symptom was a
- * widened group's expanded box drawn directly through a sibling's
- * classical-control connector with no column split — see the user's
- * "straddled between a classical-control dependency and a qubit
- * dependency" report.
  */
 const getMinMaxRegIdx = (operation: Operation): [number, number] =>
   getMinMaxRegIdxUtil(operation);
