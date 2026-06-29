@@ -2082,3 +2082,52 @@ bit[4] result = measure q;
     assert all(
         len(r) >= 4 and all(c in "01" for c in r) for r in results
     ), f"Unexpected result format: {results[:5]}"
+
+
+GATE_CALL_WITH_QUBIT_IMMEDIATE = """
+entry:
+  call void @__quantum__qis__z__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+GATE_CALL_WITH_QUBIT_REGISTER = """
+entry:
+  call void @z(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+GATE_WRAPPED_IN_FUNCTION_DECL = """
+define void @z(ptr %var_2) {
+block_2:
+  call void @__quantum__qis__z__body(ptr %var_2)
+  ret void
+}
+"""
+
+
+def test_pauli_noise_with_qubit_immediates():
+    qir = format_qir(
+        GATE_CALL_WITH_QUBIT_IMMEDIATE,
+        num_qubits=1,
+        num_results=1,
+    )
+    noise = NoiseConfig()
+    noise.z.x = 1.0
+    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert counts == {"1": SHOTS}, f"Expected all {SHOTS} shots to be '1', got {counts}"
+
+
+def test_pauli_noise_with_qubit_registers():
+    qir = format_qir(
+        GATE_CALL_WITH_QUBIT_REGISTER,
+        extra_decls=GATE_WRAPPED_IN_FUNCTION_DECL,
+        num_qubits=1,
+        num_results=1,
+    )
+    noise = NoiseConfig()
+    noise.z.x = 1.0
+    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert counts == {"1": SHOTS}, f"Expected all {SHOTS} shots to be '1', got {counts}"
