@@ -45,10 +45,8 @@ pub struct QasmParseResult {
 
 impl QasmParseResult {
     #[must_use]
-    pub fn new(source: QasmSource) -> QasmParseResult {
-        let source_map = create_source_map(&source);
-        let mut source = source;
-        update_offsets(&source_map, &mut source);
+    pub fn new(mut source: QasmSource) -> QasmParseResult {
+        let source_map = create_source_map_and_update_offsets(&mut source);
         QasmParseResult { source, source_map }
     }
 
@@ -58,25 +56,25 @@ impl QasmParseResult {
     }
 
     pub fn all_errors(&self) -> Vec<WithSource<crate::error::Error>> {
-        let mut self_errors = self.errors();
-        let include_errors = self
-            .source
-            .includes()
-            .iter()
-            .flat_map(QasmSource::all_errors)
-            .map(|e| self.map_error(e))
-            .collect::<Vec<_>>();
+        let mut errors = self.errors();
+        errors.extend(
+            self.source
+                .includes()
+                .iter()
+                .flat_map(QasmSource::all_errors)
+                .map(|e| self.map_error(e)),
+        );
 
-        self_errors.extend(include_errors);
-        self_errors
+        errors
     }
 
     #[must_use]
     pub fn errors(&self) -> Vec<WithSource<crate::error::Error>> {
         self.source
-            .errors()
+            .errors
             .iter()
-            .map(|e| self.map_error(e.clone()))
+            .cloned()
+            .map(|e| self.map_error(e))
             .collect::<Vec<_>>()
     }
 
@@ -88,13 +86,14 @@ impl QasmParseResult {
     }
 }
 
-/// all spans and errors spans are relative to the start of the file
-/// We need to update the spans based on the offset of the file in the source map.
-/// We have to do this after a full parse as we don't know what files will be loaded
-/// until we have parsed all the includes.
-fn update_offsets(source_map: &SourceMap, source: &mut QasmSource) {
-    let source_file = source_map.find_by_name(&source.path());
-    let offset = source_file.map_or(0, |source| source.offset);
+/// All spans and error spans are relative to the start of their own file. Update
+/// them to match the offsets `SourceMap` assigns while collecting files in the same
+/// order `SourceMap` receives them.
+fn collect_source_files_and_update_offsets(
+    source: &mut QasmSource,
+    files: &mut Vec<(Arc<str>, Arc<str>)>,
+    offset: u32,
+) -> u32 {
     // Update the errors' offset
     source
         .errors
@@ -102,12 +101,18 @@ fn update_offsets(source_map: &SourceMap, source: &mut QasmSource) {
         .for_each(|e| *e = e.clone().with_offset(offset));
     // Update the program's spans with the offset
     let mut offsetter = Offsetter(offset);
-    offsetter.visit_program(&mut source.program);
-
-    // Recursively update the includes, their programs, and errors
-    for include in source.includes_mut() {
-        update_offsets(source_map, include);
+    if let Some(program) = &mut source.program {
+        offsetter.visit_program(program);
     }
+
+    files.push((source.path.clone(), source.source.clone()));
+
+    let mut next_offset = next_source_offset(offset, &source.source);
+    for include in &mut source.included {
+        next_offset = collect_source_files_and_update_offsets(include, files, next_offset);
+    }
+
+    next_offset
 }
 
 /// Parse a QASM file and return the parse result.
@@ -128,35 +133,29 @@ pub fn parse_source<R: SourceResolver, S: Into<Arc<str>>, P: Into<Arc<str>>>(
     QasmParseResult::new(res)
 }
 
-/// Creates a Q# source map from a QASM parse output. The `QasmSource`
-/// has all of the recursive includes resolved with their own source
-/// and parse results.
-fn create_source_map(source: &QasmSource) -> SourceMap {
+/// Creates a Q# source map from a QASM parse output while updating source and
+/// include spans to match the offsets assigned by the source map.
+fn create_source_map_and_update_offsets(source: &mut QasmSource) -> SourceMap {
     let mut files: Vec<(Arc<str>, Arc<str>)> = Vec::new();
-    collect_source_files(source, &mut files);
+    collect_source_files_and_update_offsets(source, &mut files, 0);
     SourceMap::new(files, None)
 }
 
-/// Recursively collect all source files from the includes
-fn collect_source_files(source: &QasmSource, files: &mut Vec<(Arc<str>, Arc<str>)>) {
-    files.push((source.path(), source.source()));
-    // Collect all source files from the includes, this
-    // begins the recursive process of collecting all source files.
-    for include in source.includes() {
-        collect_source_files(include, files);
-    }
+fn next_source_offset(offset: u32, source: &str) -> u32 {
+    1 + offset + u32::try_from(source.len()).expect("contents length should fit into u32")
 }
 
 /// Represents a QASM source file that has been parsed.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct QasmSource {
     /// The path to the source file. This is used for error reporting.
     /// This path is just a name, it does not have to exist on disk.
     path: Arc<str>,
     /// The source code of the file.
     source: Arc<str>,
-    /// The parsed AST of the source file or any parse errors.
-    program: Program,
+    /// The parsed AST of the source file, or `None` once it has been dropped (for
+    /// example after semantic lowering, which no longer needs the syntax tree).
+    program: Option<Program>,
     /// Any parse errors that occurred.
     errors: Vec<Error>,
     /// Any included files that were resolved.
@@ -176,7 +175,7 @@ impl QasmSource {
         QasmSource {
             path,
             source,
-            program,
+            program: Some(program),
             errors,
             included,
         }
@@ -184,33 +183,51 @@ impl QasmSource {
 
     #[must_use]
     pub fn has_errors(&self) -> bool {
-        if !self.errors().is_empty() {
+        if !self.errors.is_empty() {
             return true;
         }
-        self.includes().iter().any(QasmSource::has_errors)
+        self.included.iter().any(QasmSource::has_errors)
     }
 
     #[must_use]
     pub fn all_errors(&self) -> Vec<crate::parser::Error> {
-        let mut self_errors = self.errors();
-        let include_errors = self.includes().iter().flat_map(QasmSource::all_errors);
-        self_errors.extend(include_errors);
-        self_errors
+        let mut errors = Vec::new();
+        self.collect_errors(&mut errors);
+        errors
+    }
+
+    fn collect_errors(&self, errors: &mut Vec<crate::parser::Error>) {
+        errors.extend(self.errors.iter().cloned());
+        for include in &self.included {
+            include.collect_errors(errors);
+        }
     }
 
     #[must_use]
     pub fn includes(&self) -> &Vec<QasmSource> {
-        self.included.as_ref()
+        &self.included
     }
 
     #[must_use]
     pub fn includes_mut(&mut self) -> &mut Vec<QasmSource> {
-        self.included.as_mut()
+        &mut self.included
     }
 
     #[must_use]
-    pub fn program(&self) -> &Program {
-        &self.program
+    pub fn program(&self) -> Option<&Program> {
+        self.program.as_ref()
+    }
+
+    /// Drops the parsed syntax tree once it is no longer needed (for example after
+    /// semantic lowering, which produces its own program). Diagnostics rely on the
+    /// source text, the stored parse errors, and the source map rather than the
+    /// syntax tree, so dropping the program avoids retaining a full syntax AST
+    /// alongside the lowered semantic program. Applied recursively to includes.
+    pub(crate) fn drop_program(&mut self) {
+        self.program = None;
+        for include in &mut self.included {
+            include.drop_program();
+        }
     }
 
     #[must_use]
@@ -365,10 +382,7 @@ where
             let file_path = &include.filename;
             // Skip the standard gates include file.
             // Handling of this file is done by the compiler.
-            if matches!(
-                file_path.to_lowercase().as_ref(),
-                "stdgates.inc" | "qelib1.inc" | "qdk.inc"
-            ) {
+            if is_standard_include(file_path.as_ref()) {
                 continue;
             }
             let source = match parse_qasm_file(file_path, resolver, stmt.span) {
@@ -393,11 +407,11 @@ where
                     QasmSource {
                         path: file_path.clone(),
                         source: Default::default(),
-                        program: Program {
+                        program: Some(Program {
                             span: Span::default(),
                             statements: vec![].into_boxed_slice(),
                             version: None,
-                        },
+                        }),
                         errors: vec![],
                         included: vec![],
                     }
@@ -408,6 +422,12 @@ where
     }
 
     (includes, errors)
+}
+
+fn is_standard_include(path: &str) -> bool {
+    path.eq_ignore_ascii_case("stdgates.inc")
+        || path.eq_ignore_ascii_case("qelib1.inc")
+        || path.eq_ignore_ascii_case("qdk.inc")
 }
 
 pub(crate) type Result<T> = std::result::Result<T, crate::parser::error::Error>;

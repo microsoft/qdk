@@ -120,7 +120,7 @@ impl Lowerer {
     pub fn new(source: QasmSource, source_map: SourceMap) -> Self {
         // do a quick check for the version to set up the symbol table
         // lowering and validation come later
-        let version = source.program().version;
+        let version = source.program().and_then(|p| p.version);
         let symbols = if let Some(version) = version {
             if version.major == 2 && version.minor == Some(0) {
                 SymbolTable::new_qasm2()
@@ -148,16 +148,26 @@ impl Lowerer {
     }
 
     pub fn lower(mut self) -> crate::semantic::QasmSemanticParseResult {
+        // Move the parsed source out of `self` so the immutable walk below does
+        // not borrow-conflict with the `&mut self` lowering methods. This avoids
+        // cloning the entire syntax AST just to read it; the source is moved back
+        // into the result at the end.
+        let mut source = std::mem::take(&mut self.source);
         // Should we fail if we see a version in included files?
-        let source = &self.source.clone();
-        self.version = self.lower_version(source.program().version);
+        self.version = self.lower_version(source.program().and_then(|p| p.version));
 
-        self.lower_source(source);
+        self.lower_source(&source);
 
         assert!(
             self.symbols.is_current_scope_global(),
             "scope stack was non popped correctly"
         );
+
+        // Lowering has produced the semantic `program`; the syntax tree is no longer
+        // needed (diagnostics use the source text/errors and the source map, not the
+        // syntax tree). Drop it so the result does not retain a full syntax AST
+        // alongside the semantic program.
+        source.drop_program();
 
         let program = semantic::Program {
             version: self.version,
@@ -166,7 +176,7 @@ impl Lowerer {
         };
 
         super::QasmSemanticParseResult {
-            source: self.source,
+            source,
             source_map: self.source_map,
             symbols: self.symbols,
             program,
@@ -210,7 +220,13 @@ impl Lowerer {
         // `source.includes()`
         let mut includes = source.includes().iter();
 
-        for stmt in &source.program().statements {
+        // The syntax program is present during lowering; once a source's program has
+        // been dropped there is nothing to lower.
+        let Some(program) = source.program() else {
+            return;
+        };
+
+        for stmt in &program.statements {
             match &*stmt.kind {
                 syntax::StmtKind::Include(include) => {
                     // if we are not in the root  we should not be able to include
@@ -771,7 +787,11 @@ impl Lowerer {
             return semantic::StmtKind::Err;
         }
 
-        semantic::StmtKind::Assign(semantic::AssignStmt { span, lhs, rhs })
+        semantic::StmtKind::Assign(semantic::AssignStmt {
+            span,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        })
     }
 
     fn lower_indexed_assign_stmt(
@@ -825,7 +845,11 @@ impl Lowerer {
             }
         };
 
-        semantic::StmtKind::Assign(semantic::AssignStmt { span, lhs, rhs })
+        semantic::StmtKind::Assign(semantic::AssignStmt {
+            span,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        })
     }
 
     fn lower_indexed_classical_type_assign_stmt(
@@ -847,9 +871,9 @@ impl Lowerer {
         // So, if return here, it is guaranteed that the assignment will succeed.
         semantic::StmtKind::IndexedClassicalTypeAssign(semantic::IndexedClassicalTypeAssignStmt {
             span,
-            lhs,
+            lhs: Box::new(lhs),
             indices,
-            rhs,
+            rhs: Box::new(rhs),
         })
     }
 
@@ -910,8 +934,8 @@ impl Lowerer {
 
         semantic::StmtKind::Assign(semantic::AssignStmt {
             span,
-            lhs,
-            rhs: binary_expr,
+            lhs: Box::new(lhs),
+            rhs: Box::new(binary_expr),
         })
     }
 
@@ -969,8 +993,8 @@ impl Lowerer {
 
         semantic::StmtKind::Assign(semantic::AssignStmt {
             span,
-            lhs,
-            rhs: binary_expr,
+            lhs: Box::new(lhs),
+            rhs: Box::new(binary_expr),
         })
     }
 
@@ -1334,7 +1358,7 @@ impl Lowerer {
     fn lower_paren_expr(&mut self, expr: &syntax::Expr, span: Span) -> semantic::Expr {
         let expr = self.lower_expr(expr);
         let ty = expr.ty.clone();
-        let kind = semantic::ExprKind::Paren(expr);
+        let kind = semantic::ExprKind::Paren(Box::new(expr));
         semantic::Expr::new(span, kind, ty)
     }
 
@@ -1355,7 +1379,7 @@ impl Lowerer {
                 let unary = semantic::UnaryOpExpr {
                     span,
                     op: semantic::UnaryOp::Neg,
-                    expr,
+                    expr: Box::new(expr),
                 };
                 semantic::Expr::new(span, semantic::ExprKind::UnaryOp(unary), ty)
             }
@@ -1374,7 +1398,7 @@ impl Lowerer {
                 let unary = semantic::UnaryOpExpr {
                     span,
                     op: semantic::UnaryOp::NotB,
-                    expr,
+                    expr: Box::new(expr),
                 };
                 semantic::Expr::new(span, semantic::ExprKind::UnaryOp(unary), ty)
             }
@@ -1396,7 +1420,7 @@ impl Lowerer {
                     semantic::ExprKind::UnaryOp(semantic::UnaryOpExpr {
                         span: expr.span,
                         op: semantic::UnaryOp::NotL,
-                        expr,
+                        expr: Box::new(expr),
                     }),
                     ty,
                 )
@@ -1419,10 +1443,10 @@ impl Lowerer {
         semantic::Expr::new(expr.span, kind, ty)
     }
 
-    fn lower_annotations(annotations: &[Box<syntax::Annotation>]) -> Vec<semantic::Annotation> {
+    fn lower_annotations(annotations: &[syntax::Annotation]) -> Vec<semantic::Annotation> {
         annotations
             .iter()
-            .map(|annotation| Self::lower_annotation(annotation))
+            .map(Self::lower_annotation)
             .collect::<Vec<_>>()
     }
 
@@ -1478,7 +1502,7 @@ impl Lowerer {
         let duration = stmt
             .duration
             .as_ref()
-            .map(|d| self.lower_duration_designator(d));
+            .map(|d| Box::new(self.lower_duration_designator(d)));
 
         semantic::StmtKind::Box(semantic::BoxStmt {
             span: stmt.span,
@@ -1778,7 +1802,7 @@ impl Lowerer {
         }
     }
 
-    fn block_always_returns<'a>(stmts: impl IntoIterator<Item = &'a Box<semantic::Stmt>>) -> bool {
+    fn block_always_returns<'a>(stmts: impl IntoIterator<Item = &'a semantic::Stmt>) -> bool {
         for stmt in stmts {
             if Self::stmt_always_returns(stmt) {
                 return true;
@@ -1876,7 +1900,7 @@ impl Lowerer {
     fn lower_delay(&mut self, stmt: &syntax::DelayStmt) -> semantic::StmtKind {
         let qubits = stmt.qubits.iter().map(|q| self.lower_gate_operand(q));
         let qubits = list_from_iter(qubits);
-        let duration = self.lower_duration_designator(&stmt.duration);
+        let duration = Box::new(self.lower_duration_designator(&stmt.duration));
 
         semantic::StmtKind::Delay(semantic::DelayStmt {
             span: stmt.span,
@@ -1917,7 +1941,7 @@ impl Lowerer {
     }
 
     fn lower_expr_stmt(&mut self, stmt: &syntax::ExprStmt) -> semantic::StmtKind {
-        let expr = self.lower_expr(&stmt.expr);
+        let expr = Box::new(self.lower_expr(&stmt.expr));
         match &*expr.kind {
             semantic::ExprKind::Err => semantic::StmtKind::Err,
             semantic::ExprKind::Ident(id) => {
@@ -2107,7 +2131,7 @@ impl Lowerer {
 
         semantic::StmtKind::If(semantic::IfStmt {
             span: stmt.span,
-            condition,
+            condition: Box::new(condition),
             if_body,
             else_body,
         })
@@ -2204,9 +2228,9 @@ impl Lowerer {
                 let kind = semantic::ExprKind::SizeofCall(semantic::SizeofCallExpr {
                     span: expr.span,
                     fn_name_span: expr.name.span,
-                    array: first_arg,
+                    array: Box::new(first_arg),
                     array_dims: array_dims.into(),
-                    dim: second_arg,
+                    dim: Box::new(second_arg),
                 });
 
                 Expr::new(expr.span, kind, Type::UInt(None, false))
@@ -2347,7 +2371,7 @@ impl Lowerer {
         let duration = stmt
             .duration
             .as_ref()
-            .map(|d| self.lower_duration_designator(d));
+            .map(|d| Box::new(self.lower_duration_designator(d)));
 
         let name = stmt.name.name.to_string();
 
@@ -2473,7 +2497,7 @@ impl Lowerer {
             for index in 0..(*indexed_dim_size) {
                 let qubits = qubits
                     .iter()
-                    .map(|qubit| Self::index_into_qubit_register((**qubit).clone(), index));
+                    .map(|qubit| Self::index_into_qubit_register(qubit.clone(), index));
 
                 let qubits = list_from_iter(qubits);
 
@@ -2724,7 +2748,7 @@ impl Lowerer {
             let measure = self.lower_measure_expr(&stmt.measurement);
             semantic::StmtKind::ExprStmt(semantic::ExprStmt {
                 span: stmt.span,
-                expr: measure,
+                expr: Box::new(measure),
             })
         }
     }
@@ -2874,7 +2898,7 @@ impl Lowerer {
             semantic::StmtKind::QubitArrayDecl(semantic::QubitArrayDeclaration {
                 span: stmt.span,
                 symbol_id,
-                size,
+                size: Box::new(size),
                 size_span,
             })
         } else {
@@ -2987,7 +3011,7 @@ impl Lowerer {
 
         semantic::StmtKind::Switch(semantic::SwitchStmt {
             span: stmt.span,
-            target,
+            target: Box::new(target),
             cases: list_from_iter(cases),
             default,
         })
@@ -3034,7 +3058,7 @@ impl Lowerer {
 
         semantic::StmtKind::WhileLoop(semantic::WhileLoop {
             span: stmt.span,
-            condition: while_condition,
+            condition: Box::new(while_condition),
             body,
         })
     }
@@ -4229,8 +4253,8 @@ impl Lowerer {
                 }
                 let bin_expr = semantic::BinaryOpExpr {
                     op: op.into(),
-                    lhs,
-                    rhs,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
                 };
                 let kind = semantic::ExprKind::BinaryOp(bin_expr);
                 let expr = semantic::Expr::new(span, kind, target_ty);
@@ -4247,8 +4271,8 @@ impl Lowerer {
             };
 
             let bin_expr = semantic::BinaryOpExpr {
-                lhs: new_lhs,
-                rhs: new_rhs,
+                lhs: Box::new(new_lhs),
+                rhs: Box::new(new_rhs),
                 op: op.into(),
             };
             let kind = semantic::ExprKind::BinaryOp(bin_expr);
@@ -4366,8 +4390,8 @@ impl Lowerer {
             if is_complex_binop_supported(op) {
                 let bin_expr = semantic::BinaryOpExpr {
                     op: op.into(),
-                    lhs,
-                    rhs,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
                 };
                 let kind = semantic::ExprKind::BinaryOp(bin_expr);
                 semantic::Expr::new(span, kind, ty.clone())
@@ -4380,8 +4404,8 @@ impl Lowerer {
         } else {
             let bin_expr = semantic::BinaryOpExpr {
                 op: op.into(),
-                lhs,
-                rhs,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
             };
             let kind = semantic::ExprKind::BinaryOp(bin_expr);
             semantic::Expr::new(span, kind, ty.clone())
@@ -4485,8 +4509,8 @@ impl Lowerer {
 
         let bin_expr = semantic::BinaryOpExpr {
             op: op.into(),
-            lhs,
-            rhs,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
         };
         let kind = semantic::ExprKind::BinaryOp(bin_expr);
         let expr = semantic::Expr::new(span, kind, ty);
@@ -4543,7 +4567,7 @@ impl Lowerer {
         let indices: Vec<_> = list
             .values
             .iter()
-            .filter_map(|index| match &**index {
+            .filter_map(|index| match index {
                 syntax::IndexListItem::RangeDefinition(range) => self
                     .lower_const_range(range)
                     .map(|range| semantic::Index::Range(range.into())),
@@ -4788,7 +4812,7 @@ impl Lowerer {
             != indexed_ident
                 .indices
                 .iter()
-                .map(|i| i.num_indices())
+                .map(syntax::Index::num_indices)
                 .sum::<usize>()
         {
             // Since we can't evaluate all the indices, we can't know the indexed type.
@@ -5077,7 +5101,7 @@ fn wrap_expr_in_cast_expr(ty: Type, rhs: semantic::Expr) -> semantic::Expr {
         rhs.span,
         semantic::ExprKind::Cast(semantic::Cast {
             span: Span::default(),
-            expr: rhs,
+            expr: Box::new(rhs),
             ty: ty.clone(),
             kind: semantic::CastKind::Implicit,
             ty_exprs: list_from_iter(vec![]),

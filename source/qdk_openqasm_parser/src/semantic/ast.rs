@@ -233,8 +233,8 @@ impl Display for AliasDeclStmt {
 #[derive(Clone, Debug)]
 pub struct AssignStmt {
     pub span: Span,
-    pub lhs: Expr,
-    pub rhs: Expr,
+    pub lhs: Box<Expr>,
+    pub rhs: Box<Expr>,
 }
 
 impl Display for AssignStmt {
@@ -261,7 +261,7 @@ impl Display for BarrierStmt {
 #[derive(Clone, Debug)]
 pub struct BoxStmt {
     pub span: Span,
-    pub duration: Option<Expr>,
+    pub duration: Option<Box<Expr>>,
     pub body: List<Stmt>,
 }
 
@@ -410,7 +410,7 @@ impl Display for DefCalStmt {
 #[derive(Clone, Debug)]
 pub struct DelayStmt {
     pub span: Span,
-    pub duration: Expr,
+    pub duration: Box<Expr>,
     pub qubits: List<GateOperand>,
 }
 
@@ -436,7 +436,7 @@ impl Display for EndStmt {
 #[derive(Clone, Debug)]
 pub struct ExprStmt {
     pub span: Span,
-    pub expr: Expr,
+    pub expr: Box<Expr>,
 }
 
 impl Display for ExprStmt {
@@ -490,7 +490,7 @@ pub struct GateCall {
     pub gate_name_span: Span,
     pub args: List<Expr>,
     pub qubits: List<GateOperand>,
-    pub duration: Option<Expr>,
+    pub duration: Option<Box<Expr>>,
     pub classical_arity: u32,
     pub quantum_arity: u32,
 }
@@ -512,7 +512,7 @@ impl Display for GateCall {
 #[derive(Clone, Debug)]
 pub struct IfStmt {
     pub span: Span,
-    pub condition: Expr,
+    pub condition: Box<Expr>,
     pub if_body: Stmt,
     pub else_body: Option<Stmt>,
 }
@@ -542,9 +542,9 @@ impl Display for IncludeStmt {
 #[derive(Clone, Debug)]
 pub struct IndexedClassicalTypeAssignStmt {
     pub span: Span,
-    pub lhs: Expr,
+    pub lhs: Box<Expr>,
     pub indices: VecDeque<Index>,
-    pub rhs: Expr,
+    pub rhs: Box<Expr>,
 }
 
 impl Display for IndexedClassicalTypeAssignStmt {
@@ -669,7 +669,7 @@ pub struct QubitArrayDeclaration {
     pub symbol_id: SymbolId,
     /// This `Expr` is const, but we don't substitute by the `LiteralKind` yet
     /// to be able to provide Span and Type information to the Language Service.
-    pub size: Expr,
+    pub size: Box<Expr>,
     pub size_span: Span,
 }
 
@@ -713,7 +713,7 @@ impl Display for ReturnStmt {
 #[derive(Clone, Debug)]
 pub struct SwitchStmt {
     pub span: Span,
-    pub target: Expr,
+    pub target: Box<Expr>,
     pub cases: List<SwitchCase>,
     /// Note that `None` is quite different to `[]` in this case; the latter is
     /// an explicitly empty body, whereas the absence of a default might mean
@@ -748,7 +748,7 @@ impl Display for SwitchCase {
 #[derive(Clone, Debug)]
 pub struct WhileLoop {
     pub span: Span,
-    pub condition: Expr,
+    pub condition: Box<Expr>,
     pub body: Stmt,
 }
 
@@ -862,7 +862,11 @@ impl Expr {
 
         Self {
             span,
-            kind: Box::new(ExprKind::BinaryOp(BinaryOpExpr { op, lhs, rhs })),
+            kind: Box::new(ExprKind::BinaryOp(BinaryOpExpr {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            })),
             const_value: None,
             ty,
         }
@@ -883,7 +887,7 @@ pub enum ExprKind {
     BuiltinFunctionCall(BuiltinFunctionCall),
     Cast(Cast),
     IndexedExpr(IndexedExpr),
-    Paren(Expr),
+    Paren(Box<Expr>),
     Measure(MeasureExpr),
     SizeofCall(SizeofCallExpr),
     DurationofCall(DurationofCallExpr),
@@ -1092,7 +1096,7 @@ impl Display for EnumerableSet {
 pub struct UnaryOpExpr {
     pub span: Span,
     pub op: UnaryOp,
-    pub expr: Expr,
+    pub expr: Box<Expr>,
 }
 
 impl Display for UnaryOpExpr {
@@ -1106,8 +1110,8 @@ impl Display for UnaryOpExpr {
 #[derive(Clone, Debug)]
 pub struct BinaryOpExpr {
     pub op: BinOp,
-    pub lhs: Expr,
-    pub rhs: Expr,
+    pub lhs: Box<Expr>,
+    pub rhs: Box<Expr>,
 }
 
 impl BinaryOpExpr {
@@ -1151,9 +1155,9 @@ impl Display for FunctionCall {
 pub struct SizeofCallExpr {
     pub span: Span,
     pub fn_name_span: Span,
-    pub array: Expr,
+    pub array: Box<Expr>,
     pub array_dims: u32,
-    pub dim: Expr,
+    pub dim: Box<Expr>,
 }
 
 impl Display for SizeofCallExpr {
@@ -1227,7 +1231,7 @@ pub struct Cast {
     pub span: Span,
     pub ty: Type,
     pub ty_exprs: List<Expr>,
-    pub expr: Expr,
+    pub expr: Box<Expr>,
     pub kind: CastKind,
 }
 
