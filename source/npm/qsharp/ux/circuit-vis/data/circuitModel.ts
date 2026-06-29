@@ -5,26 +5,20 @@ import { getOperationRegisters } from "../utils.js";
 import { Circuit, ComponentGrid, Operation, Qubit } from "./circuit.js";
 
 /**
- * `CircuitModel` — the persistent circuit definition.
+ * `CircuitModel` — the persistent circuit definition (the Data layer
+ * of the Data / Action / View architecture).
  *
- * This is the **Data layer** in the circuit editor's three-layer
- * architecture (Data / Action / View).
- * Owns three pieces of state:
+ * Owns:
+ *   - `componentGrid` — the grid of operations.
+ *   - `qubits`        — the qubit lines (wires).
+ *   - `qubitUseCounts`— per-wire op-use counts (derived state,
+ *                       maintained incrementally).
  *
- *   - `componentGrid` — the grid of operations the user sees and edits.
- *   - `qubits`        — the list of qubit lines (wires).
- *   - `qubitUseCounts`— how many ops touch each wire; derived state, but
- *                       maintained incrementally because recomputing on
- *                       every edit would be wasteful.
- *
- * The model knows how to **maintain its own invariants** (qubit count,
- * use counts). It does **not** know how to perform user-level edits
- * — those live in [circuitActions.ts](circuitActions.ts), which take a
- * `CircuitModel` as their first argument and mutate it in place.
- *
- * Specifically: no DOM, no SVG, no rendering, no interaction state.
- * That separation is what makes `circuitActions.*` directly unit-testable
- * without JSDOM.
+ * Maintains its own invariants (qubit count, use counts) but does not
+ * perform user-level edits — those live in
+ * [circuitActions.ts](circuitActions.ts), which take a `CircuitModel`
+ * and mutate it in place. No DOM, SVG, rendering, or interaction
+ * state, which keeps `circuitActions.*` unit-testable without JSDOM.
  */
 export class CircuitModel {
   /** The grid of components rendered as columns of operations. */
@@ -35,21 +29,18 @@ export class CircuitModel {
 
   /**
    * Per-wire op-use counts. `qubitUseCounts[i]` is the number of
-   * operations whose target/control register list includes qubit `i`.
-   * Used by `removeTrailingUnusedQubits` to drop wires that no longer
-   * carry any operation.
-   *
-   * Maintained incrementally by `increment...` / `decrement...` —
-   * Actions call those whenever they add/remove an op.
+   * operations whose register list includes qubit `i`. Used by
+   * `removeTrailingUnusedQubits` to drop unused trailing wires.
+   * Maintained incrementally by the `increment...` / `decrement...`
+   * methods, which Actions call when adding/removing an op.
    */
   qubitUseCounts: number[];
 
   /**
-   * Build a `CircuitModel` from an existing `Circuit`. The
-   * `componentGrid` and `qubits` arrays are **borrowed by reference**,
-   * not copied — mutating the model mutates the original `Circuit`.
-   * That's intentional: the renderer's `Sqore` and the editor's
-   * `CircuitEvents` should see the same data.
+   * Build a `CircuitModel` from an existing `Circuit`. `componentGrid`
+   * and `qubits` are borrowed by reference, not copied, so the
+   * renderer's `Sqore` and the editor's `CircuitEvents` share the same
+   * data.
    */
   constructor(circuit: Circuit) {
     this.componentGrid = circuit.componentGrid;
@@ -63,9 +54,9 @@ export class CircuitModel {
   }
 
   /**
-   * Return the underlying `Circuit` shape for read-only consumers
-   * (e.g. the state-viz bridge). Returned object aliases the model's
-   * arrays — callers that need a deep copy must clone explicitly.
+   * Return the underlying `Circuit` shape for read-only consumers.
+   * The result aliases the model's arrays — callers needing a deep
+   * copy must clone explicitly.
    */
   snapshot(): Circuit {
     return { qubits: this.qubits, componentGrid: this.componentGrid };
@@ -84,18 +75,14 @@ export class CircuitModel {
   }
 
   /**
-   * Drop trailing wires that no operation references anywhere in
-   * the tree (including the derived `.targets` / `.results` field
-   * on group ops, which the renderer consumes directly).
+   * Drop trailing wires that no operation references anywhere in the
+   * tree (including a group op's derived `.targets` / `.results`).
    *
-   * Walks the actual grid rather than consulting `qubitUseCounts`
-   * because that counter is maintained incrementally by `_addOp` /
-   * `_removeOp` / `addControl` / `removeControl`, while a group
-   * op's derived `.targets` field is rewritten by `getChildTargets`
-   * after a move WITHOUT a corresponding count adjustment. Trusting
-   * the counter then lets us drop a wire that the group still
-   * names in its derived targets, and the next render crashes when
-   * it tries to address that wire via `rowHeights[<dropped wire>]`.
+   * Walks the grid directly rather than consulting `qubitUseCounts`:
+   * a group op's derived `.targets` can be rewritten without a
+   * matching count adjustment, so the counter can report a wire as
+   * unused while the group still names it — dropping such a wire
+   * would crash the next render.
    */
   removeTrailingUnusedQubits(): void {
     let maxUsed = -1;
@@ -121,8 +108,7 @@ export class CircuitModel {
 
   /**
    * Bump `qubitUseCounts[i]` for every qubit register `i` referenced
-   * by `op` (skips classical-result registers). Bounds-checks to
-   * tolerate ops that reference wires not yet in the model — those
+   * by `op` (skips classical-result registers). Out-of-range wires
    * are silently ignored.
    */
   incrementQubitUseCountForOp(op: Operation): void {

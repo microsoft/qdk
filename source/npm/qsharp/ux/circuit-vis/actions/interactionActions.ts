@@ -5,28 +5,17 @@ import { Operation } from "../data/circuit.js";
 import { InteractionState } from "./interactionState.js";
 
 /*
- * `interactionActions.ts` — the **Action layer** for ephemeral
- * editor session state (drag/selection/temporary-overlay tracking).
- * Mirrors the shape of [circuitActions.ts](circuitActions.ts) for
- * `CircuitModel`: each function takes an `InteractionState` as its
- * first argument and mutates it in place, returning `void`.
+ * `interactionActions.ts` — the Action layer for ephemeral editor
+ * session state (drag/selection/temporary-overlay tracking). Mirrors
+ * [circuitActions.ts](circuitActions.ts): each function takes an
+ * `InteractionState` first and mutates it in place, returning `void`.
  *
- * Functions split into two flavors:
- *
- *   - **Pure data helpers** (no DOM): `resetTransient`,
- *     `clearSelection`, `markSelected`, `markMovingControl`,
- *     `markMouseUpOnCircuit`, `markDragging`,
- *     `markDisableLeftAutoScroll`, `trackTemporaryDropzone`,
- *     `beginToolboxDrag`. Unit-testable without JSDOM.
- *   - **DOM-touching helpers**: `clearTemporaryDropzones`. Removes
- *     tracked overlay elements from their parent nodes. Tested
- *     opportunistically with a tiny stub `parentNode`.
- *
- * Direct setters (`state.selectedOperation = ...`) are also fine for
- * the simplest one-line writes inside event handlers — the wrappers
- * are here to centralize the *multi-step* sequences (e.g. "begin a
- * toolbox drag" sets two fields together) so the same combination
- * doesn't get reinvented inconsistently across handlers.
+ * Most functions are pure data helpers (no DOM) and unit-testable
+ * without JSDOM; `clearTemporaryDropzones` is the only DOM-touching
+ * one. Direct setters (`state.selectedOperation = ...`) are fine for
+ * one-line writes in event handlers; the wrappers exist to centralize
+ * the multi-step sequences (e.g. `beginToolboxDrag` sets two fields
+ * together) so they aren't reinvented inconsistently.
  */
 
 /**
@@ -116,8 +105,7 @@ export function trackTemporaryDropzone(
 /**
  * Remove every tracked temporary dropzone from its parent node and
  * clear the tracking list. Safe to call when the list is already
- * empty. The only DOM-touching function in this module — pure-data
- * tests don't need to exercise it.
+ * empty. The only DOM-touching function in this module.
  */
 export function clearTemporaryDropzones(state: InteractionState): void {
   for (const dz of state.temporaryDropzones) {

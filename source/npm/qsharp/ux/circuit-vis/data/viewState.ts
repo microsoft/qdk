@@ -7,50 +7,37 @@ import { ComponentGrid } from "./circuit.js";
  * Per-session view preferences that survive `Sqore.renderCircuit()`
  * but are NOT persisted to the saved circuit (`.qsc`) file.
  *
- * # The third state layer
+ * The editor has three state layers with different lifetimes:
  *
- * The editor has three distinct kinds of state, each with a different
- * lifetime:
+ * | Layer              | Lifetime               | Persisted? | Owner              |
+ * | ------------------ | ---------------------- | ---------- | ------------------ |
+ * | `CircuitModel`     | The circuit's lifetime | Yes (.qsc) | Action layer       |
+ * | `ViewState`        | The editor session     | No         | View layer (Sqore) |
+ * | `InteractionState` | A single gesture       | No         | Action layer       |
  *
- * | Layer            | Lifetime                  | Persisted? | Owner             |
- * | ---------------- | ------------------------- | ---------- | ----------------- |
- * | `CircuitModel`   | The circuit's lifetime    | Yes (.qsc) | Action layer      |
- * | `ViewState`      | The editor session        | No         | View layer (Sqore)|
- * | `InteractionState` | A single gesture        | No         | Action layer      |
- *
- * `ViewState` is for things the user expects to remain stable as they
- * edit the circuit but does NOT belong in the file. The motivating
- * case is per-group expand/collapse: the user expands a group, makes
- * a few edits, and reasonably expects the group to still be expanded
- * afterward — but two checkouts of the same `.qsc` from different
- * machines should not differ in expansion state.
+ * `ViewState` holds state the user expects to stay stable while
+ * editing but that doesn't belong in the file — chiefly per-group
+ * expand/collapse.
  *
  * # Override semantics
  *
- * `ViewState` only stores **explicit user choices**. Default
- * expansion (depth-based via `renderDepth`, single-op auto-expand,
- * classically-controlled groups) is computed per-render in
- * [sqore.ts](../sqore.ts). User overrides are applied after the
- * defaults via [`applyTo`](#method-applyTo), so:
+ * Only explicit user choices are stored. Default expansion is computed
+ * per-render in [sqore.ts](../sqore.ts); user overrides are applied
+ * after via [`applyTo`](#method-applyTo):
  *
- *   - Absent entry → defaults win (today's behavior, unchanged).
+ *   - Absent entry → defaults win.
  *   - `true` entry → expanded, even if the default would collapse.
  *   - `false` entry → collapsed, even if the default would expand.
  *
  * # Position stability
  *
- * Entries are keyed by the op's hierarchical location string
- * (e.g. `"0,0-1,2"`), but locations are not stable under edits
- * that splice columns or grids. To keep user overrides attached
- * to the right op as the user drags gates around, the View layer
- * (`Sqore`) snapshots an `op → location` map after every render
- * and calls [`rebase`](#method-rebase) at the start of the next
- * render to migrate keys forward via object identity. See
- * [sqore.ts](../sqore.ts).
- *
- * External tree replacement (`Sqore.updateCircuit`) destroys the
- * identity link between old and new ops; the snapshot is dropped
- * there and the next render starts fresh.
+ * Entries are keyed by the op's location string (e.g. `"0,0-1,2"`),
+ * which is not stable under edits that splice columns or grids. The
+ * View layer (`Sqore`) snapshots an `op → location` map each render
+ * and calls [`rebase`](#method-rebase) on the next render to migrate
+ * keys forward by object identity. External tree replacement
+ * (`Sqore.updateCircuit`) breaks that identity link, so the snapshot
+ * is dropped and the next render starts fresh.
  */
 export class ViewState {
   /**
@@ -63,10 +50,9 @@ export class ViewState {
    * Record the user's choice to expand or collapse the op at
    * `location`. Idempotent.
    *
-   * Collapsing also clears any explicit overrides on descendants of
-   * `location` so that re-expanding later doesn't auto-spring
-   * previously-expanded children back open. (This matches the
-   * original `collapseOperation` semantics in [sqore.ts](../sqore.ts).)
+   * Collapsing also clears explicit overrides on descendants of
+   * `location`, so re-expanding later doesn't auto-spring
+   * previously-expanded children back open.
    */
   setExpanded(location: string, expanded: boolean): void {
     this.expanded.set(location, expanded);
@@ -91,33 +77,25 @@ export class ViewState {
    * Rewrite expansion keys via an old → new location mapping.
    *
    * For each existing entry at `oldKey`:
-   *   - `remap.get(oldKey) === <string>` → rekey to that string
-   *     (drop `oldKey`, set the new key to the same value).
+   *   - `remap.get(oldKey) === <string>` → rekey to that string.
    *   - `remap.get(oldKey) === null` → drop the entry (op is no
-   *     longer present in the grid).
-   *   - `remap.has(oldKey) === false` → leave unchanged (the caller
-   *     had no information about this op; safest is to keep the
-   *     entry rather than guess).
+   *     longer in the grid).
+   *   - `remap.has(oldKey) === false` → leave unchanged (no info
+   *     about this op; keep rather than guess).
    *
-   * The View layer ([sqore.ts](../sqore.ts)) calls this on every
-   * render to track ops whose locations shifted due to upstream
-   * edits (drag-and-drop, gate insertion, qubit-line edits, etc.).
-   * The remap is computed by object identity against a snapshot
-   * taken at the previous render, so unmoved ops keep their key
-   * even when their string location number would otherwise drift.
-   *
-   * Idempotent against a fixed-point remap (a remap whose new keys
-   * map to themselves on the next call). Collisions (two old keys
-   * mapping to the same new key) are not expected from Sqore's
-   * caller; if they happen, later writes overwrite earlier ones.
+   * The View layer ([sqore.ts](../sqore.ts)) calls this each render to
+   * track ops whose locations shifted due to upstream edits. The
+   * remap is computed by object identity against the previous
+   * render's snapshot, so unmoved ops keep their key even when their
+   * string location would otherwise drift. Idempotent against a
+   * fixed-point remap; on key collisions, later writes win.
    */
   rebase(remap: ReadonlyMap<string, string | null>): void {
     // Build the rebased map in a fresh container, then swap it in.
-    // Doing it in two passes (read-only iteration over the current
-    // entries, then atomic replacement) is what makes key chains
-    // (`a → b`, `b → c`) and key swaps (`a → b`, `b → a`) behave
-    // correctly — an in-place rekey would clobber an entry mid-walk
-    // before its own rename had a chance to run.
+    // Two passes (read-only iteration, then atomic replacement) is
+    // what makes key chains (`a → b`, `b → c`) and key swaps
+    // (`a → b`, `b → a`) correct — an in-place rekey would clobber
+    // an entry before its own rename had a chance to run.
     const next = new Map<string, boolean>();
     for (const [oldKey, value] of this.expanded) {
       if (!remap.has(oldKey)) {
@@ -139,7 +117,7 @@ export class ViewState {
    * string has a `ViewState.expanded` entry, sets
    * `dataAttributes.expanded` to `"true"` / `"false"` accordingly.
    *
-   * Should be called AFTER the per-render default-expansion passes
+   * Call AFTER the per-render default-expansion passes
    * (`expandOperationsToDepth`, `expandIfSingleOperation`) so user
    * overrides win.
    *

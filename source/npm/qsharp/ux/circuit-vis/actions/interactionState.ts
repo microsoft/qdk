@@ -4,40 +4,33 @@
 import { Operation } from "../data/circuit.js";
 
 /**
- * `InteractionState` — ephemeral session state for the circuit editor.
+ * `InteractionState` — ephemeral session state for the circuit editor;
+ * the Action layer's state container in the Data / Action / View
+ * architecture. Holds the mutable fields read and written by the
+ * editor's pointer/keyboard handlers.
  *
- * This is the **Action layer's state container** in the three-layer
- * architecture (Data / Action / View) It collects the
- * loose mutable fields read and written by every pointer/keyboard
- * handler in the editor.
+ * Kept distinct from [`CircuitModel`](circuitModel.ts) because none of
+ * these fields belong in saved circuit JSON.
  *
- * **Distinct from [`CircuitModel`](circuitModel.ts) on purpose** —
- * neither `selectedOperation` nor `dragging` belongs in saved circuit
- * JSON. Keeping them in a separate type makes that boundary obvious
- * and prevents accidental round-tripping through serialization.
+ * Two field lifetimes are mixed here:
  *
- * Transient vs. persistent fields. Two lifetimes mixed in one object:
- *
- *   - **Persistent** — `selectedOperation` survives across the
- *     `resetTransient` reset that fires on every mouseup. The
- *     selection persists so that the context menu (which is built
- *     against the most-recently-mousedown'd op) can still find its
- *     target after the menu opens. Cleared explicitly by callers.
+ *   - **Persistent** — `selectedOperation` survives the
+ *     `resetTransient` reset on mouseup, so the context menu can find
+ *     its target after opening. Cleared explicitly by callers.
  *   - **Transient** — `selectedWire`, `movingControl`,
  *     `mouseUpOnCircuit`, `dragging`, `disableLeftAutoScroll`,
- *     `temporaryDropzones`. Reset between drags. Owned by the
- *     in-flight gesture, not the user's selection.
+ *     `temporaryDropzones`. Owned by the in-flight gesture; reset
+ *     between drags.
  *
- * The fields are public for direct read/write from event handlers in
- * `events.ts`. State *mutations* with non-trivial logic go through
+ * Fields are public for direct read/write from event handlers in
+ * `events.ts`. Mutations with non-trivial logic go through
  * [interactionActions.ts](interactionActions.ts) so that
  * `CircuitEvents` doesn't need to know how to e.g. tear down
  * temporary dropzones.
  *
- * **Why no methods on this class.** The roadmap pushes us toward a
- * pure data + free-function pattern (mirrors `CircuitModel` +
- * `circuitActions.ts`). It also keeps unit tests trivial — see
- * [test/interactionActions.test.mjs](../../test/interactionActions.test.mjs).
+ * No methods on this class: it's pure data paired with the free
+ * functions in `interactionActions.ts` (mirroring `CircuitModel` +
+ * `circuitActions.ts`), which keeps unit tests trivial.
  */
 export class InteractionState {
   /**
@@ -68,7 +61,7 @@ export class InteractionState {
    * `true` once a mouseup is received over the circuit SVG itself
    * (vs. outside the canvas). Used by `documentMouseupHandler` to
    * distinguish "dropped on canvas" from "dragged out and dropped"
-   * — the latter triggers the delete-on-release behavior. Transient.
+   * (which triggers delete-on-release). Transient.
    */
   mouseUpOnCircuit: boolean = false;
 
@@ -91,15 +84,9 @@ export class InteractionState {
   /**
    * DOM elements added during a drag (per-op multi-target dropzones,
    * qubit-line dropzones) that need to be removed on mouseup. Owned
-   * by `InteractionState` because their lifetime exactly matches the
-   * gesture; cleared by [`clearTemporaryDropzones`](interactionActions.ts).
-   *
-   * Holding DOM refs here is a deliberate compromise — the
-   * alternative is putting them on `CircuitEvents` (the View layer),
-   * which forks "transient state owned by the gesture" across two
-   * objects. The unit-test cost is small: `clearTemporaryDropzones`
-   * is the only function that touches the DOM, and tests for the
-   * pure-data resets work without it.
+   * here because their lifetime matches the gesture; cleared by
+   * [`clearTemporaryDropzones`](interactionActions.ts), the only
+   * function in the Action layer that touches the DOM.
    */
   temporaryDropzones: SVGElement[] = [];
 }
