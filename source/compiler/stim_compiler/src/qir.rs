@@ -328,8 +328,6 @@ pub enum Error {
 
 struct Compiler<'noise> {
     writer: QirWriter,
-    last_preselect_begin: Option<u32>,
-    num_preselect_expects: u32,
     noise: &'noise mut NoiseConfig<f64, f64>,
     current_correlated_group: Option<CorrelatedGroup>,
     num_noise_intrinsics: u32,
@@ -340,8 +338,6 @@ impl<'noise> Compiler<'noise> {
     fn new(noise: &'noise mut NoiseConfig<f64, f64>) -> Self {
         Self {
             writer: QirWriter::new(),
-            last_preselect_begin: None,
-            num_preselect_expects: 0,
             noise,
             current_correlated_group: None,
             num_noise_intrinsics: 0,
@@ -740,11 +736,6 @@ impl<'noise> Compiler<'noise> {
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
             | "TICK" => (),
 
-            // Custom Instructions
-            "!rhai" => (),
-            "#!preselect_begin" => self.compile_preselect_begin(),
-            "#!preselect_expect" => self.compile_preselect_expect(instruction),
-
             _ => self.unknown(instruction),
         }
     }
@@ -900,67 +891,6 @@ impl<'noise> Compiler<'noise> {
             }
             self.finish_correlated_group(); // one independent 2-qubit table per pair
         }
-    }
-
-    fn compile_preselect_begin(&mut self) {
-        self.last_preselect_begin = match self.last_preselect_begin {
-            None => Some(0),
-            Some(n) => Some(n + 1),
-        };
-        let id = self
-            .last_preselect_begin
-            .expect("last_preselect_begin was just set to Some above");
-        let label = format!("preselect_begin_{id}");
-        self.writer.write_jump(&label); // terminate the previous block
-        self.writer.write_label(&label); // start the new block
-    }
-
-    fn compile_preselect_expect(&mut self, instruction: &Instruction) {
-        self.unsupported_args(instruction); // Temporary error
-        let id = self
-            .last_preselect_begin
-            .expect("PRESELECT_EXPECT must be preceded by a PRESELECT_BEGIN");
-        let reg = format!("preselect_r{}", self.num_preselect_expects);
-        self.num_preselect_expects += 1;
-
-        // First target: a measurement record (`rec[-N]`) selecting which result to read.
-        let Some(offset) = self.expect_measurement_record(instruction, &instruction.targets[0])
-        else {
-            return;
-        };
-        // Second target: the expected value (0 or 1) as a plain uint.
-        let Some(expected) = self.expect_qubit(instruction, &instruction.targets[1]) else {
-            return;
-        };
-
-        // `rec[-N]` references the N-th most recent measurement; guard against integer underflow
-        let Some(result_id) = self.writer.num_results.checked_sub(offset) else {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: instruction.targets[0].span,
-            });
-            return;
-        };
-
-        // Read the result into %reg
-        self.writer
-            .write_read_result(&reg, Operand::ExistingResult(result_id));
-
-        let begin_label = format!("preselect_begin_{id}");
-        let continue_label = format!("preselect_continue_{id}");
-
-        // Branch: if result matches expected → continue, else → retry
-        if expected == 0 {
-            // expected 0: if read is true (1) → mismatch → retry
-            self.writer
-                .write_branch(&reg, &begin_label, &continue_label);
-        } else {
-            // expected 1: if read is true (1) → match → continue
-            self.writer
-                .write_branch(&reg, &continue_label, &begin_label);
-        }
-
-        self.writer.write_label(&continue_label);
     }
 
     fn accumulate_correlated_error(&mut self, instruction: &Instruction) {
