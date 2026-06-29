@@ -204,3 +204,32 @@ def test_context_released_after_drop() -> None:
     del ctx
     gc.collect()
     assert ref() is None
+
+
+def test_config(context: qdk.Context) -> None:
+    context.set_config("int_config", 123)
+    assert context.eval("""Std.Diagnostics.GetConfig("int_config",0)""") == 123
+
+    context.set_config("bool_config", True)
+    assert context.eval("""Std.Diagnostics.GetConfig("bool_config",true)""") is True
+
+    context.set_config("string_config", "value")
+    assert context.eval("""Std.Diagnostics.GetConfig("string_config","")""") == "value"
+
+    context.set_config("double_config", 124.1)
+    assert context.eval("""Std.Diagnostics.GetConfig("double_config",0.0)""") == 124.1
+
+    # Default values.
+    assert context.eval("""Std.Diagnostics.GetConfig("unknown", "foo")""") == "foo"
+    assert context.eval("""Std.Diagnostics.GetConfig("unknown", false)""") is False
+    assert context.eval("""Std.Diagnostics.GetConfig("unknown", 12)""") == 12
+    assert context.eval("""Std.Diagnostics.GetConfig("unknown", 12.0)""") == 12.0
+
+    # Can overwrite an existing value.
+    context.set_config("int_config", 100)
+    assert context.eval("""Std.Diagnostics.GetConfig("int_config",0)""") == 100
+
+
+def test_config_invalid_type(context: qdk.Context) -> None:
+    with pytest.raises(TypeError):
+        context.set_config("invalid", {"a": 1})

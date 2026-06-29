@@ -121,6 +121,46 @@ mod given_interpreter {
         }
 
         #[test]
+        fn config_values_are_available_via_get_config() {
+            let mut interpreter = get_interpreter();
+
+            // Integer config.
+            interpreter.set_config("int_config", Value::Int(123));
+            let (result, output) =
+                line(&mut interpreter, "Std.Diagnostics.GetConfig(\"int_config\", 0)");
+            is_only_value(&result, &output, &Value::Int(123));
+
+            // Boolean config.
+            interpreter.set_config("bool_config", Value::Bool(true));
+            let (result, output) =
+                line(&mut interpreter, "Std.Diagnostics.GetConfig(\"bool_config\", false)");
+            is_only_value(&result, &output, &Value::Bool(true));
+
+            // String config.
+            interpreter.set_config("string_config", Value::String("value".into()));
+            let (result, output) =
+                line(&mut interpreter, "Std.Diagnostics.GetConfig(\"string_config\", \"\")");
+            is_only_value(&result, &output, &Value::String("value".into()));
+
+            // Double config.
+            interpreter.set_config("double_config", Value::Double(124.1));
+            let (result, output) =
+                line(&mut interpreter, "Std.Diagnostics.GetConfig(\"double_config\", 0.0)");
+            is_only_value(&result, &output, &Value::Double(124.1));
+
+            // Default value.
+            let (result, output) =
+                line(&mut interpreter, "Std.Diagnostics.GetConfig(\"unknown\", 15)");
+            is_only_value(&result, &output, &Value::Int(15));
+
+            // Can overwrite an existing value.
+            interpreter.set_config("int_config", Value::Int(100));
+            let (result, output) =
+                line(&mut interpreter, "Std.Diagnostics.GetConfig(\"int_config\", 0)");
+            is_only_value(&result, &output, &Value::Int(100));
+        }
+
+        #[test]
         fn let_bindings_update_interpreter() {
             let mut interpreter = get_interpreter();
             line(&mut interpreter, "let y = 7;")

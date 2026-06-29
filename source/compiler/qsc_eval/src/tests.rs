@@ -17,6 +17,7 @@ use qsc_fir::fir::{PackageId, PackageStoreLookup};
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
+use rustc_hash::FxHashMap;
 
 /// Evaluates the given control flow graph with the given context.
 /// Creates a new environment and simulator.
@@ -36,6 +37,7 @@ pub(super) fn eval_graph(
         graph,
         exec_graph_config,
         None,
+        FxHashMap::default(),
         ErrorBehavior::FailOnError,
     );
     let StepResult::Return(value) = state.eval(

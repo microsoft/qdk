@@ -1234,6 +1234,7 @@ impl<'a> PartialEvaluator<'a> {
             exec_graph,
             ExecGraphConfig::NoDebug,
             None,
+            FxHashMap::default(),
             ErrorBehavior::FailOnError,
         );
         let classical_result = state.eval(

@@ -279,11 +279,40 @@ pub fn eval<B: Backend>(
     sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
+    eval_with_config(
+        package,
+        seed,
+        exec_graph,
+        exec_graph_config,
+        globals,
+        env,
+        sim,
+        receiver,
+        &FxHashMap::default(),
+    )
+}
+
+/// Evaluates the given code with the given context and config map.
+/// # Errors
+/// Returns the first error encountered during execution.
+#[allow(clippy::too_many_arguments)]
+pub fn eval_with_config<B: Backend>(
+    package: PackageId,
+    seed: Option<u64>,
+    exec_graph: ExecGraph,
+    exec_graph_config: ExecGraphConfig,
+    globals: &impl PackageStoreLookup,
+    env: &mut Env,
+    sim: &mut TracingBackend<'_, B>,
+    receiver: &mut impl Receiver,
+    config_map: &FxHashMap<Rc<str>, Value>,
+) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(
         package,
         exec_graph,
         exec_graph_config,
         seed,
+        config_map.clone(),
         ErrorBehavior::FailOnError,
     );
     let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
@@ -310,11 +339,42 @@ pub fn invoke<B: Backend>(
     callable: Value,
     args: Value,
 ) -> Result<Value, (Error, Vec<Frame>)> {
+    invoke_with_config(
+        package,
+        seed,
+        globals,
+        exec_graph_config,
+        env,
+        sim,
+        receiver,
+        callable,
+        args,
+        &FxHashMap::default(),
+    )
+}
+
+/// Evaluates the given callable with the given context and config map.
+/// # Errors
+/// Returns the first error encountered during execution.
+#[allow(clippy::too_many_arguments)]
+pub fn invoke_with_config<B: Backend>(
+    package: PackageId,
+    seed: Option<u64>,
+    globals: &impl PackageStoreLookup,
+    exec_graph_config: ExecGraphConfig,
+    env: &mut Env,
+    sim: &mut TracingBackend<'_, B>,
+    receiver: &mut impl Receiver,
+    callable: Value,
+    args: Value,
+    config_map: &FxHashMap<Rc<str>, Value>,
+) -> Result<Value, (Error, Vec<Frame>)> {
     let mut state = State::new(
         package,
         ExecGraph::default(),
         exec_graph_config,
         seed,
+        config_map.clone(),
         ErrorBehavior::FailOnError,
     );
     // Push the callable value into the state stack and then the args value so they are ready for evaluation.
@@ -596,6 +656,7 @@ pub struct State {
     call_stack: CallStack,
     current_span: Span,
     rng: RefCell<StdRng>,
+    config_map: FxHashMap<Rc<str>, Value>,
     call_counts: FxHashMap<CallableCountKey, i64>,
     qubit_counter: Option<QubitCounter>,
     dirty_qubits: FxHashSet<usize>,
@@ -611,6 +672,7 @@ impl State {
         exec_graph: ExecGraph,
         exec_graph_config: ExecGraphConfig,
         classical_seed: Option<u64>,
+        config_map: FxHashMap<Rc<str>, Value>,
         error_behavior: ErrorBehavior,
     ) -> Self {
         let rng = match classical_seed {
@@ -628,6 +690,7 @@ impl State {
             call_stack: CallStack::default(),
             current_span: Span::default(),
             rng,
+            config_map,
             call_counts: FxHashMap::default(),
             qubit_counter: None,
             dirty_qubits: FxHashSet::default(),
@@ -1378,6 +1441,7 @@ impl State {
                     &call_stack,
                     sim,
                     &mut self.rng.borrow_mut(),
+                    &self.config_map,
                     out,
                 )?;
                 if val == Value::unit() && callee.output != Ty::UNIT {
