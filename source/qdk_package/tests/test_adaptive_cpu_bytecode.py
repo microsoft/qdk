@@ -2114,7 +2114,7 @@ def test_pauli_noise_with_qubit_immediates():
     )
     noise = NoiseConfig()
     noise.z.x = 1.0
-    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    results = run_qir(qir, SHOTS, noise, seed=42, type="cpu")
     counts = Counter(map_result_list_to_str(r) for r in results)
     assert counts == {"1": SHOTS}, f"Expected all {SHOTS} shots to be '1', got {counts}"
 
@@ -2128,6 +2128,6 @@ def test_pauli_noise_with_qubit_registers():
     )
     noise = NoiseConfig()
     noise.z.x = 1.0
-    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    results = run_qir(qir, SHOTS, noise, seed=42, type="cpu")
     counts = Counter(map_result_list_to_str(r) for r in results)
     assert counts == {"1": SHOTS}, f"Expected all {SHOTS} shots to be '1', got {counts}"
