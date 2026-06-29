@@ -839,7 +839,7 @@ def test_qasm_estimate_succeeds_for_dynamic_bool_program_rejected_by_compile() -
         """
 
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfDynamicBool"):
-        compile(source)
+        compile(source, target_profile=TargetProfile.Base)
 
     res = estimate(source)
 

@@ -326,7 +326,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             // A 1-qubit gate has a single operand; if it is lost there is no
             // surviving qubit to receive Pauli noise, so skip the noise.
             if (!has_lost_operand) {
-                apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, op.q1);
             }
             return;
         } else {
@@ -335,7 +335,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 // the attached Pauli noise to the surviving operand (if any).
                 apply_2q_pauli_noise_on_survivor(shot_idx, op_idx, pauli_op_idx, op.q1, op.q2);
             } else {
-                apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, op.q1, op.q2);
             }
             return;
         }

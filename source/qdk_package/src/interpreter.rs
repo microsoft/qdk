@@ -188,7 +188,7 @@ pub(crate) enum TargetProfile {
     /// capabilities, as well as the optional floating-point computation
     /// extension defined by the QIR specification.
     Adaptive_RIF,
-    /// Target supports the Adaptive profile with all optional extensions.
+    /// Target supports the QIR Adaptive Profile with all QDK-supported extensions.
     Adaptive,
     /// Target supports the full set of capabilities required to run any Q# program.
     ///

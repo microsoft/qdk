@@ -1637,7 +1637,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                     // A 1-qubit gate has a single operand; if it is lost there
                     // is no surviving qubit to receive Pauli noise.
                     if (!has_lost_operand) {
-                        apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                        apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1);
                     }
                 } else {
                     if (has_lost_operand) {
@@ -1645,7 +1645,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                         // apply the noise to the surviving operand (if any).
                         apply_2q_pauli_noise_on_survivor(shot_idx, op_idx, pauli_op_idx, q1, q2);
                     } else {
-                        apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                        apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1, q2);
                     }
                 }
                 shots[shot_idx].interp.status = STATUS_RUNNING;
@@ -1700,9 +1700,9 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 // The non-adaptive path inserts Id+noise before measure; here the Id
                 // is at op_idx and the original measure op follows after noise ops
                 if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1);
                 } else {
-                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1, q2);
                 }
                 shots[shot_idx].interp.status = STATUS_RUNNING;
                 return;

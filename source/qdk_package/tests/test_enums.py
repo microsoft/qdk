@@ -28,6 +28,7 @@ def test_target_profile_serialization() -> None:
         TargetProfile.Base,
         TargetProfile.Adaptive_RI,
         TargetProfile.Adaptive_RIF,
+        TargetProfile.Adaptive,
         TargetProfile.Unrestricted,
     ]
     import pickle

@@ -362,7 +362,7 @@ pub(crate) fn compile_qasm_program_to_qir(
 
     let package_type = PackageType::Lib;
     let language_features = LanguageFeatures::default();
-    let target = user_profile.unwrap_or(pragma_profile.unwrap_or(Profile::AdaptiveRIF));
+    let target = user_profile.unwrap_or(pragma_profile.unwrap_or(Profile::Adaptive));
     let mut interpreter =
         create_interpreter_from_ast(package, source_map, target, language_features, package_type)
             .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
