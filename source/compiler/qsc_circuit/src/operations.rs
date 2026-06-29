@@ -165,7 +165,7 @@ fn get_qubit_param_info(input: &Pat) -> Vec<QubitParam> {
                 source_offset: input.span.lo,
             }];
         }
-        Ty::Array(ty) => {
+        Ty::Array(ty, size) => {
             if let Some(element_dim) = get_array_dimension(ty) {
                 let dim = element_dim + 1;
                 return vec![QubitParam {
@@ -217,7 +217,7 @@ fn get_qubit_param_info(input: &Pat) -> Vec<QubitParam> {
 fn get_array_dimension(input: &Ty) -> Option<u32> {
     match input {
         Ty::Prim(Prim::Qubit) => Some(0),
-        Ty::Array(ty) => get_array_dimension(ty).map(|d| d + 1),
+        Ty::Array(ty, _) => get_array_dimension(ty).map(|d| d + 1),
         _ => None,
     }
 }

@@ -255,7 +255,7 @@ pub(super) fn pyobj_to_value(
                 Ok(Value::Tuple(tuple.into(), None))
             }
         }
-        Ty::Array(ty) => {
+        Ty::Array(ty, _) => {
             let objs = extract_obj::<Vec<Py<PyAny>>>(py, obj, ty)?;
             let ty = &**ty;
             let mut array = Vec::new();
@@ -339,7 +339,7 @@ pub(super) fn type_ir_from_qsharp_ty(ctx: &interpret::Interpreter, ty: &Ty) -> O
             };
             Some(TypeIR::Primitive(prim))
         }
-        Ty::Array(ty) => Some(TypeIR::Array(vec![type_ir_from_qsharp_ty(ctx, ty)?])),
+        Ty::Array(ty, _) => Some(TypeIR::Array(vec![type_ir_from_qsharp_ty(ctx, ty)?])),
         Ty::Tuple(items) => {
             let mut tuple = Vec::new();
             for item in items {

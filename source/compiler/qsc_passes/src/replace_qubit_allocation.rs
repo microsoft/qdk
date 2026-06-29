@@ -10,11 +10,11 @@ use qsc_hir::{
     assigner::Assigner,
     global::Table,
     hir::{
-        Block, Expr, ExprKind, Mutability, Pat, PatKind, QubitInit, QubitInitKind, QubitSource,
-        Stmt, StmtKind,
+        Block, Expr, ExprKind, Lit, Mutability, Pat, PatKind, QubitInit, QubitInitKind,
+        QubitSource, Stmt, StmtKind,
     },
     mut_visit::{MutVisitor, walk_expr, walk_stmt},
-    ty::{Prim, Ty},
+    ty::{Prim, SizeKind, Ty},
 };
 use std::mem::take;
 
@@ -160,7 +160,10 @@ impl<'a> ReplaceQubitAllocation<'a> {
     ) -> (Expr, Vec<(IdentTemplate, Option<Expr>)>) {
         match init.kind {
             QubitInitKind::Array(size) => {
-                let gen_id = self.gen_ident(Ty::Array(Box::new(Ty::Prim(Prim::Qubit))), init.span);
+                let gen_id = self.gen_ident(
+                    Ty::Array(Box::new(Ty::Prim(Prim::Qubit)), SizeKind::Unknown),
+                    init.span,
+                );
                 let expr = gen_id.gen_local_ref(self.assigner);
                 (expr, vec![(gen_id, Some(*size))])
             }
@@ -499,10 +502,15 @@ fn create_qubit_alloc_call_expr(
     call_expr: Expr,
     array_size: Option<Expr>,
 ) -> Expr {
-    let ty = if array_size.is_none() {
-        Ty::Prim(Prim::Qubit)
+    let ty = if let Some(array_size) = array_size.as_ref() {
+        let size_kind = if let ExprKind::Lit(Lit::Int(s)) = array_size.kind {
+            SizeKind::Known(s.try_into().unwrap_or(0))
+        } else {
+            SizeKind::Unknown
+        };
+        Ty::Array(Box::new(Ty::Prim(Prim::Qubit)), size_kind)
     } else {
-        Ty::Array(Box::new(Ty::Prim(Prim::Qubit)))
+        Ty::Prim(Prim::Qubit)
     };
     Expr {
         id: assigner.next_node(),

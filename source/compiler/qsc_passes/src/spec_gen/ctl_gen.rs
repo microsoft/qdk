@@ -8,7 +8,7 @@ use qsc_data_structures::span::Span;
 use qsc_hir::{
     hir::{CallableKind, Expr, ExprKind, Functor, NodeId, Res, UnOp},
     mut_visit::{MutVisitor, walk_expr},
-    ty::{Arrow, FunctorSet, Prim, Ty},
+    ty::{Arrow, FunctorSet, Prim, SizeKind, Ty},
 };
 use thiserror::Error;
 
@@ -46,7 +46,7 @@ impl MutVisitor for CtlDistrib {
                             let input_ty = Ty::Arrow(Rc::new(Arrow {
                                 kind: CallableKind::Operation,
                                 input: RefCell::new(Ty::Tuple(vec![
-                                    Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
+                                    Ty::Array(Box::new(Ty::Prim(Prim::Qubit)), SizeKind::Unknown),
                                     arrow.input.borrow().clone(),
                                 ])),
                                 output: arrow.output.clone(),
@@ -58,13 +58,16 @@ impl MutVisitor for CtlDistrib {
                                 Expr {
                                     id: NodeId::default(),
                                     span: args.span,
-                                    ty: Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
+                                    ty: Ty::Array(
+                                        Box::new(Ty::Prim(Prim::Qubit)),
+                                        SizeKind::Unknown,
+                                    ),
                                     kind: ExprKind::Var(self.ctls, Vec::new()),
                                 },
                                 Expr::clone(args),
                             ]);
                             args.ty = Ty::Tuple(vec![
-                                Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
+                                Ty::Array(Box::new(Ty::Prim(Prim::Qubit)), SizeKind::Unknown),
                                 Ty::clone(&args.ty),
                             ]);
                             args.id = NodeId::default();

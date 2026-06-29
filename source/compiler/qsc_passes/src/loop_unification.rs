@@ -9,7 +9,7 @@ use qsc_hir::{
     global::Table,
     hir::{BinOp, Block, Expr, ExprKind, Lit, Mutability, Pat, PrimField, Stmt, StmtKind, UnOp},
     mut_visit::{MutVisitor, walk_expr},
-    ty::{GenericArg, Prim, Ty},
+    ty::{GenericArg, Prim, SizeKind, Ty},
 };
 
 use crate::CORE_NAMESPACE;
@@ -140,24 +140,35 @@ impl LoopUni<'_> {
         );
         let array_capture = array_id.gen_id_init(Mutability::Immutable, *iterable, self.assigner);
 
-        let item_ty = match &array_id.ty {
-            Ty::Array(inner) => (**inner).clone(),
+        let (item_ty, size_kind) = match &array_id.ty {
+            Ty::Array(inner, size) => ((**inner).clone(), *size),
             // If the type is not array, this is likely the special case where a short-circuiting expression is the iterable
             // and the type is thus unknown. In that case, we can just use the type of the iteration variable pattern.
-            _ => iter.ty.clone(),
+            _ => (iter.ty.clone(), SizeKind::Unknown),
         };
-        let ns = self
-            .core
-            .find_namespace(CORE_NAMESPACE.iter().copied())
-            .expect("prelude namespaces should exist");
-        let mut len_callee = create_gen_core_ref(
-            self.core,
-            ns,
-            "Length",
-            vec![GenericArg::Ty(item_ty)],
-            array_id.span,
-        );
-        len_callee.id = self.assigner.next_node();
+        let len_expr_kind = match size_kind {
+            SizeKind::Unknown => {
+                let ns = self
+                    .core
+                    .find_namespace(CORE_NAMESPACE.iter().copied())
+                    .expect("prelude namespaces should exist");
+                let mut len_callee = create_gen_core_ref(
+                    self.core,
+                    ns,
+                    "Length",
+                    vec![GenericArg::Ty(item_ty)],
+                    array_id.span,
+                );
+                len_callee.id = self.assigner.next_node();
+                ExprKind::Call(
+                    Box::new(len_callee),
+                    Box::new(array_id.gen_local_ref(self.assigner)),
+                )
+            }
+            SizeKind::Known(s) => ExprKind::Lit(Lit::Int(
+                s.try_into().expect("array size should fit in i64"),
+            )),
+        };
         let len_id = gen_ident(self.assigner, "len_id", Ty::Prim(Prim::Int), iterable_span);
         let len_capture = len_id.gen_id_init(
             Mutability::Immutable,
@@ -165,10 +176,7 @@ impl LoopUni<'_> {
                 id: self.assigner.next_node(),
                 span: array_id.span,
                 ty: Ty::Prim(Prim::Int),
-                kind: ExprKind::Call(
-                    Box::new(len_callee),
-                    Box::new(array_id.gen_local_ref(self.assigner)),
-                ),
+                kind: len_expr_kind,
             },
             self.assigner,
         );
@@ -350,7 +358,9 @@ impl MutVisitor for LoopUni<'_> {
             }
             ExprKind::For(iter, iterable, block) => {
                 match iterable.ty {
-                    Ty::Array(_) => *expr = self.visit_for_array(iter, iterable, block, expr.span),
+                    Ty::Array(_, _) => {
+                        *expr = self.visit_for_array(iter, iterable, block, expr.span);
+                    }
                     Ty::Prim(Prim::Range) => {
                         *expr = self.visit_for_range(iter, iterable, block, expr.span);
                     }

@@ -20,7 +20,7 @@ use qsc_hir::{
         PatKind, Res, SpecBody, SpecDecl, SpecGen,
     },
     mut_visit::{MutVisitor, walk_item},
-    ty::{Prim, Ty},
+    ty::{Prim, SizeKind, Ty},
 };
 use std::option::Option;
 use thiserror::Error;
@@ -187,7 +187,7 @@ impl SpecImplPass<'_> {
             Some(Pat {
                 id: NodeId::default(),
                 span: spec_decl.span,
-                ty: Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
+                ty: Ty::Array(Box::new(Ty::Prim(Prim::Qubit)), SizeKind::Unknown),
                 kind: PatKind::Bind(Ident {
                     id: ctls_id,
                     span: spec_decl.span,

@@ -295,7 +295,7 @@ struct DeprecatedAssignUpdateExpr {
 impl AstLintPass for DeprecatedAssignUpdateExpr {
     fn check_expr(&mut self, expr: &Expr, buffer: &mut Vec<Lint>, compilation: Compilation) {
         if let ExprKind::AssignUpdate(record, index, value) = expr.kind.as_ref()
-            && let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id)
+            && let Some(Ty::Array(_, _)) = compilation.compile_unit.ast.tys.terms.get(record.id)
         {
             let record_src = compilation.get_source_code(record.span);
             let index_src = compilation.get_source_code(index.span);
@@ -325,7 +325,7 @@ struct DeprecatedUpdateExpr {
 impl AstLintPass for DeprecatedUpdateExpr {
     fn check_expr(&mut self, expr: &Expr, buffer: &mut Vec<Lint>, compilation: Compilation) {
         if let ExprKind::TernOp(TernOp::Update, record, ..) = expr.kind.as_ref()
-            && let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id)
+            && let Some(Ty::Array(_, _)) = compilation.compile_unit.ast.tys.terms.get(record.id)
         {
             buffer.push(lint!(self, expr.span));
         }

@@ -15,8 +15,8 @@ use std::{
 /// A type.
 #[derive(Clone, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Ty {
-    /// An array type.
-    Array(Box<Ty>),
+    /// An array type with an optional size.
+    Array(Box<Ty>, SizeKind),
     /// An arrow type: `->` for a function or `=>` for an operation.
     Arrow(Rc<Arrow>),
     /// A placeholder type variable used during type inference.
@@ -132,7 +132,7 @@ impl Ty {
     pub fn with_package(&self, package: PackageId) -> Self {
         match self {
             Ty::Infer(_) | Ty::Param { .. } | Ty::Prim(_) | Ty::Err => self.clone(),
-            Ty::Array(item) => Ty::Array(Box::new(item.with_package(package))),
+            Ty::Array(item, size) => Ty::Array(Box::new(item.with_package(package)), *size),
             Ty::Arrow(arrow) => Ty::Arrow(Rc::new(arrow.with_package(package))),
             Ty::Tuple(items) => Ty::Tuple(
                 items
@@ -146,8 +146,12 @@ impl Ty {
 
     pub fn display(&self) -> String {
         match self {
-            Ty::Array(item) => {
-                format!("{}[]", item.display())
+            Ty::Array(item, size) => {
+                if let SizeKind::Known(s) = size {
+                    format!("{}[{s}]", item.display())
+                } else {
+                    format!("{}[]", item.display())
+                }
             }
             Ty::Arrow(arrow) => {
                 let arrow_symbol = match arrow.kind {
@@ -192,7 +196,7 @@ impl Ty {
     /// This is used to avoid "large" types that can result in hangs during type inference.
     pub fn size(&self) -> usize {
         match self {
-            Ty::Array(item) => item.size() + 1,
+            Ty::Array(item, _) => item.size() + 1,
             Ty::Arrow(arrow) => arrow.input.borrow().size() + arrow.output.borrow().size() + 1,
             Ty::Infer(_) | Ty::Err | Ty::Prim(_) | Ty::Param { .. } | Ty::Udt(_, _) => 1,
             Ty::Tuple(items) => items.iter().map(Ty::size).sum::<usize>() + 1,
@@ -203,7 +207,13 @@ impl Ty {
 impl Display for Ty {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Ty::Array(item) => write!(f, "{item}[]"),
+            Ty::Array(item, size) => {
+                if let SizeKind::Known(s) = size {
+                    write!(f, "{item}[{s}]")
+                } else {
+                    write!(f, "{item}[]")
+                }
+            }
             Ty::Arrow(arrow) => Display::fmt(arrow, f),
             Ty::Infer(infer) => Display::fmt(infer, f),
             Ty::Param { name, id, .. } => {
@@ -308,7 +318,7 @@ fn instantiate_ty<'a>(
 ) -> Result<Ty, InstantiationError> {
     match ty {
         Ty::Err | Ty::Infer(_) | Ty::Prim(_) | Ty::Udt(_, _) => Ok(ty.clone()),
-        Ty::Array(item) => Ok(Ty::Array(Box::new(instantiate_ty(arg, item)?))),
+        Ty::Array(item, size) => Ok(Ty::Array(Box::new(instantiate_ty(arg, item)?), *size)),
         Ty::Arrow(arrow) => Ok(Ty::Arrow(Rc::new(instantiate_arrow_ty(arg, arrow)?))),
         Ty::Param { id, .. } => match arg(id) {
             Some(GenericArg::Ty(ty_arg)) => Ok(ty_arg.clone()),
@@ -918,4 +928,13 @@ impl From<InferFunctorId> for usize {
     fn from(value: InferFunctorId) -> Self {
         value.0
     }
+}
+
+/// The kind of a size in the type system, indicating whether it is known to be statically sized,
+/// unknown at compile time, or yet to be inferred during type inference.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
+pub enum SizeKind {
+    #[default]
+    Unknown,
+    Known(usize),
 }
