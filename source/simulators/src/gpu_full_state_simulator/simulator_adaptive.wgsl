@@ -1623,9 +1623,9 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             // Handle Pauli noise (loss, if sampled, is recorded in pending_loss_mask)
             if pauli_op_idx != 0u {
                 if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1);
                 } else {
-                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1, q2);
                 }
                 shots[shot_idx].interp.status = STATUS_RUNNING;
                 return;
@@ -1672,9 +1672,9 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 // The non-adaptive path inserts Id+noise before measure; here the Id
                 // is at op_idx and the original measure op follows after noise ops
                 if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1);
                 } else {
-                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1, q2);
                 }
                 shots[shot_idx].interp.status = STATUS_RUNNING;
                 return;

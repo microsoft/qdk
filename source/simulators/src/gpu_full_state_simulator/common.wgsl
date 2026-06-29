@@ -332,9 +332,10 @@ fn get_pauli_noise_idx(op_idx: u32) -> u32 {
 }
 
 
-fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32, q1: u32) {
     // NOTE: Assumes that whatever prepared the program ensured that noise_op.q1 matches op.q1 and
-    // that op is a 1-qubit gate
+    // that op is a 1-qubit gate. `q1` is the resolved target qubit (may be
+    // dynamic for the adaptive interpreter, where op.q1 is only a placeholder).
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
     let noise_op = &ops[noise_idx];
@@ -373,7 +374,7 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         // sampled, schedule a loss commit for this qubit; a following
         // loss-commit op performs the measure + reset.
         if (rand < (p_x + p_z + p_y + p_loss)) {
-            shot.pending_loss_mask |= (1u << op.q1);
+            shot.pending_loss_mask |= (1u << q1);
         }
         // No noise. Set the op_type back to the op.id value if it's Id, MResetZ, MZ, or ResetZ, as they get handled specially in execute_op
         if (op.id == OPID_ID || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESETZ) {
@@ -389,11 +390,11 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     if (shot.op_type == OPID_ID || shot.op_type == OPID_RZ) {
         shot.qubits_updated_last_op_mask = 0u;
     } else {
-        shot.qubits_updated_last_op_mask = 1u << op.q1;
+        shot.qubits_updated_last_op_mask = 1u << q1;
     };
 }
 
-fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32, q1: u32, q2: u32) {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
     let noise_op = &ops[noise_idx];
@@ -427,8 +428,8 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
 
     // Schedule loss commits for any qubit whose sampled term is loss (L = 4).
     // A following loss-commit op performs the measure + reset.
-    if (q1_term == 4) { shot.pending_loss_mask |= (1u << op.q1); }
-    if (q2_term == 4) { shot.pending_loss_mask |= (1u << op.q2); }
+    if (q1_term == 4) { shot.pending_loss_mask |= (1u << q1); }
+    if (q2_term == 4) { shot.pending_loss_mask |= (1u << q2); }
 
     // A Pauli fault (X, Z, Y = 1, 2, 3) is fused into the gate by permuting its
     // rows. Loss (4) and identity (0) leave the gate unmodified for that qubit.
@@ -510,7 +511,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     if (shot.op_type == OPID_CZ || shot.op_type == OPID_RZZ) {
         shot.qubits_updated_last_op_mask = 0u;
     } else  {
-        shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+        shot.qubits_updated_last_op_mask = (1u << q1 ) | (1u << q2);
     }
 }
 
