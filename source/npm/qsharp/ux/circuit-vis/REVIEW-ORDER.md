@@ -24,8 +24,10 @@ map, and the two end-to-end flow walkthroughs). It's the map; this is
 the itinerary.
 
 Line counts below are a rough effort gauge, not a quality signal. The
-two giants — [circuitActions.ts](./actions/circuitActions.ts) (2,696)
-and [dragController.ts](./editor/controllers/dragController.ts) (997) —
+heaviest clusters — [circuitActions.ts](./actions/circuitActions.ts)
+(1,145) plus its five [circuit-actions/](./actions/circuit-actions/)
+helper modules (~1,740 combined), and
+[dragController.ts](./editor/controllers/dragController.ts) (997) —
 deserve the most time and have the heaviest test coverage backing them.
 
 ---
@@ -50,24 +52,37 @@ view prefs (`ViewState`), single-gesture (`InteractionState`, batch 2)
 
 ---
 
-## Batch 2 — Action layer (`actions/`) · ~2,930 lines
+## Batch 2 — Action layer (`actions/`) · ~3,120 lines
 
 Pure mutations against the data layer. The heart of the editor's
 correctness. [circuitActions.ts](./actions/circuitActions.ts) is the
-single largest file in the codebase — budget accordingly.
+orchestration + public-API barrel; the mechanical helpers it composes
+live in five focused modules under
+[circuit-actions/](./actions/circuit-actions/). Read those bottom-up
+first (they sit below `circuitActions.ts` in the import DAG), then the
+orchestrator — budget accordingly.
 
-| order | file                                                             | lines | what to check                                                                                                                                                                                                                                                                                                                           |
-| ----- | ---------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 6     | [actions/interactionState.ts](./actions/interactionState.ts)     | 105   | ephemeral session-state container (plain fields, no methods). Read before the controllers that mutate it                                                                                                                                                                                                                                |
-| 7     | [actions/interactionActions.ts](./actions/interactionActions.ts) | 129   | the multi-step transitions on `InteractionState` (`resetTransient`, `beginToolboxDrag`, …). Note the one DOM-touching helper, `clearTemporaryDropzones`                                                                                                                                                                                 |
-| 8     | [actions/circuitActions.ts](./actions/circuitActions.ts)         | 2,696 | **the big one.** `addOperation`/`moveOperation`/`addControl`/`removeQubit`/etc. against `CircuitModel`. Pure data, no DOM. Pay attention to the ancestor-`.targets` refresh cascade (see [circuitTargets.bench.md](../../test/circuit-editor/circuitTargets.bench.md) for _why_ the eager cache exists) and the group split/merge paths |
+| order | file                                                                             | lines | what to check                                                                                                                                                                                                                                                |
+| ----- | -------------------------------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 6     | [actions/interactionState.ts](./actions/interactionState.ts)                     | 105   | ephemeral session-state container (plain fields, no methods). Read before the controllers that mutate it                                                                                                                                                     |
+| 7     | [actions/interactionActions.ts](./actions/interactionActions.ts)                 | 129   | the multi-step transitions on `InteractionState` (`resetTransient`, `beginToolboxDrag`, …). Note the one DOM-touching helper, `clearTemporaryDropzones`                                                                                                      |
+| 8a    | [circuit-actions/gridPrimitives.ts](./actions/circuit-actions/gridPrimitives.ts) | 319   | leaf of the import DAG: column insert/remove (`addOp`/`removeOp`), sibling-overlap detection, drawn-span measurement, per-wire measurement renumbering. Depends only on Data + `utils.ts`                                                                    |
+| 8b    | [circuit-actions/ancestors.ts](./actions/circuit-actions/ancestors.ts)           | 182   | ancestor-chain capture as `(op, containingArray)` object refs taken BEFORE any mutation (location strings don't survive mid-mutation column splices)                                                                                                         |
+| 8c    | [circuit-actions/classicalRefs.ts](./actions/circuit-actions/classicalRefs.ts)   | 357   | classical-register producer/consumer analysis: the M-produces / classically-controlled-consumes graph, document-order constraints, result-index remaps                                                                                                       |
+| 8d    | [circuit-actions/derivedTargets.ts](./actions/circuit-actions/derivedTargets.ts) | 479   | the eager `.targets` cache + ancestor-refresh cascade (see [circuitTargets.bench.md](../../test/circuit-editor/circuitTargets.bench.md) for _why_ the cache is eager). Depends on 8a + 8b                                                                    |
+| 8e    | [circuit-actions/move.ts](./actions/circuit-actions/move.ts)                     | 402   | the geometry of a move: horizontal (`moveX`) + vertical (`moveY`) + rigid-unit register shifting. Depends on 8a + 8c + 8d                                                                                                                                    |
+| 8f    | [actions/circuitActions.ts](./actions/circuitActions.ts)                         | 1,145 | **the orchestrator + public barrel.** `addOperation`/`moveOperation`/`addControl`/`removeQubit`/etc. against `CircuitModel`, composing 8a–8e. Pure data, no DOM. Pay attention to the group split/merge paths and the `*WithDependents` measurement cascades |
 
 **Focus:** This is where the test suite you just reviewed points. For
 [circuitActions.ts](./actions/circuitActions.ts), cross-reference the
 [circuit-actions/](../../test/circuit-editor/circuit-actions/) test
 suite — each topic file there maps to a cluster of functions here
 (addRemove, groupMove, measurementCascade, producerOrdering, …). Verify
-every mutator keeps `.targets` authoritative on the way out.
+every mutator keeps `.targets` authoritative on the way out. The
+2,696-line monolith was split (R7) into the orchestrator plus the five
+[circuit-actions/](./actions/circuit-actions/) modules above; the
+public export surface (`addOperation`, `moveOperation`, …) is
+unchanged, so the test suite still imports the same barrel.
 
 ---
 
@@ -181,7 +196,8 @@ thread in the worker.
 
 ## Suggested checkpoints
 
-The two giants are natural stopping points. A reasonable cadence:
+The heaviest clusters (the `actions/` core and `dragController.ts`) are
+natural stopping points. A reasonable cadence:
 
 1. After **Batch 2** — you've seen the entire pure core (data +
    actions). This is the part the test suite you just reviewed

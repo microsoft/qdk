@@ -6,7 +6,7 @@ the full detail (rationale, design decisions, code references), see
 
 The roadmap has three phases:
 
-1. **Architecture refactor** (R1–R6) — foundational rework.
+1. **Architecture refactor** (R1–R7) — foundational rework.
 2. **Drag-and-drop overhaul** (Phase A/B/C + D-series bug bash) —
    making the editor actually usable.
 3. **Planned features** (#1–#9) — the authoring story users will
@@ -17,20 +17,21 @@ significant phase remaining, and the third is largely untouched.
 
 ---
 
-## [Architecture refactor (R1–R6)](CIRCUIT_EDITOR_TODO.md#architecture-refactor--prerequisite-for-further-editor-work) — complete
+## [Architecture refactor (R1–R7)](CIRCUIT_EDITOR_TODO.md#architecture-refactor--prerequisite-for-further-editor-work) — complete
 
 Three-layer **Data + Actions + View** split. Done. This is the
 foundation everything below builds on.
 
-|                                                                                                 |                                                          | Status |
-| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------ |
-| [R1](CIRCUIT_EDITOR_TODO.md#r1--layoutmap-as-a-first-class-output-of-processoperations--done)   | `LayoutMap` as first-class output of `processOperations` | ✅     |
-| [R2](CIRCUIT_EDITOR_TODO.md#r2--retry-edit-inside-groups-with-layoutmap-the-real-phase-a--done) | Editing inside groups (the real Phase A, via R1)         | ✅     |
-| [R3](CIRCUIT_EDITOR_TODO.md#r3--data-layer-circuitmodel--action-layer-circuitactions--done)     | `CircuitModel` (Data) + `CircuitActions` (Actions)       | ✅     |
-| [R3.5](CIRCUIT_EDITOR_TODO.md#r35--action-layer-interactionstate--interactionactions--done)     | `InteractionState` + `InteractionActions`                | ✅     |
-| [R4](CIRCUIT_EDITOR_TODO.md#r4--data-layer-location-value-type--done)                           | `Location` value type (replaces stringly-typed paths)    | ✅     |
-| [R5](CIRCUIT_EDITOR_TODO.md#r5--view-layer-split-circuitevents-into-focused-controllers--done)  | Split `CircuitEvents` into focused controllers           | ✅     |
-| [R6](CIRCUIT_EDITOR_TODO.md#r6--view-layer-editor-overlay--done)                                | Editor overlay (separate `<g class="editor-overlay">`)   | ✅     |
+|                                                                                                 |                                                           | Status |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ------ |
+| [R1](CIRCUIT_EDITOR_TODO.md#r1--layoutmap-as-a-first-class-output-of-processoperations--done)   | `LayoutMap` as first-class output of `processOperations`  | ✅     |
+| [R2](CIRCUIT_EDITOR_TODO.md#r2--retry-edit-inside-groups-with-layoutmap-the-real-phase-a--done) | Editing inside groups (the real Phase A, via R1)          | ✅     |
+| [R3](CIRCUIT_EDITOR_TODO.md#r3--data-layer-circuitmodel--action-layer-circuitactions--done)     | `CircuitModel` (Data) + `CircuitActions` (Actions)        | ✅     |
+| [R3.5](CIRCUIT_EDITOR_TODO.md#r35--action-layer-interactionstate--interactionactions--done)     | `InteractionState` + `InteractionActions`                 | ✅     |
+| [R4](CIRCUIT_EDITOR_TODO.md#r4--data-layer-location-value-type--done)                           | `Location` value type (replaces stringly-typed paths)     | ✅     |
+| [R5](CIRCUIT_EDITOR_TODO.md#r5--view-layer-split-circuitevents-into-focused-controllers--done)  | Split `CircuitEvents` into focused controllers            | ✅     |
+| [R6](CIRCUIT_EDITOR_TODO.md#r6--view-layer-editor-overlay--done)                                | Editor overlay (separate `<g class="editor-overlay">`)    | ✅     |
+| [R7](CIRCUIT_EDITOR_TODO.md#r7--action-layer-split-the-monolithic-circuitactions-file--done)    | Split `circuitActions.ts` into `circuit-actions/` modules | ✅     |
 
 ---
 

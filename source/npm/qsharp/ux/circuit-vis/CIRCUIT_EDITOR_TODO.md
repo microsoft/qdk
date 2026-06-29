@@ -63,7 +63,8 @@ feature can land cleanly.
 These are the architectural pain points discovered while reading
 [sqore.ts](sqore.ts), [events.ts](editor/events.ts), [draggable.ts](editor/draggable.ts),
 [process.ts](renderer/process.ts), [circuitActions.ts](actions/circuitActions.ts)
-(formerly `circuitManipulation.ts`, renamed/restructured in R3),
+(formerly `circuitManipulation.ts`, renamed in R3, split into
+[circuit-actions/](actions/circuit-actions/) modules in R7),
 and [utils.ts](utils.ts). Re-verify before changing any of them.
 
 1. **Geometry is computed twice and recovered approximately.**
@@ -802,6 +803,58 @@ the drag-end cleanup that hides the dropzone/ghost layers via
   overlay with semi-transparent fills to visualize dropzones
   without re-rendering the whole circuit.
 
+##### R7 — Action layer: split the monolithic `circuitActions` file ✅ DONE
+
+Status: complete. All 132 action-layer tests still pass — the split is
+internal to the Action layer and the public export surface
+(`addOperation`, `moveOperation`, `addControl`, …) is unchanged, so
+[the circuit-actions/ suite](../../test/circuit-editor/circuit-actions/)
+imports the same barrel and didn't need to change.
+
+**Why.** `circuitActions.ts` had grown to 2,696 lines — the single
+largest file in the codebase. The mechanical helpers (column splicing,
+overlap resolution, the `.targets` cascade, move geometry, classical-ref
+analysis) were file-private (`_`-prefixed) and interleaved with the
+high-level orchestration, making the file hard to navigate and review.
+
+**Delivered:**
+
+1. The 2,696-line monolith is now a 1,145-line **orchestration +
+   public-API** file. The mechanical helpers moved into five focused
+   leaf modules under a new
+   [circuit-actions/](actions/circuit-actions/) subfolder, ordered
+   bottom-up by the import DAG:
+   - [gridPrimitives.ts](actions/circuit-actions/gridPrimitives.ts)
+     (319) — low-level column insert/remove, sibling-overlap detection,
+     drawn-span measurement, per-wire measurement renumbering. Depends
+     only on the Data layer + `utils.ts`; sits at the bottom of the DAG.
+   - [ancestors.ts](actions/circuit-actions/ancestors.ts) (182) —
+     ancestor-chain capture as `(op, containingArray)` object
+     references taken before any mutation.
+   - [classicalRefs.ts](actions/circuit-actions/classicalRefs.ts)
+     (357) — classical-register producer/consumer analysis.
+   - [derivedTargets.ts](actions/circuit-actions/derivedTargets.ts)
+     (479) — the eager `.targets` cache and ancestor-refresh cascade.
+     Depends on `gridPrimitives` + `ancestors`.
+   - [move.ts](actions/circuit-actions/move.ts) (402) — horizontal /
+     vertical move geometry + rigid-unit register shifting. Depends on
+     `gridPrimitives`, `classicalRefs`, `derivedTargets`.
+2. Helpers now imported across module boundaries dropped their `_`
+   prefix (the prefix had signified "module-private"): `addOp`,
+   `removeOp`, `doesOverlap`, `moveX`, `moveY`, `resolveSpanChange`,
+   `deepRefreshDerivedTargets`, `collectAncestorChain`, … Helpers that
+   remain genuinely file-private kept the `_` (e.g.
+   `_isOperationEmpty`, `_indexProducers`, `_doShift`).
+3. `circuitActions.ts` retains the public barrel unchanged — every name
+   the editor and tests import (`addOperation`, `moveOperation`,
+   `addControl`, `removeControl`, `moveQubit`, `removeQubit`,
+   `findAndRemoveOperations`, the `*WithDependents` measurement
+   orchestrators, …) is still exported from here.
+
+**Behavior preserved:** a purely structural / naming refactor — no
+logic changed, no public surface changed. The Action-layer test suite
+(which imports the barrel only) is the gate.
+
 #### What this unblocks
 
 | Planned item                         | Needs            |
@@ -826,7 +879,8 @@ controller-level work.
   way; R2+ tests should follow the new pattern.
 - **Phases are independent.** R1, R3, R4 don't depend on each
   other. R2 needs R1; R3.5 builds on R3; R5 builds on R3 + R3.5 + R4;
-  R6 builds on R5.
+  R6 builds on R5; R7 is an Action-layer-internal split, independent
+  of the View-layer phases.
 - **Preserve current behavior on every flow we don't intend to
   change.** Snapshot suite is the gate.
 - **No drive-by refactors.** This _is_ the refactor. Resist
