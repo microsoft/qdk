@@ -88,6 +88,10 @@ fn err_expr(span: Span) -> qsast::Expr {
     }
 }
 
+fn boxed_list_from_iter<T>(iter: impl IntoIterator<Item = T>) -> Box<[Box<T>]> {
+    iter.into_iter().map(Box::new).collect()
+}
+
 #[must_use]
 pub fn parse_and_compile_to_qsharp_ast_with_config<
     R: SourceResolver,
@@ -670,9 +674,9 @@ impl QasmCompiler {
         }
     }
 
-    fn compile_stmts(&mut self, stmts: &[Box<qdk_openqasm_parser::semantic::ast::Stmt>]) {
+    fn compile_stmts(&mut self, stmts: &[qdk_openqasm_parser::semantic::ast::Stmt]) {
         for stmt in stmts {
-            let compiled_stmt = self.compile_stmt(stmt.as_ref());
+            let compiled_stmt = self.compile_stmt(stmt);
             if let Some(stmt) = compiled_stmt {
                 self.stmts.push(stmt);
             }
@@ -914,7 +918,7 @@ impl QasmCompiler {
         let block = qsast::Block {
             id: Default::default(),
             span: rhs_span,
-            stmts: list_from_iter(vec![temp_var_stmt, update_stmt, implicit_return]),
+            stmts: boxed_list_from_iter(vec![temp_var_stmt, update_stmt, implicit_return]),
         };
 
         let rhs = qsast::Expr {
@@ -962,7 +966,7 @@ impl QasmCompiler {
 
         let block = qsast::Block {
             id: qsast::NodeId::default(),
-            stmts: list_from_iter(stmts),
+            stmts: boxed_list_from_iter(stmts),
             span: stmt.span,
         };
 
@@ -977,7 +981,7 @@ impl QasmCompiler {
             .collect::<Vec<_>>();
         qsast::Block {
             id: qsast::NodeId::default(),
-            stmts: list_from_iter(stmts),
+            stmts: boxed_list_from_iter(stmts),
             span: block.span,
         }
     }
@@ -1093,9 +1097,7 @@ impl QasmCompiler {
         if let Some(annotation) = annotations
             .iter()
             .find(|annotation| Self::is_noise_intrinsic(annotation))
-            && !annotations
-                .iter()
-                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
+            && !annotations.iter().any(Self::is_simulatable_intrinsic)
         {
             attrs.push(build_attr(
                 QSHARP_QIR_INTRINSIC_ANNOTATION,
@@ -1117,7 +1119,7 @@ impl QasmCompiler {
             return_type,
             kind,
             None,
-            list_from_iter(attrs),
+            boxed_list_from_iter(attrs),
         ))
     }
 
@@ -1519,9 +1521,7 @@ impl QasmCompiler {
         if let Some(annotation) = annotations
             .iter()
             .find(|annotation| Self::is_noise_intrinsic(annotation))
-            && !annotations
-                .iter()
-                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
+            && !annotations.iter().any(Self::is_simulatable_intrinsic)
         {
             attrs.push(build_attr(
                 QSHARP_QIR_INTRINSIC_ANNOTATION,
@@ -1532,10 +1532,7 @@ impl QasmCompiler {
 
         // Determine which functors this gate needs based on how it's called.
         // Do not compile functors if we have the simulatable intrinsic annotation.
-        let functors = if annotations
-            .iter()
-            .any(|annotation| Self::is_simulatable_intrinsic(annotation))
-        {
+        let functors = if annotations.iter().any(Self::is_simulatable_intrinsic) {
             None
         } else {
             // Use the constraint solver results to determine required functors.
@@ -1561,7 +1558,7 @@ impl QasmCompiler {
             build_path_ident_ty("Unit"),
             qsast::CallableKind::Operation,
             functors,
-            list_from_iter(attrs),
+            boxed_list_from_iter(attrs),
         ))
     }
 
@@ -1761,7 +1758,7 @@ impl QasmCompiler {
                 let block_stmt = self.compile_stmt(&stmt.body)?;
                 let block = qsast::Block {
                     id: qsast::NodeId::default(),
-                    stmts: list_from_iter([block_stmt]),
+                    stmts: boxed_list_from_iter([block_stmt]),
                     span: stmt.span,
                 };
                 Some(build_while_stmt(condition, block, stmt.span))
@@ -2824,7 +2821,7 @@ impl QasmCompiler {
             .map(|(name, ast_ty, pat, sym_type)| (name, ast_ty.clone(), pat.span, sym_type))
             .collect::<Vec<_>>();
         let stmts = Self::get_argument_validation_stmts(&args);
-        let stmts = list_from_iter(stmts);
+        let stmts = boxed_list_from_iter(stmts);
         body.stmts = stmts.into_iter().chain(body.stmts).collect();
 
         Some(body)
