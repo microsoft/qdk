@@ -125,28 +125,17 @@ const formatInputs = (
     //             ╎└╌╌╌╌╌┘╎
     //             └╌╌╌╌╌╌╌┘
 
-    // Increment current height by classical register height for attached classical registers
-
     // Reserve room above the first classical sub-wire for any
     // classically-controlled group whose box top *or* box bottom
     // sits in the gap between this qubit's wire and its first
-    // classical sub-wire.
-    //
-    // Two distinct stacking rates apply:
+    // classical sub-wire. Two stacking rates apply:
     //   - Top borders carry the group label and stack at
-    //     `groupTopPadding` (= `groupBottomPadding` + label
-    //     height + label padding) per nested level. (`controlY`
-    //     for these groups is the classical sub-wire; the label
-    //     and dashed top border live just above `controlY` and
-    //     would otherwise land on top of the producing M gate
-    //     body.)
+    //     `groupTopPadding` per nested level.
     //   - Bottom borders have no label and stack at
-    //     `groupBottomPadding` per nested level (set by
-    //     `_processChildren`'s `bottomPadding` chain). They occur
-    //     when a group's `maxQubit` is a pure qubit ref and that
-    //     qubit has classical sub-wires; without reserving space
-    //     here the box bottom would cross through the qubit's
-    //     classical sub-wire.
+    //     `groupBottomPadding` per nested level. They occur when a
+    //     group's `maxQubit` is a pure qubit ref that has classical
+    //     sub-wires; without the reservation the box bottom would
+    //     cross through them.
     currY +=
       heightAboveFirstClassical * groupTopPadding +
       bottomBordersAboveFirstClassical * groupBottomPadding;

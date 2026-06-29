@@ -68,8 +68,8 @@ const formatGate = (renderData: GateRenderData): SVGElement => {
         _unitary(label, bodyX, targetsY as number[][], bodyWidth, displayArgs),
       ];
       // A classically-controlled Unitary can carry quantum controls
-      // mixed in alongside its classical refs (post-B5). Render those
-      // as standard control dots+connectors on the column center,
+      // mixed in alongside its classical refs. Render those as
+      // standard control dots+connectors on the column center,
       // attached to the unitary body box's nearest edge — not as
       // classical circles (that path is `_classicalControls`).
       const quantumControlsY = _getQuantumControlYs(renderData);
@@ -746,12 +746,11 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
 
 /**
  * Pick out the y-coords of QUANTUM controls from `controlsY`,
- * filtering out classical-ref entries. Classical refs are marked
- * by a non-undefined entry in the parallel `classicalControlIds`
- * array (numeric id, or `null` when the id couldn't be resolved
- * — B1). When `classicalControlIds` is itself absent, the op has
- * no classical refs at all and every control in `controlsY` is
- * quantum.
+ * filtering out classical-ref entries. Classical refs are marked by a
+ * non-undefined entry in the parallel `classicalControlIds` array
+ * (numeric id, or `null` when the id couldn't be resolved). When
+ * `classicalControlIds` is absent, the op has no classical refs and
+ * every control in `controlsY` is quantum.
  */
 const _getQuantumControlYs = (renderData: GateRenderData): number[] => {
   const { controlsY, classicalControlIds } = renderData;
@@ -760,22 +759,19 @@ const _getQuantumControlYs = (renderData: GateRenderData): number[] => {
 };
 
 /**
- * Emit control dots and connector lines for each quantum control
- * on a single-target unitary body that also carries classical
- * refs (the post-B5 mixed-control case in `formatGate`'s
- * `GateType.Unitary` branch). The dot sits on the control wire at
- * the body's center x; the connector runs from the dot to the
- * nearest body edge (top edge if the control is above the body,
- * bottom edge if below). A control wire that falls INSIDE the
- * body's y range gets just the dot with no connector (the wire
- * itself already passes through the body).
+ * Emit control dots and connector lines for each quantum control on a
+ * single-target unitary body that also carries classical refs (the
+ * mixed-control case in `formatGate`'s `GateType.Unitary` branch).
+ * The dot sits on the control wire at the body's center x; the
+ * connector runs from the dot to the nearest body edge (top edge if
+ * the control is above the body, bottom if below). A control wire
+ * inside the body's y range gets just the dot with no connector.
  *
  * Centerline x matches what `_controlledGate` uses for normal
- * `ControlledUnitary` gates so dots line up consistently across
- * the editor.
+ * `ControlledUnitary` gates so dots line up consistently.
  *
- * Groups (ops with `children`) do NOT use this path — quantum
- * controls on groups are rejected by the authoring layer (see
+ * Groups (ops with `children`) do NOT use this path — quantum controls
+ * on groups are rejected by the authoring layer (see
  * `_isMultiTargetOrGroup` in `circuitActions.ts`).
  */
 const _renderQuantumGroupControls = (
@@ -810,10 +806,10 @@ const _classicalControls = (
   const elems: SVGElement[] = [];
 
   for (let i = 0; i < controlsY.length; i++) {
-    // `undefined` marks a QUANTUM control entry (post-B5 mix of
-    // quantum + classical refs on the same op). Those render via
-    // the standard control-dot path elsewhere — skip here so we
-    // don't draw a stray classical circle on a qubit wire.
+    // `undefined` marks a QUANTUM control entry (a mix of quantum +
+    // classical refs on the same op). Those render via the standard
+    // control-dot path elsewhere — skip here so we don't draw a stray
+    // classical circle on a qubit wire.
     const idEntry = classicalControlIds?.[i];
     if (idEntry === undefined) continue;
 

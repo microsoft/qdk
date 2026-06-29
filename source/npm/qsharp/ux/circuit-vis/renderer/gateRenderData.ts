@@ -67,13 +67,11 @@ export interface GateRenderData {
    * Labels for the classical control registers (when present, this op
    * has at least one classical control). Aligned with `controlsY` by
    * index: a numeric entry is a classical control with a known id, a
-   * `null` entry is a classical control whose id couldn't be resolved
-   * (B1), and an `undefined` entry marks a QUANTUM control that
-   * happens to share the op's `controls` array with classical refs
-   * (possible after B5's add-control-on-classical-op fix). The
-   * formatter uses the `undefined` entries to route those controls
-   * through the standard control-dot render path instead of the
-   * classical-circle path.
+   * `null` entry is a classical control whose id couldn't be resolved,
+   * and an `undefined` entry marks a quantum control that shares the
+   * op's `controls` array with classical refs. The formatter uses the
+   * `undefined` entries to route those controls through the standard
+   * control-dot render path instead of the classical-circle path.
    */
   classicalControlIds?: (number | null | undefined)[];
   /**
@@ -88,10 +86,9 @@ export interface GateRenderData {
    * (set to `undefined`) once consumed. Not used outside `process.ts`.
    *
    * Holds the recursive `processOperations` call's `localScope` (in
-   * the child's local startX-anchored coords) and any deeper scopes
-   * already absolute. The parent's `_fillRenderDataX` shifts the local
-   * scope by the group's `offset` and merges everything into its own
-   * absolute scope accumulator.
+   * the child's local startX-anchored coords) and any deeper scopes.
+   * The parent's `_fillRenderDataX` shifts these by the group's
+   * `offset` and merges them into its absolute scope accumulator.
    */
   _childLayout?: {
     localScope: LayoutScope;

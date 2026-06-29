@@ -20,14 +20,12 @@ import { getMinGateWidth } from "../utils.js";
  * Takes in a component grid and maps the operations to `GateRenderData` objects which
  * contains information for formatting the corresponding SVG.
  *
- * Also returns layout information for this scope (the column x-offsets
- * and widths) and a map of all *child* scopes encountered while
- * recursing into expanded groups. The map's keys are the parent op's
- * location string (e.g. `"0,0"` for the children of the op at
- * top-level column 0 / opIndex 0); values are absolute coords. The
- * caller decides whether `localScope` should be merged into a wider
- * `LayoutMap` under `""` (top level) or under a parent op's location
- * after shifting by that op's `offset` (nested).
+ * Also returns layout info for this scope (column x-offsets and
+ * widths) and a map of all *child* scopes encountered while recursing
+ * into expanded groups, keyed by the parent op's location string. The
+ * caller decides whether `localScope` merges into a wider `LayoutMap`
+ * under `""` (top level) or under a parent op's location after
+ * shifting by that op's `offset` (nested).
  *
  * @param componentGrid Grid of circuit components.
  * @param registers  Mapping from qubit IDs to register render data.
@@ -52,19 +50,15 @@ const processOperations = (
   maxBottomPadding: number;
   /**
    * The local layout scope for this `processOperations` call.
-   *
-   * Coordinates are anchored at `startX` from `constants.ts` — they
-   * are absolute for the top-level call and need to be shifted by the
-   * caller's `offset` for nested calls. (See the recursion in
-   * `_fillRenderDataX`'s `GateType.Group` branch.)
+   * Coordinates are anchored at `startX` — absolute for the top-level
+   * call, and shifted by the caller's `offset` for nested calls (see
+   * `_fillRenderDataX`'s `GateType.Group` branch).
    */
   localScope: LayoutScope;
   /**
-   * Already-absolute scopes for any expanded groups encountered
-   * during this call (and recursively beneath them). Keyed by the
-   * parent op's `dataAttributes["location"]`. Does NOT include
-   * `localScope` itself — the caller is responsible for keying that
-   * appropriately.
+   * Already-absolute scopes for any expanded groups encountered during
+   * this call (and recursively beneath them). Keyed by the parent op's
+   * `dataAttributes["location"]`. Does NOT include `localScope` itself.
    */
   childScopes: Map<string, LayoutScope>;
 } => {
@@ -355,18 +349,12 @@ const _opToRenderData = (
 
   // For classically-controlled ops, include the classical-control
   // sub-wires in `targetsY` so the wire span this op claims for layout
-  // purposes matches the actual bounding-box span drawn by
-  // `_gateBoundingBox` (which already merges `targetsY` with
-  // `controlsY` for its min/max). Without this, a parent group's
-  // `_processChildren` `topY === minTargetY` check fails for nested
-  // classically-controlled children (the child's `targetsY` excludes
-  // the classical control wire, so its `minTargetY` doesn't reach the
-  // parent's `topY`), and the child's `topPadding` doesn't propagate
-  // up. That is what causes stacked nested conditionals to render box
-  // tops and labels at the same y. Mirroring the wire span into
-  // `targetsY` here lets the existing regular-group layout logic
-  // handle nested classically-controlled groups the same way it
-  // handles nested regular groups.
+  // matches the bounding-box span drawn by `_gateBoundingBox` (which
+  // merges `targetsY` with `controlsY` for its min/max). Without it, a
+  // parent group's `_processChildren` `topY === minTargetY` check
+  // fails for nested classically-controlled children and their
+  // `topPadding` doesn't propagate up, causing stacked nested
+  // conditionals to render box tops and labels at the same y.
   if (op.kind === "unitary" && op.controls) {
     const ownClassicalControlYs = op.controls
       .filter((r) => r.result != null)
@@ -392,17 +380,12 @@ const _opToRenderData = (
     // get distinct labels like `c_0` and `c_1`). When the metadata
     // is missing (hand-authored `.qsc` files, programmatically
     // built circuits), fall back to the control register's local
-    // `result` index — still meaningful info shown next to the
-    // correct sub-wire visually, even if two M's on different
-    // qubits both display `c_0`.
+    // `result` index.
     //
-    // QUANTUM controls mixed in alongside classical refs (a
-    // post-B5 possibility when the editor adds a quantum control
-    // to a classically-controlled op) get `undefined` so the
-    // formatter can route them through the standard control-dot
-    // path instead of drawing them as classical circles. `null`
-    // stays reserved for classical refs whose id couldn't be
-    // resolved (B1).
+    // Quantum controls mixed in alongside classical refs get
+    // `undefined` so the formatter routes them through the standard
+    // control-dot path instead of drawing classical circles. `null`
+    // is reserved for classical refs whose id couldn't be resolved.
     renderData.classicalControlIds =
       controls?.map((reg) => {
         if (reg.result == null) return undefined;
@@ -590,11 +573,10 @@ const _splitTargetsY = (
 
   // Qubit positions whose QUANTUM wire is itself a target — i.e.
   // a `{qubit: Q}` entry with `result == null`. The body legitimately
-  // covers these wires. Every OTHER qubit position whose wire falls
-  // strictly between two consecutive target Ys is a wire the body
-  // would visually cross without operating on — which forces a
-  // split (rule 4 below). Built from the original targets list, not
-  // the sorted copy, since membership is order-independent.
+  // covers these wires; any other qubit position whose wire falls
+  // strictly between two consecutive target Ys forces a split (rule 4
+  // below). Built from the original targets list since membership is
+  // order-independent.
   const quantumTargetPositions = new Set<number>();
   for (const t of targets) {
     if (t.result == null) {
@@ -610,21 +592,14 @@ const _splitTargetsY = (
     const pos = qIdPosition[target.qubit];
 
     // A target on a classical sub-wire (`{qubit: Q, result: N}`)
-    // sits BELOW its parent qubit's quantum wire, so transitioning
-    // from a target at position P to a classical sub-wire at
-    // position P+1 visually crosses qubit P+1's quantum wire. If
-    // P+1's wire isn't itself a quantum target, the body should
-    // split so the wire passes through the gap. This is symmetric
-    // to rule 2 ("non-adjacent qubit registers"), but rule 2's
-    // strict `pos > prevPos + 1` check misses it because the
-    // classical sub-wire shares its parent qubit's position index.
-    //
-    // Generalized form: split if there's any quantum-wire position
-    // strictly between `prevPos` (exclusive) and `pos` (inclusive
-    // when `target.result != null`, exclusive otherwise) that isn't
-    // in the quantum-target set. This same loop subsumes rule 2 for
-    // free, but we keep rule 2's explicit check above for clarity
-    // against the comment numbering.
+    // sits BELOW its parent qubit's quantum wire, so moving from a
+    // target at position P to a classical sub-wire at position P+1
+    // visually crosses qubit P+1's quantum wire. If that wire isn't
+    // itself a quantum target, split so it passes through the gap.
+    // Generalized: split if any quantum-wire position strictly
+    // between `prevPos` and `pos` (inclusive of `pos` when
+    // `target.result != null`) isn't a quantum target. This subsumes
+    // rule 2, but rule 2's explicit check is kept above for clarity.
     const upperPos = target.result == null ? pos - 1 : pos;
     let crossesUntargetedQubit = false;
     if (groups.length > 0) {
@@ -728,11 +703,10 @@ const _fillRenderDataX = (
             // LayoutMap accumulation: shift the child layout info
             // (computed in the child's local coords) by `offset`,
             // making it absolute. Key the child's `localScope` under
-            // *this* group's location — that's the scope key the
-            // editor will look up when emitting dropzones inside this
-            // group's body. Already-absolute deeper scopes also get
-            // shifted by `offset` (they were originally computed in
-            // the same child-local coordinate system).
+            // *this* group's location — the scope key the editor looks
+            // up when emitting dropzones inside this group's body.
+            // Deeper scopes are in the same child-local system, so
+            // they get shifted by `offset` too.
             const childLayout = renderData._childLayout;
             if (childLayout != null) {
               const myLocation = renderData.dataAttributes?.["location"];
