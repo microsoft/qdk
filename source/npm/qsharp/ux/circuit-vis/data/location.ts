@@ -163,7 +163,7 @@ export class Location {
    *
    * Not the same as "producer must precede consumer": ops in the same
    * column are simultaneous, not before/after. Use
-   * [`inEarlierColumnThan`](#) for that.
+   * `inEarlierColumnThan` for that.
    */
   before(other: Location): boolean {
     const n = Math.min(this.segments.length, other.segments.length);
@@ -184,7 +184,7 @@ export class Location {
    *
    * Used to enforce "producer measurement must finish before its
    * classical consumer starts" in the dropzone filter and the
-   * `moveOperation` safety net. [`before`](#) is wrong for this: two
+   * `moveOperation` safety net. `before` is wrong for this: two
    * ops in the same column are simultaneous, and a consumer promoted
    * to the producer's outer column shares that column even as a
    * sibling.

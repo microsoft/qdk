@@ -65,7 +65,7 @@ import {
  * Move an operation in the circuit.
  *
  * After the move, both the source-side and dest-side ancestor chains
- * are walked innermost-out by [`refreshAncestorTargets`](#) and each
+ * are walked innermost-out by `refreshAncestorTargets` and each
  * still-attached ancestor's derived `.targets`/`.results` is rebuilt
  * from its post-move children, maintaining the invariant that an
  * ancestor's `.targets` is the union of its descendants' wires. The
@@ -238,10 +238,10 @@ const moveOperation = (
  * Move a measurement that has downstream classical consumers,
  * propagating the effects to those consumers.
  *
- * Wraps [`moveOperation`](#) with the bookkeeping to keep the
+ * Wraps `moveOperation` with the bookkeeping to keep the
  * classical producer→consumer graph consistent. The caller (the
  * editor's prompt layer) is expected to have already:
- *   1. Called [`collectMeasurementConsumers`](#) on the M.
+ *   1. Called `collectMeasurementConsumers` on the M.
  *   2. Partitioned the result against `targetLocation` by
  *      [`Location.inEarlierColumnThan`](../data/location.ts) into
  *      survivors (their classical refs get remapped) and invalidated
@@ -373,7 +373,7 @@ const moveMeasurementWithDependents = (
  * Remove a measurement and cascade-delete every op that depends on
  * its classical outputs.
  *
- * Same handoff contract as [`moveMeasurementWithDependents`](#): the
+ * Same handoff contract as `moveMeasurementWithDependents`: the
  * prompt layer collects consumers, confirms with the user, then
  * calls this with the consumer set.
  *
@@ -638,14 +638,14 @@ const _findAndRemoveOperations = (
  * with no single canonical position to attach a quantum-control
  * connector.
  *
- * Gates [`addControl`](#) and [`removeControl`](#): the editor
+ * Gates `addControl` and `removeControl`: the editor
  * refuses to create or destroy quantum controls on such ops. Groups
  * carry classical controls only; for multi-target ops it's a
  * rendering-rule limitation. Existing quantum controls in loaded
  * `.qsc` data still render and can be dragged (the `movingControl`
  * path permutes existing controls rather than adding one).
  *
- * Mirrors the structural-shape half of [`moveAsUnit`](#).
+ * Mirrors the structural-shape half of `moveAsUnit`.
  */
 const _isMultiTargetOrGroup = (op: Operation): boolean => {
   if (op.children != null) return true;
@@ -669,7 +669,7 @@ const addControl = (
   wireIndex: number,
 ): boolean => {
   // Refuse on multi-target ops and groups by design (see
-  // [`_isMultiTargetOrGroup`](#)). Gating here covers every entry
+  // `_isMultiTargetOrGroup`). Gating here covers every entry
   // point uniformly.
   if (_isMultiTargetOrGroup(op)) return false;
   if (!op.controls) {
@@ -711,10 +711,10 @@ const removeControl = (
   op: Unitary,
   wireIndex: number,
 ): boolean => {
-  // Symmetric to [`addControl`](#): refuse on multi-target ops and
+  // Symmetric to `addControl`: refuse on multi-target ops and
   // groups by design. The `movingControl` drag path is
   // permutation-only and doesn't reach here. See
-  // [`_isMultiTargetOrGroup`](#).
+  // `_isMultiTargetOrGroup`.
   if (_isMultiTargetOrGroup(op)) return false;
   if (op.controls) {
     // Match only PURE-QUANTUM controls; a classical-ref entry on the
@@ -857,7 +857,7 @@ const moveQubit = (
  * Decrements all references on higher-numbered wires by 1 (since their
  * indices shift down) and renumbers qubit ids to match. Operations
  * that touched `qubitIdx` are **not** removed by this call — use
- * [`removeQubitWithDependents`](#) if you want the ops on the wire
+ * `removeQubitWithDependents` if you want the ops on the wire
  * stripped too.
  */
 const removeQubit = (model: CircuitModel, qubitIdx: number): void => {

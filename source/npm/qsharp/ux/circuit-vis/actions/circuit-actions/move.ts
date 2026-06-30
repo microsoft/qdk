@@ -192,13 +192,13 @@ const collectMeasurementWires = (op: Operation, set: Set<number>): void => {
  * children grid (otherwise the parent would keep claiming the
  * departed child's wires).
  *
- * Two semantics, picked per-op by [`moveAsUnit`](#):
+ * Two semantics, picked per-op by `moveAsUnit`:
  *
  * 1. **Unit-shift** for multi-wire ops (groups, SWAP, multi-qubit
  *    measurement). The grabbed wire acts as a handle: every
  *    register on the op (and recursively every register inside
  *    `children`, with external classical refs anchored — see
- *    [`shiftAllRegisters`](#)) shifts by `targetWire - sourceWire`.
+ *    `shiftAllRegisters`) shifts by `targetWire - sourceWire`.
  *    The whole op slides as a rigid unit, preserving the relative
  *    arrangement of its wires.
  *

@@ -90,7 +90,7 @@ const findAncestorChainForOp = (
 };
 
 /**
- * Like [`findAncestorChainForOp`](#) but also captures the op's own
+ * Like `findAncestorChainForOp` but also captures the op's own
  * rung. `opRung.containingArray` is the grid one level above the op
  * (the model's top-level grid for a top-level op, else the parent
  * group's `children`). Used by widening mutators (`addControl`) that
