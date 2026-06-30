@@ -3,50 +3,18 @@
 
 import { Column, ComponentGrid, Operation } from "../../data/circuit.js";
 import { CircuitModel } from "../../data/circuitModel.js";
-import {
-  getMinMaxRegIdx as getMinMaxRegIdxUtil,
-  getOperationRegisters,
-} from "../../utils.js";
+import { getMinMaxRegIdx, getOperationRegisters } from "../../utils.js";
 
 /*
  * `gridPrimitives.ts` — low-level component-grid operations shared
  * across the Action layer.
  *
- * These are the structural primitives every higher-level action is
- * built on: inserting/removing an op into a column, detecting and
- * resolving sibling-column overlaps, measuring an op's drawn span,
- * and renumbering per-wire measurement results. They depend only on
- * the Data layer (`CircuitModel` / `ComponentGrid`) and the shared
- * `utils.ts` helpers — no other Action-layer module — so they sit
- * at the bottom of the import DAG.
+ * Structural primitives every higher-level action builds on:
+ * inserting/removing an op into a column, detecting and resolving
+ * sibling-column overlaps, measuring an op's drawn span, and
+ * renumbering per-wire measurement results. Depend only on the Data
+ * layer and `utils.ts`, so they sit at the bottom of the import DAG.
  */
-
-/**
- * Get the min/max wire index of an operation's **drawn span** —
- * the wires the renderer paints a vertical connector through. Used
- * for sibling-overlap collision checks at the three sites that
- * decide whether two ops can coexist in the same column:
- * [`addOp`](#)'s pre-insert check, [`resolveOverlappingOperations`](#)'s
- * grid sweep, and [`_resolveOverlapAfterExtend`](derivedTargets.ts)'s
- * post-widening check.
- *
- * Includes classical-control registers (`result !== undefined`),
- * because the renderer draws the connector from the gate body all
- * the way down to the producing measurement's qubit wire. A sibling
- * whose target is on `q_high` but whose classical control points
- * at a measurement on `q_low` therefore occupies every wire in
- * `[q_low, q_high]` visually — a widening op that intersects ANY
- * of those wires would collide with the drawn connector even if
- * its quantum target is on a clear wire.
- *
- * Contrast with [`getQuantumWireRange`](../../utils.ts), which is the
- * right tool for "editable scope of an op" (child-drop scope,
- * shift-extend reach) but the wrong tool for collision detection —
- * those wires the classical-control connector visually occupies
- * absolutely DO collide with a sibling that overlaps them.
- */
-const getMinMaxRegIdx = (operation: Operation): [number, number] =>
-  getMinMaxRegIdxUtil(operation);
 
 /** Determines whether two register index ranges overlap. */
 const doesOverlap = (op1: [number, number], op2: [number, number]): boolean => {
@@ -68,18 +36,12 @@ const _isClassicallyControlled = (operation: Operation): boolean => {
 /**
  * Update measurement-result indices for a specific wire.
  *
- * Walks the **entire** grid tree (including nested children of
- * group ops) and renumbers every measurement on `wireIndex` in
- * document order. `model.qubits[wireIndex].numResults` is then
- * set to the total count.
- *
- * Recursing into children is essential because the renderer's
- * per-wire classical-register count comes from this counter and
- * the renderer reads ANY measurement's results — including ones
- * inside expanded groups. If a nested measurement's wire isn't
- * counted here, the renderer throws "Classical register ID N
- * invalid for qubit ID M with 0 classical register(s)" the next
- * time it tries to address the missing register.
+ * Walks the entire grid tree (including nested children) and
+ * renumbers every measurement on `wireIndex` in document order, then
+ * sets `model.qubits[wireIndex].numResults` to the total. Recursing
+ * into children is essential: the renderer reads any measurement's
+ * results, including ones inside expanded groups, and throws on an
+ * uncounted nested measurement.
  */
 const updateMeasurementLines = (model: CircuitModel, wireIndex: number) => {
   model.ensureQubitCount(wireIndex);
@@ -202,18 +164,13 @@ const moveArrayElement = <T>(arr: T[], from: number, to: number) => {
 
 /**
  * Walk `op` and every descendant to find the lowest and highest
- * **quantum** wire (i.e. registers whose `result` field is
- * undefined; classical-register entries are skipped because they
- * reference a producer's wire, not a wire `op` acts on).
- *
- * Used by `moveOperation` to refuse a unit-shift that would push
- * any wire below 0, and to know how far to grow the model on the
- * high side. Walking the subtree (not just the top-level op) is
- * essential for groups whose root `.targets` is just a derived
- * extent claim and may miss wires that only appear in deeply
- * nested children.
- *
- * Returns `[-1, -1]` if the subtree references no quantum wires.
+ * quantum wire (registers with `result` undefined; classical-ref
+ * entries are skipped, as they reference a producer's wire). Used by
+ * `moveOperation` to refuse a unit-shift that would push a wire
+ * below 0 and to know how far to grow the model. Walking the subtree
+ * matters for groups whose root `.targets` may miss deeply nested
+ * wires. Returns `[-1, -1]` if the subtree references no quantum
+ * wires.
  */
 const getSubtreeMinMaxWire = (op: Operation): [number, number] => {
   let min = Number.POSITIVE_INFINITY;
@@ -302,7 +259,6 @@ const resolveOverlappingOperationsRecursive = (grid: ComponentGrid): void => {
 export {
   addOp,
   doesOverlap,
-  getMinMaxRegIdx,
   getSubtreeMinMaxWire,
   moveArrayElement,
   removeOp,

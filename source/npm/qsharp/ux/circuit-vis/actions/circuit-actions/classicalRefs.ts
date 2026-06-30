@@ -10,59 +10,50 @@ import { findOperation, getOperationRegisters } from "../../utils.js";
  * analysis for the Action layer.
  *
  * Measurements produce classical registers; classically-controlled
- * ops consume them. Keeping that graph consistent across moves and
- * deletes (document-order constraints, cascade-deletes, result-index
- * remaps) is the job of this module. Pure grid walks over the Data
- * layer — no DOM, no dependency on the other Action-layer modules.
+ * ops consume them. This module keeps that graph consistent across
+ * moves and deletes (document-order constraints, cascade-deletes,
+ * result-index remaps). Pure grid walks over the Data layer — no DOM.
  */
 
 /**
- * Collect the set of classical-register IDs produced by any
- * measurement inside `op`'s subtree (including `op` itself). The
- * key is `"<qubit>:<result>"` because the consumer-side classical
- * control's `(qubit, result)` pair uniquely identifies the
- * classical register it reads.
+ * Collect the classical-register IDs produced by any measurement in
+ * `op`'s subtree (including `op`). Keyed `"<qubit>:<result>"`, the
+ * pair a consumer's classical control reads.
  */
-const collectInternalClassicalRegs = (
-  op: Operation,
-  set: Set<string>,
-): void => {
-  if (op.kind === "measurement") {
-    for (const r of op.results) {
-      if (r.result !== undefined) {
-        set.add(`${r.qubit}:${r.result}`);
+const collectInternalClassicalRegs = (op: Operation): Set<string> => {
+  const set = new Set<string>();
+  const walk = (o: Operation): void => {
+    if (o.kind === "measurement") {
+      for (const r of o.results) {
+        if (r.result !== undefined) {
+          set.add(`${r.qubit}:${r.result}`);
+        }
       }
     }
-  }
-  if (op.children) {
-    for (const col of op.children) {
-      for (const child of col.components) {
-        collectInternalClassicalRegs(child, set);
+    if (o.children) {
+      for (const col of o.children) {
+        for (const child of col.components) {
+          walk(child);
+        }
       }
     }
-  }
+  };
+  walk(op);
+  return set;
 };
 
 /**
- * Walk the entire grid (recursing into nested children) and build
- * a map from `"<qubit>:<result>"` to the **location string** of
- * the measurement operation that produces that classical
- * register. Locations use the same hierarchical format as the
- * rest of the editor (`"0,1"` for top level, `"0,1-2,3"` for
- * nested), which is exactly what
- * [`Location.inEarlierColumnThan`](../../data/location.ts) compares.
+ * Map every classical register to the location string of the
+ * measurement that produces it (`"<qubit>:<result>"` → location).
+ * Locations use the editor's hierarchical format (`"0,1"`,
+ * `"0,1-2,3"`), as compared by
+ * [`Location.inEarlierColumnThan`](../../data/location.ts).
  *
- * Used by `collectExternalProducerLocations` (and indirectly by
- * the dropzone-filter pass and the `moveOperation` safety net)
- * to decide whether a candidate drop target preserves the
- * "producer column strictly earlier than consumer column"
- * invariant for every classical register a moved subtree
- * consumes.
- *
- * Multiple producers for the same key shouldn't happen in a
- * well-formed circuit, but if they do the **last** one wins —
- * that's the one document-order traversal would visit most
- * recently before any consumer.
+ * Used by `collectExternalProducerLocations` (and indirectly the
+ * dropzone filter and `moveOperation` safety net) to enforce
+ * "producer column strictly earlier than consumer." If a key has
+ * multiple producers (shouldn't happen in a well-formed circuit),
+ * the last one wins.
  */
 const _indexProducers = (grid: ComponentGrid): Map<string, string> => {
   const map = new Map<string, string>();
@@ -87,30 +78,22 @@ const _indexProducers = (grid: ComponentGrid): Map<string, string> => {
 
 /**
  * For the operation at `subtreeLocation`, return the locations of
- * every measurement that produces a classical register the
- * subtree consumes — but only when that producer lives **outside**
- * the subtree.
- *
- * Why "external only". Internal producers (M lives inside the
- * moved subtree) travel with the consumer when the subtree is
- * moved as a unit, so they impose no constraint on the drop
- * target. External producers stay put, so the consumer's new
- * position must still come after each of them in document order.
+ * every measurement that produces a classical register the subtree
+ * consumes — but only producers living OUTSIDE the subtree. Internal
+ * producers travel with the consumer when the subtree moves as a
+ * unit, so they impose no drop-target constraint; external producers
+ * stay put, so the consumer's new position must come after them.
  *
  * Used by:
  *   - The dropzone-filter pass in
  *     [`DragController.onGateMouseDown`](../../editor/controllers/dragController.ts)
- *     to hide drop targets that would invert the
- *     producer-before-consumer ordering. (User-facing: invalid
- *     dropzones simply don't appear during the drag.)
- *   - The `moveOperation` safety net (refuses the move with
- *     `return null` if a producer ends up after the consumer)
- *     as a defense in depth in case a dropzone slips through.
+ *     to hide drop targets that would invert producer-before-consumer.
+ *   - The `moveOperation` safety net (returns `null` if a producer
+ *     ends up after the consumer) as defense in depth.
  *
- * Returns an empty array if the op has no classical consumers,
- * if every consumer's producer is internal, or if the subtree
- * doesn't exist. Producers whose location can't be resolved are
- * silently skipped — we can't refuse moves we can't reason about.
+ * Returns `[]` if the op has no external classical consumers or the
+ * subtree doesn't exist. Producers whose location can't be resolved
+ * are skipped.
  */
 const collectExternalProducerLocations = (
   rootGrid: ComponentGrid,
@@ -121,8 +104,7 @@ const collectExternalProducerLocations = (
 
   // Collect internal producers (their `"qubit:result"` keys) so
   // we can exclude them from the constraint check.
-  const internalProducers = new Set<string>();
-  collectInternalClassicalRegs(subtree, internalProducers);
+  const internalProducers = collectInternalClassicalRegs(subtree);
 
   // Walk the subtree and collect every classical-ref's key
   // that is NOT in the internal set.
@@ -155,60 +137,24 @@ const collectExternalProducerLocations = (
 };
 
 /**
- * For the measurement at `mLocation`, find every op anywhere in
- * the grid whose register-bearing fields hold a classical-ref
- * `(qubit, result)` that matches one of this M's `results`
- * entries — i.e. every downstream **consumer** of this M.
+ * For the measurement at `mLocation`, find every downstream
+ * consumer: any op whose register fields hold a classical-ref
+ * `(qubit, result)` matching one of this M's `results`. Returned
+ * entries pair the consumer op (object reference) with its location
+ * string. Walks into nested children; the M op itself is excluded.
  *
- * Returned entries pair the consumer op (object reference, safe
- * to hand to `findAndRemoveOperations` as a predicate target)
- * with its current location string (needed for the column-order
- * partition the prompt-builder runs against the drop target).
+ * Only `.controls` count as consumption (not `.targets`): a consumer
+ * is an op whose execution is GATED by the M's signal, which for
+ * unitaries is a `.controls` entry with `result` defined. A group's
+ * `.targets` is a derived cache that propagates a classically-
+ * controlled child's ref up into every ancestor; treating those as
+ * consumption would falsely flag every enclosing group and the
+ * cascade-delete would wipe out unrelated siblings. A classically-
+ * controlled group is still flagged correctly via its own
+ * `.controls`.
  *
- * Locations use the same hierarchical format as the rest of the
- * editor (`"0,1"` top-level, `"0,1-2,3"` nested) — same shape
- * [`Location.parse`](../../data/location.ts) consumes.
- *
- * Walks into nested children: a classically-controlled gate
- * inside an unrelated group is still a consumer; deletion /
- * remap must reach it. The M op itself is excluded — an M is
- * never its own consumer.
- *
- * # Why `.controls` only (and not `.targets`)
- *
- * A "consumer" here is an op that **logically depends** on the
- * M's classical signal — i.e. its execution is gated by that
- * signal. For unitary ops, that's exactly an entry in `.controls`
- * whose `result` is defined. We deliberately do NOT inspect
- * `.targets`:
- *
- * - For a leaf unitary, `.targets` is purely a quantum-output
- *   site; classical refs never land there.
- * - For a group op, `.targets` is a derived cache that
- *   [`getChildTargets`](../../utils.ts) rebuilds by walking the
- *   subtree and dedup-merging every descendant's registers. If
- *   the group contains a classically-controlled child, the
- *   child's classical-ref **propagates up** into every ancestor
- *   group's `.targets` cache so the renderer can draw the
- *   group's visual span down to the classical wire.
- *
- * Treating those propagated `.targets` entries as consumption
- * would falsely flag every enclosing group as a consumer. The
- * cascade-delete in
- * [`removeMeasurementWithDependents`](circuitActions.ts) would then
- * wipe out the entire ancestor group — including unrelated sibling
- * children that don't depend on the M at all.
- *
- * A classically-controlled group is still correctly flagged:
- * its OWN `.controls` carries the classical ref (the eager
- * cache propagates from there outward, not the other way
- * around). And the group is a true logical consumer — when the
- * M is gone, the group's conditional execution is meaningless,
- * so cascade-removing it (and its dependent children) is right.
- *
- * Returns `[]` if the location doesn't resolve to a measurement,
- * the measurement has no classical results, or no op in the
- * grid references those results.
+ * Returns `[]` if the location isn't a measurement, the M has no
+ * classical results, or nothing references them.
  */
 const collectMeasurementConsumers = (
   rootGrid: ComponentGrid,
@@ -231,12 +177,9 @@ const collectMeasurementConsumers = (
     g.forEach((col, ci) => {
       col.components.forEach((op, oi) => {
         const loc = prefix === "" ? `${ci},${oi}` : `${prefix}-${ci},${oi}`;
-        // Skip the M itself — but still recurse into its children
-        // (defensive: an M with children isn't a real shape today,
-        // but the walk shouldn't depend on that).
+        // Skip the M itself, but still recurse into its children.
         if (op !== mOp) {
-          // Logical consumption lives in `.controls` only — see
-          // the long-form rationale in the doc comment above.
+          // Logical consumption lives in `.controls` only.
           const controls = op.kind === "unitary" ? op.controls : undefined;
           if (controls) {
             for (const reg of controls) {

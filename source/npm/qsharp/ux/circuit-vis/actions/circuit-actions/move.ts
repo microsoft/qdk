@@ -13,14 +13,13 @@ import { refreshDerivedTargets } from "./derivedTargets.js";
 /*
  * `move.ts` — the geometry of moving an operation.
  *
- * Splits a move into its horizontal (`moveX`: which column/grid the
- * op files into) and vertical (`moveY`: which wires its registers
- * land on) components, plus the register-shifting helpers that keep a
- * multi-wire op's shape intact when it slides as a rigid unit. The
- * `moveOperation` orchestrator in `circuitActions.ts` drives these in
- * sequence and handles the surrounding ancestor/measurement
- * bookkeeping. Depends on `gridPrimitives`, `classicalRefs`, and
- * `derivedTargets`; no DOM.
+ * Splits a move into horizontal (`moveX`: which column/grid) and
+ * vertical (`moveY`: which wires) components, plus the register-
+ * shifting helpers that keep a multi-wire op's shape intact when it
+ * slides as a rigid unit. The `moveOperation` orchestrator in
+ * `circuitActions.ts` drives these and handles the surrounding
+ * ancestor/measurement bookkeeping. Depends on `gridPrimitives`,
+ * `classicalRefs`, `derivedTargets`; no DOM.
  */
 
 /**
@@ -55,31 +54,22 @@ const moveX = (
 
 /**
  * Should we move `op` as a single rigid unit (shift every register
- * by the same delta), or as a single leg (rewire just the one
- * register the user grabbed)?
+ * by the same delta), or as a single leg (rewire just the grabbed
+ * register)?
  *
- * "As a unit" applies when:
- *   - `op` is a group (has `children`). The user grabbed the box
- *     and expects the contained children to come along; rewriting
- *     the group's `.targets` to a single wire would just relocate
- *     the box and leave the children on their original wires.
- *   - `op` has more than one target/qubit in the relevant axis
- *     (e.g. SWAP, multi-qubit measurement). Single-leg behavior
- *     would collapse `targets`/`qubits` down to one wire and
- *     destroy the gate.
+ * Move as a unit when:
+ *   - `op` is a group (has `children`): the user grabbed the box and
+ *     expects the children to come along.
+ *   - `op` has more than one target/qubit in the relevant axis (SWAP,
+ *     multi-qubit measurement): single-leg would collapse it.
  *
- * Single-leg behavior is preserved for the ordinary controlled-gate
- * cases (one target + N controls) so the user can drag the target
- * or any one control independently — that's the established
- * "rewire one leg of a CNOT" interaction.
+ * Single-leg behavior covers the ordinary controlled-gate cases (one
+ * target + N controls) so the user can drag the target or any one
+ * control independently ("rewire one leg of a CNOT").
  *
  * `movingControl` takes precedence over the group check: a control
- * on a group is still a single leg (rewire just the control),
- * matching the established "drag a control to move only that
- * control" interaction. Without this short-circuit, dragging a
- * control on a group would shift the entire group as a unit and
- * the user's drop wire becomes the new group home — destroying
- * the intent of the gesture.
+ * on a group is still a single leg (rewire just the control), so
+ * dragging it doesn't slide the whole group.
  */
 const moveAsUnit = (op: Operation, movingControl: boolean): boolean => {
   if (movingControl) return false;
@@ -94,35 +84,21 @@ const moveAsUnit = (op: Operation, movingControl: boolean): boolean => {
 };
 
 /**
- * Shift every wire-axis register of `op` — and, recursively, every
- * wire-axis register of every child op — by `delta`. Used when
- * moving a multi-wire op (group or multi-target/multi-qubit gate)
- * as a rigid unit, so the whole gate keeps its shape on the new
- * wires.
+ * Shift every wire-axis register of `op` — and recursively every
+ * child's — by `delta`. Used when moving a multi-wire op as a rigid
+ * unit so the gate keeps its shape on the new wires.
  *
- * Classical controls (registers whose `result` field is set; they
- * point at an external classical register identified by the
- * `(qubit, result)` tuple of the wire that owns it) need careful
- * handling. The right question is **not** "is this register
- * classical?" but **"is the thing it references also moving?"**:
- *
- *   - If the producing measurement lives **inside** the moved
- *     subtree, the producer is shifting by the same `delta`, so
- *     the consumer must shift too to stay aligned with it.
- *   - If the producing measurement lives **outside** the moved
- *     subtree, the classical register it produced stays put, so
- *     the consumer must stay anchored to its current wire.
- *
- * To distinguish, we first walk the subtree and collect the set
- * of `(qubit, result)` tuples that measurements **inside** it
- * produce. Then for each classical control we encounter while
- * shifting, we look it up in that set: present → shift, absent
- * → anchor.
+ * Classical controls (registers with `result` set) need care: the
+ * question isn't "is this classical?" but "is what it references also
+ * moving?". A producing measurement INSIDE the moved subtree shifts
+ * by the same delta, so its consumer shifts too; a producer OUTSIDE
+ * stays put, so the consumer stays anchored. We first collect the
+ * `(qubit, result)` tuples produced inside the subtree, then for each
+ * classical control: present → shift, absent → anchor.
  */
 const shiftAllRegisters = (op: Operation, delta: number): void => {
   if (delta === 0) return;
-  const internalProducers = new Set<string>();
-  collectInternalClassicalRegs(op, internalProducers);
+  const internalProducers = collectInternalClassicalRegs(op);
   _doShift(op, delta, internalProducers);
 };
 
@@ -130,25 +106,12 @@ const shiftAllRegisters = (op: Operation, delta: number): void => {
  * The actual recursive shift. See `shiftAllRegisters` for the
  * classical-control rationale.
  *
- * The rule is uniform across every register on every op:
- *   - Quantum register (`result === undefined`) → always shift.
- *     It identifies a wire the op acts on, and that wire is
- *     moving with us.
- *   - Classical-register reference (`result !== undefined`) →
- *     shift iff the producing measurement lives inside the moved
- *     subtree (i.e. its `(qubit, result)` tuple is in
- *     `internalProducers`); anchor otherwise.
- *
- * This applies to **all** register-bearing fields, not just
- * `controls`. Notably, classically-conditional unitaries record
- * their classical-register dependencies in BOTH `controls` AND
- * `targets` (the `targets` entries are visual extent claims that
- * draw the line from the gate down to the classical register
- * box). A producer-external classical entry in `targets` that we
- * naively shifted would re-point the visual extent at a wire with
- * no classical registers — and the renderer throws
- * "Classical register ID X invalid for qubit ID Y with 0 classical
- * register(s)" trying to address it.
+ * Applies to ALL register-bearing fields, not just `controls`:
+ * classically-conditional unitaries record dependencies in both
+ * `controls` AND `targets` (the `targets` entries are visual extent
+ * claims drawing the line down to the classical register box). A
+ * naively-shifted external classical entry in `targets` would point
+ * at a wire with no classical registers, which the renderer rejects.
  */
 const _doShift = (
   op: Operation,
@@ -174,19 +137,15 @@ const _doShift = (
 
 /**
  * Swap every register reference on `wireA` with every reference on
- * `wireB` throughout `op`'s subtree (top-level + recursively into
- * children). Used by the group + `movingControl` branch in
- * `moveY` to implement the "drop the control onto a body wire to
- * swap them" gesture: callers pass `op.children` directly so the
- * top-level group's own controls/targets are left for the caller
- * to update explicitly afterward.
+ * `wireB` throughout `op`'s subtree. Used by the group +
+ * `movingControl` branch in `moveY` for the "drop the control onto a
+ * body wire to swap them" gesture; callers pass `op.children`
+ * directly so the group's own controls/targets are left for the
+ * caller to update.
  *
- * Classical-register entries (`{qubit, result}`) get the same
- * `qubit` swap as quantum ones — for the body-swap gesture, a
- * classical reference whose producer wire is itself being swapped
- * needs to move with it. (The external-producer "anchor in place"
- * rule from `_doShift` doesn't apply here because we're swapping
- * specific wires, not delta-shifting.)
+ * Classical-register entries get the same `qubit` swap as quantum
+ * ones — here we're swapping specific wires, so the external-producer
+ * "anchor" rule from `_doShift` doesn't apply.
  */
 const _swapWiresInSubtree = (
   op: Operation,
@@ -207,9 +166,9 @@ const _swapWiresInSubtree = (
 };
 
 /**
- * Collect the set of wires that have at least one measurement
- * anywhere in `op`'s subtree. Used to know which wires' per-wire
- * `numResults` counters need to be refreshed after a move.
+ * Collect the wires that carry at least one measurement anywhere in
+ * `op`'s subtree, so their per-wire `numResults` counters can be
+ * refreshed after a move.
  */
 const collectMeasurementWires = (op: Operation, set: Set<number>): void => {
   if (op.kind === "measurement") {
@@ -309,10 +268,9 @@ const moveY = (
   }
 
   // For groups + control move, capture body occupancy BEFORE the
-  // `unlikeRegisters` mutation below — that mutation rewrites the
-  // group's derived `.targets` cache entry that matched
-  // `targetWire`, so a post-mutation read would miss it and skip
-  // the children-subtree swap.
+  // `unlikeRegisters` mutation below: that mutation rewrites the
+  // group's derived `.targets` entry matching `targetWire`, so a
+  // post-mutation read would miss it and skip the subtree swap.
   const groupBodyIncludesTargetWire =
     movingControl &&
     sourceOperation.kind === "unitary" &&
@@ -329,14 +287,9 @@ const moveY = (
     case "unitary":
       if (movingControl) {
         // Group + control move: dragging a control on a group
-        // changes only the control's wire (body stays put).
-        // Exception — if the drop wire is occupied by a body wire
-        // (a child's quantum register reference on `targetWire`),
-        // swap source ↔ target inside the children subtree so the
-        // body wire and control trade places. The `unlikeRegisters`
-        // mutation above also rewrote one entry of the group's
-        // derived `.targets` cache; that gets overwritten by the
-        // re-derive below, so it's harmless.
+        // changes only the control's wire (body stays put). If the
+        // drop wire is occupied by a body wire, swap source ↔ target
+        // inside the children subtree so they trade places.
         if (sourceOperation.children != null && groupBodyIncludesTargetWire) {
           for (const col of sourceOperation.children) {
             for (const child of col.components) {
@@ -354,9 +307,7 @@ const moveY = (
         );
         // Re-derive the moved group's own `.targets` from its
         // (possibly-swapped) children. `refreshAncestorTargets`
-        // (called later in `moveOperation`) walks ANCESTORS only,
-        // so for the moved op itself this is the canonical spot
-        // to keep the eager cache in sync.
+        // walks ANCESTORS only, so the moved op itself needs this.
         if (sourceOperation.children != null) {
           refreshDerivedTargets(sourceOperation);
         }
