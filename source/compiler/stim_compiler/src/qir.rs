@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
 
 use crate::parser::*;
@@ -16,6 +19,8 @@ enum Operand {
     Qubit(u32),
     /// A result operand — the writer allocates the next result ID.
     Result,
+    /// A reference to an already-allocated result, carrying its QIR result ID.
+    ExistingResult(u32),
 }
 
 struct QirWriter {
@@ -100,6 +105,7 @@ impl QirWriter {
         let id = match operand {
             Operand::Qubit(stim_index) => self.map_qubit(stim_index),
             Operand::Result => self.next_result(),
+            Operand::ExistingResult(result_id) => result_id,
         };
         write!(self, "ptr inttoptr (i64 {id} to ptr)");
     }
@@ -263,6 +269,7 @@ struct CorrelatedRow {
 #[derive(Default)]
 struct CorrelatedGroup {
     rows: Vec<CorrelatedRow>,
+    independent: bool,
 }
 
 #[derive(Clone, Debug, Error, Diagnostic)]
@@ -292,6 +299,28 @@ pub enum Error {
     #[diagnostic(code("Stim.UnsupportedTarget"))]
     UnsupportedTarget {
         instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("missing probability argument in instruction: {instruction}")]
+    #[diagnostic(code("Stim.MissingProbability"))]
+    MissingProbability {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("instruction {instruction} requires an even number of qubit targets")]
+    #[diagnostic(code("Stim.OddQubitCount"))]
+    OddQubitCount {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error(
+        "else_correlated_error must be preceded by a correlated_error or else_correlated_error instruction"
+    )]
+    #[diagnostic(code("Stim.OrphanedElseCorrelatedError"))]
+    OrphanedElseCorrelatedError {
         #[label]
         span: Span,
     },
@@ -606,8 +635,15 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Noise Channels
-            "E" | "CORRELATED_ERROR" | "ELSE_CORRELATED_ERROR" => {
-                self.accumulate_correlated_error(instruction)
+            "E" | "CORRELATED_ERROR" => self.accumulate_correlated_error(instruction),
+            "ELSE_CORRELATED_ERROR" => {
+                if self.current_correlated_group.is_none() {
+                    self.push_error(Error::OrphanedElseCorrelatedError {
+                        span: instruction.span,
+                    });
+                } else {
+                    self.accumulate_correlated_error(instruction);
+                }
             }
             "DEPOLARIZE1" => self.compile_depolarize_1(instruction),
             "DEPOLARIZE2" => self.compile_depolarize_2(instruction),
@@ -769,7 +805,9 @@ impl<'noise> Compiler<'noise> {
             "z_error" => FaultChar::Z,
             _ => FaultChar::Loss,
         };
-        let probability = instruction.args[0];
+        let Some(probability) = self.expect_probability(instruction) else {
+            return;
+        };
         for target in &instruction.targets {
             let Some(value) = self.expect_qubit(instruction, target) else {
                 continue;
@@ -786,7 +824,10 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_depolarize_1(&mut self, instruction: &Instruction) {
-        let each = instruction.args[0] / 3.0;
+        let Some(probability) = self.expect_probability(instruction) else {
+            return;
+        };
+        let each = probability / 3.0;
         for target in &instruction.targets {
             let Some(value) = self.expect_qubit(instruction, target) else {
                 continue;
@@ -795,6 +836,7 @@ impl<'noise> Compiler<'noise> {
                 let group = self
                     .current_correlated_group
                     .get_or_insert_with(CorrelatedGroup::default);
+                group.independent = true;
                 for fault in [FaultChar::X, FaultChar::Y, FaultChar::Z] {
                     group.rows.push(CorrelatedRow {
                         terms: vec![(value, fault)],
@@ -807,7 +849,17 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_depolarize_2(&mut self, instruction: &Instruction) {
-        let each = instruction.args[0] / 15.0;
+        if !instruction.targets.len().is_multiple_of(2) {
+            self.push_error(Error::OddQubitCount {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return;
+        }
+        let Some(probability) = self.expect_probability(instruction) else {
+            return;
+        };
+        let each = probability / 15.0;
         for pair in instruction.targets.chunks(2) {
             let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
                 continue;
@@ -819,6 +871,7 @@ impl<'noise> Compiler<'noise> {
                 let group = self
                     .current_correlated_group
                     .get_or_insert_with(CorrelatedGroup::default);
+                group.independent = true;
                 // All 16 (p0, p1) combos except (I, I); None means identity on that qubit.
                 let options = [
                     None,
@@ -870,18 +923,28 @@ impl<'noise> Compiler<'noise> {
         let reg = format!("preselect_r{}", self.num_preselect_expects);
         self.num_preselect_expects += 1;
 
-        // First target: which result to read
-        let Some(result_id) = self.expect_qubit(instruction, &instruction.targets[0]) else {
+        // First target: a measurement record (`rec[-N]`) selecting which result to read.
+        let Some(offset) = self.expect_measurement_record(instruction, &instruction.targets[0])
+        else {
             return;
         };
-        // Second target: expected value (0 or 1)
+        // Second target: the expected value (0 or 1) as a plain uint.
         let Some(expected) = self.expect_qubit(instruction, &instruction.targets[1]) else {
+            return;
+        };
+
+        // `rec[-N]` references the N-th most recent measurement; guard against integer underflow
+        let Some(result_id) = self.writer.num_results.checked_sub(offset) else {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction.targets[0].span,
+            });
             return;
         };
 
         // Read the result into %reg
         self.writer
-            .write_read_result(&reg, Operand::Qubit(result_id));
+            .write_read_result(&reg, Operand::ExistingResult(result_id));
 
         let begin_label = format!("preselect_begin_{id}");
         let continue_label = format!("preselect_continue_{id}");
@@ -901,7 +964,9 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn accumulate_correlated_error(&mut self, instruction: &Instruction) {
-        let probability = instruction.args[0];
+        let Some(probability) = self.expect_probability(instruction) else {
+            return;
+        };
         let mut terms = Vec::new();
         for target in &instruction.targets {
             match &target.kind {
@@ -955,7 +1020,8 @@ impl<'noise> Compiler<'noise> {
 
         let mut pauli_strings = Vec::with_capacity(group.rows.len());
         let mut probabilities = Vec::with_capacity(group.rows.len());
-        // Stim's correlated error chain is sequential: a row only fires if no earlier row did
+        // Stim's correlated error chain is sequential: a row only fires if no earlier row did.
+        // Independent groups (e.g. depolarizing channels) keep each row's raw probability.
         let mut remaining_probability = 1.0;
         for row in &group.rows {
             // Build the fault string over the group columns; untouched qubits are `I`.
@@ -966,9 +1032,14 @@ impl<'noise> Compiler<'noise> {
             }
             let pauli: String = chars.into_iter().collect();
             pauli_strings.push(encode_pauli(&pauli));
-            let output_probability = remaining_probability * row.probability;
+            let output_probability = if group.independent {
+                row.probability
+            } else {
+                let p = remaining_probability * row.probability;
+                remaining_probability *= 1.0 - row.probability;
+                p
+            };
             probabilities.push(output_probability);
-            remaining_probability *= 1.0 - row.probability;
         }
 
         let table = NoiseTable {
@@ -983,12 +1054,13 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn expect_qubit(&mut self, instruction: &Instruction, target: &Target) -> Option<u32> {
+        // TODO: lacks support for negated qubits and pauli targets
         let TargetKind::Qubit {
             value,
             negated: false,
         } = target.kind
         else {
-            self.emit_error(Error::UnsupportedTarget {
+            self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
             });
@@ -997,8 +1069,34 @@ impl<'noise> Compiler<'noise> {
         Some(value)
     }
 
+    fn expect_measurement_record(
+        &mut self,
+        instruction: &Instruction,
+        target: &Target,
+    ) -> Option<u32> {
+        let TargetKind::MeasurementRecord { value } = target.kind else {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: target.span,
+            });
+            return None;
+        };
+        Some(value)
+    }
+
+    fn expect_probability(&mut self, instruction: &Instruction) -> Option<f64> {
+        let Some(&probability) = instruction.args.first() else {
+            self.push_error(Error::MissingProbability {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        };
+        Some(probability)
+    }
+
     fn unsupported(&mut self, instruction: &Instruction) {
-        self.errors.push(Error::UnsupportedInstruction {
+        self.push_error(Error::UnsupportedInstruction {
             name: instruction.name.clone(),
             span: instruction.span,
         });
@@ -1006,7 +1104,7 @@ impl<'noise> Compiler<'noise> {
 
     fn unsupported_args(&mut self, instruction: &Instruction) {
         if !instruction.args.is_empty() {
-            self.errors.push(Error::UnsupportedArgument {
+            self.push_error(Error::UnsupportedArgument {
                 instruction: instruction.name.clone(),
                 span: instruction.span,
             });
@@ -1014,13 +1112,13 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn unknown(&mut self, instruction: &Instruction) {
-        self.errors.push(Error::UnknownInstruction {
+        self.push_error(Error::UnknownInstruction {
             name: instruction.name.clone(),
             span: instruction.span,
         });
     }
 
-    fn emit_error(&mut self, error: Error) {
+    fn push_error(&mut self, error: Error) {
         self.errors.push(error);
     }
 

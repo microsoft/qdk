@@ -7,6 +7,8 @@
     clippy::too_many_lines
 )]
 
+use crate::tests::get_rir_program_with_adaptive_profile;
+
 use super::{assert_block_instructions, assert_blocks, assert_callable, get_rir_program};
 use expect_test::expect;
 use indoc::indoc;
@@ -562,5 +564,54 @@ fn mutable_double_binding_does_generate_store_instruction() {
             Block 3:Block:
                 Variable(2, Double) = Store Double(1.1)
                 Jump(1)"#]],
+    );
+}
+
+#[test]
+fn mutable_qubit_var_generates_successfully() {
+    let program = get_rir_program(indoc! {r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable q = q;
+            H(q);
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Qubit) = Store Qubit(0)
+                Call id(2), args( Variable(0, Qubit), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
+
+#[test]
+fn mutable_qubit_var_generates_adaptive_successfully() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable q = q;
+            H(q);
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Qubit) = Store Qubit(0)
+                Call id(2), args( Variable(0, Qubit), )
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Call id(3), args( Variable(1, Qubit), )
+                Return"#]],
     );
 }
