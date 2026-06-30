@@ -10,6 +10,7 @@ mod noise_channels_broadcasting;
 mod pair_measurements;
 mod pair_measurements_broadcasting;
 // mod prepare_block;
+mod prepare_block;
 mod single_qubit_gates;
 mod single_qubit_gates_broadcasting;
 mod two_qubit_gates;
