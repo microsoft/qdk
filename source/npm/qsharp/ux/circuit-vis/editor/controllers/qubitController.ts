@@ -2,17 +2,14 @@
 // Licensed under the MIT license.
 
 import {
-  findAndRemoveOperations,
   moveQubit,
-  removeQubit,
+  removeQubitWithDependents,
 } from "../../actions/circuitActions.js";
-import { Operation } from "../../data/circuit.js";
 import { createQubitLabelGhost, createWireDropzone } from "../draggable.js";
 import { InteractionContext } from "./interactionContext.js";
 import { trackTemporaryDropzone } from "../../actions/interactionActions.js";
 import { _createConfirmPrompt } from "../prompts.js";
 import { enableAutoScroll } from "./scrollController.js";
-import { getOperationRegisters } from "../../utils.js";
 import { getQubitLabelElems } from "../../utils.js";
 
 /**
@@ -48,7 +45,7 @@ export class QubitController {
     const numOperations = this.ctx.model.qubitUseCounts[qubitIdx];
 
     const doRemove = () => {
-      removeQubit(this.ctx.model, qubitIdx);
+      removeQubitWithDependents(this.ctx.model, qubitIdx);
       this.ctx.wireData.splice(qubitIdx, 1);
       this.ctx.renderFn();
     };
@@ -64,9 +61,6 @@ export class QubitController {
         : `There are ${numOperations} operations associated with this qubit line. Do you want to remove them?`;
     _createConfirmPrompt(message, (confirmed) => {
       if (!confirmed) return;
-      findAndRemoveOperations(this.ctx.model, (op: Operation) =>
-        getOperationRegisters(op).some((reg) => reg.qubit == qubitIdx),
-      );
       doRemove();
     });
   }

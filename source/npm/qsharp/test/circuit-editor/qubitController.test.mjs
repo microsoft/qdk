@@ -232,7 +232,7 @@ test("removeQubitLineWithConfirmation prompt message reflects operation count (s
   assert.match(pluralMsg ?? "", /2 operations associated/);
 });
 
-test("removeQubitLineWithConfirmation OK click cascades findAndRemoveOperations + removeQubit + render", () => {
+test("removeQubitLineWithConfirmation OK click cascades removeQubitWithDependents + render", () => {
   const { model, controller, ctx, renderCalls } = setup(
     circuit(3, [[gate("H", 1), gate("X", 0)]]),
   );
@@ -247,7 +247,7 @@ test("removeQubitLineWithConfirmation OK click cascades findAndRemoveOperations 
   assert.ok(okButton, "expected OK button on prompt");
   okButton.click();
 
-  // The H on wire 1 was removed via findAndRemoveOperations; only
+  // The H on wire 1 was removed via removeQubitWithDependents; only
   // the X on wire 0 survives. Wire 1 itself was removed (trailing
   // wire 2 was also unused so it was trimmed by
   // removeTrailingUnusedQubits, leaving just wire 0).

@@ -180,13 +180,13 @@ test reorg first):
   policy. See
   [Wire-range helper consolidation — deferred](CIRCUIT_EDITOR_TODO.md#wire-range-helper-consolidation--deferred).
 - **`findAndRemoveOperations` should be action-layer internal.**
-  Exported from the action-layer API but has a non-obvious
-  "callers must trim trailing wires themselves" contract that
-  contradicts every other `remove*` action. The proper shape
-  is a new public `removeQubitWithDependents` orchestrating the
-  cascade + trim (matching the existing `*WithDependents`
-  pattern for measurements), with the primitive demoted to
-  `_findAndRemoveOperations`. See
+  ✅ shipped — new public `removeQubitWithDependents` now owns the
+  strip-then-`removeQubit` cascade (matching the `*WithDependents`
+  measurement pattern), and the primitive is now fully module-private
+  `_findAndRemoveOperations` (no longer exported). `qubitController`
+  collapses to a single call and no longer needs the
+  `getOperationRegisters` / `Operation` imports; all tests go through
+  the public action (no test imports the primitive). See
   [`findAndRemoveOperations` should be action-layer internal — deferred](CIRCUIT_EDITOR_TODO.md#findandremoveoperations-should-be-action-layer-internal--deferred).
 - **`makeDropzoneBox` API is too heavy.** Fuses geometry
   (column/wire/mode → SVG rect) with identity (`data-dropzone-*`

@@ -122,11 +122,11 @@ const refreshDerivedTargets = (op: Operation): boolean => {
 /**
  * Post-order deep refresh of every group's derived `.targets` /
  * `.results` in `grid`. Used by batch mutators like
- * [`findAndRemoveOperations`](circuitActions.ts) that strip ops from
- * many ancestor chains at once. Post-order is essential: a parent is
- * recomputed from its children's caches, which must already reflect
- * the post-mutation state. Narrowing-only — batch removal can't
- * widen spans, so no new collisions appear.
+ * [`removeQubitWithDependents`](circuitActions.ts) that strip ops
+ * from many ancestor chains at once. Post-order is essential: a
+ * parent is recomputed from its children's caches, which must already
+ * reflect the post-mutation state. Narrowing-only — batch removal
+ * can't widen spans, so no new collisions appear.
  */
 const deepRefreshDerivedTargets = (grid: ComponentGrid): void => {
   for (const col of grid) {

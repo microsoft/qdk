@@ -322,7 +322,7 @@ const moveMeasurementWithDependents = (
   // don't matter.
   const invalidatedSet = new Set(invalidatedConsumers);
   if (invalidatedSet.size > 0) {
-    findAndRemoveOperations(model, (op) => invalidatedSet.has(op));
+    _findAndRemoveOperations(model, (op) => invalidatedSet.has(op));
   }
 
   // Build the (oldQubit, oldResult) → (newQubit, newResult) remap by
@@ -427,7 +427,7 @@ const removeMeasurementWithDependents = (
   // identity, so location-string drift doesn't matter.
   if (consumers.length > 0) {
     const consumerSet = new Set(consumers);
-    findAndRemoveOperations(model, (op) => consumerSet.has(op));
+    _findAndRemoveOperations(model, (op) => consumerSet.has(op));
   }
 
   // M's location may have shifted in the cascade; re-derive by ref.
@@ -596,7 +596,7 @@ const removeOperation = (model: CircuitModel, sourceLocation: string) => {
 /**
  * Find and remove operations in-place that return `true` for a predicate function.
  */
-const findAndRemoveOperations = (
+const _findAndRemoveOperations = (
   model: CircuitModel,
   pred: (op: Operation) => boolean,
 ) => {
@@ -856,8 +856,9 @@ const moveQubit = (
  *
  * Decrements all references on higher-numbered wires by 1 (since their
  * indices shift down) and renumbers qubit ids to match. Operations
- * that touched `qubitIdx` are **not** removed by this call — caller
- * should `findAndRemoveOperations` first if that's the intent.
+ * that touched `qubitIdx` are **not** removed by this call — use
+ * [`removeQubitWithDependents`](#) if you want the ops on the wire
+ * stripped too.
  */
 const removeQubit = (model: CircuitModel, qubitIdx: number): void => {
   model.qubits.splice(qubitIdx, 1);
@@ -886,12 +887,30 @@ const removeQubit = (model: CircuitModel, qubitIdx: number): void => {
   });
 };
 
+/**
+ * Remove a qubit line at `qubitIdx` together with every operation
+ * that touches it. Counterpart to the measurement `*WithDependents`
+ * actions: strips every op with a register on `qubitIdx`, then drops
+ * the wire and renumbers the higher wires down.
+ *
+ * The strip must run BEFORE `removeQubit`, which shifts higher wires
+ * down by one and would otherwise invalidate `qubitIdx` mid-cascade.
+ */
+const removeQubitWithDependents = (
+  model: CircuitModel,
+  qubitIdx: number,
+): void => {
+  _findAndRemoveOperations(model, (op) =>
+    getOperationRegisters(op).some((reg) => reg.qubit === qubitIdx),
+  );
+  removeQubit(model, qubitIdx);
+};
+
 export {
   addControl,
   addOperation,
   collectExternalProducerLocations,
   collectMeasurementConsumers,
-  findAndRemoveOperations,
   moveMeasurementWithDependents,
   moveOperation,
   moveQubit,
@@ -899,6 +918,7 @@ export {
   removeMeasurementWithDependents,
   removeOperation,
   removeQubit,
+  removeQubitWithDependents,
   resolveOverlappingOperations,
   _isMultiTargetOrGroup,
 };

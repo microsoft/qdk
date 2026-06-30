@@ -13,9 +13,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  findAndRemoveOperations,
   moveQubit,
   removeQubit,
+  removeQubitWithDependents,
 } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
 import {
   at,
@@ -98,22 +98,15 @@ test("moveQubit with sourceWire === targetWire is a no-op", () => {
   assert.equal(JSON.stringify(model.componentGrid), before);
 });
 
-test("removeQubit decrements use counts for ops that targeted the removed wire", () => {
-  // `removeQubit` is a low-level rewire; callers first strip ops on the
-  // doomed wire via `findAndRemoveOperations`. Exercises that flow.
+test("removeQubitWithDependents strips ops on the wire and drops it", () => {
+  // The public cascade: remove every op touching the doomed wire,
+  // then rewire the higher indices down.
   const model = build(
     circuit(3, [[gate("X", 0)], [gate("H", 1)], [gate("Z", 2)]]),
   );
   assert.deepEqual(model.qubitUseCounts, [1, 1, 1]);
 
-  // Step 1: remove ops referencing wire 1.
-  findAndRemoveOperations(model, (/** @type {any} */ op) =>
-    /** @type {any} */ (op).targets?.some(
-      (/** @type {any} */ t) => t.qubit === 1,
-    ),
-  );
-  // Step 2: drop the wire itself.
-  removeQubit(model, 1);
+  removeQubitWithDependents(model, 1);
 
   assert.equal(model.qubits.length, 2);
   expectGrid(model, [[{ X: 0 }], [{ Z: 1 }]]);

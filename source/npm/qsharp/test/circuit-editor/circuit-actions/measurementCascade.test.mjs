@@ -8,11 +8,11 @@
 // `results` entries. Both the prompt layer and the cascade
 // actions consume its output.
 //
-// `removeMeasurementWithDependents` is a thin orchestration over
-// `findAndRemoveOperations` + `removeOperation`. Test surface:
-// predicate-match correctness, M-location re-derivation after the
-// cascade collapses columns, and the renumber-then-remap pass for
-// surviving Ms whose result indices shift.
+// `removeMeasurementWithDependents` deletes a measurement together
+// with its downstream consumers, then keeps the surviving circuit
+// consistent. Test surface: predicate-match correctness, M-location
+// re-derivation after the cascade collapses columns, and the
+// renumber-then-remap pass for surviving Ms whose result indices shift.
 //
 // `moveMeasurementWithDependents` is the bulk of the new logic:
 // pre-/post-move (qubit, result) snapshotting, wire-level

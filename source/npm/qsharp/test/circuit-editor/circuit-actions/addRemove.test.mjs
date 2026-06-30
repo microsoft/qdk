@@ -12,7 +12,6 @@ import { CircuitModel } from "../../../dist/ux/circuit-vis/data/circuitModel.js"
 import {
   addControl,
   addOperation,
-  findAndRemoveOperations,
   removeControl,
   removeOperation,
 } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
@@ -378,35 +377,6 @@ test("removeControl: removing a control on a wire that only has a classical-ref 
     "removeControl must refuse to remove a classical-ref",
   );
   expectOp(condX, { X: { ctrls: [{ q: 0, r: 0 }] } });
-});
-
-// ---------------------------------------------------------------------------
-// findAndRemoveOperations (flat grid; group recursion lives in groupAddRemove.test.mjs)
-// ---------------------------------------------------------------------------
-
-test("findAndRemoveOperations decrements qubitUseCounts and prunes empty columns", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-  addOperation(model, unitary("H"), "0,0", 0);
-  addOperation(model, unitary("X"), "1,0", 1);
-  assert.deepEqual(model.qubitUseCounts, [1, 1]);
-
-  findAndRemoveOperations(model, (/** @type {any} */ op) => op.gate === "X");
-
-  expectGrid(model, [["H"]]);
-  // Decrements counts only — does NOT trim trailing wires.
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
-});
-
-test("findAndRemoveOperations leaves the grid empty when every op matches", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-  addOperation(model, unitary("H"), "0,0", 0);
-  addOperation(model, unitary("X"), "1,0", 1);
-
-  findAndRemoveOperations(model, () => true);
-
-  expectGrid(model, []);
-  // Decrements counts only — does not trim trailing wires.
-  assert.deepEqual(model.qubitUseCounts, [0, 0]);
 });
 
 // ---------------------------------------------------------------------------

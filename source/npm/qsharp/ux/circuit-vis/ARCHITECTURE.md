@@ -161,7 +161,7 @@ argument and mutates it in place; returns the affected
 - **[`circuitActions.ts`](actions/circuitActions.ts)** — operates on
   `CircuitModel`. Examples:
   `addOperation`, `removeOperation`, `moveOperation`,
-  `addControl`, `removeControl`, `findAndRemoveOperations`,
+  `addControl`, `removeControl`, `removeQubitWithDependents`,
   `moveQubit`, `removeQubit`. No DOM.
 - **[`interactionState.ts`](actions/interactionState.ts)** —
   ephemeral session state container. Holds `selectedOperation`
