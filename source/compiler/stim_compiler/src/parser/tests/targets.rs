@@ -79,6 +79,36 @@ fn measurement_record_target() {
 }
 
 #[test]
+fn measurement_record_zero_is_error() {
+    // rec[-0] is not a valid measurement record; the most recent is rec[-1].
+    check("DETECTOR rec[-0]", &expect![[r#"
+        Stim.Parser.ZeroMeasurementRecord
+
+          x measurement record offset cannot be zero; the most recent measurement is
+          | rec[-1]
+           ,----
+         1 | DETECTOR rec[-0]
+           :               ^
+           `----
+    "#]]);
+}
+
+#[test]
+fn measurement_record_zero_with_leading_zeros_is_error() {
+    // rec[-00] still resolves to offset 0 and must be rejected.
+    check("DETECTOR rec[-00]", &expect![[r#"
+        Stim.Parser.ZeroMeasurementRecord
+
+          x measurement record offset cannot be zero; the most recent measurement is
+          | rec[-1]
+           ,----
+         1 | DETECTOR rec[-00]
+           :               ^^
+           `----
+    "#]]);
+}
+
+#[test]
 fn sweep_bit_target() {
     check(
         "CX sweep[0]",

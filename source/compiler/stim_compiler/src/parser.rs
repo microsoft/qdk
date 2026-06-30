@@ -222,6 +222,12 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("measurement record offset cannot be zero; the most recent measurement is rec[-1]")]
+    #[diagnostic(code("Stim.Parser.ZeroMeasurementRecord"))]
+    ZeroMeasurementRecord {
+        #[label]
+        span: Span,
+    },
     #[error("only qubit and Pauli targets can be negated with '!'")]
     #[diagnostic(code("Stim.Parser.CannotNegateTarget"))]
     CannotNegateTarget {
@@ -556,16 +562,19 @@ impl<'a> Parser<'a> {
                 value: self.extract_uint(first_token, None)?,
             },
             TokenKind::InstructionName => self.parse_pauli_or_loss_target(first_token, negated)?,
-            TokenKind::Rec => TargetKind::MeasurementRecord {
+            TokenKind::Rec => {
                 // Strips 'rec[-' prefix and trailing ']'.
-                value: self.extract_uint(
-                    first_token,
-                    Some(Span {
-                        lo: first_token.span.lo + 5,
-                        hi: first_token.span.hi - 1,
-                    }),
-                )?,
-            },
+                let value_span = Span {
+                    lo: first_token.span.lo + 5,
+                    hi: first_token.span.hi - 1,
+                };
+                let value = self.extract_uint(first_token, Some(value_span))?;
+                if value == 0 {
+                    self.emit_error(Error::ZeroMeasurementRecord { span: value_span });
+                    return None;
+                }
+                TargetKind::MeasurementRecord { value }
+            }
             TokenKind::Sweep => TargetKind::SweepBit {
                 // Strips 'sweep[' prefix and trailing ']'.
                 value: self.extract_uint(
