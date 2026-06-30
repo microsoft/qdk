@@ -470,7 +470,8 @@ pub mod qir {
         package.entry_exec_graph = Default::default();
     }
 
-    /// Builds a pre-computed map of callable types for all Global/Closure values in `args`.
+    /// Builds a pre-computed map of normalized callable value types for all
+    /// `Global` and `Closure` values in `args`.
     ///
     /// This allows `lower_value_to_expr` to look up arrow types without holding an immutable
     /// reference to the package store while also mutating a package.
@@ -482,9 +483,223 @@ pub mod qir {
             rustc_hash::FxHashMap::with_capacity_and_hasher(callables.len(), Default::default());
         for id in callables {
             let (_, ty) = callable_expr_span_and_ty(fir_store, *id);
-            map.insert(*id, ty);
+            let normalized_ty = resolve_functor_params(&resolve_udt_ty(fir_store, &ty));
+            map.insert(*id, normalized_ty);
         }
         map
+    }
+
+    /// Normalizes concrete runtime callable type copies before synthetic-entry lowering.
+    ///
+    /// Interpreter-created callable values can retain inferred functor parameters
+    /// in their lowered body node types even when the callable itself is concrete.
+    /// Those stale parameters would violate post-monomorphization invariants once
+    /// the callable is made entry-reachable. Generic callable signatures are left
+    /// intact so monomorphization can still infer and create concrete
+    /// specializations from closure targets.
+    fn normalize_callable_signatures(
+        fir_store: &mut qsc_fir::fir::PackageStore,
+        callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
+    ) {
+        use qsc_fir::fir::{CallableImpl, Global, PackageLookup};
+
+        let normalized: Vec<_> = callables
+            .iter()
+            .map(|id| {
+                let package = fir_store.get(id.package);
+                let Some(Global::Callable(callable_decl)) = package.get_global(id.item) else {
+                    panic!("callable should exist in lowered package");
+                };
+                let normalized_signature = if callable_decl.generics.is_empty() {
+                    let input_pat = package.get_pat(callable_decl.input);
+                    Some((
+                        resolve_functor_params(&resolve_udt_ty(fir_store, &input_pat.ty)),
+                        resolve_functor_params(&resolve_udt_ty(fir_store, &callable_decl.output)),
+                    ))
+                } else {
+                    None
+                };
+                (*id, callable_decl.input, normalized_signature)
+            })
+            .collect();
+
+        for (id, input_pat_id, normalized_signature) in normalized {
+            let package = fir_store.get_mut(id.package);
+            let qsc_fir::fir::ItemKind::Callable(callable_decl) = &mut package
+                .items
+                .get_mut(id.item)
+                .expect("callable item should exist")
+                .kind
+            else {
+                panic!("callable should exist in lowered package");
+            };
+            if let Some((input_ty, output_ty)) = normalized_signature {
+                package
+                    .pats
+                    .get_mut(input_pat_id)
+                    .expect("callable input pattern should exist")
+                    .ty = input_ty;
+                callable_decl.output = output_ty;
+            }
+            let CallableImpl::Spec(spec_impl) = &callable_decl.implementation else {
+                continue;
+            };
+            let mut block_ids = vec![spec_impl.body.block];
+            block_ids.extend(
+                spec_impl
+                    .adj
+                    .iter()
+                    .chain(spec_impl.ctl.iter())
+                    .chain(spec_impl.ctl_adj.iter())
+                    .map(|spec| spec.block),
+            );
+
+            for block_id in block_ids {
+                normalize_block_node_types(package, block_id);
+            }
+        }
+    }
+
+    fn normalize_block_node_types(
+        package: &mut qsc_fir::fir::Package,
+        block_id: qsc_fir::fir::BlockId,
+    ) {
+        let stmt_ids = package
+            .blocks
+            .get_mut(block_id)
+            .expect("callable block should exist")
+            .stmts
+            .clone();
+
+        for stmt_id in stmt_ids {
+            let stmt = package
+                .stmts
+                .get(stmt_id)
+                .expect("callable statement should exist");
+            let (pat_id, expr_id) = match stmt.kind {
+                qsc_fir::fir::StmtKind::Expr(expr_id) | qsc_fir::fir::StmtKind::Semi(expr_id) => {
+                    (None, Some(expr_id))
+                }
+                qsc_fir::fir::StmtKind::Local(_, pat_id, expr_id) => (Some(pat_id), Some(expr_id)),
+                qsc_fir::fir::StmtKind::Item(_) => (None, None),
+            };
+
+            if let Some(pat_id) = pat_id {
+                normalize_pat_node_types(package, pat_id);
+            }
+            if let Some(expr_id) = expr_id {
+                normalize_expr_node_types(package, expr_id);
+            }
+        }
+
+        let block = package
+            .blocks
+            .get_mut(block_id)
+            .expect("callable block should exist");
+        block.ty = resolve_functor_params(&block.ty);
+    }
+
+    fn normalize_pat_node_types(package: &mut qsc_fir::fir::Package, pat_id: qsc_fir::fir::PatId) {
+        let child_pats = {
+            let pat = package
+                .pats
+                .get_mut(pat_id)
+                .expect("callable pattern should exist");
+            pat.ty = resolve_functor_params(&pat.ty);
+            match &pat.kind {
+                qsc_fir::fir::PatKind::Tuple(pats) => pats.clone(),
+                qsc_fir::fir::PatKind::Bind(_) | qsc_fir::fir::PatKind::Discard => Vec::new(),
+            }
+        };
+        for child_pat in child_pats {
+            normalize_pat_node_types(package, child_pat);
+        }
+    }
+
+    fn normalize_expr_node_types(
+        package: &mut qsc_fir::fir::Package,
+        expr_id: qsc_fir::fir::ExprId,
+    ) {
+        let (child_exprs, child_blocks) = {
+            let expr = package
+                .exprs
+                .get_mut(expr_id)
+                .expect("callable expression should exist");
+            expr.ty = resolve_functor_params(&expr.ty);
+            child_nodes_for_expr_kind(&expr.kind)
+        };
+
+        for child_expr in child_exprs {
+            normalize_expr_node_types(package, child_expr);
+        }
+        for child_block in child_blocks {
+            normalize_block_node_types(package, child_block);
+        }
+    }
+
+    fn child_nodes_for_expr_kind(
+        kind: &qsc_fir::fir::ExprKind,
+    ) -> (Vec<qsc_fir::fir::ExprId>, Vec<qsc_fir::fir::BlockId>) {
+        let mut exprs = Vec::new();
+        let mut blocks = Vec::new();
+        match kind {
+            qsc_fir::fir::ExprKind::Array(child_exprs)
+            | qsc_fir::fir::ExprKind::ArrayLit(child_exprs)
+            | qsc_fir::fir::ExprKind::Tuple(child_exprs) => exprs.extend(child_exprs.iter()),
+            qsc_fir::fir::ExprKind::ArrayRepeat(left, right)
+            | qsc_fir::fir::ExprKind::Assign(left, right)
+            | qsc_fir::fir::ExprKind::AssignOp(_, left, right)
+            | qsc_fir::fir::ExprKind::BinOp(_, left, right)
+            | qsc_fir::fir::ExprKind::Call(left, right)
+            | qsc_fir::fir::ExprKind::Index(left, right)
+            | qsc_fir::fir::ExprKind::AssignField(left, _, right)
+            | qsc_fir::fir::ExprKind::UpdateField(left, _, right) => {
+                exprs.push(*left);
+                exprs.push(*right);
+            }
+            qsc_fir::fir::ExprKind::AssignIndex(first, second, third)
+            | qsc_fir::fir::ExprKind::UpdateIndex(first, second, third) => {
+                exprs.push(*first);
+                exprs.push(*second);
+                exprs.push(*third);
+            }
+            qsc_fir::fir::ExprKind::Block(block_id) => blocks.push(*block_id),
+            qsc_fir::fir::ExprKind::Closure(_, _)
+            | qsc_fir::fir::ExprKind::Hole
+            | qsc_fir::fir::ExprKind::Lit(_)
+            | qsc_fir::fir::ExprKind::Var(_, _) => {}
+            qsc_fir::fir::ExprKind::Fail(expr_id)
+            | qsc_fir::fir::ExprKind::Field(expr_id, _)
+            | qsc_fir::fir::ExprKind::Return(expr_id)
+            | qsc_fir::fir::ExprKind::UnOp(_, expr_id) => exprs.push(*expr_id),
+            qsc_fir::fir::ExprKind::If(cond, body, otherwise) => {
+                exprs.push(*cond);
+                exprs.push(*body);
+                if let Some(otherwise) = otherwise {
+                    exprs.push(*otherwise);
+                }
+            }
+            qsc_fir::fir::ExprKind::Range(start, step, end) => {
+                exprs.extend([start, step, end].into_iter().flatten().copied());
+            }
+            qsc_fir::fir::ExprKind::Struct(_, copy, fields) => {
+                if let Some(copy) = copy {
+                    exprs.push(*copy);
+                }
+                exprs.extend(fields.iter().map(|field| field.value));
+            }
+            qsc_fir::fir::ExprKind::String(components) => {
+                exprs.extend(components.iter().filter_map(|component| match component {
+                    qsc_fir::fir::StringComponent::Expr(expr_id) => Some(*expr_id),
+                    qsc_fir::fir::StringComponent::Lit(_) => None,
+                }));
+            }
+            qsc_fir::fir::ExprKind::While(cond, block_id) => {
+                exprs.push(*cond);
+                blocks.push(*block_id);
+            }
+        }
+        (exprs, blocks)
     }
 
     /// Seeds the package entry with a synthetic `Call(target, args)` expression.
@@ -1417,8 +1632,11 @@ pub mod qir {
         let (mut fir_store, fir_package_id, _assigner) =
             lower_to_fir(package_store, callable.package, None);
 
-        // Pre-compute callable type map (immutable store access) before mutating.
+        // Pre-compute callable value types before normalizing concrete callable
+        // bodies, so closure values still expose the original generic target
+        // signatures needed by monomorphization.
         let callable_types = build_callable_type_map(&fir_store, &concrete_callables);
+        normalize_callable_signatures(&mut fir_store, &concrete_callables);
 
         // Build synthetic Call(Var(target), args) as the entry expression.
         // This makes the target and all callable args entry-reachable for pipeline transforms.
@@ -1430,8 +1648,8 @@ pub mod qir {
             &callable_types,
         );
 
-        // Captureless callable values — whether passed directly or wrapped inside
-        // a UDT with one or more callable fields — lower into a self-contained
+        // FIR-lowerable callable values — whether passed directly, captured by a
+        // closure, or wrapped inside a UDT field — lower into a self-contained
         // synthetic entry that is evaluated directly. Field-typed callables hidden
         // inside a UDT collapse during defunctionalization and UDT erasure so the
         // entry's argument shape stays aligned with the specialized body.
@@ -1467,7 +1685,7 @@ pub mod qir {
         ))
     }
 
-    /// Pin-based fallback for callable args containing closures with captures.
+    /// Pin-based fallback for callable args containing non-lowerable closure captures.
     ///
     /// Seeds concrete (non-arrow-input) callables into the entry for reachability,
     /// pins arrow-input callables and the target for DCE survival, and lets

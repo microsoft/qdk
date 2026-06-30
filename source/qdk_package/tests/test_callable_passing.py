@@ -263,6 +263,65 @@ attributes #1 = { "irreversible" }
     )
 
 
+def test_qir_from_multiple_qsharp_closures_with_distinct_captures() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("""
+        operation InvokeThree(
+            first : Qubit => Unit,
+            second : Qubit => Unit,
+            third : Qubit => Unit
+        ) : Unit {
+            use q = Qubit();
+            first(q);
+            second(q);
+            third(q);
+        }
+
+        function MakeRz(theta : Double) : Qubit => Unit {
+            Rz(theta, _)
+        }
+    """)
+    from qdk.code import InvokeThree
+
+    first = qsharp.eval("MakeRz(1.0)")
+    second = qsharp.eval("MakeRz(2.0)")
+    third = qsharp.eval("MakeRz(3.0)")
+
+    qir = str(qsharp.compile(InvokeThree, first, second, third))
+    expected_calls = [
+        "call void @__quantum__qis__rz__body(double 1.0,",
+        "call void @__quantum__qis__rz__body(double 2.0,",
+        "call void @__quantum__qis__rz__body(double 3.0,",
+    ]
+    assert [qir.count(call) for call in expected_calls] == [1, 1, 1]
+    positions = [qir.index(call) for call in expected_calls]
+    assert positions == sorted(positions)
+
+
+def test_qir_from_nested_qsharp_closure_capture() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("""
+        operation InvokeOne(op : Qubit => Unit) : Unit {
+            use q = Qubit();
+            op(q);
+        }
+
+        function MakeRz(theta : Double) : Qubit => Unit {
+            Rz(theta, _)
+        }
+
+        function MakeOuter(inner : Qubit => Unit) : Qubit => Unit {
+            inner(_)
+        }
+    """)
+    from qdk.code import InvokeOne
+
+    outer = qsharp.eval("let inner = MakeRz(4.0); MakeOuter(inner)")
+
+    qir = str(qsharp.compile(InvokeOne, outer))
+    assert qir.count("call void @__quantum__qis__rz__body(double 4.0,") == 1
+
+
 def test_circuit_from_python_callable_passed_to_python_callable() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""

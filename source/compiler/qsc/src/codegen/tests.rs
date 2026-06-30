@@ -2566,6 +2566,150 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
 }
 
 #[test]
+fn same_target_multi_closure_args_route_to_synthetic_entry_and_generate_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation InvokeThree(
+                first : Qubit => Unit,
+                second : Qubit => Unit,
+                third : Qubit => Unit
+            ) : Unit {
+                use q = Qubit();
+                first(q);
+                second(q);
+                third(q);
+            }
+
+            operation ApplyRz(theta : Double, q : Qubit) : Unit {
+                Rz(theta, q);
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("InvokeThree", true), ("ApplyRz", true)], caps);
+
+    let apply_rz = fir_id_for(pkg, items["ApplyRz"]);
+    let first = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![Value::Double(1.0)].into(),
+        id: apply_rz,
+        functor: FunctorApp::default(),
+    }));
+    let second = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![Value::Double(2.0)].into(),
+        id: apply_rz,
+        functor: FunctorApp::default(),
+    }));
+    let third = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![Value::Double(3.0)].into(),
+        id: apply_rz,
+        functor: FunctorApp::default(),
+    }));
+    let args = Value::Tuple(vec![first, second, third].into(), None);
+
+    let target_hir = hir_id_for(pkg, items["InvokeThree"]);
+    let (_codegen_fir, backend) = prepare_codegen_fir_from_callable_args(
+        &store, target_hir, &args, caps,
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "same-target classical closures should produce CodegenFir, got: {}",
+            format_interpret_errors(errors)
+        )
+    });
+    assert!(
+        matches!(backend, CallableArgsBackend::SyntheticEntry),
+        "same-target classical closures should route to the synthetic entry"
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["InvokeThree"], &args, caps);
+    let expected_calls = [
+        "call void @__quantum__qis__rz__body(double 1.0,",
+        "call void @__quantum__qis__rz__body(double 2.0,",
+        "call void @__quantum__qis__rz__body(double 3.0,",
+    ];
+    let counts: Vec<_> = expected_calls
+        .iter()
+        .map(|call| qir.matches(call).count())
+        .collect();
+    assert_eq!(
+        counts,
+        vec![1, 1, 1],
+        "expected each captured rotation exactly once in QIR:\n{qir}"
+    );
+    let positions: Vec<_> = expected_calls
+        .iter()
+        .map(|call| qir.find(call).expect("expected Rz call in QIR"))
+        .collect();
+    let mut sorted_positions = positions.clone();
+    sorted_positions.sort_unstable();
+    assert_eq!(
+        positions, sorted_positions,
+        "expected captured rotations to be emitted in argument order:\n{qir}"
+    );
+}
+
+#[test]
+fn nested_closure_arg_routes_to_synthetic_entry_and_generates_inner_effect() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation InvokeOne(op : Qubit => Unit) : Unit {
+                use q = Qubit();
+                op(q);
+            }
+
+            operation ApplyInner(inner : Qubit => Unit, q : Qubit) : Unit {
+                inner(q);
+            }
+
+            function MakeRz(theta : Double) : Qubit => Unit {
+                Rz(theta, _)
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[("InvokeOne", true), ("ApplyInner", true), (".lambda", true)],
+        caps,
+    );
+
+    let inner = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![Value::Double(4.0)].into(),
+        id: fir_id_for(pkg, items[".lambda"]),
+        functor: FunctorApp::default(),
+    }));
+    let outer = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![inner].into(),
+        id: fir_id_for(pkg, items["ApplyInner"]),
+        functor: FunctorApp::default(),
+    }));
+
+    let target_hir = hir_id_for(pkg, items["InvokeOne"]);
+    let (_codegen_fir, backend) = prepare_codegen_fir_from_callable_args(
+        &store, target_hir, &outer, caps,
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "nested classical closure should produce CodegenFir, got: {}",
+            format_interpret_errors(errors)
+        )
+    });
+    assert!(
+        matches!(backend, CallableArgsBackend::SyntheticEntry),
+        "nested classical closure should route to the synthetic entry"
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["InvokeOne"], &outer, caps);
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__rz__body(double 4.0,")
+            .count(),
+        1,
+        "expected one inner captured rotation in QIR:\n{qir}"
+    );
+}
+
+#[test]
 fn classical_capture_closure_routes_to_synthetic_entry_qubit_capture_does_not() {
     // A closure capturing a runtime qubit identity cannot be lowered to a FIR
     // literal, so it must keep the pin-based `ReinvokeOriginal` route.
