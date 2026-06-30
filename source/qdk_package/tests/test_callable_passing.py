@@ -411,6 +411,216 @@ def test_qir_from_callable_returning_closure_passed_to_qsharp_callable() -> None
     assert "__quantum__qis__h__body" in str(qir)
 
 
+def test_qir_from_qdk_chemistry_like_controlled_prep_sel_prep_factory() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("""
+        operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + numAncillaQubits];
+            let op = MakeControlledPrepSelPrepOp(
+                prepareOp,
+                selectOp,
+                numSystemQubits,
+                numAncillaQubits,
+                power
+            );
+            op(control, systems);
+        }
+    """)
+    from qdk.code import (
+        MakeControlledPrepSelPrepCircuit,
+        PrepareIdentity,
+        SelectIdentity,
+    )
+
+    qir = str(
+        qsharp.compile(
+            MakeControlledPrepSelPrepCircuit,
+            PrepareIdentity,
+            SelectIdentity,
+            1,
+            1,
+            1,
+        )
+    )
+    assert "define i64 @ENTRYPOINT__main()" in qir
+
+
+def test_qir_from_qdk_chemistry_like_iqpe_params_struct() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("""
+        import Std.Arrays.Subarray;
+
+        struct IterativePhaseEstimationParams {
+            statePrep : Qubit[] => Unit,
+            repControlledUnitary : (Qubit, Qubit[]) => Unit,
+            accumulatePhase : Double,
+            phaseQubit : Int,
+            systems : Int[],
+            numAncillaQubits : Int
+        }
+
+        operation PrepareSystems(systems : Qubit[]) : Unit {}
+
+        operation RepControlledUnitary(control : Qubit, targets : Qubit[]) : Unit {}
+
+        operation RunIQPE(params : IterativePhaseEstimationParams) : Result[] {
+            use qs = Qubit[Length(params.systems) + 1 + params.numAncillaQubits];
+            let phaseQubit = qs[params.phaseQubit];
+            let systems = Subarray(params.systems, qs);
+            let ancillas = if params.numAncillaQubits == 0 {
+                []
+            } else {
+                qs[1 + Length(params.systems)..Length(qs) - 1]
+            };
+            let allTargets = systems + ancillas;
+
+            params.statePrep(systems);
+
+            within {
+                H(phaseQubit);
+            } apply {
+                Rz(params.accumulatePhase, phaseQubit);
+                params.repControlledUnitary(phaseQubit, allTargets);
+            }
+            ResetAll(allTargets);
+            return [MResetZ(phaseQubit)];
+        }
+
+        operation MakeIQPECircuit(
+            statePrep : Qubit[] => Unit,
+            repControlledUnitary : (Qubit, Qubit[]) => Unit,
+            accumulatePhase : Double,
+            phaseQubit : Int,
+            systems : Int[],
+            numAncillaQubits : Int
+        ) : Result[] {
+            return RunIQPE(new IterativePhaseEstimationParams {
+                statePrep = statePrep,
+                repControlledUnitary = repControlledUnitary,
+                accumulatePhase = accumulatePhase,
+                phaseQubit = phaseQubit,
+                systems = systems,
+                numAncillaQubits = numAncillaQubits
+            });
+        }
+    """)
+    from qdk.code import MakeIQPECircuit, PrepareSystems, RepControlledUnitary
+
+    qir = str(
+        qsharp.compile(
+            MakeIQPECircuit,
+            PrepareSystems,
+            RepControlledUnitary,
+            0.25,
+            0,
+            [1],
+            1,
+        )
+    )
+    assert "define i64 @ENTRYPOINT__main()" in qir
+
+
+def test_qir_from_qdk_chemistry_like_sequential_op_partial_application() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("""
+        import Std.Arrays.Subarray;
+
+        operation ApplyFirstStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                H(q);
+            }
+        }
+
+        operation ApplySecondStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                X(q);
+            }
+        }
+
+        operation ApplyThirdStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                Z(q);
+            }
+        }
+
+        operation ApplySequential(
+            first : Qubit[] => Unit,
+            second : Qubit[] => Unit,
+            systems : Qubit[]
+        ) : Unit {
+            first(systems);
+            second(systems);
+        }
+
+        function MakeSequentialOp(
+            first : Qubit[] => Unit,
+            second : Qubit[] => Unit
+        ) : Qubit[] => Unit {
+            ApplySequential(first, second, _)
+        }
+
+        function MaxInt(values : Int[]) : Int {
+            mutable max = values[0];
+            for idx in 1 .. Length(values) - 1 {
+                let value = values[idx];
+                if value > max {
+                    set max = value;
+                }
+            }
+            return max;
+        }
+
+        operation MakeSequentialCircuit(
+            first : Qubit[] => Unit,
+            second : Qubit[] => Unit,
+            targets : Int[]
+        ) : Unit {
+            if Length(targets) == 0 {
+                return ();
+            } else {
+                let maxTarget = MaxInt(targets);
+                use qs = Qubit[1 + maxTarget];
+                ApplySequential(first, second, Subarray(targets, qs));
+            }
+        }
+    """)
+    from qdk.code import ApplyThirdStep, MakeSequentialCircuit
+
+    sequential = qsharp.eval("MakeSequentialOp(ApplyFirstStep, ApplySecondStep)")
+    qir = str(qsharp.compile(MakeSequentialCircuit, sequential, ApplyThirdStep, [0, 1]))
+    assert "__quantum__qis__h__body" in qir
+    assert "__quantum__qis__x__body" in qir
+    assert "__quantum__qis__z__body" in qir
+
+
 @pytest.mark.xfail(
     raises=QSharpError,
     strict=True,

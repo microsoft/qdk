@@ -442,6 +442,11 @@ fn cleanup_consumed_closures_per_package(
         return;
     }
 
+    // A freshly specialized item can still be the only live path to a producer
+    // in the same iteration. Defer that producer so cleanup does not erase the
+    // body before the next specialization pass can inline it.
+    let deferred_items = items_called_from_skipped_items(store, skip_items);
+
     for pkg_id in collect_reachable_package_closure(entry_pkg_id, reachable) {
         let targets_local: FxHashSet<LocalItemId> = specialized_targets
             .iter()
@@ -451,11 +456,17 @@ fn cleanup_consumed_closures_per_package(
         if targets_local.is_empty() {
             continue;
         }
-        let skip_local: FxHashSet<LocalItemId> = skip_items
+        let mut skip_local: FxHashSet<LocalItemId> = skip_items
             .iter()
             .filter(|s| s.package == pkg_id)
             .map(|s| s.item)
             .collect();
+        skip_local.extend(
+            deferred_items
+                .iter()
+                .filter(|s| s.package == pkg_id)
+                .map(|s| s.item),
+        );
         let local_item_ids: Vec<LocalItemId> = {
             let package = store.get(pkg_id);
             reachable_local_callables(package, pkg_id, reachable)
@@ -471,6 +482,38 @@ fn cleanup_consumed_closures_per_package(
             &local_item_ids,
         );
     }
+}
+
+/// Finds direct callees used by freshly specialized items so their producer
+/// bodies survive until the next defunctionalization iteration.
+fn items_called_from_skipped_items(
+    store: &PackageStore,
+    skip_items: &FxHashSet<StoreItemId>,
+) -> FxHashSet<StoreItemId> {
+    let mut called_items = FxHashSet::default();
+
+    for skipped_item in skip_items {
+        let package = store.get(skipped_item.package);
+        let item = package.get_item(skipped_item.item);
+        if let ItemKind::Callable(decl) = &item.kind {
+            crate::walk_utils::for_each_expr_in_callable_impl(
+                package,
+                &decl.implementation,
+                &mut |_expr_id, expr| {
+                    if let ExprKind::Call(callee_id, _) = &expr.kind {
+                        let (base_id, _) = peel_body_functors(package, *callee_id);
+                        if let ExprKind::Var(Res::Item(item_id), _) =
+                            &package.get_expr(base_id).kind
+                        {
+                            called_items.insert(StoreItemId::from((item_id.package, item_id.item)));
+                        }
+                    }
+                },
+            );
+        }
+    }
+
+    called_items
 }
 
 /// Replaces all remaining closure expressions whose target callable was

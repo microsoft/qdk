@@ -68,6 +68,7 @@ type AliasSet = FxHashSet<LocalVarId>;
 /// `None` marks an argument slot that holds a global callable rather than a
 /// closure.
 type ClosureInfo = Option<(LocalItemId, Vec<(LocalVarId, Ty)>)>;
+type SpecializedCaptureKey = (LocalItemId, LocalVarId);
 
 /// Resolves a `ConcreteCallable` to a compact label for inclusion in
 /// specialized callable names.  For globals, produces the callable name
@@ -728,7 +729,7 @@ fn specialize_many(
     // same-target producer closures from double-prepending each other's
     // captures.
     let impl_clone = new_decl.implementation.clone();
-    let mut specialized_capture_targets: FxHashSet<LocalItemId> = FxHashSet::default();
+    let mut specialized_capture_targets: FxHashSet<SpecializedCaptureKey> = FxHashSet::default();
     for (((call_site, _), remapped_param), closure_info) in group
         .iter()
         .zip(remapped_params.iter())
@@ -737,12 +738,14 @@ fn specialize_many(
         if let Some((closure_target, capture_bindings)) = closure_info {
             let before =
                 collect_calls_to_closure_target(target, &impl_clone, package_id, *closure_target);
+            let concrete =
+                concrete_with_threaded_captures(&call_site.callable_arg, capture_bindings);
             transform_callable_body(
                 target,
                 package_id,
                 &impl_clone,
                 remapped_param,
-                &call_site.callable_arg,
+                &concrete,
                 &mut specialized_capture_targets,
                 assigner,
             );
@@ -912,13 +915,18 @@ fn specialize_one(
     // A callable's functored specs share one lifted lambda item, so a fresh
     // dedup set guards against re-specializing it across this param's specs.
     let impl_clone = new_decl.implementation.clone();
-    let mut specialized_capture_targets: FxHashSet<LocalItemId> = FxHashSet::default();
+    let mut specialized_capture_targets: FxHashSet<SpecializedCaptureKey> = FxHashSet::default();
+    let concrete = if let Some((_, capture_bindings)) = &closure_info {
+        concrete_with_threaded_captures(&call_site.callable_arg, capture_bindings)
+    } else {
+        call_site.callable_arg.clone()
+    };
     transform_callable_body(
         target,
         package_id,
         &impl_clone,
         &remapped_param,
-        &call_site.callable_arg,
+        &concrete,
         &mut specialized_capture_targets,
         assigner,
     );
@@ -966,12 +974,40 @@ fn specialize_one(
     })
 }
 
+fn concrete_with_threaded_captures(
+    concrete: &ConcreteCallable,
+    capture_bindings: &[(LocalVarId, Ty)],
+) -> ConcreteCallable {
+    match concrete {
+        ConcreteCallable::Closure {
+            target, functor, ..
+        } => {
+            // Thread captures through the specialized callable input so a
+            // forwarded closure keeps its runtime environment after the
+            // callable parameter that carried it is removed.
+            ConcreteCallable::Closure {
+                target: *target,
+                captures: capture_bindings
+                    .iter()
+                    .map(|(var, ty)| CapturedVar {
+                        var: *var,
+                        ty: ty.clone(),
+                        expr: None,
+                    })
+                    .collect(),
+                functor: *functor,
+            }
+        }
+        ConcreteCallable::Global { .. } | ConcreteCallable::Dynamic => concrete.clone(),
+    }
+}
+
 /// Transforms all specialization bodies in a callable implementation,
 /// replacing uses of the callable parameter with direct calls to the concrete
 /// callee.
 ///
-/// `specialized_capture_targets` tracks lifted lambda items already specialized
-/// for a captured callable parameter. It is supplied by the caller so a
+/// `specialized_capture_targets` tracks each lifted lambda item and captured
+/// callable parameter already specialized. It is supplied by the caller so a
 /// multi-argument specialization can share one set across every parameter's
 /// transform pass; single-argument callers pass a fresh set.
 fn transform_callable_body(
@@ -980,7 +1016,7 @@ fn transform_callable_body(
     callable_impl: &CallableImpl,
     param: &CallableParam,
     concrete: &ConcreteCallable,
-    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
+    specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
 ) {
     let mut alias_set = AliasSet::default();
@@ -1059,7 +1095,7 @@ fn transform_block(
     param: &CallableParam,
     concrete: &ConcreteCallable,
     alias_set: &mut AliasSet,
-    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
+    specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
 ) {
     let block = package
@@ -1119,7 +1155,7 @@ fn transform_stmt(
     param: &CallableParam,
     concrete: &ConcreteCallable,
     alias_set: &mut AliasSet,
-    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
+    specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
 ) {
     let stmt = package.stmts.get(stmt_id).expect("stmt not found").clone();
@@ -1187,7 +1223,7 @@ fn transform_expr(
     param: &CallableParam,
     concrete: &ConcreteCallable,
     alias_set: &mut AliasSet,
-    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
+    specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
 ) {
     let expr = package.exprs.get(expr_id).expect("expr not found").clone();
@@ -1465,14 +1501,7 @@ fn transform_expr(
                     &param.field_path,
                 )
             {
-                replace_callee(
-                    package,
-                    package_id,
-                    expr_id,
-                    FunctorApp::default(),
-                    concrete,
-                    assigner,
-                );
+                replace_callable_value(package, package_id, expr_id, concrete, assigner);
                 return;
             }
             transform_expr(
@@ -1573,14 +1602,7 @@ fn transform_expr(
             if (*var == param.param_var && param.field_path.is_empty())
                 || alias_set.contains(var) =>
         {
-            replace_callee(
-                package,
-                package_id,
-                expr_id,
-                FunctorApp::default(),
-                concrete,
-                assigner,
-            );
+            replace_callable_value(package, package_id, expr_id, concrete, assigner);
         }
         // When a closure captures the callable parameter being specialized,
         // propagate the specialization into the closure's target callable and
@@ -1607,6 +1629,93 @@ fn transform_expr(
         // Terminals with no sub-expressions.
         ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
+}
+
+/// Replaces a callable-valued expression while preserving closure captures.
+/// Callee replacement can collapse a closure to its target item, but forwarded
+/// callable values must remain closures so nested HOFs still receive captures.
+fn replace_callable_value(
+    package: &mut Package,
+    _package_id: PackageId,
+    expr_id: ExprId,
+    concrete: &ConcreteCallable,
+    assigner: &mut Assigner,
+) {
+    let (base_kind, functor) = match concrete {
+        ConcreteCallable::Global { item_id, functor } => {
+            (ExprKind::Var(Res::Item(*item_id), Vec::new()), *functor)
+        }
+        ConcreteCallable::Closure {
+            target,
+            captures,
+            functor,
+        } => (
+            ExprKind::Closure(
+                captures.iter().map(|capture| capture.var).collect(),
+                *target,
+            ),
+            *functor,
+        ),
+        ConcreteCallable::Dynamic => return,
+    };
+
+    let expr = package.exprs.get(expr_id).expect("expr not found").clone();
+    if !functor.adjoint && functor.controlled == 0 {
+        let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
+        expr_mut.kind = base_kind;
+        return;
+    }
+
+    let mut current_id = assigner.next_expr();
+    package.exprs.insert(
+        current_id,
+        Expr {
+            id: current_id,
+            span: expr.span,
+            ty: expr.ty.clone(),
+            kind: base_kind,
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+
+    if functor.adjoint {
+        let adj_id = assigner.next_expr();
+        package.exprs.insert(
+            adj_id,
+            Expr {
+                id: adj_id,
+                span: expr.span,
+                ty: expr.ty.clone(),
+                kind: ExprKind::UnOp(UnOp::Functor(Functor::Adj), current_id),
+                exec_graph_range: EMPTY_EXEC_RANGE,
+            },
+        );
+        current_id = adj_id;
+    }
+
+    for _ in 0..functor.controlled {
+        let ctl_id = assigner.next_expr();
+        package.exprs.insert(
+            ctl_id,
+            Expr {
+                id: ctl_id,
+                span: expr.span,
+                ty: expr.ty.clone(),
+                kind: ExprKind::UnOp(UnOp::Functor(Functor::Ctl), current_id),
+                exec_graph_range: EMPTY_EXEC_RANGE,
+            },
+        );
+        current_id = ctl_id;
+    }
+
+    let outermost_kind = package
+        .exprs
+        .get(current_id)
+        .expect("expr not found")
+        .kind
+        .clone();
+    let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
+    expr_mut.kind = outermost_kind;
 }
 
 /// Returns true when an expression is a field chain rooted at `param_var`
@@ -1858,14 +1967,15 @@ fn transform_closure_param_capture(
     capture_idx: usize,
     param: &CallableParam,
     concrete: &ConcreteCallable,
-    specialized_capture_targets: &mut FxHashSet<LocalItemId>,
+    specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
 ) {
     // The lambda item is shared across the enclosing callable's functored specs.
     // Only the first referring closure specializes it; sibling closures must not
     // re-run that mutation against the already-rewritten lambda. Each closure
     // still drops the capture from its own capture list independently.
-    if specialized_capture_targets.insert(closure_target) {
+    let capture_key = (closure_target, param.param_var);
+    if specialized_capture_targets.insert(capture_key) {
         specialize_closure_target_for_captured_param(
             package,
             package_id,
@@ -1948,7 +2058,7 @@ fn specialize_closure_target_for_captured_param(
     // Step 3: Transform the target callable's body to replace uses of the
     // captured param with the concrete callable. This rewrites a distinct
     // callable, the closure target, so it uses its own fresh dedup set.
-    let mut specialized_capture_targets: FxHashSet<LocalItemId> = FxHashSet::default();
+    let mut specialized_capture_targets: FxHashSet<SpecializedCaptureKey> = FxHashSet::default();
     transform_callable_body(
         package,
         package_id,

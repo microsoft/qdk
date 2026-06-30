@@ -3602,3 +3602,304 @@ fn callable_returning_closure_arg_generates_qir() {
         "expected H gate in QIR:\n{qir}"
     );
 }
+
+#[test]
+fn chemistry_like_sequential_partial_application_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            import Std.Arrays.Subarray;
+
+            operation ApplyFirstStep(systems : Qubit[]) : Unit {
+                for q in systems {
+                    H(q);
+                }
+            }
+
+            operation ApplySecondStep(systems : Qubit[]) : Unit {
+                for q in systems {
+                    X(q);
+                }
+            }
+
+            operation ApplyThirdStep(systems : Qubit[]) : Unit {
+                for q in systems {
+                    Z(q);
+                }
+            }
+
+            operation ApplySequential(
+                first : Qubit[] => Unit,
+                second : Qubit[] => Unit,
+                systems : Qubit[]
+            ) : Unit {
+                first(systems);
+                second(systems);
+            }
+
+            function MakeSequentialOp(
+                first : Qubit[] => Unit,
+                second : Qubit[] => Unit
+            ) : Qubit[] => Unit {
+                ApplySequential(first, second, _)
+            }
+
+            function MaxInt(values : Int[]) : Int {
+                mutable max = values[0];
+                for idx in 1 .. Length(values) - 1 {
+                    let value = values[idx];
+                    if value > max {
+                        set max = value;
+                    }
+                }
+                return max;
+            }
+
+            operation MakeSequentialCircuit(
+                first : Qubit[] => Unit,
+                second : Qubit[] => Unit,
+                targets : Int[]
+            ) : Unit {
+                if Length(targets) == 0 {
+                    return ();
+                } else {
+                    let maxTarget = MaxInt(targets);
+                    use qs = Qubit[1 + maxTarget];
+                    ApplySequential(first, second, Subarray(targets, qs));
+                }
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeSequentialCircuit", true),
+            (".lambda", true),
+            ("ApplyFirstStep", true),
+            ("ApplySecondStep", true),
+            ("ApplyThirdStep", true),
+        ],
+        caps,
+    );
+
+    let first_step = Value::Global(
+        fir_id_for(pkg, items["ApplyFirstStep"]),
+        FunctorApp::default(),
+    );
+    let second_step = Value::Global(
+        fir_id_for(pkg, items["ApplySecondStep"]),
+        FunctorApp::default(),
+    );
+    let third_step = Value::Global(
+        fir_id_for(pkg, items["ApplyThirdStep"]),
+        FunctorApp::default(),
+    );
+    let sequential = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![first_step, second_step].into(),
+        id: fir_id_for(pkg, items[".lambda"]),
+        functor: FunctorApp::default(),
+    }));
+    let args = Value::Tuple(
+        vec![
+            sequential,
+            third_step,
+            Value::Array(vec![Value::Int(0), Value::Int(1)].into()),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["MakeSequentialCircuit"], &args, caps);
+    for expected_gate in [
+        "__quantum__qis__h__body",
+        "__quantum__qis__x__body",
+        "__quantum__qis__z__body",
+    ] {
+        assert!(
+            qir.contains(expected_gate),
+            "expected {expected_gate} in QIR:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn chemistry_like_controlled_factory_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
+
+            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+            function MakeControlledPrepSelPrepOp(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : (Qubit, Qubit[]) => Unit {
+                (control, allQubits) => {
+                    let systems = allQubits[0..numSystemQubits - 1];
+                    let ancilla = allQubits[numSystemQubits...];
+                    for _ in 0..power - 1 {
+                        Controlled prepareOp([control], systems);
+                        Controlled selectOp([control], (systems, ancilla));
+                    }
+                }
+            }
+
+            operation MakeControlledPrepSelPrepCircuit(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : Unit {
+                use control = Qubit();
+                use systems = Qubit[numSystemQubits + numAncillaQubits];
+                let op = MakeControlledPrepSelPrepOp(
+                    prepareOp,
+                    selectOp,
+                    numSystemQubits,
+                    numAncillaQubits,
+                    power
+                );
+                op(control, systems);
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeControlledPrepSelPrepCircuit", true),
+            ("PrepareIdentity", true),
+            ("SelectIdentity", true),
+        ],
+        caps,
+    );
+
+    let prepare = Value::Global(
+        fir_id_for(pkg, items["PrepareIdentity"]),
+        FunctorApp::default(),
+    );
+    let select = Value::Global(
+        fir_id_for(pkg, items["SelectIdentity"]),
+        FunctorApp::default(),
+    );
+    let args = Value::Tuple(
+        vec![prepare, select, Value::Int(1), Value::Int(1), Value::Int(1)].into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(
+        &store,
+        pkg,
+        items["MakeControlledPrepSelPrepCircuit"],
+        &args,
+        caps,
+    );
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()"),
+        "expected entry point in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn chemistry_like_iqpe_params_struct_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            import Std.Arrays.Subarray;
+
+            struct IterativePhaseEstimationParams {
+                statePrep : Qubit[] => Unit,
+                repControlledUnitary : (Qubit, Qubit[]) => Unit,
+                accumulatePhase : Double,
+                phaseQubit : Int,
+                systems : Int[],
+                numAncillaQubits : Int
+            }
+
+            operation PrepareSystems(systems : Qubit[]) : Unit {}
+
+            operation RepControlledUnitary(control : Qubit, targets : Qubit[]) : Unit {}
+
+            operation RunIQPE(params : IterativePhaseEstimationParams) : Result[] {
+                use qs = Qubit[Length(params.systems) + 1 + params.numAncillaQubits];
+                let phaseQubit = qs[params.phaseQubit];
+                let systems = Subarray(params.systems, qs);
+                let ancillas = if params.numAncillaQubits == 0 {
+                    []
+                } else {
+                    qs[1 + Length(params.systems)..Length(qs) - 1]
+                };
+                let allTargets = systems + ancillas;
+
+                params.statePrep(systems);
+
+                within {
+                    H(phaseQubit);
+                } apply {
+                    Rz(params.accumulatePhase, phaseQubit);
+                    params.repControlledUnitary(phaseQubit, allTargets);
+                }
+                ResetAll(allTargets);
+                return [MResetZ(phaseQubit)];
+            }
+
+            operation MakeIQPECircuit(
+                statePrep : Qubit[] => Unit,
+                repControlledUnitary : (Qubit, Qubit[]) => Unit,
+                accumulatePhase : Double,
+                phaseQubit : Int,
+                systems : Int[],
+                numAncillaQubits : Int
+            ) : Result[] {
+                return RunIQPE(new IterativePhaseEstimationParams {
+                    statePrep = statePrep,
+                    repControlledUnitary = repControlledUnitary,
+                    accumulatePhase = accumulatePhase,
+                    phaseQubit = phaseQubit,
+                    systems = systems,
+                    numAncillaQubits = numAncillaQubits
+                });
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeIQPECircuit", true),
+            ("PrepareSystems", true),
+            ("RepControlledUnitary", true),
+        ],
+        caps,
+    );
+
+    let state_prep = Value::Global(
+        fir_id_for(pkg, items["PrepareSystems"]),
+        FunctorApp::default(),
+    );
+    let rep_controlled_unitary = Value::Global(
+        fir_id_for(pkg, items["RepControlledUnitary"]),
+        FunctorApp::default(),
+    );
+    let args = Value::Tuple(
+        vec![
+            state_prep,
+            rep_controlled_unitary,
+            Value::Double(0.25),
+            Value::Int(0),
+            Value::Array(vec![Value::Int(1)].into()),
+            Value::Int(1),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["MakeIQPECircuit"], &args, caps);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()"),
+        "expected entry point in QIR:\n{qir}"
+    );
+}

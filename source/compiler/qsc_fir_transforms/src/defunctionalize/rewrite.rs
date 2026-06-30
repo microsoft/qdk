@@ -2722,6 +2722,26 @@ fn rewrite_single_arg_nested(
         return;
     }
 
+    if field_path.len() == 1 {
+        let mut remove_indices = FxHashSet::default();
+        remove_indices.insert(field_path[0]);
+        // A top-level callable field can sit inside a struct or tuple literal.
+        // Rebuild that aggregate so the remaining fields keep the same order as
+        // the specialized callee's reduced input pattern.
+        if let Some((kind, ty)) = remove_top_level_field_from_expr_data(
+            package,
+            args_id,
+            &remove_indices,
+            captures,
+            assigner,
+        ) {
+            let args_expr = package.exprs.get_mut(args_id).expect("args expr not found");
+            args_expr.kind = kind;
+            args_expr.ty = ty;
+            return;
+        }
+    }
+
     remove_element_at_path(package, args_id, field_path);
     if !captures.is_empty() {
         let span = package.get_expr(args_id).span;

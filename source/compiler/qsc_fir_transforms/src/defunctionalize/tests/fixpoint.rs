@@ -1134,6 +1134,62 @@ fn producer_body_closure_cleanup_converges() {
     );
 }
 
+#[test]
+fn callable_returning_closure_with_controlled_callable_captures() {
+    let source = r#"
+        operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + numAncillaQubits];
+            let op = MakeControlledPrepSelPrepOp(
+                prepareOp,
+                selectOp,
+                numSystemQubits,
+                numAncillaQubits,
+                power
+            );
+            op(control, systems);
+        }
+
+        operation Main() : Unit {
+            MakeControlledPrepSelPrepCircuit(
+                PrepareIdentity,
+                SelectIdentity,
+                1,
+                1,
+                1
+            );
+        }
+        "#;
+    check_invariants(source);
+}
+
 /// Two callable arguments passed to a multi-parameter HOF: one partial
 /// application closure and one global callable. Both must survive cleanup
 /// because they are still live as call arguments.
@@ -1211,6 +1267,52 @@ fn closure_in_active_call_arg_survives_cleanup() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn captured_closure_forwarded_to_nested_hof_converges() {
+    let source = r#"
+        operation ApplySequential(first : Qubit[] => Unit, second : Qubit[] => Unit, systems : Qubit[]) : Unit {
+            first(systems);
+            second(systems);
+        }
+
+        operation ApplyFirstStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                H(q);
+            }
+        }
+
+        operation ApplySecondStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                X(q);
+            }
+        }
+
+        operation ApplyThirdStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                Z(q);
+            }
+        }
+
+        operation Main() : Unit {
+            use systems = Qubit[2];
+            let sequential = ApplySequential(ApplyFirstStep, ApplySecondStep, _);
+            ApplySequential(sequential, ApplyThirdStep, systems);
+        }
+        "#;
+    check_invariants(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_6{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplyFirstStep: input_ty=(Qubit)[]
+            ApplySecondStep: input_ty=(Qubit)[]
+            ApplySequential<Empty, Empty>{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplySequential<Empty, Empty>{closure}{ApplyThirdStep}{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplyThirdStep: input_ty=(Qubit)[]
+            Main: input_ty=Unit"#]],
     );
 }
 
