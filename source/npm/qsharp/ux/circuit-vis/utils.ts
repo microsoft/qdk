@@ -285,28 +285,11 @@ const getGateLocationString = (operation: Operation): string | null => {
  * @returns A tuple containing the minimum and maximum row indices.
  */
 function getMinMaxRegIdx(operation: Operation): [number, number] {
-  let targets: Register[];
-  let controls: Register[];
-  switch (operation.kind) {
-    case "measurement":
-      targets = operation.results;
-      controls = operation.qubits;
-      break;
-    case "unitary":
-      targets = operation.targets;
-      controls = operation.controls || [];
-      break;
-    case "ket":
-      targets = operation.targets;
-      controls = [];
-      break;
-  }
-
   // Classical-register rows sit immediately below their owning
   // qubit row (between qubit `q` and qubit `q+1`). Encode them as
   // `q + 0.5` so the inclusive-range overlap check correctly
   // distinguishes a quantum row at `q` from a classical row of `q`.
-  const rows = [...controls, ...targets].map((r) =>
+  const rows = getOperationRegisters(operation).map((r) =>
     r.result !== undefined ? r.qubit + 0.5 : r.qubit,
   );
   const minRegIdx: number = Math.min(...rows);

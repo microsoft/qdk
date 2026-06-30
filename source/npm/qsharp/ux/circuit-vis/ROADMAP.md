@@ -174,11 +174,14 @@ test reorg first):
 - **Wire-range helper consolidation.** `utils.ts` has three
   close-but-not-identical helpers (`getMinMaxRegIdx`,
   `getQuantumWireRange`, `getWireRange`) for "what wires does
-  this op touch." Each has policy baked in differently, which
-  is inconsistent across call sites. End state: small set of
-  geometry-only helpers, each call site documents its own
-  policy. See
-  [Wire-range helper consolidation — deferred](CIRCUIT_EDITOR_TODO.md#wire-range-helper-consolidation--deferred).
+  this op touch." 🔶 partially shipped — audit done: all four
+  `getQuantumWireRange` sites are intentional quantum-only
+  carve-outs (nothing switches to `getWireRange`), and
+  `getMinMaxRegIdx` was de-duped onto `getOperationRegisters`.
+  The only remaining item — folding `getMinMaxRegIdx`'s numeric
+  output out of `getWireRange` — is hot-path and low-value, left
+  deferred. See
+  [Wire-range helper consolidation — partially shipped](CIRCUIT_EDITOR_TODO.md#wire-range-helper-consolidation--partially-shipped).
 - **`findAndRemoveOperations` should be action-layer internal.**
   ✅ shipped — new public `removeQubitWithDependents` now owns the
   strip-then-`removeQubit` cascade (matching the `*WithDependents`

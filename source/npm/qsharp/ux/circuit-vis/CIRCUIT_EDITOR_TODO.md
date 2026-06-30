@@ -2633,42 +2633,68 @@ were left alone to be audited as a separate item (see
 were updated to assert the new geometric coverage. 419/419 in
 the circuit-editor suite (was 412 before this correction).
 
-### Wire-range helper consolidation — deferred
+### Wire-range helper consolidation — partially shipped
 
-`utils.ts` now has three close-but-not-identical helpers for
+`utils.ts` has three close-but-not-identical helpers for
 "what wires does this op touch":
 
-- [`getMinMaxRegIdx`](utils.ts) — every register; treats
-  classical-ref `.qubit` as if it were a regular qubit row
-  (off-by-one in the over-blocking direction). Used by
-  cascade overlap in [circuitActions.ts](actions/circuitActions.ts)
-  via `_getMinMaxRegIdx`.
+- [`getMinMaxRegIdx`](utils.ts) — every register, as half-step
+  numeric rows: a classical-result row is encoded `q + 0.5` so it
+  sorts immediately below its owning qubit `q`. Used by the
+  sibling-overlap checks in
+  [gridPrimitives.ts](actions/circuit-actions/gridPrimitives.ts)
+  and [derivedTargets.ts](actions/circuit-actions/derivedTargets.ts).
 - [`getQuantumWireRange`](utils.ts) — only registers with
   `result === undefined`. Used by
-  [dragController.ts](editor/dragController.ts) (multi-target
+  [dragController.ts](editor/controllers/dragController.ts) (multi-target
   drag legs, shift-extend reach) and
   [draggable.ts](editor/draggable.ts) (dropzone occupancy,
   child window for groups).
-- [`getWireRange`](utils.ts) — geometric endpoints as
-  `Register`s, half-step ordering (added in the B6 follow-up
+- [`getWireRange`](utils.ts) — same geometry as `getMinMaxRegIdx`
+  (classical row just below its qubit) but returned as `Register`
+  endpoints instead of half-step numbers (added in the B6 follow-up
   above). Used only by
   [`getOuterColumnSiblingWires`](utils.ts).
 
-Each helper answers a subtly different question; some have
-policy baked in (which connector wires "count" as occupancy),
-which is the part that's currently inconsistent across call
-sites. The fully consolidated end-state is a small set of
-geometry-only helpers (no policy), with each call site
-documenting its own policy at the use site. Estimated audit
-load: 5 sites that probably want `getWireRange` (one in
-[utils.ts](utils.ts) already done; the 5 in
-[circuitActions.ts](actions/circuitActions.ts) and
-[dragController.ts](editor/dragController.ts) line 815 are
-the likely targets) and 2 sites that are intentional policy
-carve-outs and should stay on `getQuantumWireRange`
-([draggable.ts](editor/draggable.ts) lines 557 and 640).
-**Not in this PR** — the cascade in `circuitActions.ts` is a
-hot path; each swap needs its own regression-test plan.
+**Audit (✅ done) — corrects the original guesses.** Reading every
+call site shows the policy split is cleaner than first thought:
+
+- **All four `getQuantumWireRange` sites are intentional, documented
+  carve-outs.** Each has an at-the-use-site comment explaining that
+  the quantum-only span is the editable wire scope and the
+  classical-control back-reference must be excluded:
+  [dragController.ts](editor/controllers/dragController.ts) lines 352
+  (drag legs) and 815 (shift-extend reach), and
+  [draggable.ts](editor/draggable.ts) lines 557 (dropzone occupancy)
+  and 640 (group child window). The earlier note guessed
+  dragController line 815 was a "likely `getWireRange` target" — it
+  is not; its comment makes clear it deliberately wants the
+  quantum-only reach. **Nothing should switch to `getWireRange`.**
+- **The two `getMinMaxRegIdx` sites are geometric overlap checks**
+  that correctly include classical rows via the half-step encoding.
+  They want numeric rows, not register endpoints.
+
+So the only real duplication is representational: `getMinMaxRegIdx`
+and `getWireRange` encode the _same_ geometry (classical row just
+below its qubit) in two forms — half-step numbers vs `Register`
+pairs.
+
+**Shipped this pass.** `getMinMaxRegIdx` was re-spelling the
+per-`kind` register switch that [`getOperationRegisters`](utils.ts)
+already centralizes (and whose doc comment explicitly exists to
+prevent that duplication). Switched it to call
+`getOperationRegisters` — output-identical, removes the duplicated
+switch. Verified: 43/43 utils tests, 130/130 action-layer tests.
+
+**Still deferred — the representational merge.** Folding
+`getMinMaxRegIdx`'s numeric output out of `getWireRange`'s endpoints
+(so the "classical row sits below its qubit" rule lives in exactly
+one place) is provably output-identical for every real op, but:
+(1) the overlap check is a hot path and routing it through
+`getWireRange` adds two `Register` copies per call for no behavioral
+gain, and (2) it changes the empty-op return from `[Infinity,
+-Infinity]` to a `null` that the callers would have to guard. Low
+value, nonzero risk — left as a separate item.
 
 ### `findAndRemoveOperations` should be action-layer internal — deferred
 
