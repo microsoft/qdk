@@ -887,7 +887,7 @@ pub mod qir {
                                     package,
                                     assigner,
                                     args,
-                                    None,
+                                    Some(elem_ty),
                                     callable_types,
                                     pending_stmts,
                                 ));
@@ -940,9 +940,16 @@ pub mod qir {
             }
             qsc_fir::ty::Ty::Arrow(_) => {
                 // Arrow-typed position — the args must be a callable value.
-                lower_value_to_expr(package, assigner, args, None, callable_types, pending_stmts)
+                lower_value_to_expr(
+                    package,
+                    assigner,
+                    args,
+                    Some(input_ty),
+                    callable_types,
+                    pending_stmts,
+                )
             }
-            qsc_fir::ty::Ty::Array(elem_ty) => {
+            qsc_fir::ty::Ty::Array(_) => {
                 // Array position — lower the value, threading the declared element
                 // type so empty (and nested-empty) arrays carry their real element
                 // type instead of `Ty::Err`.
@@ -950,7 +957,7 @@ pub mod qir {
                     package,
                     assigner,
                     args,
-                    Some(elem_ty.as_ref()),
+                    Some(input_ty),
                     callable_types,
                     pending_stmts,
                 )
@@ -965,7 +972,7 @@ pub mod qir {
                         package,
                         assigner,
                         args,
-                        None,
+                        Some(input_ty),
                         callable_types,
                         pending_stmts,
                     ),
@@ -1108,7 +1115,7 @@ pub mod qir {
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
         value: &Value,
-        elem_ty_hint: Option<&qsc_fir::ty::Ty>,
+        expected_ty: Option<&qsc_fir::ty::Ty>,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, qsc_fir::ty::Ty>,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
@@ -1146,14 +1153,20 @@ pub mod qir {
                 qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::String),
             ),
             Value::Tuple(vs, _) => {
+                let elem_ty_hints = match expected_ty {
+                    Some(qsc_fir::ty::Ty::Tuple(elem_tys)) if elem_tys.len() == vs.len() => {
+                        Some(elem_tys)
+                    }
+                    _ => None,
+                };
                 let mut lowered_ids = Vec::with_capacity(vs.len());
                 let mut lowered_tys = Vec::with_capacity(vs.len());
-                for v in vs.iter() {
+                for (idx, v) in vs.iter().enumerate() {
                     let id = lower_value_to_expr(
                         package,
                         assigner,
                         v,
-                        None,
+                        elem_ty_hints.map(|elem_tys| &elem_tys[idx]),
                         callable_types,
                         pending_stmts,
                     );
@@ -1166,9 +1179,9 @@ pub mod qir {
                 )
             }
             Value::Array(vs) => {
-                // Decompose the declared element-type hint so empty (and nested-empty)
+                // Decompose the declared array type so empty (and nested-empty)
                 // arrays can recover their real element type instead of `Ty::Err`.
-                let inner_hint: Option<&qsc_fir::ty::Ty> = match elem_ty_hint {
+                let inner_hint: Option<&qsc_fir::ty::Ty> = match expected_ty {
                     Some(qsc_fir::ty::Ty::Array(inner)) => Some(inner.as_ref()),
                     _ => None,
                 };
@@ -1185,9 +1198,9 @@ pub mod qir {
                 }
                 let elem_ty = match lowered_ids.first() {
                     Some(id) => package.exprs.get(*id).expect("just inserted").ty.clone(),
-                    // For an empty array the element type is the declared hint
-                    // for this array, not the element's element type.
-                    None => elem_ty_hint.cloned().unwrap_or(qsc_fir::ty::Ty::Err),
+                    // For an empty array the element type is the declared array's
+                    // element type, not the nested element hint.
+                    None => inner_hint.cloned().unwrap_or(qsc_fir::ty::Ty::Err),
                 };
                 (
                     qsc_fir::fir::ExprKind::Array(lowered_ids),
@@ -1396,13 +1409,16 @@ pub mod qir {
         // build an `ExprKind::Closure` value referencing those locals. The capture
         // bindings are emitted in their original leading order so partial evaluation
         // reconstructs the closure's fixed arguments correctly.
+        let capture_ty_hints = closure_capture_ty_hints(&full_ty, closure.fixed_args.len());
         let mut capture_locals = Vec::with_capacity(closure.fixed_args.len());
-        for capture in closure.fixed_args.iter() {
+        for (idx, capture) in closure.fixed_args.iter().enumerate() {
             let value_expr_id = lower_value_to_expr(
                 package,
                 assigner,
                 capture,
-                None,
+                capture_ty_hints
+                    .as_ref()
+                    .map(|capture_tys| &capture_tys[idx]),
                 callable_types,
                 pending_stmts,
             );
@@ -1434,6 +1450,25 @@ pub mod qir {
             },
         );
         wrap_expr_with_functor_app(package, assigner, expr_id, &closure_ty, closure.functor)
+    }
+
+    /// Returns declared types for the captured prefix of a lifted closure callable.
+    ///
+    /// Capturing closures are lowered as callables whose input tuple starts with
+    /// the fixed capture values followed by the explicit argument. These hints let
+    /// captured values, including empty arrays, keep the types from the lowered
+    /// callable signature when they are reconstructed in the synthetic entry.
+    fn closure_capture_ty_hints(
+        full_ty: &qsc_fir::ty::Ty,
+        capture_count: usize,
+    ) -> Option<Vec<qsc_fir::ty::Ty>> {
+        let qsc_fir::ty::Ty::Arrow(arrow) = full_ty else {
+            return None;
+        };
+        let qsc_fir::ty::Ty::Tuple(elems) = arrow.input.as_ref() else {
+            return None;
+        };
+        (elems.len() >= capture_count).then(|| elems[..capture_count].to_vec())
     }
 
     /// Binds a lowered value expression to a fresh immutable local.

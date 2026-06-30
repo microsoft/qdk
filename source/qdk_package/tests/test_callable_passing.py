@@ -473,6 +473,120 @@ def test_qir_from_qdk_chemistry_like_controlled_prep_sel_prep_factory() -> None:
     assert "define i64 @ENTRYPOINT__main()" in qir
 
 
+def test_qir_from_qdk_chemistry_like_state_preparation_factory_with_empty_expansion_ops() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("""
+        struct StatePreparationParams {
+            rowMap : Int[],
+            stateVector : Double[],
+            expansionOps : Int[][],
+            numQubits : Int
+        }
+
+        operation ApplyStatePreparation(params : StatePreparationParams, qs : Qubit[]) : Unit is Adj + Ctl {
+            if Length(params.expansionOps) != 0 {
+                X(qs[0]);
+            }
+        }
+
+        operation MakeStatePreparationCircuit(
+            rowMap : Int[],
+            stateVector : Double[],
+            expansionOps : Int[][],
+            numQubits : Int
+        ) : Unit {
+            use qs = Qubit[numQubits];
+            ApplyStatePreparation(
+                new StatePreparationParams {
+                    rowMap = rowMap,
+                    stateVector = stateVector,
+                    expansionOps = expansionOps,
+                    numQubits = numQubits
+                },
+                qs
+            );
+        }
+
+        function MakeStatePreparationOp(
+            rowMap : Int[],
+            stateVector : Double[],
+            expansionOps : Int[][],
+            numQubits : Int
+        ) : Qubit[] => Unit is Adj + Ctl {
+            ApplyStatePreparation(
+                new StatePreparationParams {
+                    rowMap = rowMap,
+                    stateVector = stateVector,
+                    expansionOps = expansionOps,
+                    numQubits = numQubits
+                },
+                _
+            )
+        }
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + numAncillaQubits];
+            let op = MakeControlledPrepSelPrepOp(
+                prepareOp,
+                selectOp,
+                numSystemQubits,
+                numAncillaQubits,
+                power
+            );
+            op(control, systems);
+        }
+    """)
+    from qdk.code import (
+        MakeControlledPrepSelPrepCircuit,
+        MakeStatePreparationCircuit,
+        SelectIdentity,
+    )
+
+    state_prep_args = ([0], [1.0, 0.0], [], 1)
+
+    direct_qir = str(qsharp.compile(MakeStatePreparationCircuit, *state_prep_args))
+    assert "define i64 @ENTRYPOINT__main()" in direct_qir
+
+    prepare_op = qsharp.eval("MakeStatePreparationOp([0], [1.0, 0.0], [], 1)")
+    nested_qir = str(
+        qsharp.compile(
+            MakeControlledPrepSelPrepCircuit,
+            prepare_op,
+            SelectIdentity,
+            1,
+            1,
+            1,
+        )
+    )
+    assert "define i64 @ENTRYPOINT__main()" in nested_qir
+
+
 def test_qir_from_qdk_chemistry_like_iqpe_params_struct() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""

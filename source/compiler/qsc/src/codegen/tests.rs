@@ -3805,6 +3805,127 @@ fn chemistry_like_controlled_factory_generates_qir() {
 }
 
 #[test]
+fn chemistry_like_state_preparation_closure_with_empty_expansion_ops_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            struct StatePreparationParams {
+                rowMap : Int[],
+                stateVector : Double[],
+                expansionOps : Int[][],
+                numQubits : Int
+            }
+
+            operation ApplyStatePreparation(params : StatePreparationParams, qs : Qubit[]) : Unit is Adj + Ctl {
+                if Length(params.expansionOps) != 0 {
+                    X(qs[0]);
+                }
+            }
+
+            function MakeStatePreparationOp(
+                rowMap : Int[],
+                stateVector : Double[],
+                expansionOps : Int[][],
+                numQubits : Int
+            ) : Qubit[] => Unit is Adj + Ctl {
+                ApplyStatePreparation(
+                    new StatePreparationParams {
+                        rowMap = rowMap,
+                        stateVector = stateVector,
+                        expansionOps = expansionOps,
+                        numQubits = numQubits
+                    },
+                    _
+                )
+            }
+
+            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+            function MakeControlledPrepSelPrepOp(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : (Qubit, Qubit[]) => Unit {
+                (control, allQubits) => {
+                    let systems = allQubits[0..numSystemQubits - 1];
+                    let ancilla = allQubits[numSystemQubits...];
+                    for _ in 0..power - 1 {
+                        Controlled prepareOp([control], systems);
+                        Controlled selectOp([control], (systems, ancilla));
+                    }
+                }
+            }
+
+            operation MakeControlledPrepSelPrepCircuit(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : Unit {
+                use control = Qubit();
+                use systems = Qubit[numSystemQubits + numAncillaQubits];
+                let op = MakeControlledPrepSelPrepOp(
+                    prepareOp,
+                    selectOp,
+                    numSystemQubits,
+                    numAncillaQubits,
+                    power
+                );
+                op(control, systems);
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeControlledPrepSelPrepCircuit", true),
+            ("ApplyStatePreparation", true),
+            ("SelectIdentity", true),
+        ],
+        caps,
+    );
+
+    let state_params = Value::Tuple(
+        vec![
+            Value::Array(vec![Value::Int(0)].into()),
+            Value::Array(vec![Value::Double(1.0), Value::Double(0.0)].into()),
+            Value::Array(vec![].into()),
+            Value::Int(1),
+        ]
+        .into(),
+        None,
+    );
+    let prepare = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![state_params].into(),
+        id: fir_id_for(pkg, items["ApplyStatePreparation"]),
+        functor: FunctorApp::default(),
+    }));
+    let select = Value::Global(
+        fir_id_for(pkg, items["SelectIdentity"]),
+        FunctorApp::default(),
+    );
+    let args = Value::Tuple(
+        vec![prepare, select, Value::Int(1), Value::Int(1), Value::Int(1)].into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(
+        &store,
+        pkg,
+        items["MakeControlledPrepSelPrepCircuit"],
+        &args,
+        caps,
+    );
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()"),
+        "expected entry point in QIR:\n{qir}"
+    );
+}
+
+#[test]
 fn chemistry_like_iqpe_params_struct_generates_qir() {
     let source = indoc::indoc! {r#"
         namespace Test {
