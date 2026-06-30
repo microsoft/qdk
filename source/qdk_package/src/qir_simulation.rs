@@ -541,6 +541,19 @@ impl NoiseTable {
             ))),
         }
     }
+
+    fn get_loss(&self) -> PyResult<Probability> {
+        match self.qubits {
+            1 => self.get_pauli_noise_elt("L"),
+            2 => {
+                let both = self.get_pauli_noise_elt("LL")?;
+                Ok(both.sqrt())
+            }
+            n => Err(PyAttributeError::new_err(format!(
+                "The `loss` attribute is only supported for one- and two-qubit operations, but this operation targets {n} qubits."
+            ))),
+        }
+    }
 }
 
 #[allow(
@@ -565,12 +578,7 @@ impl NoiseTable {
     /// for arbitrary pauli fields.
     fn __getattr__(&mut self, name: &str) -> PyResult<Probability> {
         if name == "loss" {
-            return Err(PyAttributeError::new_err(
-                "`.loss` is a convenience over setting correlated faults individually.
-To get the loss probabilities, access the correlated strings individually.
-E.g.: `noise_config.cz.IL`"
-                    .to_string(),
-            ));
+            return self.get_loss();
         }
         self.get_pauli_noise_elt(&name.to_uppercase())
     }
