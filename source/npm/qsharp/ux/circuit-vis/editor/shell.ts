@@ -14,15 +14,11 @@ import { createToolboxElement } from "./toolbox.js";
  * - Prepends the toolbox panel (with optional Run button).
  * - Shows an "empty circuit" hint when the wires group is empty.
  * - Tags the container/wrapper with editor layout classes.
- * - Mounts the state-visualization panel (when supported by the host).
+ * - Mounts the state-visualization panel (when the host supports it).
  *
- * Idempotent — safe to re-call on every render. Pre-existing elements
- * are reused rather than recreated, so the SVG element identity stays
- * stable across renders.
- *
- * Read-only mode does not call this — `installEditor` does, once per
- * `renderCircuit`. Anything purely presentational stays in the
- * renderer; this module is for the editor's chrome.
+ * Idempotent — safe to re-call on every render; pre-existing elements
+ * are reused so the SVG element identity stays stable. Called only in
+ * editor mode, once per `renderCircuit`.
  *
  * @param container         HTML element holding the rendered circuit.
  * @param computeStateVizColumnsForCircuitModel  Optional state-viz

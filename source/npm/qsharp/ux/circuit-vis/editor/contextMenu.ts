@@ -62,8 +62,7 @@ const addContextMenuToHostElem = (
 
     const deleteOption = _createContextMenuItem("Delete", () => {
       // Route through the prompt-aware wrapper so deleting a
-      // measurement with downstream classical consumers surfaces
-      // a confirmation dialog before cascade-deleting them.
+      // measurement with downstream consumers confirms first.
       _deleteOperationWithConfirmation(
         circuitEvents.model,
         selectedLocation,
@@ -77,12 +76,10 @@ const addContextMenuToHostElem = (
     ) {
       contextMenu.appendChild(deleteOption);
     } else if (isControl) {
-      // Hide "Remove control" on a control-dot right-click when
-      // the parent op is multi-target / a group. Authoring controls
-      // on such bodies is gated at the action layer (see
-      // `_isMultiTargetOrGroup`); the menu mirrors that to avoid
-      // exposing a silently-no-op affordance. Existing controls
-      // can still be moved via control-drag (leg rewire only).
+      // Hide "Remove control" when the parent op is multi-target /
+      // a group, mirroring the action-layer gating in
+      // `_isMultiTargetOrGroup`. Existing controls can still be
+      // moved via control-drag.
       if (!_isMultiTargetOrGroup(selectedOperation)) {
         const removeControlOption = _createContextMenuItem(
           "Remove control",
@@ -100,21 +97,16 @@ const addContextMenuToHostElem = (
         circuitEvents.renderFn();
       });
 
-      // Multi-target unitaries and groups: don't surface Add /
-      // Remove Control. By design, groups never carry quantum
-      // controls (they may only carry classical controls), and
-      // multi-target bodies have no canonical attachment point for
-      // a control connector. Mirrors the action-layer refusal in
-      // `_isMultiTargetOrGroup`. The body-drag, leg-rewire, and
-      // existing-control-render paths are unaffected.
+      // Multi-target unitaries and groups don't get Add / Remove
+      // Control: groups carry no quantum controls and multi-target
+      // bodies have no canonical control attachment point. Mirrors
+      // `_isMultiTargetOrGroup` at the action layer.
       const allowControlAuthoring = !_isMultiTargetOrGroup(selectedOperation);
 
-      // Groups (any op with `children`) don't get "Toggle Adjoint"
-      // by design — authoring the adjoint of a group would have to
-      // propagate the adjoint marker sensibly through the subtree
-      // (and groups containing a measurement or Reset aren't
-      // adjointable at all). Leaf unitaries continue to get the
-      // Toggle Adjoint option.
+      // Groups (any op with `children`) don't get "Toggle Adjoint":
+      // adjointing a group would have to propagate the marker through
+      // the subtree, and groups with a measurement or Reset aren't
+      // adjointable at all.
       const allowAdjoint = selectedOperation.children == null;
 
       const addControlOption = _createContextMenuItem("Add Control", () => {

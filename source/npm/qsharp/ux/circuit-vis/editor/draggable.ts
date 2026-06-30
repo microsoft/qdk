@@ -32,28 +32,25 @@ interface Context {
   operationGrid: ComponentGrid;
   /**
    * Geometry from the layout pass. Source of truth for dropzone
-   * positioning. See [`layoutMap.ts`](layoutMap.ts).
+   * positioning. See [`layoutMap.ts`](../renderer/layoutMap.ts).
    */
   layoutMap: LayoutMap;
 }
 
 /**
- * Create dropzones elements for dragging on circuit.
+ * Create dropzone elements for dragging on the circuit.
  *
  * Every editor-only DOM node lives inside a single
- * `<g class="editor-overlay">` group, attached as the last child of
- * `svg.qviz`. All editor-only content (dropzones, the ghost qubit
- * wire, plus any future selection rectangles / hover halos /
- * Inspector anchors) lives inside that group; the renderer-owned
- * children of `svg.qviz` (gates, wires, register labels) stay
- * purely presentational.
+ * `<g class="editor-overlay">` group attached as the last child of
+ * `svg.qviz`, so the renderer-owned children (gates, wires, labels)
+ * stay purely presentational.
  *
  * @param container     HTML element for rendering visualization into
  * @param sqore         Sqore object
  * @param layoutMap     Geometry captured during the layout pass
  * @returns The editor overlay `<g>` so callers can attach further
  *          editor-only DOM (e.g. wire dropzones spawned during a
- *          drag) without having to re-query the SVG.
+ *          drag).
  */
 const createDropzones = (
   container: HTMLElement,
@@ -82,9 +79,8 @@ const createDropzones = (
   // Layer z-order inside the overlay (later children paint on top):
   //   1. ghost-qubit-layer — the trailing add-a-qubit row.
   //   2. dropzone-layer — catches mouseup for gate drops.
-  // Wire dropzones spawned during a drag get appended to `overlay`
-  // directly (above both), keeping them above the static layers but
-  // still within the editor's territory.
+  // Wire dropzones spawned during a drag append to `overlay`
+  // directly, keeping them above both static layers.
   overlay.appendChild(_ghostQubitLayer(context));
   overlay.appendChild(_dropzoneLayer(context));
 
@@ -322,14 +318,12 @@ const _addStyles = (container: HTMLElement): void => {
 
 /**
  * Create the ghost-qubit layer — the trailing add-a-qubit row that
- * appears below the last real wire when a drag is in progress.
+ * appears below the last real wire while a drag is in progress.
  *
- * Returns the layer ready to be attached by the caller
- * (`createDropzones` puts it inside the editor overlay). The one
- * true side effect kept here is extending the SVG's `height` /
- * `viewBox` to make room for the trailing ghost wire. That's a
- * renderer-side dimension change, not editor DOM, so it lives at
- * the SVG root.
+ * Returns the layer ready to be attached by the caller. The one side
+ * effect kept here is extending the SVG's `height` / `viewBox` to
+ * make room for the trailing ghost wire — a renderer-side dimension,
+ * so it lives at the SVG root rather than on the overlay.
  */
 const _ghostQubitLayer = (context: Context) => {
   const { container, svg } = context;
@@ -365,8 +359,8 @@ const _ghostQubitLayer = (context: Context) => {
   ghostLayer.appendChild(ghostLabel);
 
   // Extend the rendered SVG so the trailing ghost row is visible.
-  // (Touches the SVG root, not the overlay — the height change is a
-  // renderer-side dimension, independent of the editor DOM.)
+  // (Touches the SVG root, not the overlay — a renderer-side
+  // dimension.)
   context.svg.setAttribute("height", (svgHeight + registerHeight).toString());
   svg.setAttribute("viewBox", `0 0 ${svgWidth} ${svgHeight + registerHeight}`);
 
@@ -377,18 +371,14 @@ const _ghostQubitLayer = (context: Context) => {
  * Create dropzone layer with all dropzones populated.
  *
  * Walks the component grid recursively: top-level columns get
- * dropzones, and any expanded group's body gets its own nested
- * dropzones with hierarchical location strings (e.g. `0,0-1,2` for
- * the op at column 1 / opIndex 2 inside the expanded group at
- * top-level column 0 / opIndex 0). Those nested location strings are
- * exactly what `findParentArray` / `addOperation` / `moveOperation`
- * already understand, so no plumbing further down the call chain
- * needs to change.
+ * dropzones, and any expanded group's body gets nested dropzones
+ * with hierarchical location strings (e.g. `0,0-1,2`). Those strings
+ * are exactly what `findParentArray` / `addOperation` /
+ * `moveOperation` already understand.
  *
  * Coordinates come from `context.layoutMap` — the same numbers the
- * layout pass computed when rendering the gates. There is no
- * geometry recovery from SVG attributes; that approach was the
- * source of the Phase A bug.
+ * layout pass computed when rendering the gates. Geometry is never
+ * recovered from SVG attributes.
  */
 const _dropzoneLayer = (context: Context) => {
   const dropzoneLayer = document.createElementNS(
@@ -402,11 +392,9 @@ const _dropzoneLayer = (context: Context) => {
   const wireData = getWireData(container);
 
   // Recurse from the top-level scope. Wire extent at top level covers
-  // every wire in the circuit; nested scopes pass a tightened extent
-  // matching their parent group's [minTarget, maxTarget]. The
-  // trailing-append column for each scope (top-level and each
-  // expanded group) is emitted by `_populateDropzonesForGrid` itself,
-  // so it stays in sync with whatever scope is being processed.
+  // every wire; nested scopes pass a tightened extent matching their
+  // group's [minTarget, maxTarget]. Each scope's trailing-append
+  // column is emitted by `_populateDropzonesForGrid` itself.
   _populateDropzonesForGrid(
     dropzoneLayer,
     layoutMap,

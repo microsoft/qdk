@@ -43,34 +43,27 @@ import {
 } from "../../utils.js";
 
 /**
- * `DragController` — owns the gate drag-and-drop surface. Gate-drag,
+ * `DragController` — owns the gate drag-and-drop surface: gate-drag,
  * toolbox-drag, dropzone commit, document-level cleanup/cancel,
- * ghost element creation, and the wire-pick dropzones used by the
- * add-control / remove-control flow that the context menu invokes.
+ * ghost element creation, and the wire-pick dropzones for the
+ * add-control / remove-control flow the context menu invokes.
  *
- * Why one controller for so much. These flows all share the same
- * dropzone overlay, the same ghost element, the same
- * `interaction` flags (`dragging`, `mouseUpOnCircuit`,
- * `selectedOperation`, `selectedWire`, `movingControl`) and the
- * same document-level mouseup that decides whether a drag was a
- * commit, a cancel, or a drag-out-delete. Splitting them further
- * would multiply the cross-controller plumbing without separating
- * any real concerns.
+ * These flows share one dropzone overlay, one ghost element, the
+ * same `interaction` flags, and the same document-level mouseup that
+ * classifies a drag as commit, cancel, or drag-out-delete — so they
+ * live in a single controller.
  *
- * Cross-controller dependencies:
- *
- * - Holds a `QubitController` reference for the one document-mouseup
- *   path that detects a qubit-label drag-off and calls
- *   `removeQubitLineWithConfirmation`.
+ * Holds a `QubitController` reference for the one document-mouseup
+ * path that detects a qubit-label drag-off and calls
+ * `removeQubitLineWithConfirmation`.
  */
 export class DragController {
   /**
-   * D4 Stage B — shift-extend context, populated by `onGateMouseDown`
-   * when the dragged source is internal to an expanded group, cleared
-   * by `tearDownShiftExtend` on container mouseup. Drives both the
-   * extra "extend vertically" dropzones and the ghost-border overlay.
-   * `null` whenever the current drag (if any) cannot extend a group —
-   * external source, top-level source, or no drag at all.
+   * Shift-extend context, populated by `onGateMouseDown` when the
+   * dragged source is internal to an expanded group, cleared by
+   * `tearDownShiftExtend` on container mouseup. Drives the extra
+   * "extend vertically" dropzones and the ghost-border overlay.
+   * `null` whenever the current drag can't extend a group.
    */
   private _shiftExtendCtx: {
     /** Hierarchical location of the immediate parent group G. */
@@ -83,10 +76,9 @@ export class DragController {
   } | null = null;
 
   /**
-   * Dropzones spawned by `spawnShiftExtendDropzones` (kept in our own
-   * list so shift-release can clear them ahead of container mouseup;
-   * the existing `temporaryDropzones` list is cleaned only at the
-   * mouseup boundary).
+   * Dropzones spawned by `spawnShiftExtendDropzones`, tracked
+   * separately so shift-release can clear them ahead of the
+   * container-mouseup cleanup.
    */
   private _shiftExtendDropzones: SVGElement[] = [];
 
@@ -123,13 +115,10 @@ export class DragController {
     this.ctx.ghostQubitLayer.style.display = "block";
 
     for (let wireIndex = 0; wireIndex < this.ctx.wireData.length; wireIndex++) {
-      // Only PURE-QUANTUM target/control entries (`result === undefined`)
-      // disqualify a wire from getting an add-control dropzone. A
-      // classically-controlled group carries a classical-ref entry
-      // `{qubit: Y, result: 0}` in BOTH `.targets` (visual-extent claim)
-      // AND `.controls` (the conditional dependency) on the M-owning
-      // wire Y; that entry doesn't make Y a quantum target or control,
-      // so the user can still legitimately add a quantum control on Y.
+      // Only pure-quantum target/control entries (`result === undefined`)
+      // disqualify a wire. A classical-ref entry `{qubit, result}` on
+      // the M-owning wire doesn't make it a quantum target or control,
+      // so a quantum control can still be added there.
       const isTarget = this.ctx.interaction.selectedOperation?.targets.some(
         (target) => target.qubit === wireIndex && target.result === undefined,
       );
@@ -163,12 +152,9 @@ export class DragController {
     this.ctx.container.classList.add("removing-control");
 
     this.ctx.interaction.selectedOperation.controls?.forEach((control) => {
-      // Skip classical-ref controls. A `{qubit, result}` control is the
-      // group's classical-condition dependency on a producing M; it has
-      // no quantum control-dot to click and removing it isn't a
-      // "remove control" operation — that's a separate semantic
-      // (convert classically-conditional to unconditional) deferred
-      // to the editor-authoring feature.
+      // Skip classical-ref controls: a `{qubit, result}` control is the
+      // group's classical dependency on a producing M, with no quantum
+      // control-dot to click.
       if (control.result !== undefined) return;
       const dropzone = createWireDropzone(
         this.ctx.circuitSvg,
@@ -210,18 +196,14 @@ export class DragController {
         this.ctx.ghostQubitLayer.style.display = "none";
       }
       this.ctx.dropzoneLayer.style.display = "none";
-      // Reset any per-dropzone visibility marks left behind by
-      // `hideInvalidDropzones`. Without this, a drag that doesn't
-      // trigger a re-render (canceled drag, or a drop where
-      // `deepEqual` short-circuits `renderFn`) leaves invalid-for-
-      // last-drag dropzones still marked `display: none`, and the
-      // next drag — including a toolbox drag, which never runs the
-      // filter — inherits those stale marks.
+      // Reset per-dropzone visibility marks left by
+      // `hideInvalidDropzones`, so a drag that doesn't re-render
+      // (canceled, or a no-op drop) doesn't leave the next drag with
+      // stale `display: none` marks.
       this.showAllDropzones();
-      // D4 Stage B teardown: clear shift-extend context, ditch any
-      // shift-extend dropzones still hanging around, remove the
-      // ghost border, and uninstall the document shift listeners.
-      // Pairs with `setupShiftExtend` in `onGateMouseDown`.
+      // Clear shift-extend context, drop any leftover shift-extend
+      // dropzones and the ghost border, and uninstall the shift
+      // listeners. Pairs with `setupShiftExtend` in `onGateMouseDown`.
       this.tearDownShiftExtend();
     });
 
@@ -315,16 +297,12 @@ export class DragController {
       // Looked up via `findOperation` against the model so subsequent
       // edits operate on the live op, not a stale snapshot.
       //
-      // The `movingControl` carve-out covers an otherwise-blocked case:
-      // an expanded group is its own outer `<g class="gate" data-expanded="true">`
-      // node, and its control dots are DIRECT children of that node
-      // (children's gate elems live in their own nested `.gate` wrappers,
-      // which catch the event first and stopPropagation). When the user
-      // grabs a control dot on the expanded group, `selectionController`
-      // has just set `movingControl = true` on the bubble path; without
-      // this condition, the early-return below would leave
-      // `selectedOperation` null and the drag would never start.
-      // See [B11](../../CIRCUIT_EDITOR_TODO.md).
+      // The `movingControl` carve-out covers grabbing a control dot on
+      // an expanded group: those dots are direct children of the
+      // group's `data-expanded="true"` node (child gate elems
+      // stopPropagation first), so without this branch the early-return
+      // below would leave `selectedOperation` null and the drag would
+      // never start.
       selectedLocation = elem.getAttribute("data-location");
       this.ctx.interaction.selectedOperation = findOperation(
         this.ctx.model.componentGrid,
@@ -342,13 +320,11 @@ export class DragController {
       return;
 
     // Add temporary per-op dropzones for the multi-target drag flow.
-    // The scope that *contains* the selected op is the parent of its
-    // location: e.g. an op at "0,0-1,2" lives in the "0,0" scope, an
-    // op at "1,0" lives in the top-level "" scope.
+    // The scope that contains the selected op is the parent of its
+    // location (an op at "0,0-1,2" lives in the "0,0" scope).
     //
     // Quantum-only span: a classically-controlled op's `.controls`
-    // back-references the producing measurement's qubit, but that
-    // qubit isn't a draggable leg of this op.
+    // back-reference to the producing M isn't a draggable leg.
     const [minTarget, maxTarget] = getQuantumWireRange(
       this.ctx.interaction.selectedOperation,
     );
@@ -393,21 +369,12 @@ export class DragController {
 
     // Hide dropzones whose drop would invert producer-before-consumer
     // ordering for any classical register the selected op consumes
-    // from outside its own subtree. See `hideInvalidDropzones` for
-    // the full rationale; the gist is that without this filter, a
-    // user can drag a classically-conditional group to a column
-    // before its producing measurement, producing a circuit that's
-    // either semantically invalid or outright crashes the renderer.
+    // from outside its own subtree. See `hideInvalidDropzones`.
     this.hideInvalidDropzones(selectedLocation);
 
-    // D4 Stage B: arm shift-extend if the source is internal to an
-    // expanded ancestor group. Sets up `_shiftExtendCtx` and installs
-    // document keydown/keyup listeners so the user can toggle the
-    // shift-extend dropzones + ghost-border on/off mid-drag. No-op
-    // for top-level sources (no ancestor group to extend) and for
-    // sources whose immediate parent's children scope isn't tracked
-    // by the LayoutMap (shouldn't happen for an expanded group, but
-    // skip silently if it does — see `setupShiftExtend`).
+    // Arm shift-extend if the source is internal to an expanded
+    // ancestor group; no-op for top-level sources or untracked
+    // scopes. See `setupShiftExtend`.
     this.setupShiftExtend(selectedAddr);
 
     this.ctx.container.classList.add("moving");
@@ -448,11 +415,9 @@ export class DragController {
       JSON.stringify(this.ctx.model.componentGrid),
     ) as ComponentGrid;
     // Set when a code path delegates rendering to a prompt-aware
-    // wrapper (currently `_moveOperationWithConfirmation`). The
-    // wrapper owns the renderFn call — sync on the no-prompt
-    // path, async via the prompt callback when one is shown — so
-    // the trailing deepEqual block must skip its own renderFn to
-    // avoid double-rendering on the no-prompt fast path.
+    // wrapper (`_moveOperationWithConfirmation`), which owns its own
+    // renderFn call; the trailing deepEqual block then skips its own
+    // to avoid double-rendering.
     let mutationHandledByWrapper = false;
     const targetLoc = dropzoneElem.getAttribute("data-dropzone-location");
     const insertNewColumn =
@@ -471,15 +436,11 @@ export class DragController {
       this.ctx.interaction.selectedOperation,
     );
 
-    // D4 Stage B: shift-extend dropzones (only emitted while shift
-    // is held during an internal-source drag) offer drop targets
-    // on wires outside the destination group's current span. The
-    // action layer treats the target location string as
-    // authoritative — it always re-derives ancestor `.targets`
-    // from the post-move children — so no special routing is
-    // needed here. The dropzone tag (`data-shift-extend`) only
-    // gated the ghost-border visual, which is cleared on mouseup
-    // by `tearDownShiftExtend`.
+    // Shift-extend dropzones offer drop targets on wires outside the
+    // destination group's current span. The action layer treats the
+    // target location string as authoritative (it re-derives ancestor
+    // `.targets` from post-move children), so no special routing is
+    // needed here.
 
     if (sourceLocation == null) {
       // Source has no location → it's a fresh drop from the toolbox.
@@ -533,9 +494,8 @@ export class DragController {
         } else {
           // Pass `selectedWire` as the source wire so a group /
           // multi-target clone shifts every register by the same
-          // delta. Without this, `addOperation` clobbers the
-          // top-level `targets` to a single-wire stub and strands
-          // the children on their original wires.
+          // delta. Without it, `addOperation` collapses `targets` to a
+          // single-wire stub and strands the children.
           addOperation(
             this.ctx.model,
             this.ctx.interaction.selectedOperation,
@@ -546,15 +506,11 @@ export class DragController {
           );
         }
       } else {
-        // Regular move path. Routes through the prompt-aware
-        // wrapper so moving a measurement with downstream
-        // classical consumers surfaces a confirmation dialog
-        // (mix of cascade-update for survivors + cascade-delete
-        // for invalidated consumers, per the column-order
-        // partition). The wrapper owns the renderFn call on
-        // BOTH branches (sync no-prompt + async prompt-callback),
-        // so we skip the trailing deepEqual block via
-        // `mutationHandledByWrapper`.
+        // Regular move path. Routes through the prompt-aware wrapper
+        // so moving a measurement with downstream classical consumers
+        // surfaces a confirmation dialog. The wrapper owns the
+        // renderFn call on both branches, so skip the trailing
+        // deepEqual block via `mutationHandledByWrapper`.
         _moveOperationWithConfirmation(
           this.ctx.model,
           sourceLocation,
@@ -616,21 +572,15 @@ export class DragController {
           );
           this.ctx.renderFn();
         } else {
-          // Drag-out-delete. Routes through the prompt-aware
-          // wrapper so deleting a measurement with downstream
-          // classical consumers surfaces a confirmation dialog
-          // before cascade-deleting them. The wrapper handles
-          // renderFn on both branches; this branch no longer
-          // calls renderFn unconditionally.
+          // Drag-out-delete. Routes through the prompt-aware wrapper
+          // so deleting a measurement with downstream classical
+          // consumers confirms first; the wrapper owns renderFn on
+          // both branches.
           _deleteOperationWithConfirmation(
             this.ctx.model,
             selectedLocation,
             this.ctx.renderFn,
           );
-          // Fall through to the qubit-controller branch via the
-          // surrounding `else if` chain (no early return needed —
-          // this is the terminal branch for the delete path; the
-          // pre-existing `this.ctx.renderFn()` below is removed.
         }
       } else if (this.ctx.interaction.selectedWire != null) {
         // A qubit label was dragged off-circuit → ask the qubit
@@ -662,40 +612,23 @@ export class DragController {
   }
 
   /**
-   * Hide every dropzone in the layer that would, if used as the
-   * drop target for the currently-dragged op at `selectedLocation`,
-   * invert the "producer measurement comes before its classical
-   * consumer" ordering. Invalid dropzones get
-   * `style.display = "none"` so they neither paint nor catch
-   * mouseup events.
+   * Hide every dropzone that would, if used as the drop target for
+   * the currently-dragged op, invert the "producer measurement comes
+   * before its classical consumer" ordering. Invalid dropzones get
+   * `display: none` so they neither paint nor catch mouseup.
    *
-   * Why this is necessary. A classically-conditional unitary
-   * carries `(qubit, result)` references to a producing
-   * measurement. If the user drops it into a column before that
-   * measurement, the references point at a classical register
-   * that doesn't exist yet at the consumer's render position.
-   * The renderer either crashes outright
-   * ("Classical register ID N invalid for qubit ID M with 0
-   * classical register(s)") or produces a semantically broken
-   * circuit.
-   *
-   * Why a fresh visibility pass on every drag. The drop-zone DOM
-   * is regenerated on every render; its inline `display` styles
-   * are inherited from the layer's own `display: none` toggle.
-   * Resetting every dropzone to `display: ""` first means we
-   * never accumulate stale "invalid" marks from a previous
-   * drag's selected op.
+   * A classically-conditional unitary carries `(qubit, result)`
+   * references to a producing M; dropping it before that M points at
+   * a classical register that doesn't exist yet at the consumer's
+   * position, which crashes the renderer or yields a broken circuit.
    *
    * Producers internal to the dragged subtree don't constrain the
-   * drop: they travel with the consumer when the subtree is
-   * moved as a unit. See
-   * [`collectExternalProducerLocations`](../../actions/circuitActions.ts)
-   * for the producer-collection rules.
+   * drop — they travel with the consumer. See
+   * [`collectExternalProducerLocations`](../../actions/circuitActions.ts).
    *
-   * Pairs with the `moveOperation` safety-net refusal. The
-   * controller filter is the user-facing surface; the action-layer
-   * refusal catches any drop that slips through (e.g. via the
-   * temporary per-op dropzones the multi-target drag spawns).
+   * Pairs with the `moveOperation` safety-net refusal: this filter is
+   * the user-facing surface; the action-layer refusal catches drops
+   * that slip through.
    */
   private hideInvalidDropzones(selectedLocation: string): void {
     // Reset every dropzone to visible first so stale marks from a
@@ -718,11 +651,9 @@ export class DragController {
       if (targetLocStr == null) return;
       const targetLoc = Location.parse(targetLocStr);
       // Hide if any external producer is NOT in a strictly earlier
-      // column than this drop target. The column-strict comparator
-      // (rather than plain document order) catches the case where
-      // a consumer gets "promoted" to a higher level but lands in
-      // the same outer column as its producer — same time-step,
-      // just on a sibling subtree, still invalid.
+      // column than this drop target. Column-strict (not plain
+      // document order) also catches a consumer promoted to a higher
+      // level that lands in the same outer column as its producer.
       for (const pLoc of producerLocs) {
         if (!pLoc.inEarlierColumnThan(targetLoc)) {
           dz.style.display = "none";
@@ -734,10 +665,8 @@ export class DragController {
 
   /**
    * Clear every per-dropzone `display` mark, restoring CSS-default
-   * visibility. Shared by `hideInvalidDropzones` (so each gate-drag
-   * starts from a clean slate) and the layer-mouseup teardown (so
-   * a toolbox drag or future gate drag doesn't inherit stale marks
-   * from the previous drag's filter).
+   * visibility. Shared by `hideInvalidDropzones` and the
+   * layer-mouseup teardown so no drag inherits stale marks.
    */
   private showAllDropzones(): void {
     const dropzones =
@@ -748,22 +677,11 @@ export class DragController {
   }
 
   /**
-   * Final step of `startAddingControl`: actually add the control,
-   * tear down the add-control UI, and re-render. The action layer
+   * Final step of `startAddingControl`: add the control, tear down
+   * the add-control UI, and re-render. The action layer
    * (`addControl` → `_resolveSpanChange`) owns the post-widening
-   * cascade now — column splits, ancestor `.targets` refresh,
-   * sibling shifts. This wrapper does NOT duplicate any of that.
-   *
-   * Earlier versions ran a second split-and-shift pass HERE after
-   * calling `addControl`, which produced a visible duplicate when
-   * the centralized cascade had already split the column: the
-   * legacy pass spliced the just-placed op into a fresh column at
-   * the same index a second time, leaving the source op visible
-   * in two places. The legacy block also used `getMinMaxRegIdx`
-   * directly with no ancestor walk, so it would have missed
-   * cascades anyway. Removed entirely — the action layer's
-   * centralized check (`_resolveSpanChange`) is the single source
-   * of truth.
+   * cascade — column splits, ancestor `.targets` refresh, sibling
+   * shifts — so this wrapper does not duplicate any of it.
    */
   private commitAddControl(wireIndex: number): void {
     if (
@@ -785,22 +703,18 @@ export class DragController {
   }
 
   /******************************
-   *   D4 Stage B: shift-extend  *
+   *        shift-extend         *
    ******************************/
 
   /**
    * Arm the shift-extend pathway for a new internal-source drag.
    * No-op if `selectedAddr` is top-level (no parent group to extend)
-   * or if the immediate parent's children scope wasn't tracked by
-   * the LayoutMap (defensive — every expanded group's scope should
-   * be present, but skip silently rather than throw).
+   * or if the immediate parent's children scope isn't tracked by the
+   * LayoutMap (defensive).
    *
    * On the happy path: captures the parent group's wire span +
-   * scope, installs document keydown/keyup listeners on the shift
-   * key, and spawns initial dropzones if shift is already held at
-   * drag start (a power-user pattern — start dragging then press
-   * shift; the inverse "hold shift then click" pattern is harder
-   * to detect because the gate mousedown listener fires first).
+   * scope, installs document shift keydown/keyup listeners, and
+   * spawns initial dropzones if shift is already held at drag start.
    */
   private setupShiftExtend(selectedAddr: Location): void {
     if (selectedAddr.depth < 2) return; // top-level source
@@ -887,27 +801,17 @@ export class DragController {
     // +1 for the trailing-append column past the rightmost.
     const totalCols = realColCount + 1;
 
-    // B6: wires the parent group can't directly extend onto because
-    // a sibling at SOME level of the ancestor chain already
-    // occupies them in the outer column of that level. Dropping a
-    // child there would land the new op directly on top of an
-    // existing one — the general "you can't drop a gate onto
-    // another gate" rule applies to the implicit "extend the group"
-    // gesture too.
+    // Wires the group can't directly extend onto because a sibling
+    // at some level of the ancestor chain already occupies them in
+    // that level's outer column — dropping there would land the new
+    // op directly on an existing one. We walk the full ancestor
+    // chain since shift-extend widens every ancestor whose span
+    // doesn't already enclose the drop wire.
     //
-    // We walk the full ancestor chain (not just the immediate
-    // parent) because shift-extend widens every ancestor whose span
-    // doesn't already enclose the drop wire. A sibling at any
-    // affected level can produce a direct collision, so the filter
-    // must mirror the cascade's scope.
-    //
-    // The CROSS-OVER case (extending PAST an in-between sibling to
-    // a clear wire) is intentionally NOT filtered. The action layer
-    // already handles it: `moveOperation`'s dest-side cascade calls
-    // `_resolveOverlapAfterExtend` on each widened ancestor, which
-    // splits the outer column so the in-between sibling slides one
-    // column to the right of the now-widened ancestor — the same
-    // horizontal-shift pattern as `commitAddControl`.
+    // The cross-over case (extending past an in-between sibling to a
+    // clear wire) is intentionally not filtered: `moveOperation`'s
+    // dest-side cascade splits the outer column so the in-between
+    // sibling slides one column right of the widened ancestor.
     const blockedWires = getAncestorColumnSiblingWires(
       this.ctx.model.componentGrid,
       parentLoc,
@@ -920,21 +824,16 @@ export class DragController {
     };
     for (let colIndex = 0; colIndex < totalCols; colIndex++) {
       for (let wire = 0; wire < this.ctx.wireData.length; wire++) {
-        // Only emit for wires OUTSIDE the parent group's current
-        // span. Wires inside already have regular inner dropzones
-        // (from `_populateDropzonesForGrid` + Stage A's trailing
-        // band), and a shift-extend dropzone there would be
-        // semantically a no-op (wire is already enclosed).
+        // Only emit for wires outside the group's current span; wires
+        // inside already have regular inner dropzones.
         if (wire >= parentMinWire && wire <= parentMaxWire) continue;
 
-        // B6 direct-collision filter (see `blockedWires` above).
+        // Skip wires a sibling already occupies (see `blockedWires`).
         if (blockedWires.has(wire)) continue;
 
-        // opIndex = 0: append at the head of (or into a fresh)
-        // column. Wire is outside the parent's span so no existing
-        // op in this column shares the wire — `_addOp`'s overlap
-        // check passes and the op slots into the column without
-        // splicing a new one.
+        // opIndex = 0: the wire is outside the group's span so no op
+        // in this column shares it; the op slots in without splicing
+        // a new column.
         const dropzone = makeDropzoneBox(dropzoneCtx, {
           colIndex,
           opIndex: 0,
@@ -942,8 +841,7 @@ export class DragController {
           interColumn: false,
         });
         dropzone.setAttribute("data-shift-extend", "true");
-        // Override `data-dropzone-inter-column="false"` for clarity
-        // — we want a normal drop (no new outer column), not an
+        // Force a normal drop (no new outer column), not an
         // insert-between gesture.
         dropzone.setAttribute("data-dropzone-inter-column", "false");
         dropzone.addEventListener("mouseup", this.onDropzoneMouseUp);

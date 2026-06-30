@@ -35,11 +35,9 @@ export interface InteractionContext {
   readonly circuitSvg: SVGElement;
   /**
    * The editor-only overlay group inside `svg.qviz`. Holds every
-   * editor-owned DOM node — dropzones, ghost qubit row, future
-   * selection rectangles / hover halos / Inspector anchors.
-   * Controllers append wire dropzones (and any ad-hoc overlay
-   * elements they need) to this group instead of to `circuitSvg`,
-   * keeping the renderer-owned children of the SVG purely
+   * editor-owned DOM node (dropzones, ghost qubit row, etc.).
+   * Controllers append overlay elements here instead of to
+   * `circuitSvg`, keeping the renderer-owned SVG children purely
    * presentational.
    */
   readonly overlayLayer: SVGGElement;

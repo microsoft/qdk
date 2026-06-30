@@ -27,8 +27,7 @@ import {
  * drag controller's gate handler runs.
  *
  * The context menu still receives the full `CircuitEvents` because
- * `addContextMenuToHostElem` expects it. Slimming that dependency
- * is a follow-up.
+ * `addContextMenuToHostElem` expects it.
  *
  * No `dispose()` — host elements live inside the SVG, replaced
  * wholesale on each `enableEvents` re-run.
@@ -60,35 +59,27 @@ export class SelectionController {
   }
 
   /**
-   * Resolve "which wire did the user grab?" for a single click on a
-   * host element. Backs the D3 design contract that
-   * [`_moveY`](../../actions/circuitActions.ts) relies on: the
-   * grabbed wire is the handle, and the whole op slides by
+   * Resolve "which wire did the user grab?" for a click on a host
+   * element. The grabbed wire is the handle that
+   * [`_moveY`](../../actions/circuitActions.ts) slides by
    * `targetWire - sourceWire`.
    *
    * Two paths:
    *
    *   1. **Single-wire host elem** (control dots, target circles,
-   *      measurement crosses, ket boxes, and single-target unitary
-   *      bodies). The static `data-wire` attribute set by
-   *      [`_addDataWires`](../draggable.ts) is exactly right;
-   *      `data-wire-ys` parses to a one-element array, and we just
-   *      use the attribute the renderer / draggable handshake
-   *      already wrote.
+   *      measurement crosses, ket boxes, single-target unitary
+   *      bodies). The static `data-wire` set by
+   *      [`_addDataWires`](../draggable.ts) is exactly right.
    *
-   *   2. **Multi-wire host elem** (the body of a group, SWAP,
-   *      multi-qubit measurement). The static `data-wire` is
-   *      always the topmost wire of the span (an artifact of
-   *      `_addDataWires`'s `findIndex`-on-`includes` shortcut),
-   *      which would silently degrade unit-shift to "pin top wire
-   *      to drop wire". Instead, project the click's
-   *      `(clientX, clientY)` into SVG coords and pick the wire-Y
-   *      closest to it via [`pickClosestWireIndex`](../../utils.ts).
+   *   2. **Multi-wire host elem** (group body, SWAP, multi-qubit
+   *      measurement). The static `data-wire` is always the topmost
+   *      wire of the span, which would degrade unit-shift to "pin top
+   *      wire to drop wire". Instead, project the click into SVG
+   *      coords and pick the closest wire-Y via
+   *      [`pickClosestWireIndex`](../../utils.ts).
    *
-   * Fallback: if `getScreenCTM()` returns `null` (SVG is in a
-   * detached subtree or some other browser edge case) or the
-   * closest-wire lookup fails, fall back to the static `data-wire`
-   * attribute so the click still resolves *some* wire.
+   * Fallback: if `getScreenCTM()` returns `null` or the closest-wire
+   * lookup fails, fall back to the static `data-wire` attribute.
    */
   private pickSelectedWire(
     ev: MouseEvent,
@@ -104,9 +95,8 @@ export class SelectionController {
     if (wireYs.length <= 1) return fallback();
 
     // `circuitSvg` is typed as the looser `SVGElement` in
-    // `InteractionContext` (it's only ever the root `<svg>` at
-    // runtime). Cast locally to `SVGSVGElement` to reach
-    // `getScreenCTM` without widening the context type.
+    // `InteractionContext` but is always the root `<svg>` at runtime.
+    // Cast locally to reach `getScreenCTM` without widening the type.
     const svg = this.ctx.circuitSvg as unknown as SVGSVGElement;
     const ctm = svg.getScreenCTM();
     if (ctm == null) return fallback();

@@ -11,23 +11,14 @@ import { getMinGateWidth } from "../utils.js";
  * (`x`, `y`) without consulting real register positions.
  *
  * The main render path (see [process.ts](../renderer/process.ts))
- * computes a gate's geometry from the surrounding circuit's
- * registers — qubit Y coords, classical wire splits, neighboring
- * column widths. The editor needs to render gates *outside* that
- * context for two cases:
+ * derives gate geometry from the surrounding circuit. The editor
+ * needs to render gates outside that context — toolbox icons and the
+ * drag ghost in [draggable.ts](draggable.ts) — so this helper fakes a
+ * single wire centered in the gate body. Width still goes through
+ * `getMinGateWidth`, so a toolbox icon matches the same gate dropped
+ * onto the circuit.
  *
- * - the toolbox, where each palette item is a sized icon sitting in
- *   its own little SVG; and
- * - the drag ghost in [draggable.ts](draggable.ts), where the gate
- *   being dragged floats at the cursor before it's dropped.
- *
- * Neither has a real register layout to consult, so this helper
- * fakes one: a single wire centered in the gate body. Gate width
- * still goes through `getMinGateWidth`, so a toolbox icon comes out
- * the same width as the same gate dropped onto the circuit.
- *
- * Limited gate-kind support — only what the toolbox + drag ghost
- * actually use today.
+ * Limited gate-kind support — only what the toolbox + drag ghost use.
  *
  * @param operation     Operation to render. `undefined` returns an
  *                      `Invalid`-typed render data the caller can

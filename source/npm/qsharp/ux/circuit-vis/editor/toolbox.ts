@@ -15,14 +15,9 @@ import { GateDictionary, toolboxGateDictionary } from "./toolboxGates.js";
  * Build the toolbox panel: a `<div class="toolbox-panel">` holding a
  * 2-column grid of gate icons plus an optional Run button.
  *
- * The toolbox always renders. The Run button only renders when
- * `runCallback` is provided — hosts that can't run circuits (e.g.
- * read-only previews) omit the callback and get no button at all,
- * not a hidden one taking up vertical space.
- *
- * Returned element is the inner toolbox; [shell.ts](shell.ts) wraps
- * it in the outer `<div class="panel">` that sits to the left of the
- * circuit in the editor layout.
+ * The Run button only renders when `runCallback` is provided — hosts
+ * that can't run circuits omit it entirely. [shell.ts](shell.ts)
+ * wraps the returned element in the outer `<div class="panel">`.
  *
  * @param runCallback   Optional Run-button click handler.
  * @returns             HTML element for the toolbox.
@@ -130,8 +125,7 @@ const _createRunButton = (
 /**
  * Build a single toolbox gate icon by routing the toolbox's prototype
  * `Operation` through the same gate formatter the main render path
- * uses, so toolbox icons stay visually in lockstep with their
- * dropped-on-circuit counterparts.
+ * uses, keeping toolbox icons in lockstep with dropped gates.
  *
  * @param gateDictionary - The dictionary containing gate operations.
  * @param type - The toolbox key. Example: `"H"` or `"X"`.

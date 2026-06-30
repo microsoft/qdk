@@ -34,13 +34,13 @@ const enableEvents = (
   }
   events = new CircuitEvents(container, sqore, layoutMap, useRefresh);
 
-  // Track which rendered SVG the current `events` instance is associated with.
-  // This lets other modules avoid reading a stale model during a re-render where
-  // the SVG has been replaced but `enableEvents` hasn't run yet.
+  // Lets other modules avoid reading a stale model during a
+  // re-render where the SVG was replaced but enableEvents hasn't
+  // run yet.
   currentCircuitSvg = container.querySelector("svg.qviz") as SVGElement | null;
 
-  // Signal that the circuit model (events + model snapshot) is now ready.
-  // The state visualization uses this to re-render without relying on polling.
+  // Signal that the model is ready so state-viz can re-render
+  // without polling.
   try {
     const CustomEventCtor = (globalThis as any).CustomEvent as
       | (new (type: string, init?: CustomEventInit) => CustomEvent)
@@ -58,44 +58,23 @@ const enableEvents = (
 /**
  * `CircuitEvents` — thin coordinator for the editor's View layer.
  *
- * This class is **only** wiring: it builds the `InteractionContext`
- * (shared deps for every controller) and instantiates a focused
- * controller for each slice of pointer / keyboard interaction.
- * Controllers own their own listeners and lifecycle; `dispose()`
- * here just chains through to them.
- *
- * The actual event logic lives in:
- *
- * - [keyboardController.ts](keyboardController.ts) — Ctrl-toggle
- *   between move and copy modes.
- * - [selectionController.ts](selectionController.ts) — host-element
- *   mousedown (sets `selectedWire` / `movingControl`) and the
- *   context-menu attachment.
- * - [dragController.ts](dragController.ts) — the gate-drag surface:
- *   gate-element mousedown, toolbox mousedown, dropzone mouseup,
- *   document-level cleanup, ghost element creation, and the
- *   wire-pick add-control / remove-control flow that the context
- *   menu invokes.
- * - [qubitController.ts](qubitController.ts) — qubit-label drag
- *   and `removeQubitLineWithConfirmation`.
- * - [scrollController.ts](scrollController.ts) — the auto-scroll
- *   function shared by gate-drag and qubit-drag.
+ * Pure wiring: builds the shared `InteractionContext` and
+ * instantiates one focused controller per slice of pointer /
+ * keyboard interaction. Controllers own their listeners and
+ * lifecycle; `dispose()` chains through to them. The event logic
+ * lives in `controllers/`.
  *
  * Compatibility shims kept on this class:
  *
  * - `componentGrid` / `qubits` / `qubitUseCounts` getters delegate
- *   to `model` so `getCurrentCircuitModel` and the
- *   `contextMenu.ts` consumer keep working unchanged.
- * - `_startAddingControl` / `_startRemovingControl` delegate to
- *   the drag controller so the context menu can keep invoking them
- *   by name. These will go away once `addContextMenuToHostElem`
- *   itself is migrated to a controller-shaped API.
- *
+ *   to `model` for `getCurrentCircuitModel` and `contextMenu.ts`.
+ * - `_startAddingControl` / `_startRemovingControl` delegate to the
+ *   drag controller so the context menu can invoke them by name.
  */
 class CircuitEvents {
-  /** The Data layer. See [circuitModel.ts](circuitModel.ts). */
+  /** The Data layer. See [circuitModel.ts](../data/circuitModel.ts). */
   readonly model: CircuitModel;
-  /** Ephemeral session state. See [interactionState.ts](interactionState.ts). */
+  /** Ephemeral session state. See [interactionState.ts](../actions/interactionState.ts). */
   readonly interaction: InteractionState = new InteractionState();
   readonly renderFn: () => void;
 
@@ -112,12 +91,11 @@ class CircuitEvents {
 
   private readonly keyboard: KeyboardController;
   private readonly drag: DragController;
-  // QubitController is held even though `CircuitEvents` doesn't
-  // call into it directly — DragController references it via
-  // constructor injection for the qubit-drag-out-delete path.
+  // Held only because DragController injects it for the
+  // qubit-drag-out-delete path.
   private readonly qubit: QubitController;
-  // SelectionController has no public methods; it only exists to
-  // install host-element listeners on construction.
+  // No public methods; exists to install host-element listeners on
+  // construction.
   private readonly selection: SelectionController;
 
   constructor(
@@ -131,10 +109,8 @@ class CircuitEvents {
     this.model.removeTrailingUnusedQubits();
 
     const circuitSvg = container.querySelector("svg.qviz") as SVGElement;
-    // Every editor-only DOM node lives inside this overlay group.
-    // createDropzones builds it, the dropzone + ghost-qubit sub-layers,
-    // and attaches it to circuitSvg before enableEvents runs — so it's
-    // always present here.
+    // The editor overlay (and its dropzone + ghost-qubit sub-layers)
+    // is built by createDropzones before enableEvents runs.
     const overlayLayer = container.querySelector(
       ".editor-overlay",
     ) as SVGGElement;
@@ -150,9 +126,8 @@ class CircuitEvents {
     }
 
     // Build the shared context once and hand it to every controller.
-    // `wireData` mirrors the layout pass's `wireYs` plus the trailing
-    // ghost wire; the DOM is the only source for the ghost-wire's y
-    // at this point (it was just inserted), so we read via getWireData.
+    // `wireData` is read from the DOM since the ghost wire's y is only
+    // available there at this point.
     const ctx: InteractionContext = {
       model: this.model,
       interaction: this.interaction,
@@ -181,8 +156,7 @@ class CircuitEvents {
 
   /**
    * Begin the wire-pick add-control flow. Delegates to the drag
-   * controller; kept on `CircuitEvents` because `contextMenu.ts`
-   * still invokes it by name.
+   * controller; kept here because `contextMenu.ts` invokes it by name.
    */
   _startAddingControl(selectedOperation: Unitary) {
     this.drag.startAddingControl(selectedOperation);
@@ -190,8 +164,7 @@ class CircuitEvents {
 
   /**
    * Begin the wire-pick remove-control flow. Delegates to the drag
-   * controller; kept on `CircuitEvents` for the same reason as
-   * `_startAddingControl`.
+   * controller; kept here because `contextMenu.ts` invokes it by name.
    */
   _startRemovingControl(selectedOperation: Unitary) {
     this.drag.startRemovingControl(selectedOperation);
@@ -200,9 +173,9 @@ class CircuitEvents {
 
 export { enableEvents, CircuitEvents };
 
-// Provide access to the current circuit model, but only if it matches the
-// currently-rendered SVG element. This prevents state visualization from
-// computing against the previous render's model during a re-render.
+// Returns the current circuit model, but only if it matches the
+// currently-rendered SVG — prevents state-viz from computing against
+// a previous render's model mid-re-render.
 export function getCurrentCircuitModel(
   expectedSvg?: SVGElement | null,
 ): Circuit | null {
