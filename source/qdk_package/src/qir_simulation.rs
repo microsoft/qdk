@@ -532,6 +532,9 @@ impl NoiseTable {
             2 => {
                 let single = value * (1.0 - value);
                 let both = value * value;
+                for fault in ["XL", "YL", "ZL", "LX", "LY", "LZ"] {
+                    self.set_pauli_noise_elt(fault, 0.0)?;
+                }
                 self.set_pauli_noise_elt("IL", single)?;
                 self.set_pauli_noise_elt("LI", single)?;
                 self.set_pauli_noise_elt("LL", both)
@@ -546,6 +549,16 @@ impl NoiseTable {
         match self.qubits {
             1 => self.get_pauli_noise_elt("L"),
             2 => {
+                for fault in ["XL", "YL", "ZL", "LX", "LY", "LZ"] {
+                    if self.get_pauli_noise_elt(fault)? > 0.0 {
+                        return Err(PyAttributeError::new_err(
+                            "`.loss` convenience mechanism should not be used with setting correlated faults individually.
+To get the loss probabilities, access the correlated strings individually.
+E.g.: `noise_config.cz.IL`"
+                                .to_string(),
+                        ));
+                    }
+                }
                 let both = self.get_pauli_noise_elt("LL")?;
                 Ok(both.sqrt())
             }
