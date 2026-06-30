@@ -360,17 +360,19 @@ export class DragController {
     const parentScope = this.ctx.layoutMap.scopes.get(parentPrefix);
     if (parentScope == null) return;
 
+    const dropzoneCtx = {
+      scope: parentScope,
+      wireData: this.ctx.wireData,
+      pathPrefix: parentPrefix,
+    };
     for (let wire = minTarget; wire <= maxTarget; wire++) {
       if (wire === this.ctx.interaction.selectedWire) continue;
-      const dropzone = makeDropzoneBox(
+      const dropzone = makeDropzoneBox(dropzoneCtx, {
         colIndex,
         opIndex,
-        parentScope,
-        this.ctx.wireData,
-        wire,
-        false,
-        parentPrefix,
-      );
+        wireIndex: wire,
+        interColumn: false,
+      });
       dropzone.addEventListener("mouseup", this.onDropzoneMouseUp);
       trackTemporaryDropzone(this.ctx.interaction, dropzone);
       this.ctx.dropzoneLayer.appendChild(dropzone);
@@ -911,6 +913,11 @@ export class DragController {
       parentLoc,
     );
 
+    const dropzoneCtx = {
+      scope: parentScope,
+      wireData: this.ctx.wireData,
+      pathPrefix: parentLoc,
+    };
     for (let colIndex = 0; colIndex < totalCols; colIndex++) {
       for (let wire = 0; wire < this.ctx.wireData.length; wire++) {
         // Only emit for wires OUTSIDE the parent group's current
@@ -928,15 +935,12 @@ export class DragController {
         // op in this column shares the wire — `_addOp`'s overlap
         // check passes and the op slots into the column without
         // splicing a new one.
-        const dropzone = makeDropzoneBox(
+        const dropzone = makeDropzoneBox(dropzoneCtx, {
           colIndex,
-          0,
-          parentScope,
-          this.ctx.wireData,
-          wire,
-          false,
-          parentLoc,
-        );
+          opIndex: 0,
+          wireIndex: wire,
+          interColumn: false,
+        });
         dropzone.setAttribute("data-shift-extend", "true");
         // Override `data-dropzone-inter-column="false"` for clarity
         // — we want a normal drop (no new outer column), not an

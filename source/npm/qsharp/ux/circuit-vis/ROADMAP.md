@@ -193,15 +193,16 @@ test reorg first):
   [`findAndRemoveOperations` should be action-layer internal — deferred](CIRCUIT_EDITOR_TODO.md#findandremoveoperations-should-be-action-layer-internal--deferred).
 - **`makeDropzoneBox` API is too heavy.** Fuses geometry
   (column/wire/mode → SVG rect) with identity (`data-dropzone-*`
-  attrs). The testability half is done — pure `dropzoneRect` +
-  exported `columnGeometry`, geometry now tested with bare
-  primitives — but the caller-facing 7-arg signature is
-  unchanged. Candidate end state: group the three identity args
-  into one address object (`{ pathPrefix, colIndex, opIndex }`)
-  to drop 7→5 and surface the geometry-vs-identity seam.
-  Deferred to the holistic rearchitecting pass, not piecemeal.
-  See
-  [`makeDropzoneBox` API is too heavy — deferred](CIRCUIT_EDITOR_TODO.md#makedropzonebox-api-is-too-heavy--deferred).
+  attrs). ✅ shipped — the testability half (pure `dropzoneRect`
+  - exported `columnGeometry`) plus the signature half: the
+    7 positional args are now two intent-named structs,
+    `makeDropzoneBox(ctx: DropzoneContext, target: DropzoneTarget)`,
+    split by what's loop-invariant (scope/wireData/pathPrefix) vs
+    what varies per dropzone (colIndex/opIndex/wireIndex/interColumn).
+    The earlier "identity object" idea was dropped — the
+    geometry/identity seam isn't clean (`colIndex` is also a
+    geometry input). See
+    [`makeDropzoneBox` API is too heavy — ✅ shipped](CIRCUIT_EDITOR_TODO.md#makedropzonebox-api-is-too-heavy--%E2%9C%85-shipped).
 
 Deferred follow-ups (not blocking PR):
 

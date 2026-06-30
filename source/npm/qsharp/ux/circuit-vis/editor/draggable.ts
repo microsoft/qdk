@@ -453,16 +453,14 @@ const _appendTrailingColumnForScope = (
   pathPrefix: string,
 ): void => {
   const trailingColIndex = scope.columnXOffsets.length;
+  const ctx: DropzoneContext = { scope, wireData, pathPrefix };
   for (let wireIndex = minWire; wireIndex < maxWire; wireIndex++) {
-    const dropzone = makeDropzoneBox(
-      trailingColIndex,
-      0,
-      scope,
-      wireData,
+    const dropzone = makeDropzoneBox(ctx, {
+      colIndex: trailingColIndex,
+      opIndex: 0,
       wireIndex,
-      true,
-      pathPrefix,
-    );
+      interColumn: true,
+    });
     dropzone.setAttribute("data-dropzone-inter-column", "false");
     dropzoneLayer.appendChild(dropzone);
   }
@@ -513,6 +511,8 @@ const _populateDropzonesForGrid = (
   // for any expanded scope, since `processOperations` records each one
   // it processes), skip rather than emit garbage dropzones.
   if (scope == null) return;
+
+  const ctx: DropzoneContext = { scope, wireData, pathPrefix };
 
   // The LayoutMap's column count matches the rendered grid (one entry
   // per processed column); using `Math.max` is just defensive against
@@ -579,15 +579,12 @@ const _populateDropzonesForGrid = (
       // before this one"); even when it slightly overlaps a gate's
       // body it doesn't visually conflict with the gate icon.
       dropzoneLayer.appendChild(
-        makeDropzoneBox(
+        makeDropzoneBox(ctx, {
           colIndex,
           opIndex,
-          scope,
-          wireData,
           wireIndex,
-          true,
-          pathPrefix,
-        ),
+          interColumn: true,
+        }),
       );
 
       // Central full-width box: emit only at wires NOT occupied
@@ -598,15 +595,12 @@ const _populateDropzonesForGrid = (
       // the central box would sit on top of that op's gate.
       if (!occupiedWires.has(wireIndex)) {
         dropzoneLayer.appendChild(
-          makeDropzoneBox(
+          makeDropzoneBox(ctx, {
             colIndex,
             opIndex,
-            scope,
-            wireData,
             wireIndex,
-            false,
-            pathPrefix,
-          ),
+            interColumn: false,
+          }),
         );
       }
     }
@@ -725,34 +719,60 @@ const composeLocation = (
 ): string => Location.parse(prefix).child(colIndex, opIndex).toString();
 
 /**
- * Create a dropzone box element.
- *
- * @param colIndex     Column the dropzone belongs to. May equal
- *                     `scope.columnXOffsets.length` to address the
- *                     trailing-append column past the rightmost.
- * @param opIndex      Operation index inside the column.
- * @param scope        Layout geometry for the *scope* this dropzone
- *                     belongs to. Source of truth — comes straight
- *                     from `LayoutMap.scopes.get(pathPrefix)`.
- * @param wireData     Wire Y positions in absolute svg coords.
- * @param wireIndex    Index into `wireData` for this dropzone's row.
- * @param interColumn  `true` for the narrow band straddling the
- *                     left edge of `colIndex`; `false` for the
- *                     full-width box covering the column.
- * @param pathPrefix   Hierarchical scope prefix; `""` at top level.
- *                     Composed into `data-dropzone-location` so
- *                     `findParentArray` walks into the right
- *                     `children` grid on drop.
+ * The layout context shared by every dropzone drawn for one scope:
+ * the scope's geometry, the model-address prefix that scope maps to,
+ * and the global wire-Y table. All three are invariant across the
+ * wires and columns of a single scope, so a caller builds this once
+ * and reuses it for each dropzone it emits.
+ */
+interface DropzoneContext {
+  /**
+   * Layout geometry for the scope. Source of truth — comes straight
+   * from `LayoutMap.scopes.get(pathPrefix)`.
+   */
+  scope: LayoutScope;
+  /** Wire Y positions in absolute svg coords (whole-circuit table). */
+  wireData: number[];
+  /**
+   * Hierarchical scope prefix; `""` (the default) at top level.
+   * Composed into `data-dropzone-location` so `findParentArray`
+   * walks into the right `children` grid on drop.
+   */
+  pathPrefix?: string;
+}
+
+/**
+ * The single cell a dropzone targets within its `DropzoneContext`,
+ * plus which of the two dropzone shapes to draw there.
+ */
+interface DropzoneTarget {
+  /**
+   * Column the dropzone belongs to. May equal
+   * `scope.columnXOffsets.length` to address the trailing-append
+   * column past the rightmost.
+   */
+  colIndex: number;
+  /** Operation index inside the column. */
+  opIndex: number;
+  /** Index into `wireData` for this dropzone's row. */
+  wireIndex: number;
+  /**
+   * `true` for the narrow band straddling the left edge of
+   * `colIndex`; `false` for the full-width box covering the column.
+   */
+  interColumn: boolean;
+}
+
+/**
+ * Create a dropzone box element for `target` within the scope
+ * described by `ctx`.
  */
 const makeDropzoneBox = (
-  colIndex: number,
-  opIndex: number,
-  scope: LayoutScope,
-  wireData: number[],
-  wireIndex: number,
-  interColumn: boolean,
-  pathPrefix: string = "",
+  ctx: DropzoneContext,
+  target: DropzoneTarget,
 ): SVGElement => {
+  const { scope, wireData, pathPrefix = "" } = ctx;
+  const { colIndex, opIndex, wireIndex, interColumn } = target;
   const wireY = wireData[wireIndex];
   const { colStartX, colWidth } = columnGeometry(scope, colIndex);
 

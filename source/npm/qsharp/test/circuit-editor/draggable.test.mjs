@@ -104,7 +104,10 @@ test("makeDropzoneBox: inter-column band sits centered on the column's left edge
   const scope = makeScope([100], [60]);
   const wireData = [200];
 
-  const dz = makeDropzoneBox(0, 0, scope, wireData, 0, true);
+  const dz = makeDropzoneBox(
+    { scope, wireData },
+    { colIndex: 0, opIndex: 0, wireIndex: 0, interColumn: true },
+  );
 
   assert.equal(dz.getAttribute("class"), "dropzone");
   // Left edge = colStartX - INTER_COLUMN_HALF_WIDTH - gatePadding
@@ -122,7 +125,10 @@ test("makeDropzoneBox: on-column box spans exactly the column's width", () => {
   const scope = makeScope([100, 200], [60, 90]);
   const wireData = [200];
 
-  const dz = makeDropzoneBox(1, 0, scope, wireData, 0, false);
+  const dz = makeDropzoneBox(
+    { scope, wireData },
+    { colIndex: 1, opIndex: 0, wireIndex: 0, interColumn: false },
+  );
 
   assert.equal(dz.getAttribute("class"), "dropzone");
   assert.equal(attrNum(dz, "x"), 200);
@@ -137,7 +143,10 @@ test("makeDropzoneBox: trailing-append column synthesizes position past the righ
   const scope = makeScope([100, 200], [60, 90]);
   const wireData = [200];
 
-  const dz = makeDropzoneBox(2, 0, scope, wireData, 0, false);
+  const dz = makeDropzoneBox(
+    { scope, wireData },
+    { colIndex: 2, opIndex: 0, wireIndex: 0, interColumn: false },
+  );
 
   // Synthesized start: 200 + 90 + 12 = 302
   assert.equal(attrNum(dz, "x"), 200 + 90 + GATE_PADDING * 2);
@@ -148,7 +157,10 @@ test("makeDropzoneBox: stamps data-dropzone-location, -wire, and -inter-column a
   const scope = makeScope([100, 200], [60, 90]);
   const wireData = [100, 200, 300];
 
-  const dz = makeDropzoneBox(1, 2, scope, wireData, 1, true);
+  const dz = makeDropzoneBox(
+    { scope, wireData },
+    { colIndex: 1, opIndex: 2, wireIndex: 1, interColumn: true },
+  );
 
   // Top-level location → no prefix, format "col,op".
   assert.equal(dz.getAttribute("data-dropzone-location"), "1,2");
@@ -163,7 +175,10 @@ test("makeDropzoneBox: nested pathPrefix produces hierarchical location string",
   const scope = makeScope([100], [60]);
   const wireData = [200];
 
-  const dz = makeDropzoneBox(1, 2, scope, wireData, 0, false, "0,0");
+  const dz = makeDropzoneBox(
+    { scope, wireData, pathPrefix: "0,0" },
+    { colIndex: 1, opIndex: 2, wireIndex: 0, interColumn: false },
+  );
 
   assert.equal(dz.getAttribute("data-dropzone-location"), "0,0-1,2");
   assert.equal(dz.getAttribute("data-dropzone-inter-column"), "false");
@@ -339,12 +354,8 @@ test("removeAllWireDropzones: strips every .dropzone-full-wire and leaves other 
   const wireDz1 = createWireDropzone(svg, wireData, 0, false);
   const wireDz2 = createWireDropzone(svg, wireData, 1, false);
   const onColumnDz = makeDropzoneBox(
-    0,
-    0,
-    makeScope([50], [40]),
-    wireData,
-    0,
-    false,
+    { scope: makeScope([50], [40]), wireData },
+    { colIndex: 0, opIndex: 0, wireIndex: 0, interColumn: false },
   );
 
   svg.appendChild(wireDz1);
@@ -366,12 +377,8 @@ test("removeAllWireDropzones: no-op when nothing matches", () => {
   const svg = makeSvg(600);
   const wireData = [100];
   const onColumnDz = makeDropzoneBox(
-    0,
-    0,
-    makeScope([50], [40]),
-    wireData,
-    0,
-    false,
+    { scope: makeScope([50], [40]), wireData },
+    { colIndex: 0, opIndex: 0, wireIndex: 0, interColumn: false },
   );
   svg.appendChild(onColumnDz);
 
