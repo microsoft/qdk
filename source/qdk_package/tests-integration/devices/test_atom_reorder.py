@@ -7,7 +7,12 @@ from expecttest import assert_expected_inline
 from qdk import qsharp
 from qdk._device._atom._reorder import Reorder
 from qdk._device._atom import NeutralAtomDevice
-from .validation import PerQubitOrdering, check_qubit_ordering_unchanged
+from .validation import (
+    PerQubitOrdering,
+    check_qubit_ordering_unchanged,
+    check_module_verifies,
+    check_phis_precede_other_instructions,
+)
 
 try:
     import pyqir
@@ -21,16 +26,14 @@ SKIP_REASON = "PyQIR is not available"
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_reorder_no_changes_to_simple_ordered_program() -> None:
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use (q1, q2) = (Qubit(), Qubit());
             SX(q1);
             CZ(q1, q2);
             (MResetZ(q1), MResetZ(q2))
         }
-        """
-    )
+        """)
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
@@ -92,8 +95,7 @@ attributes #1 = { "irreversible" }
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_reorder_groups_matching_sequential_gates_into_same_step() -> None:
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use (q1, q2, q3, q4) = (Qubit(), Qubit(), Qubit(), Qubit());
             SX(q1);
@@ -104,8 +106,7 @@ def test_reorder_groups_matching_sequential_gates_into_same_step() -> None:
             let (r3, r4) = (MResetZ(q3), MResetZ(q4));
             (r1, r2, r3, r4)
         }
-        """
-    )
+        """)
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
@@ -177,8 +178,7 @@ attributes #1 = { "irreversible" }
 def test_reorder_moves_gates_past_measurements_that_overlap_qubit_and_result_ids() -> (
     None
 ):
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use (q1, q2) = (Qubit(), Qubit());
             SX(q2);
@@ -187,8 +187,7 @@ def test_reorder_moves_gates_past_measurements_that_overlap_qubit_and_result_ids
             let r1 = MResetZ(q1);
             (r1, r2)
         }
-        """
-    )
+        """)
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
@@ -248,8 +247,7 @@ attributes #1 = { "irreversible" }
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_reorder_keeps_dependent_gates_in_order() -> None:
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use (q1, q2) = (Qubit(), Qubit());
             SX(q1);
@@ -258,8 +256,7 @@ def test_reorder_keeps_dependent_gates_in_order() -> None:
             CZ(q1, q2);
             (MResetZ(q1), MResetZ(q2))
         }
-        """
-    )
+        """)
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
@@ -323,8 +320,7 @@ attributes #1 = { "irreversible" }
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_reorder_sorts_gates_by_qubit_id() -> None:
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[5];
             SX(qs[3]);
@@ -339,8 +335,7 @@ def test_reorder_sorts_gates_by_qubit_id() -> None:
             let r2 = MResetZ(qs[2]);
             [r0, r1, r2, r3, r4]
         }
-        """
-    )
+        """)
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
@@ -412,16 +407,14 @@ attributes #1 = { "irreversible" }
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_reorder_sorts_cz_to_end_of_step() -> None:
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[4];
             SX(qs[3]);
             CZ(qs[1], qs[0]);
             SX(qs[2]);
         }
-        """
-    )
+        """)
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
@@ -473,8 +466,7 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptiv
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_reorder_respects_read_result_and_classical_compute() -> None:
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use (q1, q2) = (Qubit(), Qubit());
             SX(q1);
@@ -499,8 +491,7 @@ def test_reorder_respects_read_result_and_classical_compute() -> None:
             };
             Rz(2.0 * angle, q2);
         }
-        """
-    )
+        """)
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     Reorder(NeutralAtomDevice()).run(module)
@@ -591,8 +582,7 @@ attributes #1 = { "irreversible" }
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_reorder_preserves_per_qubit_order_on_large_program() -> None:
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             import Std.Math.PI;
             operation IsingModel2DEvolution(
@@ -640,8 +630,7 @@ def test_reorder_preserves_per_qubit_order_on_large_program() -> None:
                 10
             )
         }
-        """
-    )
+        """)
 
     module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
     before = PerQubitOrdering()
@@ -650,3 +639,336 @@ def test_reorder_preserves_per_qubit_order_on_large_program() -> None:
     after = PerQubitOrdering()
     after.run(module)
     check_qubit_ordering_unchanged(after, before)
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_reorder_preserves_conditional_gate_feedforward() -> None:
+    # A measurement result feeds a conditional branch that applies a gate in a
+    # separate block. Reordering must keep the measurement, the read_result and
+    # the branch in a valid order and must not move the conditional gate out of
+    # its block.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use (q1, q2) = (Qubit(), Qubit());
+            H(q1);
+            let r1 = MResetZ(q1);
+            if r1 == One {
+                X(q2);
+            }
+            MResetZ(q2)
+        }
+        """)
+
+    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+    Reorder(NeutralAtomDevice()).run(module)
+    check_module_verifies(module)
+    check_phis_precede_other_instructions(module)
+
+    assert_expected_inline(
+        str(module),
+        """\
+
+@0 = internal constant [4 x i8] c"0_r\\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__mresetz__body(ptr null, ptr null)
+  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  br i1 %0, label %block_1, label %block_2
+
+block_1:                                          ; preds = %block_0
+  call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
+  br label %block_2
+
+block_2:                                          ; preds = %block_1, %block_0
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @0)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+
+declare void @__quantum__qis__h__body(ptr)
+
+declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+declare i1 @__quantum__rt__read_result(ptr)
+
+declare void @__quantum__qis__x__body(ptr)
+
+declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+attributes #1 = { "irreversible" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !6}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !5}
+!5 = !{!"i64"}
+!6 = !{i32 5, !"float_computations", !7}
+!7 = !{!"double"}
+""",
+    )
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_reorder_keeps_phi_nodes_first_in_block() -> None:
+    # Classical accumulation across a conditional produces a phi node in the
+    # reconvergence block. Reordering must keep the phi at the start of the block.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use q = Qubit();
+            mutable count = 0;
+            H(q);
+            if MResetZ(q) == One {
+                set count += 1;
+            }
+            count
+        }
+        """)
+
+    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+    Reorder(NeutralAtomDevice()).run(module)
+    check_module_verifies(module)
+    check_phis_precede_other_instructions(module)
+
+    assert_expected_inline(
+        str(module),
+        """\
+
+@0 = internal constant [4 x i8] c"0_i\\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__mresetz__body(ptr null, ptr null)
+  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  br i1 %0, label %block_1, label %block_2
+
+block_1:                                          ; preds = %block_0
+  br label %block_2
+
+block_2:                                          ; preds = %block_1, %block_0
+  %1 = phi i64 [ 0, %block_0 ], [ 1, %block_1 ]
+  call void @__quantum__rt__int_record_output(i64 %1, ptr @0)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+
+declare void @__quantum__qis__h__body(ptr)
+
+declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+declare i1 @__quantum__rt__read_result(ptr)
+
+declare void @__quantum__rt__int_record_output(i64, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !6}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !5}
+!5 = !{!"i64"}
+!6 = !{i32 5, !"float_computations", !7}
+!7 = !{!"double"}
+""",
+    )
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_reorder_keeps_phi_first_with_independent_gate_in_reconvergence() -> None:
+    # The reconvergence block contains both a phi node (classical accumulation)
+    # and independent gates. Because gates sort by qubit id and phis are not
+    # gates, this is the case most likely to incorrectly hoist a gate above the
+    # phi; reordering must keep every phi ahead of the gates.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use (q1, q2, q3) = (Qubit(), Qubit(), Qubit());
+            mutable count = 0;
+            H(q1);
+            let r1 = MResetZ(q1);
+            if r1 == One {
+                set count += 1;
+            }
+            H(q3);
+            X(q2);
+            (MResetZ(q2), MResetZ(q3), count)
+        }
+        """)
+
+    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+    Reorder(NeutralAtomDevice()).run(module)
+    check_module_verifies(module)
+    check_phis_precede_other_instructions(module)
+
+    assert_expected_inline(
+        str(module),
+        """\
+
+@0 = internal constant [4 x i8] c"0_t\\00"
+@1 = internal constant [6 x i8] c"1_t0r\\00"
+@2 = internal constant [6 x i8] c"2_t1r\\00"
+@3 = internal constant [6 x i8] c"3_t2i\\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__mresetz__body(ptr null, ptr null)
+  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  br i1 %0, label %block_1, label %block_2
+
+block_1:                                          ; preds = %block_0
+  br label %block_2
+
+block_2:                                          ; preds = %block_1, %block_0
+  %1 = phi i64 [ 0, %block_0 ], [ 1, %block_1 ]
+  call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 3, ptr @0)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @1)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @2)
+  call void @__quantum__rt__int_record_output(i64 %1, ptr @3)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+
+declare void @__quantum__qis__h__body(ptr)
+
+declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+declare i1 @__quantum__rt__read_result(ptr)
+
+declare void @__quantum__qis__x__body(ptr)
+
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+declare void @__quantum__rt__int_record_output(i64, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }
+attributes #1 = { "irreversible" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !6}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !5}
+!5 = !{!"i64"}
+!6 = !{i32 5, !"float_computations", !7}
+!7 = !{!"double"}
+""",
+    )
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_reorder_keeps_multiple_phis_and_arithmetic_valid() -> None:
+    # Two independent measurement-conditioned increments produce phi nodes in
+    # several reconvergence blocks plus integer arithmetic (an `add`) and a
+    # `read_result` that sits next to a phi in the same block. Reordering every
+    # block must keep each phi first and leave the classical data flow valid.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use (q1, q2) = (Qubit(), Qubit());
+            mutable a = 0;
+            H(q1);
+            H(q2);
+            let r1 = MResetZ(q1);
+            let r2 = MResetZ(q2);
+            if r1 == One {
+                set a += 1;
+            }
+            if r2 == One {
+                set a += 10;
+            }
+            a
+        }
+        """)
+
+    module = pyqir.Module.from_ir(pyqir.Context(), str(qir))
+    Reorder(NeutralAtomDevice()).run(module)
+    check_module_verifies(module)
+    check_phis_precede_other_instructions(module)
+
+    assert_expected_inline(
+        str(module),
+        """\
+
+@0 = internal constant [4 x i8] c"0_i\\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__mresetz__body(ptr null, ptr null)
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+  %0 = call i1 @__quantum__rt__read_result(ptr null)
+  br i1 %0, label %block_1, label %block_2
+
+block_1:                                          ; preds = %block_0
+  br label %block_2
+
+block_2:                                          ; preds = %block_1, %block_0
+  %1 = phi i64 [ 0, %block_0 ], [ 1, %block_1 ]
+  %2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+  br i1 %2, label %block_3, label %block_4
+
+block_3:                                          ; preds = %block_2
+  %3 = add i64 %1, 10
+  br label %block_4
+
+block_4:                                          ; preds = %block_3, %block_2
+  %4 = phi i64 [ %1, %block_2 ], [ %3, %block_3 ]
+  call void @__quantum__rt__int_record_output(i64 %4, ptr @0)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+
+declare void @__quantum__qis__h__body(ptr)
+
+declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+declare i1 @__quantum__rt__read_result(ptr)
+
+declare void @__quantum__rt__int_record_output(i64, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+attributes #1 = { "irreversible" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !6}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !5}
+!5 = !{!"i64"}
+!6 = !{i32 5, !"float_computations", !7}
+!7 = !{!"double"}
+""",
+    )
