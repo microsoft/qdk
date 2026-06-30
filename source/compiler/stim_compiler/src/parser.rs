@@ -114,6 +114,7 @@ pub enum TargetKind {
         value: u32,
     },
     MeasurementRecord {
+        negated: bool,
         value: u32,
     },
     SweepBit {
@@ -140,7 +141,13 @@ impl Display for TargetKind {
                     write!(f, "Qubit({value})")
                 }
             }
-            TargetKind::MeasurementRecord { value } => write!(f, "MeasurementRecord({value})"),
+            TargetKind::MeasurementRecord { negated, value } => {
+                if *negated {
+                    write!(f, "MeasurementRecord(-{value})")
+                } else {
+                    write!(f, "MeasurementRecord({value})")
+                }
+            }
             TargetKind::SweepBit { value } => write!(f, "SweepBit({value})"),
             TargetKind::Pauli {
                 negated,
@@ -573,7 +580,7 @@ impl<'a> Parser<'a> {
                     self.emit_error(Error::ZeroMeasurementRecord { span: value_span });
                     return None;
                 }
-                TargetKind::MeasurementRecord { value }
+                TargetKind::MeasurementRecord { negated, value }
             }
             TokenKind::Sweep => TargetKind::SweepBit {
                 // Strips 'sweep[' prefix and trailing ']'.
@@ -597,7 +604,12 @@ impl<'a> Parser<'a> {
         };
 
         if let Some(bang) = negated_token
-            && !matches!(kind, TargetKind::Qubit { .. } | TargetKind::Pauli { .. })
+            && !matches!(
+                kind,
+                TargetKind::Qubit { .. }
+                    | TargetKind::Pauli { .. }
+                    | TargetKind::MeasurementRecord { .. }
+            )
         {
             self.emit_error(Error::CannotNegateTarget { span: bang.span });
             return None;

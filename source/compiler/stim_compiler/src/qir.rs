@@ -100,13 +100,23 @@ impl QirWriter {
     }
 
     // Writes: `  %{dest} = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 N to ptr))`
-    fn write_read_result(&mut self, dest: &str, operand: u32) {
+    fn write_read_result(&mut self, dest: &str, id: u32) {
         write!(self, "  %{dest} = call i1 @__quantum__rt__read_result(");
-        self.write_ptr(operand);
+        self.write_ptr(id);
         writeln!(self, ")");
         self.used_intrinsics
             .entry("__quantum__rt__read_result".to_string())
             .or_insert_with(|| "declare i1 @__quantum__rt__read_result(ptr)".to_string());
+    }
+
+    // Writes: `  %{dest} = xor i1 %{lhs}, %{rhs}`
+    fn write_xor(&mut self, dest: &str, lhs: &str, rhs: &str) {
+        writeln!(self, "  %{dest} = xor i1 %{lhs}, %{rhs}");
+    }
+
+    // Writes: `  %{dest} = xor i1 %{operand}, true`
+    fn write_not(&mut self, dest: &str, operand: &str) {
+        writeln!(self, "  %{dest} = xor i1 %{operand}, true");
     }
 
     fn write_header(&mut self) {
@@ -279,6 +289,24 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("measurement record is out of bounds")]
+    #[diagnostic(code("Stim.MeasurementRecordOutOfBounds"))]
+    MeasurementRecordOutOfBounds {
+        #[label]
+        span: Span,
+    },
+    #[error("measurement record refers to a measurement outside the enclosing PREPARE block")]
+    #[diagnostic(code("Stim.MeasurementRecordOutOfScope"))]
+    MeasurementRecordOutOfScope {
+        #[label]
+        span: Span,
+    },
+    #[error("require must appear inside a PREPARE block")]
+    #[diagnostic(code("Stim.RequireOutsidePrepareBlock"))]
+    RequireOutsidePrepareBlock {
+        #[label]
+        span: Span,
+    },
 }
 
 struct IdMap {
@@ -286,6 +314,7 @@ struct IdMap {
     record_map: Vec<u32>,  // index = result id, value = owning scope;
     scope_stack: Vec<u32>, // active nested scopes; last() = current
     next_scope_id: u32,    // 0 represents the top-level scope
+    name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
 }
 
 impl IdMap {
@@ -295,25 +324,33 @@ impl IdMap {
             record_map: Vec::new(),
             scope_stack: Vec::new(),
             next_scope_id: 1,
+            name_counters: FxHashMap::default(),
         }
     }
 
-    fn enter_scope(&mut self) -> u32 {
+    fn fresh_name(&mut self, prefix: &'static str) -> String {
+        let counter = self.name_counters.entry(prefix).or_insert(0);
+        let id = *counter;
+        *counter += 1;
+        format!("{prefix}_{id}")
+    }
+
+    fn enter_scope(&mut self) {
         let id = self.next_scope_id;
         self.scope_stack.push(id);
         self.next_scope_id += 1;
-        id
     }
 
-    fn exit_scope(&mut self) -> u32 {
-        match self.scope_stack.pop() {
-            Some(n) => n,
-            None => unreachable!("exit_scope called without a matching enter_scope"), // this is a compiler invariant
-        }
+    fn exit_scope(&mut self) {
+        self.scope_stack.pop();
     }
 
     fn current_scope(&self) -> u32 {
         self.scope_stack.last().copied().unwrap_or(0)
+    }
+
+    fn in_prepare_block(&self) -> bool {
+        !self.scope_stack.is_empty()
     }
 
     fn scope_of(&self, id: u32) -> u32 {
@@ -342,6 +379,10 @@ impl IdMap {
     fn num_qubits(&self) -> u32 {
         self.qubit_map.len() as u32
     }
+}
+
+fn prepare_label(scope: u32) -> String {
+    format!("prepare_{scope}")
 }
 
 struct Compiler<'noise> {
@@ -386,9 +427,11 @@ impl<'noise> Compiler<'noise> {
         } = block;
 
         self.compile_instruction(block_instruction);
+        self.id_map.enter_scope();
         for item in items {
             self.compile_item(item);
         }
+        self.id_map.exit_scope();
     }
 
     fn compile_line(&mut self, line: &Line) {
@@ -751,6 +794,8 @@ impl<'noise> Compiler<'noise> {
 
             // Control Flow
             "REPEAT" => self.unsupported(instruction),
+            "PREPARE" => self.compile_prepare(instruction),
+            "REQUIRE" => self.compile_require(instruction),
 
             // Annotations
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
@@ -808,6 +853,102 @@ impl<'noise> Compiler<'noise> {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
         self.writer.write_qis_call(intrinsic, &[q0, q1]);
+    }
+
+    fn compile_prepare(&mut self, instruction: &Instruction) {
+        if !instruction.targets.is_empty() {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction
+                    .targets
+                    .first()
+                    .map(|t| t.span)
+                    .unwrap_or(instruction.span),
+            });
+            return;
+        }
+
+        if !instruction.args.is_empty() {
+            self.push_error(Error::UnsupportedArgument {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return;
+        }
+
+        let label = prepare_label(self.id_map.next_scope_id);
+        self.writer.write_jump(&label); // terminate the previous block
+        self.writer.write_label(&label); // start the new block
+    }
+
+    fn compile_require(&mut self, instruction: &Instruction) {
+        if !self.id_map.in_prepare_block() {
+            self.push_error(Error::RequireOutsidePrepareBlock {
+                span: instruction.span,
+            });
+            return;
+        }
+
+        if instruction.targets.is_empty() {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return;
+        }
+
+        let mut read_registers = Vec::new();
+        for target in &instruction.targets {
+            let Some((offset, negated)) = self.expect_measurement_record(instruction, target)
+            else {
+                return;
+            };
+            let Some(result_id) = self.resolve_record_offset(target, offset) else {
+                return;
+            };
+            let read_register = self.id_map.fresh_name("r");
+            self.writer.write_read_result(&read_register, result_id);
+
+            let term = if negated {
+                let not_register = self.id_map.fresh_name("r");
+                self.writer.write_not(&not_register, &read_register);
+                not_register
+            } else {
+                read_register
+            };
+            read_registers.push(term);
+        }
+
+        let Some((first, rest)) = read_registers.split_first() else {
+            unreachable!("REQUIRE always has at least one target");
+        };
+
+        let mut parity = first.clone();
+        for reg in rest {
+            let temp = self.id_map.fresh_name("x");
+            self.writer.write_xor(&temp, &parity, reg);
+            parity = temp;
+        }
+
+        let restart_label = prepare_label(self.id_map.current_scope());
+        let continue_label = self.id_map.fresh_name("continue");
+        self.writer
+            .write_branch(&parity, &restart_label, &continue_label);
+        self.writer.write_label(&continue_label);
+    }
+
+    fn resolve_record_offset(&mut self, target: &Target, offset: u32) -> Option<u32> {
+        let num_results = self.id_map.num_results();
+        let Some(result_id) = num_results.checked_sub(offset) else {
+            self.push_error(Error::MeasurementRecordOutOfBounds { span: target.span });
+            return None;
+        };
+
+        if self.id_map.scope_of(result_id) != self.id_map.current_scope() {
+            self.push_error(Error::MeasurementRecordOutOfScope { span: target.span });
+            return None;
+        }
+        Some(result_id)
     }
 
     fn compile_fault_error(&mut self, instruction: &Instruction) {
@@ -1028,15 +1169,15 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         instruction: &Instruction,
         target: &Target,
-    ) -> Option<u32> {
-        let TargetKind::MeasurementRecord { value } = target.kind else {
+    ) -> Option<(u32, bool)> {
+        let TargetKind::MeasurementRecord { negated, value } = target.kind else {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
             });
             return None;
         };
-        Some(value)
+        Some((value, negated))
     }
 
     fn expect_probability(&mut self, instruction: &Instruction) -> Option<f64> {
