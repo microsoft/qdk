@@ -2926,8 +2926,9 @@ impl<'a> PartialEvaluator<'a> {
                                 .config
                                 .capabilities
                                 .contains(TargetCapabilityFlags::BackwardsBranching))
+                        && let Some(value) = map_rir_literal_to_eval_value(*literal)
                     {
-                        map_rir_literal_to_eval_value(*literal)
+                        value
                     } else {
                         bound_value.clone()
                     }
@@ -5073,12 +5074,12 @@ fn map_fir_type_to_rir_type(ty: &Ty) -> Result<rir::Ty, String> {
     }
 }
 
-fn map_rir_literal_to_eval_value(literal: rir::Literal) -> Value {
+fn map_rir_literal_to_eval_value(literal: rir::Literal) -> Option<Value> {
     match literal {
-        rir::Literal::Bool(b) => Value::Bool(b),
-        rir::Literal::Double(d) => Value::Double(d),
-        rir::Literal::Integer(i) => Value::Int(i),
-        _ => panic!("{literal:?} RIR literal cannot be mapped to evaluator value"),
+        rir::Literal::Bool(b) => Some(Value::Bool(b)),
+        rir::Literal::Double(d) => Some(Value::Double(d)),
+        rir::Literal::Integer(i) => Some(Value::Int(i)),
+        _ => None,
     }
 }
 
