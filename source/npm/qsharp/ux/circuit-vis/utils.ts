@@ -152,41 +152,18 @@ const _getStringWidth = (
  * ignores the direct targets of `operation` itself; it's the
  * union of the *descendants'* register sets.
  *
- * Used by the action layer to refresh a group's eagerly-cached
- * `.targets`/`.results` field after the group's children have
- * been mutated (see the cascade in `moveOperation` and
- * `_pruneEmptyAncestors` in
+ * Used by the action layer to refresh a group's cached
+ * `.targets`/`.results` after its children have been mutated (see
+ * `moveOperation` and `_pruneEmptyAncestors` in
  * [`actions/circuitActions.ts`](actions/circuitActions.ts)).
  *
- * # Dedup contract
- *
  * Output registers are deduplicated by **full register identity**
- * — i.e. by the `(qubit, result)` tuple — not by `qubit` alone.
- * A bare-qubit reference `{qubit: 0}` and a classical-register
- * reference `{qubit: 0, result: 0}` are distinct register
- * identities and BOTH survive into the output if both appear
- * among the descendants.
- *
- * Preserving `result` matters: classically-conditional unitaries
- * record their classical-register dependencies in BOTH `controls`
- * AND `targets` (the `targets` entries are visual-extent claims
- * that draw the line from the gate down to the classical
- * register box — see `_shiftAllRegisters` in
- * [`actions/circuitActions.ts`](actions/circuitActions.ts)). A
- * dedup-by-qubit-only sweep would silently downgrade
- * `{qubit:0, result:0}` to `{qubit:0}` on every ancestor refresh,
- * causing classically-controlled gates inside a refreshed group
- * to lose their visual-extent line.
- *
- * # Example
- *
- * Gate Foo contains gate H on wire 1 and gate RX on wires 1, 2.
- * Returns `[{qubit: 1}, {qubit: 2}]`.
- *
- * If Foo also contains a measurement of wire 0 producing result 0,
- * the return includes `{qubit: 0}` (the measurement's quantum
- * input) AND `{qubit: 0, result: 0}` (the classical output) as
- * two distinct entries.
+ * — the `(qubit, result)` tuple — not by `qubit` alone. A bare-qubit
+ * ref `{qubit: 0}` and a classical-register ref `{qubit: 0,
+ * result: 0}` are distinct and both survive if both appear among
+ * the descendants. Preserving `result` keeps the classical-control
+ * visual-extent line that classically-conditional unitaries record
+ * in `targets` from being lost on refresh.
  *
  * @param operation The operation to find targets for.
  * @returns An array of registers with unique `(qubit, result)`
@@ -542,20 +519,18 @@ const findOperation = (
  * another op sharing the same column in the op's containing array
  * (i.e., NOT a descendant inside the op's own children grid).
  *
- * "Covered" follows the visual extent reported by
- * [`getWireRange`](#): the inclusive range of qubit rows the
- * sibling's body and any classical-control connector paint into.
- * Classical-result endpoints contribute the qubit row BELOW which
- * they sit (e.g. a low endpoint at `q_c.r0` extends coverage
- * starting at `q_(c+1)`; a high endpoint at `q_c.r0` extends
- * coverage through `q_c`).
+ * "Covered" follows the visual extent reported by `getWireRange`:
+ * the inclusive range of qubit rows the sibling's body and any
+ * classical-control connector paint into. Classical-result
+ * endpoints contribute the qubit row BELOW which they sit (e.g. a
+ * low endpoint at `q_c.r0` extends coverage starting at `q_(c+1)`;
+ * a high endpoint at `q_c.r0` extends coverage through `q_c`).
  *
  * Use this to answer "what wires would directly collide if I
  * widened this op's wire span?" — the building block for the
  * shift-extend dropzone filter, which composes this with
- * [`getAncestorColumnSiblingWires`](#) to walk the ancestor
- * chain and accumulate every collision the cascade would need
- * to resolve.
+ * `getAncestorColumnSiblingWires` to walk the ancestor chain and
+ * accumulate every collision the cascade would need to resolve.
  *
  * Returns an empty set when `location` is null, doesn't resolve,
  * or addresses a top-level op with no siblings (no overlap possible).
@@ -602,9 +577,8 @@ const getOuterColumnSiblingWires = (
 };
 
 /**
- * Union of [`getOuterColumnSiblingWires`](#) across the op at
- * `location` AND every ancestor of it, up to (but not including)
- * the root grid.
+ * Union of `getOuterColumnSiblingWires` across the op at `location`
+ * AND every ancestor of it, up to (but not including) the root grid.
  *
  * Why walk the chain. The shift-extend gesture extends an
  * immediately-enclosing group, but the action layer's cascade
@@ -613,11 +587,11 @@ const getOuterColumnSiblingWires = (
  * widens every ancestor whose span doesn't already enclose the
  * drop wire — and each widening may collide with siblings IN
  * THAT ANCESTOR'S column, not just the immediate parent's.
- * Filtering only the immediate parent's siblings (the original
- * B6 fix) under-blocks: a deeply nested source could be
- * shift-dropped onto a wire owned by a top-level sibling of an
- * ancestor several levels up, leaving the cascade to silently
- * cope (or, in pathological cases, leave a visible overlap).
+ * Filtering only the immediate parent's siblings under-blocks: a
+ * deeply nested source could be shift-dropped onto a wire owned by
+ * a top-level sibling of an ancestor several levels up, leaving the
+ * cascade to silently cope (or, in pathological cases, leave a
+ * visible overlap).
  *
  * Walks via location-string `parent()` rather than object
  * identity so it can be called against the live model without
@@ -767,13 +741,9 @@ const parseWireYs = (elem: Element): number[] => {
  *
  * Used by the selection controller to pick a per-click handle for
  * multi-wire host elements (the body of a group, SWAP, multi-qubit
- * measurement, etc.). Without this, the historical
- * [`_addDataWires`](editor/draggable.ts) shortcut sets
- * `data-wire` to whichever wire-Y happens to appear first in
- * `wireData`, which is always the topmost wire of the gate's
- * span. That collapses the D3 unit-shift semantics
- * ("grabbed wire is the handle") into "pin top wire to drop wire"
- * — one of the alternatives we explicitly rejected.
+ * measurement, etc.), so the grabbed wire becomes the drag handle
+ * rather than always pinning the gate's topmost wire to the drop
+ * wire.
  *
  * Behavior:
  *
@@ -785,12 +755,9 @@ const parseWireYs = (elem: Element): number[] => {
  *     crosses, ket boxes), and skipping the search avoids a
  *     pointless `getScreenCTM` call by the caller.
  *   - Multi-wire span → tie-break by smallest `|wireY - clickY|`,
- *     then by smaller `wireY` (deterministic on a tie). The
- *     winning wire-Y is looked up in `wireData` via
- *     `findIndex` (`indexOf` is fine here — they're equal numbers
- *     by construction). Returns `-1` if the winning Y isn't in
- *     `wireData` at all, which would indicate a renderer /
- *     editor wire-table mismatch.
+ *     then by smaller `wireY` (deterministic on a tie). Returns
+ *     `-1` if the winning Y isn't in `wireData` at all, which
+ *     would indicate a renderer / editor wire-table mismatch.
  *
  * Clicks above the topmost wire or below the bottommost clamp to
  * that endpoint, which is the natural "closest" behavior — no

@@ -102,8 +102,7 @@ export class Sqore {
   /**
    * Snapshot of `op object → location string` captured at the end
    * of the most recent render, used to migrate `viewState` keys
-   * forward when ops shift position. See
-   * [`rebaseViewState`](#method-rebaseViewState).
+   * forward when ops shift position. See `rebaseViewState`.
    *
    * `null` means "no prior render yet" (first draw) or "the prior
    * snapshot is no longer valid" (after `updateCircuit` replaces
@@ -158,21 +157,16 @@ export class Sqore {
    * Replace the underlying circuit and re-render in place, preserving
    * everything that lives on `this` (most importantly `viewState`,
    * but also the cached container, zoom level, and the editor's
-   * disposable event registrations — `installEditor` already disposes
-   * the prior `CircuitEvents` on every render).
+   * event registrations).
    *
    * Intended for hosts that receive **external** circuit updates —
-   * e.g. the VS Code circuit editor's text-document backing fires an
-   * `onDidChangeTextDocument` for undo/redo and external file edits,
-   * and the webview parses the new text into a fresh `CircuitGroup`.
-   * Without this method the React wrapper was tearing down the SVG
-   * and constructing a new `Sqore` for every such update, which
-   * destroyed `viewState` (collapsing every user-expanded group) and
-   * caused a visible "Rendering..." flicker.
+   * e.g. the VS Code editor parsing an `onDidChangeTextDocument` into
+   * a fresh `CircuitGroup`. Using this instead of a new `Sqore`
+   * preserves `viewState` (so user-expanded groups stay expanded)
+   * and avoids a re-render flicker.
    *
    * Hosts that want a fully clean instance (e.g. opening a different
-   * circuit in the same panel) should keep using `qviz.draw(...)`
-   * for a fresh `Sqore`.
+   * circuit in the same panel) should keep using `qviz.draw(...)`.
    *
    * @param circuitGroup The new circuit group to render.
    */
@@ -271,10 +265,7 @@ export class Sqore {
    *
    * Always deep-copies `this.circuit` so the rendered grid can be
    * mutated freely (location stamps, default-expand flags, ViewState
-   * overrides) without touching the saved circuit. The previous
-   * "reuse the deep copy" overload existed only to keep chevron-click
-   * mutations alive across one render; that bookkeeping now lives in
-   * `this.viewState` and the workaround is gone.
+   * overrides) without touching the saved circuit.
    *
    * @param container HTML element for rendering visualization into.
    */
@@ -373,17 +364,14 @@ export class Sqore {
    * Migrate `viewState` keys forward across mutations that may have
    * shifted ops to new locations.
    *
-   * Uses object identity against `this.lastLocationMap` (captured
-   * at the end of the previous render) so that user expand/collapse
-   * choices "follow" their op when the op's string location number
-   * changes — e.g. dragging a gate into column 0 shifts every other
-   * op's column index by 1, and any user-expanded group needs its
-   * viewState entry rekeyed from `"<oldCol>,<op>"` to
-   * `"<oldCol+1>,<op>"` so it stays expanded.
+   * Uses object identity against `this.lastLocationMap` (captured at
+   * the end of the previous render) so user expand/collapse choices
+   * follow their op when its string location changes — e.g. dragging
+   * a gate into column 0 shifts every other op's column index by 1.
    *
    * No-op on the first render (no prior snapshot) and after
-   * `updateCircuit` invalidates the snapshot. The rebase logic
-   * itself lives in [`ViewState.rebase`](data/viewState.ts).
+   * `updateCircuit` invalidates the snapshot. The rebase logic itself
+   * lives in [`ViewState.rebase`](data/viewState.ts).
    */
   private rebaseViewState(): void {
     const prev = this.lastLocationMap;
@@ -391,16 +379,13 @@ export class Sqore {
     const next = this.buildLiveLocationMap(this.circuit.componentGrid);
 
     // Build a (prev-location → new-location) fallback map from any
-    // ops that carry a `sqore-prev-location` stamp. The stamp is
-    // set by [`moveOperation`](actions/circuitActions.ts) when it
-    // deep-clones the source op — that clone has a new object
-    // identity so the identity lookup against `next` below would
-    // miss, naively dropping the ViewState entry. The stamp lets
-    // us recover the user's expand/collapse choice by matching on
-    // the pre-move location instead. Consumed (deleted) here so
-    // the stamp never leaks into the rendered SVG and doesn't
-    // re-trigger on subsequent rebases. See B11 in
-    // [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md).
+    // ops that carry a `sqore-prev-location` stamp. The stamp is set
+    // by [`moveOperation`](actions/circuitActions.ts) when it
+    // deep-clones the source op — the clone has a new object identity
+    // so the identity lookup against `next` would miss and drop the
+    // ViewState entry; the stamp lets us recover the choice by
+    // matching on the pre-move location. Consumed (deleted) here so
+    // it never leaks into the rendered SVG.
     const prevLocationFallback = new Map<string, string>();
     for (const [op, newLoc] of next) {
       const stamp = op.dataAttributes?.["sqore-prev-location"];
@@ -782,36 +767,25 @@ function updateRowHeights(
   for (const col of componentGrid) {
     for (const component of col.components) {
       if (isExpandedGroup(component)) {
-        // The group's dashed box top is anchored at the topmost
-        // reg's y (over targets ∪ controls), and the bottom at
-        // the bottommost reg's y. Decide which row-height counter
-        // each border should bump by asking *what kind of layout
-        // row that y lands in*. The same geometric rule applies
-        // to both top and bottom:
+        // The group's dashed box top is anchored at the topmost reg's
+        // y and the bottom at the bottommost reg's y. Each border
+        // bumps a row-height counter chosen by which layout row its y
+        // lands in:
         //
-        //   - Anchor is a pure qubit ref `{q}` AND q has no
-        //     classical sub-wires → border lives in the gap
-        //     immediately above (or below) q's wire →
-        //     `heightAboveWire[q]` / `heightBelowWire[q]`.
-        //   - Anchor is a pure qubit ref `{q}` AND q has
-        //     classical sub-wires → for the TOP, border is above
-        //     q's wire (`heightAboveWire`); for the BOTTOM,
-        //     border lives just below q's wire which lands in
-        //     the gap between q's wire and its first classical
-        //     sub-wire → `bottomBordersAboveFirstClassical[q]`.
-        //   - Anchor is a classical sub-wire ref `{q, r}` → for
-        //     the TOP, border is between q's wire and its first
-        //     classical sub-wire → `heightAboveFirstClassical[q]`;
-        //     for the BOTTOM, border is after all of q's
-        //     classical sub-wires → `heightBelowWire[q]`.
+        //   - Pure qubit ref `{q}`, q has no classical sub-wires →
+        //     gap above/below q's wire (`heightAboveWire` /
+        //     `heightBelowWire`).
+        //   - Pure qubit ref `{q}`, q has classical sub-wires → top
+        //     goes to `heightAboveWire`; bottom lands in the gap
+        //     before q's first classical sub-wire
+        //     (`bottomBordersAboveFirstClassical`).
+        //   - Classical sub-wire ref `{q, r}` → top lands in that gap
+        //     (`heightAboveFirstClassical`); bottom goes to
+        //     `heightBelowWire`.
         //
-        // Note the two distinct counters for the "above first
-        // classical" gap: top borders carry labels and stack at
-        // `groupTopPadding` (26 px) per level, while bottom
-        // borders have no label and stack at `groupBottomPadding`
-        // (10 px) per level (set by `_processChildren`'s padding
-        // chain). The formatter applies the two with their own
-        // multipliers.
+        // The two "above first classical" counters differ because top
+        // borders carry labels (stack at `groupTopPadding`) while
+        // bottom borders don't (stack at `groupBottomPadding`).
         const regs = getOperationRegisters(component);
         if (regs.length === 0) continue;
 

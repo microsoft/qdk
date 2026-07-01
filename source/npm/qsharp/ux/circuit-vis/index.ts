@@ -29,7 +29,7 @@ export const draw = (
   /**
    * Replace the rendered circuit in place, preserving per-session
    * view state (e.g. user expand/collapse choices). See
-   * [`Sqore.updateCircuit`](circuit-vis/sqore.ts) for full notes.
+   * [`Sqore.updateCircuit`](sqore.ts).
    */
   updateCircuit: (circuitGroup: CircuitGroup) => void;
 } => {
