@@ -94,7 +94,7 @@ ux/circuit-vis/
 │   ├── standaloneRenderData.ts     toRenderData for ghosts / toolbox icons
 │   ├── draggable.ts                createDropzones, ghost helpers, wire-dropzone factory
 │   ├── contextMenu.ts              right-click menu (uses CircuitEvents shim)
-│   ├── prompts.ts                  _createConfirmPrompt / _createInputPrompt
+│   ├── prompts.ts                  createConfirmPrompt + delete/move confirm flows
 │   │
 │   └── controllers/                Pointer/keyboard event translation
 │       ├── interactionContext.ts     InteractionContext: shared deps for controllers

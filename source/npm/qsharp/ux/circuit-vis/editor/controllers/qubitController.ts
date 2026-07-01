@@ -8,7 +8,7 @@ import {
 import { createQubitLabelGhost, createWireDropzone } from "../draggable.js";
 import { InteractionContext } from "./interactionContext.js";
 import { trackTemporaryDropzone } from "../../actions/interactionActions.js";
-import { _createConfirmPrompt } from "../prompts.js";
+import { createConfirmPrompt } from "../prompts.js";
 import { enableAutoScroll } from "./scrollController.js";
 import { getQubitLabelElems } from "../../utils.js";
 
@@ -59,7 +59,7 @@ export class QubitController {
       numOperations === 1
         ? `There is 1 operation associated with this qubit line. Do you want to remove it?`
         : `There are ${numOperations} operations associated with this qubit line. Do you want to remove them?`;
-    _createConfirmPrompt(message, (confirmed) => {
+    createConfirmPrompt(message, (confirmed) => {
       if (!confirmed) return;
       doRemove();
     });

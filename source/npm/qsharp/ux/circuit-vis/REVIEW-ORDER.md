@@ -131,20 +131,19 @@ Read the shared scaffolding first, then the controllers:
 | 21    | [editor/toolbox.ts](./editor/toolbox.ts)                                               | 192   | toolbox element + optional Run button                                                                                                             |
 | 22    | [editor/standaloneRenderData.ts](./editor/standaloneRenderData.ts)                     | 102   | `toRenderData` for ghosts / toolbox icons                                                                                                         |
 | 23    | [editor/draggable.ts](./editor/draggable.ts)                                           | 863   | `createDropzones`, ghost helpers, wire-dropzone factory. Big; the overlay machinery                                                               |
-| 24    | [editor/prompts.ts](./editor/prompts.ts)                                               | 81    | confirm/input prompt primitives                                                                                                                   |
-| 25    | [editor/operationPrompts.ts](./editor/operationPrompts.ts)                             | 210   | gate-specific prompt flows built on `prompts.ts`                                                                                                  |
-| 26    | [editor/contextMenu.ts](./editor/contextMenu.ts)                                       | 380   | right-click menu                                                                                                                                  |
-| 27    | [editor/events.ts](./editor/events.ts)                                                 | 214   | `CircuitEvents`: builds the `InteractionContext`, owns + disposes the controllers, fires `modelReady`                                             |
+| 24    | [editor/prompts.ts](./editor/prompts.ts)                                               | 259   | confirm-prompt primitive + gate-specific delete/move confirm flows                                                                                |
+| 25    | [editor/contextMenu.ts](./editor/contextMenu.ts)                                       | 380   | right-click menu                                                                                                                                  |
+| 26    | [editor/events.ts](./editor/events.ts)                                                 | 214   | `CircuitEvents`: builds the `InteractionContext`, owns + disposes the controllers, fires `modelReady`                                             |
 
 Then the controllers (each translates one input family into actions):
 
 | order | file                                                                                     | lines | what to check                                                                                                                |
 | ----- | ---------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 28    | [editor/controllers/scrollController.ts](./editor/controllers/scrollController.ts)       | 88    | `enableAutoScroll`, shared by gate + qubit drags                                                                             |
-| 29    | [editor/controllers/keyboardController.ts](./editor/controllers/keyboardController.ts)   | 55    | Ctrl-toggle move/copy mode                                                                                                   |
-| 30    | [editor/controllers/selectionController.ts](./editor/controllers/selectionController.ts) | 119   | host mousedown + context-menu attach                                                                                         |
-| 31    | [editor/controllers/qubitController.ts](./editor/controllers/qubitController.ts)         | 148   | qubit-label drag + remove-with-confirm                                                                                       |
-| 32    | [editor/controllers/dragController.ts](./editor/controllers/dragController.ts)           | 997   | **the second giant.** Gate-drag, toolbox-drag, dropzone commit, document-mouseup, add/remove-control. The busiest controller |
+| 27    | [editor/controllers/scrollController.ts](./editor/controllers/scrollController.ts)       | 88    | `enableAutoScroll`, shared by gate + qubit drags                                                                             |
+| 28    | [editor/controllers/keyboardController.ts](./editor/controllers/keyboardController.ts)   | 55    | Ctrl-toggle move/copy mode                                                                                                   |
+| 29    | [editor/controllers/selectionController.ts](./editor/controllers/selectionController.ts) | 119   | host mousedown + context-menu attach                                                                                         |
+| 30    | [editor/controllers/qubitController.ts](./editor/controllers/qubitController.ts)         | 148   | qubit-label drag + remove-with-confirm                                                                                       |
+| 31    | [editor/controllers/dragController.ts](./editor/controllers/dragController.ts)           | 997   | **the second giant.** Gate-drag, toolbox-drag, dropzone commit, document-mouseup, add/remove-control. The busiest controller |
 
 **Focus:** Are the controllers genuinely independent — each
 reads/writes the shared `model`/`interaction` and re-renders via the

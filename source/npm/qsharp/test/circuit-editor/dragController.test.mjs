@@ -1028,7 +1028,7 @@ test("Ctrl+drag clone of a regular op: source stays, copy lands at the target", 
   // Source: H on q0 in col 0. Target: an inter-column dropzone at
   // "0,0" ("insert a new column before column 0") on wire 0.
   // Copying (Ctrl) routes through `addOperation` instead of
-  // `_moveOperationWithConfirmation`; the source must remain in
+  // `moveOperationWithConfirmation`; the source must remain in
   // place and the clone must land in a fresh column.
   //
   // IMPORTANT: append the target dropzone BEFORE constructing the
@@ -1133,7 +1133,7 @@ test("qubit-drag-off (only selectedWire, no selectedOperation) removes the qubit
 test("drag-off with movingControl removes just the dragged control via removeControl (not the whole op)", () => {
   // The movingControl branch of the document-mouseup drag-out path
   // routes through `removeControl(selectedOperation, selectedWire)`,
-  // not `_deleteOperationWithConfirmation`. The op stays in the
+  // not `deleteOperationWithConfirmation`. The op stays in the
   // grid with its `.controls` array shortened by one.
   // The control on q1 is the one being dragged off.
   const { model, interaction, dragController, renderCalls } = setup(

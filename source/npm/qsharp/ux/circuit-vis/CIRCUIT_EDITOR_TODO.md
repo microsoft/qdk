@@ -674,7 +674,7 @@ direct-on-`KeyboardController` tests in
    Standalone today already; just lifted out so the gate-drag
    and qubit-drag flows can share it without going through
    `CircuitEvents`.
-7. New [prompts.ts](editor/prompts.ts) — the `_createConfirmPrompt`
+7. New [prompts.ts](editor/prompts.ts) — the `createConfirmPrompt`
    helper extracted out of [events.ts](editor/events.ts), because
    `QubitController` needs it for the qubit-line removal
    confirmation. Pure DOM, no editor dependencies.
@@ -2259,13 +2259,13 @@ prompt + render orchestration.
        to handle visual-span changes on surviving classically-
        controlled groups.
 
-- **Controller layer** (`editor/operationPrompts.ts`, new file):
-  - `_deleteOperationWithConfirmation(model, loc, renderFn)`:
+- **Controller layer** (`editor/prompts.ts`):
+  - `deleteOperationWithConfirmation(model, loc, renderFn)`:
     non-M / no-consumers path is a direct passthrough; M with
     consumers prompts ("Deleting this M will also delete N
     dependent operation(s)…"), then calls
     `removeMeasurementWithDependents`.
-  - `_moveOperationWithConfirmation(model, srcLoc, tgtLoc, srcWire, tgtWire, insertCol, renderFn)`:
+  - `moveOperationWithConfirmation(model, srcLoc, tgtLoc, srcWire, tgtWire, insertCol, renderFn)`:
     non-M / no-consumers path is a direct passthrough; M with
     consumers partitions via `Location.inEarlierColumnThan(targetLoc, consumerLoc)`
     into survivors (consumer still strictly after M's new
@@ -2805,6 +2805,45 @@ the DOM `setAttribute` stay in `editor/` (View); `data/` + `actions/`
 never touch the DOM. Verified: 29/29 draggable + dropzone tests,
 build clean.
 
+### `_`-prefix naming convention audit — deferred
+
+Surfaced while un-underscoring the merged prompt flows in
+[prompts.ts](editor/prompts.ts). The `_` prefix is used
+inconsistently across `circuit-vis` and currently signals three
+different things:
+
+1. **Truly file-private, not exported** — e.g.
+   `_findAndRemoveOperations` in
+   [circuitActions.ts](actions/circuitActions.ts) (bare `const`,
+   used only at internal call sites).
+2. **Exported for tests only** — e.g. `_createGate`,
+   `_classicalControls`, `_getQuantumControlYs`, `_gateBoundingBox`
+   in [gateFormatter.ts](renderer/formatters/gateFormatter.ts)
+   (used within the file, exported solely so
+   `gateFormatter.test.mjs` can reach them).
+3. **Exported as genuine cross-module API, yet still underscored** —
+   e.g. `_isMultiTargetOrGroup` in
+   [circuitActions.ts](actions/circuitActions.ts), imported by
+   [contextMenu.ts](editor/contextMenu.ts) to gate control-authoring.
+
+Case 3 is the contradiction: a `_` symbol that is part of the
+intended public surface. That makes the prefix nearly meaningless —
+a name no longer tells you whether a symbol is reachable from
+outside its file.
+
+Proposed rule (to apply in the audit, not now):
+**`_` ⇔ exported for tests only, or not exported at all; any symbol
+a sibling module imports as normal API has no `_`.** Under that rule
+the renamed prompt functions (`createConfirmPrompt`,
+`deleteOperationWithConfirmation`, `moveOperationWithConfirmation`)
+are correct, `buildMoveMConsumerMessage` correctly keeps its `_`
+(file-private), and `_isMultiTargetOrGroup` would drop its `_`.
+
+**Not in this PR** — cross-cutting rename touching many files;
+separate from PR-readiness. Should land as a dedicated
+naming-convention pass, ideally recorded in the TypeScript comment /
+style instructions once settled.
+
 ### B7. Qubit rearrangement doesn't update group contents correctly — ✅ shipped
 
 **Symptom.** Drag a qubit label to reorder wires. Ops whose
@@ -3232,14 +3271,15 @@ instances.
 | [data/circuit.ts](data/circuit.ts) / register.ts | 19/8  | n/a                                                                           | Pure type / structural definitions; no behavior to test.                |
 
 **Action layer** — heavily covered on `circuitActions.ts`;
-`interactionActions.ts` and `operationPrompts.ts` covered directly.
+`interactionActions.ts` and the `prompts.ts` delete/move flows
+covered directly.
 
-| Module                                                         | Lines | Tests                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| -------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [actions/circuitActions.ts](actions/circuitActions.ts)         | 2551  | [circuit-actions/](../../test/circuit-editor/circuit-actions/) (132)                      | The crown jewel: every move / add / remove / control path, plus extend cascade, classical-ref remap, clone-move, M5/B5 gates. Split across 10 topic files (addRemove, groupMove, measurementCascade, …).                                                                                                                                                                                                                                                                                                                            |
-| [actions/interactionState.ts](actions/interactionState.ts)     | 97    | [interactionActions.test.mjs](../../test/circuit-editor/interactionActions.test.mjs) (10) | Defaults + reset semantics pinned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| [actions/interactionActions.ts](actions/interactionActions.ts) | 118   | (same file)                                                                               | `beginToolboxDrag`, dropzone tracking, idempotency covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| [editor/operationPrompts.ts](editor/operationPrompts.ts)       | 203   | [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) (12)     | B2/B3 confirm prompts + cascade orchestration. `_deleteOperationWithConfirmation`: non-M / M-no-consumers fast paths, singular + plural prompt text, OK cascade, Cancel = no mutation + no `renderFn`. `_moveOperationWithConfirmation`: non-M / M-no-consumers fast paths, pure-survivors / pure-invalidated / mixed message shapes from `_buildMoveMConsumerMessage`, OK cascade through `moveMeasurementWithDependents`, Cancel = no mutation + no `renderFn`. `movingControl` threaded through the fast path (B11a regression). |
+| Module                                                         | Lines | Tests                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [actions/circuitActions.ts](actions/circuitActions.ts)         | 2551  | [circuit-actions/](../../test/circuit-editor/circuit-actions/) (132)                      | The crown jewel: every move / add / remove / control path, plus extend cascade, classical-ref remap, clone-move, M5/B5 gates. Split across 10 topic files (addRemove, groupMove, measurementCascade, …).                                                                                                                                                                                                                                                                                                                          |
+| [actions/interactionState.ts](actions/interactionState.ts)     | 97    | [interactionActions.test.mjs](../../test/circuit-editor/interactionActions.test.mjs) (10) | Defaults + reset semantics pinned.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| [actions/interactionActions.ts](actions/interactionActions.ts) | 118   | (same file)                                                                               | `beginToolboxDrag`, dropzone tracking, idempotency covered.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| [editor/prompts.ts](editor/prompts.ts) (flows)                 | 259   | [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs) (12 flow)                  | B2/B3 confirm prompts + cascade orchestration. `deleteOperationWithConfirmation`: non-M / M-no-consumers fast paths, singular + plural prompt text, OK cascade, Cancel = no mutation + no `renderFn`. `moveOperationWithConfirmation`: non-M / M-no-consumers fast paths, pure-survivors / pure-invalidated / mixed message shapes from `_buildMoveMConsumerMessage`, OK cascade through `moveMeasurementWithDependents`, Cancel = no mutation + no `renderFn`. `movingControl` threaded through the fast path (B11a regression). |
 
 **View layer (controllers + editor)** — mixed. The split surfaced
 by R5 made per-controller testing trivial, but only some
@@ -3255,9 +3295,8 @@ controllers actually got tests.
 | [editor/contextMenu.ts](editor/contextMenu.ts)                                                                            | 345             | [contextMenu.test.mjs](../../test/circuit-editor/contextMenu.test.mjs) (13)                                                                               | Every M5 / M7 / B5 UI gate pinned via a JSDOM stub-`CircuitEvents`: measurement → only Delete; ket → only Delete; control-dot on simple parent → only Remove control; control-dot on multi-target / group parent → no menu items (B5); X-gate ordering with / without controls; multi-target unitary (M5) → no Add/Remove Control; group (M7) → no Toggle Adjoint; ordinary unitary with params / controls (full menu); re-open replaces prior menu; outside-click closes; Add Control delegates to `_startAddingControl`. |
 | [editor/draggable.ts](editor/draggable.ts)                                                                                | 800             | [draggable.test.mjs](../../test/circuit-editor/draggable.test.mjs) (14) + dropzones (15)                                                                  | Pure-helper geometry pinned: `makeDropzoneBox` inter-column / on-column / trailing-append / attr contract / pathPrefix nesting, `makeShiftExtendGhost` above-span / below-span / trailing-column horizontal extend / inside-span, `createWireDropzone` on-wire / between / after-last, `removeAllWireDropzones` selective wipe. `_populateDropzonesForGrid` recursion still indirect via `dropzones.test.mjs`.                                                                                                             |
 | [editor/events.ts](editor/events.ts)                                                                                      | 196             | **0 direct tests**                                                                                                                                        | Coordinator. Wiring exercised end-to-end through controllers; the controller-instantiation order and `dispose()` chain are not pinned directly.                                                                                                                                                                                                                                                                                                                                                                            |
-| [editor/operationPrompts.ts](editor/operationPrompts.ts)                                                                  | 203             | [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs) (12)                                                                     | See action-layer table above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | [editor/toolbox.ts](editor/toolbox.ts)                                                                                    | 169             | [toolboxRunButton.test.mjs](../../test/circuit-editor/toolboxRunButton.test.mjs) (3) + [toolbox.test.mjs](../../test/circuit-editor/toolbox.test.mjs) (5) | Run-button visibility + panel structure (header + SVG), 12 toolbox items pinned to `toolboxGateDictionary` key set, `data-type` attributes match dictionary keys, two-column grid layout (gateHeight + verticalGap pitch verified on RX/RY/Y rects — X renders as oplus so isn't used for the rect comparison), SVG height with vs without Run button differs by exactly `gateHeight + 16`. Drag-start handler still untested.                                                                                             |
-| [editor/prompts.ts](editor/prompts.ts)                                                                                    | 70              | [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs) (7)                                                                                        | `_createConfirmPrompt` DOM shape (`.prompt-overlay > .prompt-container > .prompt-message + .prompt-buttons`), OK click → `callback(true)` + overlay removed, Cancel → `callback(false)` + overlay removed, Enter / Escape commit / cancel through the document-level capture-phase keydown listener, listener uninstall on close (post-close keypresses do NOT re-fire), non-Enter/Escape keys ignored.                                                                                                                    |
+| [editor/prompts.ts](editor/prompts.ts) (primitive)                                                                        | 259             | [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs) (7 primitive)                                                                              | `createConfirmPrompt` DOM shape (`.prompt-overlay > .prompt-container > .prompt-message + .prompt-buttons`), OK click → `callback(true)` + overlay removed, Cancel → `callback(false)` + overlay removed, Enter / Escape commit / cancel through the document-level capture-phase keydown listener, listener uninstall on close (post-close keypresses do NOT re-fire), non-Enter/Escape keys ignored. The delete/move confirm flows in the same file are covered by the 12 flow tests (see action-layer table above).     |
 | [editor/shell.ts](editor/shell.ts) / standaloneRenderData.ts / installEditor.ts / toolboxGates.ts / interactionContext.ts | 100/93/62/55/55 | **0 direct tests**                                                                                                                                        | Glue / scaffolding; nothing behaviorally interesting to assert.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **Renderer + top-level** — snapshot-only coverage on the
@@ -3310,14 +3349,14 @@ regression-tested?" and find the answer.
   is also asserted.
 - **B2 / B3 (M-with-dependents flows).** Action layer ✅
   (10 tests in the `circuit-actions/` suite). Confirm-prompt wrappers
-  in [operationPrompts.ts](editor/operationPrompts.ts) ✅ —
+  in [prompts.ts](editor/prompts.ts) ✅ —
   12 tests in
-  [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs)
+  [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs)
   pin the singular / plural delete prompts, the three move-message
   shapes (`_buildMoveMConsumerMessage`: pure-survivors,
   pure-invalidated, mixed), the OK-cascade contract for both
   wrappers, and the Cancel-path invariant (model untouched,
-  `renderFn` not called). `_createConfirmPrompt` itself covered
+  `renderFn` not called). `createConfirmPrompt` itself covered
   by [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs)
   (7 tests including Enter / Escape keyboard semantics and
   listener cleanup).
@@ -3350,18 +3389,18 @@ for what to land before opening the PR.
    plus the first-render no-op, untracked-entry passthrough,
    and nested-op rekey. Stamp consumption is asserted on the
    stamp branch so the marker can't leak into the rendered SVG.
-2. **`_deleteOperationWithConfirmation` cancel-path test.** ✅
+2. **`deleteOperationWithConfirmation` cancel-path test.** ✅
    shipped — covered in
-   [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs)
+   [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs)
    alongside the singular / plural prompt text and the OK-cascade
    path. The cancel-path test clicks the `.prompt-button` Cancel
-   button (the real `_createConfirmPrompt` is exercised end-to-end
+   button (the real `createConfirmPrompt` is exercised end-to-end
    under JSDOM rather than stubbing `window.confirm`) and asserts
    the model is byte-for-byte unchanged and `renderFn` is not
    called.
-3. **`_moveOperationWithConfirmation` cascade-count assertions.**
+3. **`moveOperationWithConfirmation` cascade-count assertions.**
    ✅ shipped — three message-shape tests in
-   [operationPrompts.test.mjs](../../test/circuit-editor/operationPrompts.test.mjs)
+   [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs)
    pin pure-survivors / pure-invalidated / mixed, plus a Cancel
    path and a mixed-partition OK-cascade test confirming the
    survivor remains and the invalidated consumer is gone.

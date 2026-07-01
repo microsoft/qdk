@@ -6,7 +6,7 @@ import {
   _isMultiTargetOrGroup,
   removeControl,
 } from "../actions/circuitActions.js";
-import { _deleteOperationWithConfirmation } from "./operationPrompts.js";
+import { deleteOperationWithConfirmation } from "./prompts.js";
 import { CircuitEvents } from "./events.js";
 import { findGateElem, findOperation } from "../utils.js";
 import {
@@ -63,7 +63,7 @@ const addContextMenuToHostElem = (
     const deleteOption = _createContextMenuItem("Delete", () => {
       // Route through the prompt-aware wrapper so deleting a
       // measurement with downstream consumers confirms first.
-      _deleteOperationWithConfirmation(
+      deleteOperationWithConfirmation(
         circuitEvents.model,
         selectedLocation,
         circuitEvents.renderFn,

@@ -10,9 +10,9 @@ import {
   removeControl,
 } from "../../actions/circuitActions.js";
 import {
-  _deleteOperationWithConfirmation,
-  _moveOperationWithConfirmation,
-} from "../operationPrompts.js";
+  deleteOperationWithConfirmation,
+  moveOperationWithConfirmation,
+} from "../prompts.js";
 import {
   createGateGhost,
   createWireDropzone,
@@ -415,7 +415,7 @@ export class DragController {
       JSON.stringify(this.ctx.model.componentGrid),
     ) as ComponentGrid;
     // Set when a code path delegates rendering to a prompt-aware
-    // wrapper (`_moveOperationWithConfirmation`), which owns its own
+    // wrapper (`moveOperationWithConfirmation`), which owns its own
     // renderFn call; the trailing deepEqual block then skips its own
     // to avoid double-rendering.
     let mutationHandledByWrapper = false;
@@ -511,7 +511,7 @@ export class DragController {
         // surfaces a confirmation dialog. The wrapper owns the
         // renderFn call on both branches, so skip the trailing
         // deepEqual block via `mutationHandledByWrapper`.
-        _moveOperationWithConfirmation(
+        moveOperationWithConfirmation(
           this.ctx.model,
           sourceLocation,
           targetLoc,
@@ -576,7 +576,7 @@ export class DragController {
           // so deleting a measurement with downstream classical
           // consumers confirms first; the wrapper owns renderFn on
           // both branches.
-          _deleteOperationWithConfirmation(
+          deleteOperationWithConfirmation(
             this.ctx.model,
             selectedLocation,
             this.ctx.renderFn,
