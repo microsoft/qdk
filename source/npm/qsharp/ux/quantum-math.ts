@@ -161,7 +161,7 @@ export class Cplx {
     }
 
     // Regular expressions to parse a complex number
-    // - Optional leading '-' sign
+    // - Optional leading '+' or '-' sign
     // - Numeric value for real part (optional if imaginary part is present)
     // - Optional numeric imaginary part with leading [+-] and trailing 'i'
     //   - If real part is not present, leading '+' on imaginary part is optional
@@ -170,7 +170,7 @@ export class Cplx {
     // - Scientific notation is not supported
 
     // To ease parsing, look for the real and imaginary parts separately
-    const rePart = /^[-]?(\d+)(\.\d+)?(?=$|[+-])/;
+    const rePart = /^[+-]?(\d+)(\.\d+)?(?=$|[+-])/;
     const imPart = /(^|[+-])(\d+)(\.\d+)?(?=i$)/;
 
     const reMatch = input.match(rePart);
