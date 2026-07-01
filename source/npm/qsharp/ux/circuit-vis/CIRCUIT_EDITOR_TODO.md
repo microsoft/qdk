@@ -3439,12 +3439,14 @@ Larger follow-ups (deferred — not blocking PR):
   / outside-click lifecycle, and the Add Control delegation
   contract. Edit Argument visibility is pinned (item appears
   when `params?.length > 0`); the deeper `promptForArguments`
-  flow still depends on `_createInputPrompt` (the per-parameter
+  flow (now in [prompts.ts](editor/prompts.ts)) still depends on
+  `_createInputPrompt` (the per-parameter
   text-input dialog with the π button + live validity-gated OK
   button). Validation through `isValidAngleExpression` is now
   directly covered, but the input-prompt DOM lifecycle itself
   (chained per-param prompts, π-button insertion, Escape
-  cancel) remains untested.
+  cancel) remains untested — that coverage would land in
+  [prompts.test.mjs](../../test/circuit-editor/prompts.test.mjs).
 - **`gateFormatter._renderQuantumGroupControls` geometry tests.**
   No longer applicable. The function is now unitary-only —
   groups don't call it per the design lock-in. The remaining

@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Confirm-dialog helper for destructive editor flows, plus the
-// delete/move flows that use it.
+// Home for the editor's prompt dialogs: the confirm-dialog and
+// text-input primitives, plus the delete/move confirmation flows
+// and the argument-collection flow that use them.
 
 import {
   collectMeasurementConsumers,
@@ -13,8 +14,12 @@ import {
 } from "../actions/circuitActions.js";
 import { CircuitModel } from "../data/circuitModel.js";
 import { Location } from "../data/location.js";
-import { Operation } from "../data/circuit.js";
+import { Operation, Parameter } from "../data/circuit.js";
 import { findOperation } from "../utils.js";
+import {
+  isValidAngleExpression,
+  normalizeAngleExpression,
+} from "../angleExpression.js";
 
 /**
  * Confirm-dialog primitive used by destructive editor flows
@@ -247,4 +252,174 @@ const _buildMoveMConsumerMessage = (
   // invalidated > 0 (the caller only enters this branch when
   // consumers.length > 0, so at least one bucket is non-empty).
   return `Moving this measurement: ${willBeDeleted}. Continue?`;
+};
+
+/**
+ * Prompt the user for argument values.
+ * @param params - The parameters for which the user needs to provide values.
+ * @param defaultArgs - The default values for the parameters, if any.
+ * @returns A Promise that resolves with the user-provided arguments as an array of strings.
+ */
+export const promptForArguments = (
+  params: Parameter[],
+  defaultArgs: string[] = [],
+): Promise<string[]> => {
+  return new Promise((resolve) => {
+    const collectedArgs: string[] = [];
+    let currentIndex = 0;
+
+    const promptNext = () => {
+      if (currentIndex >= params.length) {
+        resolve(collectedArgs);
+        return;
+      }
+
+      const param = params[currentIndex];
+      const defaultValue = defaultArgs[currentIndex] || "";
+
+      _createInputPrompt(
+        `Enter value for parameter "${param.name}":`,
+        (userInput) => {
+          if (userInput !== null) {
+            collectedArgs.push(userInput);
+            currentIndex++;
+            promptNext();
+          } else {
+            resolve(defaultArgs); // User canceled the prompt
+          }
+        },
+        defaultValue,
+        isValidAngleExpression,
+        'Examples: "2.0 * π" or "π / 2.0"',
+      );
+    };
+
+    promptNext();
+  });
+};
+
+/**
+ * Create a user input prompt element
+ * @param message - The message to display in the prompt
+ * @param callback - The callback function to handle the user input
+ * @param defaultValue - The default value to display in the input element
+ * @param validateInput - A function to validate the user input
+ * @param placeholder - The placeholder text for the input element
+ */
+const _createInputPrompt = (
+  message: string,
+  callback: (input: string | null) => void,
+  defaultValue: string = "",
+  validateInput: (input: string) => boolean = () => true,
+  placeholder: string = "",
+) => {
+  // Create the prompt overlay
+  const overlay = document.createElement("div");
+  overlay.classList.add("prompt-overlay");
+  overlay.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  // Create the prompt container
+  const promptContainer = document.createElement("div");
+  promptContainer.classList.add("prompt-container");
+
+  // Create the message element
+  const messageElem = document.createElement("div");
+  messageElem.classList.add("prompt-message");
+  messageElem.textContent = message;
+
+  // Create the input element
+  const inputElem = document.createElement("input");
+  inputElem.classList.add("prompt-input");
+  inputElem.type = "text";
+  inputElem.value = defaultValue;
+  inputElem.placeholder = placeholder;
+
+  // Create the buttons container
+  const buttonsContainer = document.createElement("div");
+  buttonsContainer.classList.add("prompt-buttons");
+
+  // Create the OK button
+  const okButton = document.createElement("button");
+  okButton.classList.add("prompt-button");
+  okButton.textContent = "OK";
+
+  // Function to validate input and toggle the OK button
+  const validateAndToggleOkButton = () => {
+    const processedInput = normalizeAngleExpression(inputElem.value);
+    const isValid = validateInput(processedInput);
+    okButton.disabled = !isValid;
+  };
+
+  // Add input event listener for validation
+  inputElem.addEventListener("input", validateAndToggleOkButton);
+
+  // Handle Enter key when input is focused
+  inputElem.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !okButton.disabled) {
+      event.preventDefault();
+      okButton.click();
+    }
+  });
+
+  okButton.disabled = !validateInput(normalizeAngleExpression(defaultValue));
+  okButton.addEventListener("click", () => {
+    callback(normalizeAngleExpression(inputElem.value));
+    document.body.removeChild(overlay);
+    document.removeEventListener("keydown", handleGlobalKeyDown, true);
+  });
+
+  // Create the π button
+  const piButton = document.createElement("button");
+  piButton.textContent = "π";
+  piButton.classList.add("pi-button", "prompt-button");
+  piButton.addEventListener("click", () => {
+    const cursorPosition = inputElem.selectionStart || 0;
+    const textBefore = inputElem.value.substring(0, cursorPosition);
+    const textAfter = inputElem.value.substring(cursorPosition);
+    inputElem.value = `${textBefore}π${textAfter}`;
+    inputElem.focus();
+    inputElem.setSelectionRange(cursorPosition + 1, cursorPosition + 1); // Move cursor after "π"
+    validateAndToggleOkButton();
+  });
+
+  // Create the Cancel button
+  const cancelButton = document.createElement("button");
+  cancelButton.classList.add("prompt-button");
+  cancelButton.textContent = "Cancel";
+  cancelButton.addEventListener("click", () => {
+    callback(null);
+    document.body.removeChild(overlay);
+    document.removeEventListener("keydown", handleGlobalKeyDown, true);
+  });
+
+  // Handle Escape key globally while prompt is open
+  const handleGlobalKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelButton.click();
+    }
+  };
+  document.addEventListener("keydown", handleGlobalKeyDown, true);
+
+  // Append buttons to the container
+  buttonsContainer.appendChild(piButton);
+  buttonsContainer.appendChild(okButton);
+  buttonsContainer.appendChild(cancelButton);
+
+  // Append elements to the prompt container
+  promptContainer.appendChild(messageElem);
+  promptContainer.appendChild(inputElem);
+  promptContainer.appendChild(buttonsContainer);
+
+  // Append the prompt container to the overlay
+  overlay.appendChild(promptContainer);
+
+  // Append the overlay to the document body
+  document.body.appendChild(overlay);
+
+  // Focus the input element
+  inputElem.focus();
 };

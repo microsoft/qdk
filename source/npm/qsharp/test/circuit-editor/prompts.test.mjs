@@ -1,9 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// prompts tests — covers everything in `editor/prompts.ts`: the
-// generic confirm-dialog primitive `createConfirmPrompt`, plus the
-// operation-specific delete/move flows built on it.
+// prompts tests — covers the confirm-dialog side of
+// `editor/prompts.ts`: the generic confirm-dialog primitive
+// `createConfirmPrompt`, plus the operation-specific delete/move
+// flows built on it. The text-input primitive `_createInputPrompt`
+// and the `promptForArguments` flow also live in that file but are
+// not yet unit-tested (deferred; see CIRCUIT_EDITOR_TODO.md).
 //
 // `createConfirmPrompt`:
 //   - DOM shape: `.prompt-overlay > .prompt-container >

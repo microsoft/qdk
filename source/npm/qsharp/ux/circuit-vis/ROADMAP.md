@@ -218,8 +218,8 @@ Deferred follow-ups (not blocking PR):
   (13 tests) covers M5 / M7 / B5 plus Edit Argument visibility,
   X-gate ordering, the general unitary menu, and the
   menu-replace / outside-click lifecycle. The deeper
-  `promptForArguments` flow still depends on the
-  `_createInputPrompt` DOM lifecycle (chained per-param
+  `promptForArguments` flow (now in `prompts.ts`) still depends
+  on the `_createInputPrompt` DOM lifecycle (chained per-param
   prompts, π-button insertion, Escape cancel); validation
   through `isValidAngleExpression` is now directly covered.
 - **Renderer geometry tests** for
