@@ -9,6 +9,8 @@
    acos maps that amplitude ratio to the polar angle theta.
 */
 
+import "./bloch.css";
+
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ComponentChildren } from "preact";
 
