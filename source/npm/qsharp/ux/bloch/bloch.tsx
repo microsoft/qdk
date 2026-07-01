@@ -1,10 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-/* The math for converting basis coefficients (a, b) to a Bloch-sphere
-   point is:
-     theta = 2 * acos(magnitude(a))
+/* The math for converting the basis amplitudes (a, b) of a single-qubit
+   state a|0> + b|1> to a Bloch-sphere point is:
+     theta = 2 * acos(|a|)
      phi   = arg(b) - arg(a), normalized to [0, 2 * PI)
+   where |a| is the complex modulus of a (a real number in [0, 1]), so
+   acos maps that amplitude ratio to the polar angle theta.
 */
 
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -102,6 +104,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // `draftText` holds their input and is shown immediately; the expensive
   // trace/sphere update is deferred until they pause (debounced). Input is
   // sanitized per keystroke, so the textbox only ever holds valid codes.
+  // Because the commit fires on a timer, two fail-safes guard the pending
+  // timer: `cancelDraft` drops it when a non-text action supersedes the
+  // edit, and the `draftTimerRef` unmount cleanup effect clears it so it
+  // can't fire after the component is gone.
   const GATE_TEXT_DEBOUNCE_MS = 150;
   const [draftText, setDraftText] = useState<string | null>(null);
   const displayValue = draftText ?? gates.join("");
@@ -182,7 +188,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }, []);
 
   // Derived: per-step trace entries (LaTeX strings) for the whole
-  // `gates` sequence, walking the matrix product forward from |0\u27e9.
+  // `gates` sequence, walking the matrix product forward from |0>.
   // Computed in one pass instead of being mirrored in state, so the
   // trace rows can never disagree with the underlying gate list.
   const traceEntries = useMemo(() => {
