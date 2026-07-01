@@ -156,7 +156,7 @@ class Interpreter:
         list_directory: Callable[[str], List[Dict[str, str]]],
         resolve_path: Callable[[str, str], str],
         fetch_github: Callable[[str, str, str, str], str],
-        make_callable: Optional[Callable[[GlobalCallable, List[str], str], None]],
+        make_callable: Optional[Callable[[GlobalCallable, List[str], str, bool], None]],
         make_class: Optional[Callable[[TypeIR, List[str], str], None]],
         trace_circuit: Optional[bool],
     ) -> None:

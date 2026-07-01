@@ -456,6 +456,15 @@ def logical_counts(
     return _get_default_context().logical_counts(entry_expr, *args)
 
 
+def run_tests(seed: Optional[int] = None) -> None:
+    """
+    Runs all Q# callables with the `@Test` attribute in the current context.
+
+    :param seed: The seed to use for the random number generator in simulation, if any.
+    """
+    _get_default_context().run_tests(seed)
+
+
 def set_quantum_seed(seed: Optional[int]) -> None:
     """
     Sets the seed for the random number generator used for quantum measurements.

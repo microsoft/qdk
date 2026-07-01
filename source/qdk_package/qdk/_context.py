@@ -252,12 +252,15 @@ class Context:
         self_ref = weakref.ref(self)
 
         def make_callable_weak(
-            callable: GlobalCallable, namespace: List[str], callable_name: str
+            callable: GlobalCallable,
+            namespace: List[str],
+            callable_name: str,
+            is_test: bool,
         ) -> None:
             ctx = self_ref()
             if ctx is None or ctx._disposed:
                 return
-            ctx._make_callable(callable, namespace, callable_name)
+            ctx._make_callable(callable, namespace, callable_name, is_test)
 
         def make_class_weak(
             qsharp_type: TypeIR, namespace: List[str], class_name: str
@@ -433,7 +436,11 @@ class Context:
         return module
 
     def _make_callable(
-        self, callable: GlobalCallable, namespace: List[str], callable_name: str
+        self,
+        callable: GlobalCallable,
+        namespace: List[str],
+        callable_name: str,
+        is_test: bool,
     ):
         """Registers a Q# callable in this context's code module."""
         module = self._get_code_module(namespace)
@@ -452,6 +459,8 @@ class Context:
 
         setattr(_callable_fn, "_qdk_context", self)
         setattr(_callable_fn, "__global_callable", callable)
+        setattr(_callable_fn, "__is_test__", is_test)
+        setattr(_callable_fn, "__name__", ".".join(namespace + [callable_name]))
 
         if module.__dict__.get(callable_name) is None:
             module.__setattr__(callable_name, _callable_fn)
@@ -1021,3 +1030,46 @@ class Context:
     def get_target_profile(self) -> TargetProfile:
         """Returns target profile for this Context."""
         return self._target_profile
+
+    def _get_test_callables(self) -> List[Callable]:
+        """Returns a list of all Q# callables with the `@Test` attribute in this Context."""
+        test_callables: List[Callable] = []
+
+        # Iterate through all the attributes of self.code and check if they are callables with the __is_test__ attribute set to True
+        # Recursively check for nested modules as well
+        def find_test_callables(module):
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if callable(attr) and getattr(attr, "__is_test__", False):
+                    test_callables.append(attr)
+                elif isinstance(attr, types.ModuleType) or isinstance(
+                    attr, types.SimpleNamespace
+                ):
+                    find_test_callables(attr)
+
+        find_test_callables(self.code)
+        return test_callables
+
+    def run_tests(self, seed: Optional[int] = None) -> None:
+        """
+        Runs all Q# callables with the `@Test` attribute in this Context.
+
+        :param seed: The seed to use for the random number generator in simulation, if any.
+        """
+        tests = self._get_test_callables()
+        print("Starting tests...")
+        failed_tests = []
+        for test in tests:
+            print(f"Running `{test.__name__}`...")
+            try:
+                self.run(test, 1, seed=seed)
+                print(f"`{test.__name__}` passed")
+            except Exception as e:
+                print(f"`{test.__name__}` FAILED with exception:\n{e}")
+                failed_tests.append(test.__name__)
+        print(
+            f"Finished tests: {len(tests) - len(failed_tests)} passed, {len(failed_tests)} failed."
+        )
+        if failed_tests:
+            for failed_test in failed_tests:
+                print(f" - `{failed_test}` FAILED")
