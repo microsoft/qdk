@@ -14,19 +14,19 @@ use thiserror::Error;
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("expression does not evaluate to an operation that takes qubit parameters")]
-    #[diagnostic(code("Qsc.Circuit.NoCircuitForOperation"))]
+    #[diagnostic(code("Qdk.Qsc.Circuit.NoCircuitForOperation"))]
     #[diagnostic(help(
         "provide the name of a callable or a lambda expression that only takes qubits as parameters"
     ))]
     NoQubitParameters,
     #[error("cannot generate circuit for controlled invocation")]
-    #[diagnostic(code("Qsc.Circuit.ControlledUnsupported"))]
+    #[diagnostic(code("Qdk.Qsc.Circuit.ControlledUnsupported"))]
     #[diagnostic(help(
         "controlled invocations are not currently supported. consider wrapping the invocation in a lambda expression"
     ))]
     ControlledUnsupported,
     #[error("program has features that are unsupported for circuit diagrams: {0}")]
-    #[diagnostic(code("Qsc.Circuit.UnsupportedFeature"))]
+    #[diagnostic(code("Qdk.Qsc.Circuit.UnsupportedFeature"))]
     UnsupportedFeature(String),
 }
 

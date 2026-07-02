@@ -26,35 +26,35 @@ use thiserror::Error;
 #[derive(Clone, Debug, Diagnostic, Eq, Error, PartialEq)]
 pub enum ConstEvalError {
     #[error("division by zero error during const evaluation")]
-    #[diagnostic(code("Qasm.Lowerer.DivisionByZero"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.DivisionByZero"))]
     DivisionByZero(#[label] Span),
     #[error("{0}")]
-    #[diagnostic(code("Qasm.Lowerer.DomainError"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.DomainError"))]
     DomainError(String, #[label] Span),
     #[error("expression must be const")]
-    #[diagnostic(code("Qasm.Lowerer.ExprMustBeConst"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.ExprMustBeConst"))]
     ExprMustBeConst(#[label] Span),
     #[error("expression must be indexable")]
-    #[diagnostic(code("Qasm.Lowerer.ExprMustBeIndexable"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.ExprMustBeIndexable"))]
     ExprMustBeIndexable(#[label] Span),
     #[error("index must be an int")]
-    #[diagnostic(code("Qasm.Lowerer.IndexMustBeInt"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.IndexMustBeInt"))]
     IndexMustBeInt(#[label] Span),
     #[error("uint expression must evaluate to a non-negative value, but it evaluated to {0}")]
-    #[diagnostic(code("Qasm.Lowerer.NegativeUIntValue"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.NegativeUIntValue"))]
     NegativeUIntValue(i64, #[label] Span),
     #[error("{0}")]
-    #[diagnostic(code("Qasm.Lowerer.NoValidOverloadForBuiltinFunction"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction"))]
     NoValidOverloadForBuiltinFunction(String, #[label] Span),
     #[error("requested dimension {0} but array has {1} dimensions")]
     #[help("dimensions are zero-based")]
-    #[diagnostic(code("Qasm.Lowerer.SizeofInvalidDimension"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.SizeofInvalidDimension"))]
     SizeofInvalidDimension(usize, usize, #[label] Span),
     #[error("too many indices provided")]
-    #[diagnostic(code("Qasm.Lowerer.TooManyIndices"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.TooManyIndices"))]
     TooManyIndices(#[label] Span),
     #[error("{0} doesn't fit in {1}")]
-    #[diagnostic(code("Qasm.Lowerer.ValueOverflow"))]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.ValueOverflow"))]
     ValueOverflow(String, String, #[label] Span),
 }
 

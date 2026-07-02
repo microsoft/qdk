@@ -14,14 +14,14 @@ pub enum IO {
     /// Note that in the service, we are creating all filenames.
     /// It's not relevant to log this data.
     #[error("cannot open file: '{0}'")]
-    #[diagnostic(code("Qsc.Estimates.IOError.CannotOpenFile"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.IOError.CannotOpenFile"))]
     CannotOpenFile(String),
     /// Captures various reasons that JSON cannot be parsed
     ///
     /// ❌ This may contain user data and cannot be logged
     /// 🧑‍💻 This indicates a user error
     #[error("cannot parse JSON: '{0}'")]
-    #[diagnostic(code("Qsc.Estimates.IOError.CannotParseJSON"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.IOError.CannotParseJSON"))]
     CannotParseJSON(serde_json::error::Error),
 }
 
@@ -32,7 +32,7 @@ pub enum TFactory {
     /// ✅ This does not contain user data and can be logged
     /// 🐞 We want this to be tracked as error and investigate
     #[error("cannot compute inverse binomial distribution for n = {0}, p1 = {1}, and p2 = {2}")]
-    #[diagnostic(code("Qsc.Estimates.TFactoryError.CannotComputeInverseBinomial"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.TFactoryError.CannotComputeInverseBinomial"))]
     CannotComputeInverseBinomial(usize, f64, f64),
 }
 
@@ -43,14 +43,14 @@ pub enum InvalidInput {
     /// ✅ This does not contain user data and can be logged
     /// 🧑‍💻 This indicates a user error
     #[error("fault tolerance protocol does not support gate type of qubit")]
-    #[diagnostic(code("Qsc.Estimates.InvalidInputError.InvalidFaultToleranceProtocol"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.InvalidInputError.InvalidFaultToleranceProtocol"))]
     InvalidFaultToleranceProtocol,
     /// Logical cycle is non-positive for some code distance value
     ///
     /// ✅ This does not contain user data and can be logged
     /// 🧑‍💻 This indicates a user error
     #[error("logicalCycleTime formula yields non-positive value for code distance = {0}")]
-    #[diagnostic(code("Qsc.Estimates.InvalidInputError.NonPositiveLogicalCycleTime"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.InvalidInputError.NonPositiveLogicalCycleTime"))]
     NonPositiveLogicalCycleTime(u64),
     /// Number of physical qubits per logical qubits is non-positive for some code distance value
     ///
@@ -59,14 +59,14 @@ pub enum InvalidInput {
     #[error(
         "physicalQubitsPerLogicalQubit formula yields non-positive value for code distance = {0}"
     )]
-    #[diagnostic(code("Qsc.Estimates.InvalidInputError.NonPositivePhysicalQubitsPerLogicalQubit"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.InvalidInputError.NonPositivePhysicalQubitsPerLogicalQubit"))]
     NonPositivePhysicalQubitsPerLogicalQubit(u64),
     /// Invalid error budget (<= 0.0 or >= 1.0)
     ///
     /// ✅ This does not contain user data and can be logged
     /// 🧑‍💻 This indicates a user error
     #[error("The error budget must be between 0.0 and 1.0, provided input was `{0}`")]
-    #[diagnostic(code("Qsc.Estimates.InvalidInputError.InvalidErrorBudget"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.InvalidInputError.InvalidErrorBudget"))]
     InvalidErrorBudget(f64),
     /// Constraints provided for frontier estimation
     /// (maximal time, maximal number of qubits, maximal number of T factories)
@@ -75,7 +75,7 @@ pub enum InvalidInput {
     /// ✅ This does not contain user data and can be logged
     /// 🧑‍💻 This indicates a user error
     #[error("Unsupported constraints provided for Frontier Estimation.")]
-    #[diagnostic(code("Qsc.Estimates.InvalidInputError.ConstraintsProvidedForFrontierEstimation"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.InvalidInputError.ConstraintsProvidedForFrontierEstimation"))]
     ConstraintsProvidedForFrontierEstimation,
 }
 
@@ -92,7 +92,7 @@ pub enum Error {
     /// ❌ This may contain user data and cannot be logged
     /// 🧑‍💻 This indicates a user error
     #[error("cannot evaluate expression: '{0}'")]
-    #[diagnostic(code("Qsc.Estimates.EvaluationError.CannotEvaluateExpression"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.EvaluationError.CannotEvaluateExpression"))]
     Evaluation(String),
     /// Invalid value for some variable, allowed range is specified via lower
     /// and upper bound
@@ -100,7 +100,7 @@ pub enum Error {
     /// ✅ This does not contain user data and can be logged
     /// 🧑‍💻 This indicates a user error
     #[error("invalid value for '{0}', expected value between {1} and {2}")]
-    #[diagnostic(code("Qsc.Estimates.InvalidValueError.InvalidValue"))]
+    #[diagnostic(code("Qdk.Qsc.Estimates.InvalidValueError.InvalidValue"))]
     InvalidValue(String, f64, f64),
     /// Handles various types of invalid input
     ///

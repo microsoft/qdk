@@ -448,7 +448,7 @@ pub enum Error {
     /// generating incorrect code, which would be a hard error on the base
     /// profile.
     #[error("callable argument could not be resolved statically")]
-    #[diagnostic(code("Qsc.Defunctionalize.DynamicCallable"))]
+    #[diagnostic(code("Qdk.Qsc.Defunctionalize.DynamicCallable"))]
     #[diagnostic(help("ensure all callable arguments are known at compile time"))]
     DynamicCallable(#[label] Span),
 
@@ -464,7 +464,7 @@ pub enum Error {
     /// declined with this diagnostic rather than partially specialized, so this
     /// unsupported shape can never turn into incorrect code.
     #[error("higher-order function forwards more than one callable array, which is not supported")]
-    #[diagnostic(code("Qsc.Defunctionalize.UnsupportedMultipleCallableArrays"))]
+    #[diagnostic(code("Qdk.Qsc.Defunctionalize.UnsupportedMultipleCallableArrays"))]
     #[diagnostic(help(
         "pass at most one array-of-callables argument to a higher-order function; combine the \
          arrays or specialize the callers so each forwards a single callable array"
@@ -480,7 +480,7 @@ pub enum Error {
     #[error(
         "defunctionalization did not converge within {0} iterations; {1} callable values remain"
     )]
-    #[diagnostic(code("Qsc.Defunctionalize.FixpointNotReached"))]
+    #[diagnostic(code("Qdk.Qsc.Defunctionalize.FixpointNotReached"))]
     #[diagnostic(help("consider reducing the nesting depth of higher-order function chains"))]
     FixpointNotReached(usize, usize, #[label("remaining callable value")] Span),
 
@@ -491,7 +491,7 @@ pub enum Error {
     #[error(
         "higher-order function `{0}` generated {1} specializations, exceeding the warning threshold"
     )]
-    #[diagnostic(code("Qsc.Defunctionalize.ExcessiveSpecializations"))]
+    #[diagnostic(code("Qdk.Qsc.Defunctionalize.ExcessiveSpecializations"))]
     #[diagnostic(severity(warning))]
     #[diagnostic(help(
         "consider reducing the number of distinct callable arguments passed to this function"

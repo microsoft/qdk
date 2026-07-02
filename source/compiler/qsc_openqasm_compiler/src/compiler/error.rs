@@ -15,34 +15,34 @@ pub struct Error(pub CompilerErrorKind);
 #[derive(Clone, Debug, Diagnostic, Eq, Error, PartialEq)]
 pub enum CompilerErrorKind {
     #[error("annotations only valid on def and gate statements")]
-    #[diagnostic(code("Qasm.Compiler.InvalidAnnotationTarget"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.InvalidAnnotationTarget"))]
     InvalidAnnotationTarget(#[label] Span),
     #[error("gate expects {0} qubit arguments, but {1} were provided")]
-    #[diagnostic(code("Qasm.Compiler.InvalidNumberOfQubitArgs"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.InvalidNumberOfQubitArgs"))]
     InvalidNumberOfQubitArgs(usize, usize, #[label] Span),
     #[error("{0} is not defined or is not a valid target for box usage")]
     #[help("Box pragmas can only be used with functions that have no parameters and return void.")]
-    #[diagnostic(code("Qasm.Compiler.InvalidBoxPragmaTarget"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.InvalidBoxPragmaTarget"))]
     InvalidBoxPragmaTarget(String, #[label] Span),
     #[error("Box pragma is missing target")]
-    #[diagnostic(code("Qasm.Compiler.MissingBoxPragmaTarget"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.MissingBoxPragmaTarget"))]
     MissingBoxPragmaTarget(#[label] Span),
     #[error(
         "Invalid or missing QIR Profile: '{0}'. Please specify one of: `Unrestricted`, `Base`, `Adaptive_RI`, `Adaptive_RIF`."
     )]
-    #[diagnostic(code("Qasm.Compiler.InvalidProfilePragmaTarget"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.InvalidProfilePragmaTarget"))]
     InvalidProfilePragmaTarget(String, #[label] Span),
     #[error("{0} are not supported")]
-    #[diagnostic(code("Qasm.Compiler.NotSupported"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.NotSupported"))]
     NotSupported(String, #[label] Span),
     #[error("Qiskit circuits must have output registers")]
-    #[diagnostic(code("Qasm.Compiler.QiskitEntryPointMissingOutput"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.QiskitEntryPointMissingOutput"))]
     QiskitEntryPointMissingOutput(#[label] Span),
     #[error("unexpected annotation: {0}")]
-    #[diagnostic(code("Qasm.Compiler.UnknownAnnotation"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.UnknownAnnotation"))]
     UnknownAnnotation(String, #[label] Span),
     #[error("this statement is not yet handled during OpenQASM 3 import: {0}")]
-    #[diagnostic(code("Qasm.Compiler.Unimplemented"))]
+    #[diagnostic(code("Qdk.Qasm.Compiler.Unimplemented"))]
     Unimplemented(String, #[label] Span),
 }
 

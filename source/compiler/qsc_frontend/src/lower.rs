@@ -43,30 +43,30 @@ pub(super) enum Error {
     #[diagnostic(help(
         "supported attributes are: EntryPoint, Config, SimulatableIntrinsic, Measurement, Reset"
     ))]
-    #[diagnostic(code("Qsc.LowerAst.UnknownAttr"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.UnknownAttr"))]
     UnknownAttr(String, #[label] Span),
     #[error("invalid attribute arguments: expected {0}")]
-    #[diagnostic(code("Qsc.LowerAst.InvalidAttrArgs"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrArgs"))]
     InvalidAttrArgs(String, #[label] Span),
     #[error("invalid use of the {0} attribute on a function")]
     #[diagnostic(help("try declaring the callable as an operation"))]
-    #[diagnostic(code("Qsc.LowerAst.InvalidAttrOnFunction"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrOnFunction"))]
     InvalidAttrOnFunction(String, #[label] Span),
     #[error("missing callable body")]
-    #[diagnostic(code("Qsc.LowerAst.MissingBody"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.MissingBody"))]
     MissingBody(#[label] Span),
     #[error("duplicate specialization")]
-    #[diagnostic(code("Qsc.LowerAst.DuplicateSpec"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.DuplicateSpec"))]
     DuplicateSpec(#[label] Span),
     #[error("invalid use of elided pattern")]
-    #[diagnostic(code("Qsc.LowerAst.InvalidElidedPat"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidElidedPat"))]
     InvalidElidedPat(#[label] Span),
     #[error("invalid pattern for specialization declaration")]
-    #[diagnostic(code("Qsc.LowerAst.InvalidSpecPat"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidSpecPat"))]
     InvalidSpecPat(#[label] Span),
     #[error("missing type in item signature")]
     #[diagnostic(help("a type must be provided for this item"))]
-    #[diagnostic(code("Qsc.LowerAst.MissingTy"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.MissingTy"))]
     MissingTy {
         #[label]
         span: Span,
@@ -75,7 +75,7 @@ pub(super) enum Error {
     #[help(
         "supported classes are Eq, Add, Sub, Mul, Div, Mod, Signed, Ord, Exp, Integral, and Show"
     )]
-    #[diagnostic(code("Qsc.LowerAst.UnrecognizedClass"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.UnrecognizedClass"))]
     UnrecognizedClass {
         #[label]
         span: Span,
@@ -85,14 +85,14 @@ pub(super) enum Error {
     #[help(
         "if a type refers to itself via its constraints, it is self-referential and cannot ever be resolved"
     )]
-    #[diagnostic(code("Qsc.LowerAst.RecursiveClassConstraint"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.RecursiveClassConstraint"))]
     RecursiveClassConstraint {
         #[label]
         span: Span,
         name: String,
     },
     #[error("expected {expected} parameters for constraint, found {found}")]
-    #[diagnostic(code("Qsc.TypeCk.IncorrectNumberOfConstraintParameters"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.IncorrectNumberOfConstraintParameters"))]
     IncorrectNumberOfConstraintParameters {
         expected: usize,
         found: usize,
@@ -100,7 +100,7 @@ pub(super) enum Error {
         span: Span,
     },
     #[error("namespace cannot be exported since it is a parent namespace")]
-    #[diagnostic(code("Qsc.LowerAst.ParentNamespaceExport"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.ParentNamespaceExport"))]
     #[diagnostic(help(
         "to make this namespace exportable, consider explicitly declaring it in source: `namespace Foo {{ ... }}`"
     ))]
@@ -110,7 +110,7 @@ pub(super) enum Error {
     },
     #[error("reexporting a namespace from another package is not supported")]
     #[diagnostic(help("consider reexporting items individually"))]
-    #[diagnostic(code("Qsc.LowerAst.CrossPackageNamespaceReexport"))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.CrossPackageNamespaceReexport"))]
     CrossPackageNamespaceReexport(#[label] Span),
 }
 
