@@ -251,8 +251,8 @@ class Config:
             self._config = {"targetProfile": "adaptive_ri"}
         elif target_profile == TargetProfile.Adaptive_RIF:
             self._config = {"targetProfile": "adaptive_rif"}
-        elif target_profile == TargetProfile.Adaptive_RIFLA:
-            self._config = {"targetProfile": "adaptive_rifla"}
+        elif target_profile == TargetProfile.Adaptive:
+            self._config = {"targetProfile": "adaptive"}
         elif target_profile == TargetProfile.Base:
             self._config = {"targetProfile": "base"}
         elif target_profile == TargetProfile.Unrestricted:

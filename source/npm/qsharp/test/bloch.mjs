@@ -28,7 +28,7 @@ import {
   VALID_GATE_CODES,
   MAX_GATE_SEQUENCE_LENGTH,
   sanitizeGateSequence,
-} from "../dist/ux/blochGates.js";
+} from "../dist/ux/bloch/blochGates.js";
 import { Vector3 } from "three";
 
 describe("Gate combos", () => {

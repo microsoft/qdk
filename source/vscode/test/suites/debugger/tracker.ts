@@ -3,7 +3,7 @@
 
 import * as vscode from "vscode";
 import { assert } from "chai";
-import { waitForCondition } from "../extensionUtils";
+import { waitForCondition, TEST_TIMEOUT_MS } from "../extensionUtils";
 import { DebugProtocol } from "@vscode/debugprotocol";
 
 /**
@@ -54,7 +54,7 @@ class Tracker implements vscode.DebugAdapterTracker {
     await waitForCondition(
       () => this.stoppedCount === 1 && this.stackTrace && this.variables,
       this.onResponse.event,
-      9000,
+      TEST_TIMEOUT_MS,
       "timed out waiting for the debugger to stop",
     );
 
@@ -83,7 +83,6 @@ class Tracker implements vscode.DebugAdapterTracker {
       // Not much we can control here if the debugger is taking too long,
       // but log a warning so that we see it in the test log if we get
       // close to hitting test timeouts.
-      // The mocha test timeout is configured to 10 seconds.
       console.log(`${this.kind}-tests: debugger took ${stepMs}ms to stop`);
     }
     if (logDebugAdapterActivity) {
@@ -116,7 +115,7 @@ class Tracker implements vscode.DebugAdapterTracker {
         return pair !== undefined;
       },
       this.onResponse.event,
-      5000,
+      TEST_TIMEOUT_MS,
       "timed out waiting for a response to " + command,
     );
     // Clear out state so we can use the tracker again.

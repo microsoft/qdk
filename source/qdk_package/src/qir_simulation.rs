@@ -17,7 +17,7 @@ use pyo3::{
 };
 use qdk_simulators::{
     bytecode,
-    noise_config::{encode_pauli, is_pauli_identity},
+    noise_config::{PauliAndLossString, encode_pauli, is_pauli_identity},
 };
 use rustc_hash::FxHashMap;
 
@@ -275,6 +275,39 @@ fn bind_noise_config<T: Float, Q: Float>(
     })
 }
 
+/// Builds a Python [`NoiseConfig`] for the Stim-to-QIR path, populating the
+/// intrinsics table from the Rust intrinsics map. The intrinsics handling is
+/// specific to Stim, so it lives here rather than in the general
+/// [`bind_noise_config`].
+pub(crate) fn bind_stim_noise_config<T: Float, Q: Float>(
+    py: Python,
+    value: &qdk_simulators::noise_config::NoiseConfig<T, Q>,
+) -> PyResult<NoiseConfig> {
+    let mut config = bind_noise_config(py, value)?;
+    config.intrinsics = Py::new(py, to_stim_intrinsics_table(py, &value.intrinsics)?)?;
+    Ok(config)
+}
+
+/// Builds a Python [`NoiseIntrinsicsTable`] from the Rust intrinsics map,
+/// preserving each intrinsic's id and naming it `noise_intrinsic_{id}` so the
+/// name matches the call emitted by the Stim-to-QIR compiler.
+fn to_stim_intrinsics_table<Q: Float>(
+    py: Python,
+    intrinsics: &FxHashMap<u32, qdk_simulators::noise_config::NoiseTable<Q>>,
+) -> PyResult<NoiseIntrinsicsTable> {
+    let mut table = FxHashMap::default();
+    let mut next_id = 0u32;
+    for (id, noise_table) in intrinsics {
+        let name = format!("noise_intrinsic_{id}");
+        table.insert(
+            name,
+            (*id, Py::new(py, NoiseTable::from(noise_table.clone()))?),
+        );
+        next_id = next_id.max(*id + 1);
+    }
+    Ok(NoiseIntrinsicsTable { next_id, table })
+}
+
 pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
     py: Python,
     value: &Bound<NoiseConfig>,
@@ -357,9 +390,7 @@ impl From<qdk_simulators::noise_config::IdleNoiseParams> for IdleNoiseParams {
 #[pyclass(from_py_object, module = "qdk._native")]
 pub struct NoiseTable {
     qubits: u32,
-    pauli_noise: FxHashMap<u64, Probability>,
-    #[pyo3(get, set)]
-    pub loss: Probability,
+    pauli_noise: FxHashMap<PauliAndLossString, Probability>,
 }
 
 impl NoiseTable {
@@ -379,10 +410,10 @@ impl NoiseTable {
         // Validate pauli string chars.
         if !pauli_string
             .chars()
-            .all(|c| matches!(c, 'I' | 'X' | 'Y' | 'Z'))
+            .all(|c| matches!(c, 'I' | 'X' | 'Y' | 'Z' | 'L'))
         {
             return Err(PyAttributeError::new_err(format!(
-                "Pauli string can only contain 'I', 'X', 'Y', 'Z' characters, found {pauli_string}"
+                "Pauli string can only contain 'I', 'X', 'Y', 'Z', 'L' characters, found {pauli_string}"
             )));
         }
         // Validate number of qubits.
@@ -489,6 +520,53 @@ impl NoiseTable {
         }
         Ok(())
     }
+
+    /// Distributes a per-qubit loss probability across the correlated loss
+    /// fault strings so that it is equivalent to applying loss independently
+    /// to each qubit targeted by the operation: a single-qubit operation sets
+    /// the `L` entry, and a two-qubit operation sets `IL`, `LI`, and `LL`.
+    fn set_loss(&mut self, value: Probability) -> PyResult<()> {
+        Self::validate_probability(value)?;
+        match self.qubits {
+            1 => self.set_pauli_noise_elt("L", value),
+            2 => {
+                let single = value * (1.0 - value);
+                let both = value * value;
+                for fault in ["XL", "YL", "ZL", "LX", "LY", "LZ"] {
+                    self.set_pauli_noise_elt(fault, 0.0)?;
+                }
+                self.set_pauli_noise_elt("IL", single)?;
+                self.set_pauli_noise_elt("LI", single)?;
+                self.set_pauli_noise_elt("LL", both)
+            }
+            n => Err(PyAttributeError::new_err(format!(
+                "The `loss` attribute is only supported for one- and two-qubit operations, but this operation targets {n} qubits."
+            ))),
+        }
+    }
+
+    fn get_loss(&self) -> PyResult<Probability> {
+        match self.qubits {
+            1 => self.get_pauli_noise_elt("L"),
+            2 => {
+                for fault in ["XL", "YL", "ZL", "LX", "LY", "LZ"] {
+                    if self.get_pauli_noise_elt(fault)? > 0.0 {
+                        return Err(PyAttributeError::new_err(
+                            "`.loss` convenience mechanism should not be used with setting correlated faults individually.
+To get the loss probabilities, access the correlated strings individually.
+E.g.: `noise_config.cz.IL`"
+                                .to_string(),
+                        ));
+                    }
+                }
+                let both = self.get_pauli_noise_elt("LL")?;
+                Ok(both.sqrt())
+            }
+            n => Err(PyAttributeError::new_err(format!(
+                "The `loss` attribute is only supported for one- and two-qubit operations, but this operation targets {n} qubits."
+            ))),
+        }
+    }
 }
 
 #[allow(
@@ -503,7 +581,6 @@ impl NoiseTable {
         NoiseTable {
             qubits: num_qubits,
             pauli_noise: FxHashMap::default(),
-            loss: 0.0,
         }
     }
 
@@ -514,10 +591,9 @@ impl NoiseTable {
     /// for arbitrary pauli fields.
     fn __getattr__(&mut self, name: &str) -> PyResult<Probability> {
         if name == "loss" {
-            Ok(self.loss)
-        } else {
-            self.get_pauli_noise_elt(&name.to_uppercase())
+            return self.get_loss();
         }
+        self.get_pauli_noise_elt(&name.to_uppercase())
     }
 
     #[allow(
@@ -533,8 +609,7 @@ impl NoiseTable {
     /// previously set overrides that entry with the new value.
     fn __setattr__(&mut self, name: &str, value: Probability) -> PyResult<()> {
         if name == "loss" {
-            self.loss = value;
-            Ok(())
+            self.set_loss(value)
         } else {
             self.set_pauli_noise_elt(&name.to_uppercase(), value)
         }
@@ -612,7 +687,7 @@ or one argument of type 'list[tuple[str, float]]', but found {py_args:?}"
     }
 
     pub fn is_noiseless(&self) -> PyResult<bool> {
-        Ok(self.pauli_noise.is_empty() && self.loss == 0.0)
+        Ok(self.pauli_noise.is_empty())
     }
 }
 
@@ -628,7 +703,6 @@ impl<T: Float> From<NoiseTable> for qdk_simulators::noise_config::NoiseTable<T> 
             qubits: value.qubits,
             pauli_strings,
             probabilities,
-            loss: generic_float_cast(value.loss),
         }
     }
 }
@@ -647,7 +721,6 @@ fn from_noise_table_ref<T: Float>(
         qubits: value.qubits,
         pauli_strings,
         probabilities,
-        loss: generic_float_cast(value.loss),
     }
 }
 
@@ -667,7 +740,6 @@ impl<T: Float> From<qdk_simulators::noise_config::NoiseTable<T>> for NoiseTable 
         NoiseTable {
             qubits: value.qubits,
             pauli_noise,
-            loss: generic_float_cast(value.loss),
         }
     }
 }

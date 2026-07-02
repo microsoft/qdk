@@ -8,7 +8,7 @@ You can also try out this extension in VS Code for Web at [vscode.dev/quantum/pl
 
 The QDK extension currently supports:
 
-- Syntax highlighting and syntax features (e.g. brace matching) for Q# and OpenQASM
+- Syntax highlighting and syntax features (e.g. brace matching) for Q#, OpenQASM, and DEQ
 - Editing features such as go-to-definition, suggestions and signature help for Q# and OpenQASM
 - Error checking in Q# and OpenQASM source files
 - Local quantum simulation, including support for Pauli noise and qubit loss

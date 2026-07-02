@@ -1,8 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import pytest
+import json
 import os
+
+import pytest
 
 
 @pytest.fixture
@@ -80,6 +82,75 @@ def test_circuit(qsharp) -> None:
     assert result == qsharp.Result.Zero
 
 
+def test_import_circuit(qsharp) -> None:
+    import qdk
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit("/standalone/circuit.qsc")
+    assert circuit is ctx.code.circuit
+    assert ctx.run(circuit, 1) == [qsharp.Result.Zero]
+    assert ctx.circuit(circuit) is not None
+
+
+def test_import_circuit_from_multiple_circuit_file(qsharp) -> None:
+    import qdk
+
+    ctx = qdk.Context()
+    first_circuit = ctx.import_circuit(
+        "/standalone/multiple_circuits.qsc", name="FirstCircuit"
+    )
+    assert first_circuit is ctx.code.FirstCircuit
+
+    second_circuit = ctx.import_circuit(
+        "/standalone/multiple_circuits.qsc", index=1, name="SecondCircuit"
+    )
+
+    assert second_circuit is ctx.code.SecondCircuit
+    assert ctx.run(first_circuit, 1) == [qsharp.Result.Zero]
+    assert ctx.run(second_circuit, 1) == [qsharp.Result.One]
+
+
+def test_import_circuit_as_operation(qsharp) -> None:
+    import qdk
+    from qdk import ProgramType
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit(
+        "/standalone/circuit.qsc", program_type=ProgramType.Operation
+    )
+    assert circuit is ctx.code.circuit
+    assert ctx.run("{ use qs = Qubit[1]; circuit(qs) }", 1) == [qsharp.Result.Zero]
+
+
+def test_import_circuit_as_operation_from_multiple_circuit_file(qsharp) -> None:
+    import qdk
+    from qdk import ProgramType
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit(
+        "/standalone/multiple_circuits.qsc",
+        index=1,
+        name="MultiCircuit",
+        program_type=ProgramType.Operation,
+    )
+
+    assert circuit is ctx.code.MultiCircuit1
+    assert ctx.run(
+        "{ use qs = Qubit[1]; MultiCircuit1(qs); let result = M(qs[0]); Reset(qs[0]); result }",
+        1,
+    ) == [qsharp.Result.One]
+
+
+def test_import_circuit_with_name_override(qsharp) -> None:
+    import qdk
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit("/standalone/circuit.qsc", name="NamedCircuit")
+    assert circuit is ctx.code.NamedCircuit
+    assert ctx.run(circuit, 1) == [qsharp.Result.Zero]
+    assert ctx.circuit(circuit) is not None
+
+
 def test_src_package_udt(qsharp) -> None:
     import qdk.code
 
@@ -93,6 +164,23 @@ with open(
     os.path.join(os.path.dirname(__file__), "circuit.qsc"), "r", encoding="utf-8"
 ) as f:
     circuit_qsc_contents = f.read()
+
+multiple_circuits = json.loads(circuit_qsc_contents)
+second_circuit = json.loads(circuit_qsc_contents)["circuits"][0]
+second_circuit["componentGrid"].insert(
+    0,
+    {
+        "components": [
+            {
+                "kind": "unitary",
+                "gate": "X",
+                "targets": [{"qubit": 0}],
+            }
+        ]
+    },
+)
+multiple_circuits["circuits"].append(second_circuit)
+multiple_circuits_qsc_contents = json.dumps(multiple_circuits)
 
 memfs = {
     "": {
@@ -181,6 +269,10 @@ memfs = {
                 "circuit.qsc": circuit_qsc_contents,
             },
             "qsharp.json": "{}",
+        },
+        "standalone": {
+            "circuit.qsc": circuit_qsc_contents,
+            "multiple_circuits.qsc": multiple_circuits_qsc_contents,
         },
     }
 }

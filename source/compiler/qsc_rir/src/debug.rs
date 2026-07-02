@@ -7,8 +7,8 @@
 //! metadata for mapping compiled code back to source locations and lexical scopes.
 //! See: <https://llvm.org/docs/SourceLevelDebugging.html>
 
-use indenter::{Indented, indented};
-use qsc_data_structures::index_map::IndexMap;
+use indenter::indented;
+use qsc_data_structures::{display::core::set_indentation, index_map::IndexMap};
 use std::{
     fmt::{self, Display, Formatter, Write},
     rc::Rc,
@@ -184,18 +184,6 @@ impl Display for DbgInfo {
             }
         }
         Ok(())
-    }
-}
-
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
     }
 }
 

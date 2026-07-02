@@ -75,7 +75,7 @@ fn leading_positive_unary_operator_on_integer_does_not_generate_rir_instruction(
                 Variable(3, Integer) = Store Variable(2, Integer)
                 Variable(4, Integer) = Store Variable(3, Integer)
                 Call id(4), args( Variable(4, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -152,7 +152,7 @@ fn leading_negative_unary_operator_on_integer_generates_rir_instruction() {
                 Variable(4, Integer) = Mul Integer(-1), Variable(3, Integer)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -229,7 +229,7 @@ fn bitwise_not_unary_operator_generates_rir_instruction() {
                 Variable(4, Integer) = BitwiseNot Variable(3, Integer)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -304,7 +304,7 @@ fn logical_not_unary_operator_generates_logical_not_rir_instruction() {
                 Variable(3, Boolean) = LogicalNot Variable(2, Boolean)
                 Variable(4, Boolean) = Store Variable(3, Boolean)
                 Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -376,7 +376,7 @@ fn comparing_measurement_results_for_equality_adds_read_result_and_comparison_in
                 Variable(2, Boolean) = Icmp Eq, Variable(0, Boolean), Variable(1, Boolean)
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 2);
@@ -450,7 +450,7 @@ fn comparing_measurement_results_for_inequality_adds_read_result_and_comparison_
                 Variable(2, Boolean) = Icmp Ne, Variable(0, Boolean), Variable(1, Boolean)
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 2);
     assert_eq!(program.num_results, 2);
@@ -522,7 +522,7 @@ fn comparing_measurement_result_against_result_literal_for_equality_adds_read_re
                 Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(4), args( Variable(2, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -594,7 +594,7 @@ fn comparing_measurement_result_against_result_literal_for_inequality_adds_read_
                 Variable(1, Boolean) = Icmp Ne, Variable(0, Boolean), Bool(true)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(4), args( Variable(2, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
     assert_eq!(program.num_qubits, 1);
     assert_eq!(program.num_results, 1);
@@ -667,7 +667,7 @@ fn comparing_lhs_classical_boolean_against_rhs_dynamic_boolean_for_equality() {
                 Variable(3, Boolean) = Icmp Eq, Bool(false), Variable(2, Boolean)
                 Variable(4, Boolean) = Store Variable(3, Boolean)
                 Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -739,7 +739,7 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_equality() {
                 Variable(4, Boolean) = Icmp Eq, Variable(1, Boolean), Variable(3, Boolean)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -810,7 +810,7 @@ fn comparing_lhs_classical_boolean_against_rhs_dynamic_boolean_for_inequality() 
                 Variable(3, Boolean) = Icmp Ne, Bool(true), Variable(2, Boolean)
                 Variable(4, Boolean) = Store Variable(3, Boolean)
                 Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -882,7 +882,7 @@ fn comparing_lhs_dynamic_boolean_against_rhs_dynamic_boolean_for_inequality() {
                 Variable(4, Boolean) = Icmp Ne, Variable(1, Boolean), Variable(3, Boolean)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -952,7 +952,7 @@ fn logical_and_with_lhs_classical_true_is_optimized_as_store() {
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1021,7 +1021,7 @@ fn logical_and_with_lhs_classical_false_short_circuits_evaluation() {
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(4), args( Bool(false), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1092,7 +1092,7 @@ fn logical_and_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_lhs_is_false
             Block 1:Block:
                 Variable(5, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(0), Result(1), )
                 Variable(3, Boolean) = Call id(3), args( Result(1), )
@@ -1167,7 +1167,7 @@ fn logical_or_with_lhs_classical_true_short_circuits_evaluation() {
                 Variable(1, Boolean) = Store Variable(0, Boolean)
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Call id(4), args( Bool(true), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1237,7 +1237,7 @@ fn logical_or_with_lhs_classical_false_is_optimized_as_store() {
                 Variable(2, Boolean) = Store Variable(1, Boolean)
                 Variable(3, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(3, Boolean), Tag(0, 3), )
-                Return"#]],
+                Return Integer(0)"#]],
     );
 }
 
@@ -1308,7 +1308,7 @@ fn logical_or_with_dynamic_lhs_and_dynamic_rhs_short_circuits_when_rhs_is_true()
             Block 1:Block:
                 Variable(5, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(0), Result(1), )
                 Variable(3, Boolean) = Call id(3), args( Result(1), )
@@ -1394,7 +1394,7 @@ fn logical_and_and_sequence_with_dynamic_operands() {
             Block 3:Block:
                 Variable(8, Boolean) = Store Variable(5, Boolean)
                 Call id(4), args( Variable(8, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 4:Block:
                 Call id(2), args( Qubit(2), Result(2), )
                 Variable(6, Boolean) = Call id(3), args( Result(2), )
@@ -1480,7 +1480,7 @@ fn logical_and_or_sequence_with_dynamic_operands() {
             Block 3:Block:
                 Variable(8, Boolean) = Store Variable(5, Boolean)
                 Call id(4), args( Variable(8, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 4:Block:
                 Call id(2), args( Qubit(2), Result(2), )
                 Variable(6, Boolean) = Call id(3), args( Result(2), )
@@ -1557,7 +1557,7 @@ fn logical_or_and_sequence_with_dynamic_operands() {
             Block 1:Block:
                 Variable(8, Boolean) = Store Variable(2, Boolean)
                 Call id(4), args( Variable(8, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Call id(2), args( Qubit(1), Result(1), )
                 Variable(3, Boolean) = Call id(3), args( Result(1), )
@@ -1652,7 +1652,7 @@ fn logical_or_or_sequence_with_dynamic_operands() {
             Block 3:Block:
                 Variable(8, Boolean) = Store Variable(5, Boolean)
                 Call id(4), args( Variable(8, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 4:Block:
                 Call id(2), args( Qubit(2), Result(2), )
                 Variable(6, Boolean) = Call id(3), args( Result(2), )
@@ -1731,7 +1731,7 @@ fn integer_add_with_lhs_classical_integer_and_rhs_dynamic_integer() {
                 Variable(4, Integer) = Add Integer(1), Variable(3, Integer)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -1810,7 +1810,7 @@ fn integer_sub_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Variable(4, Integer) = Sub Variable(3, Integer), Integer(1)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -1902,7 +1902,7 @@ fn integer_mul_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
                 Variable(8, Integer) = Mul Variable(3, Integer), Variable(7, Integer)
                 Variable(9, Integer) = Store Variable(8, Integer)
                 Call id(4), args( Variable(9, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
                 Jump(4)
@@ -1981,7 +1981,7 @@ fn integer_div_with_lhs_classical_integer_and_rhs_dynamic_integer() {
                 Variable(4, Integer) = Sdiv Integer(1), Variable(3, Integer)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2082,7 +2082,7 @@ fn integer_mod_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Variable(4, Integer) = Srem Variable(3, Integer), Integer(1)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2133,6 +2133,28 @@ fn integer_exponentiation_with_lhs_classical_integer_and_rhs_classical_negative_
         &error,
         &expect![[
             r#"EvaluationFailed("negative integers cannot be used here: -1", PackageSpan { package: PackageId(2), span: Span { lo: 142, hi: 148 } })"#
+        ]],
+    );
+}
+
+#[test]
+fn integer_exponentiation_with_both_classical_and_rhs_negative_raises_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let _ = MResetZ(q);
+                2 ^ -3
+            }
+        }
+        "#,
+    });
+    assert_error(
+        &error,
+        &expect![[
+            r#"EvaluationFailed("negative integers cannot be used here: -3", PackageSpan { package: PackageId(2), span: Span { lo: 130, hi: 132 } })"#
         ]],
     );
 }
@@ -2206,7 +2228,7 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_zero_intege
                 Variable(4, Integer) = Store Integer(1)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2288,7 +2310,7 @@ fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_positive_in
                 Variable(7, Integer) = Mul Variable(6, Integer), Variable(3, Integer)
                 Variable(8, Integer) = Store Variable(7, Integer)
                 Call id(4), args( Variable(8, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2403,7 +2425,7 @@ fn integer_bitwise_and_with_lhs_dynamic_integer_and_rhs_dynamic_integer() {
                 Variable(8, Integer) = BitwiseAnd Variable(3, Integer), Variable(7, Integer)
                 Variable(9, Integer) = Store Variable(8, Integer)
                 Call id(4), args( Variable(9, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
                 Jump(4)
@@ -2482,7 +2504,7 @@ fn integer_bitwise_or_with_lhs_classical_integer_and_rhs_dynamic_integer() {
                 Variable(4, Integer) = BitwiseOr Integer(1), Variable(3, Integer)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2561,7 +2583,7 @@ fn integer_bitwise_xor_with_lhs_dynamic_integer_and_rhs_classical_integer() {
                 Variable(4, Integer) = BitwiseXor Variable(3, Integer), Integer(1)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2653,7 +2675,7 @@ fn integer_bitwise_left_shif_with_lhs_dynamic_integer_and_rhs_dynamic_integer() 
                 Variable(8, Integer) = Shl Variable(3, Integer), Variable(7, Integer)
                 Variable(9, Integer) = Store Variable(8, Integer)
                 Call id(4), args( Variable(9, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
                 Jump(4)
@@ -2732,7 +2754,7 @@ fn integer_bitwise_right_shift_with_lhs_classical_integer_and_rhs_dynamic_intege
                 Variable(4, Integer) = Ashr Integer(1), Variable(3, Integer)
                 Variable(5, Integer) = Store Variable(4, Integer)
                 Call id(4), args( Variable(5, Integer), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -2811,12 +2833,91 @@ fn integer_equality_comparison_with_lhs_dynamic_integer_and_rhs_classical_intege
                 Variable(4, Boolean) = Icmp Eq, Variable(3, Integer), Integer(1)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
             Block 3:Block:
                 Variable(2, Integer) = Store Integer(1)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn integer_equality_comparison_after_dynamic_mutation_is_not_constant_folded() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Bool {
+                use q = Qubit();
+                mutable count = 0;
+                if MResetZ(q) == One {
+                    set count += 1;
+                }
+                count == 1
+            }
+        }
+        "#,
+    });
+    let measurement_callable_id = CallableId(1);
+    assert_callable(
+        &program,
+        measurement_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let readout_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        readout_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let output_record_id = CallableId(3);
+    assert_callable(
+        &program,
+        output_record_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 2, 1
+            Block 1:Block:
+                Variable(3, Boolean) = Icmp Eq, Variable(0, Integer), Integer(1)
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
+                Return Integer(0)
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(1)
                 Jump(1)"#]],
     );
 }
@@ -2903,7 +3004,7 @@ fn integer_inequality_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_intege
                 Variable(8, Boolean) = Icmp Ne, Variable(3, Integer), Variable(7, Integer)
                 Variable(9, Boolean) = Store Variable(8, Boolean)
                 Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
                 Jump(4)
@@ -2982,7 +3083,7 @@ fn integer_greater_than_comparison_with_lhs_classical_integer_and_rhs_dynamic_in
                 Variable(4, Boolean) = Icmp Sgt, Integer(1), Variable(3, Integer)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -3061,7 +3162,7 @@ fn integer_greater_or_equal_than_comparison_with_lhs_dynamic_integer_and_rhs_cla
                 Variable(4, Boolean) = Icmp Sge, Variable(3, Integer), Integer(1)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -3153,7 +3254,7 @@ fn integer_less_than_comparison_with_lhs_dynamic_integer_and_rhs_dynamic_integer
                 Variable(8, Boolean) = Icmp Slt, Variable(3, Integer), Variable(7, Integer)
                 Variable(9, Boolean) = Store Variable(8, Boolean)
                 Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Integer) = Store Integer(1)
                 Jump(4)
@@ -3232,7 +3333,7 @@ fn integer_less_or_equal_than_comparison_with_lhs_classical_integer_and_rhs_dyna
                 Variable(4, Boolean) = Icmp Sle, Integer(1), Variable(3, Integer)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
                 Jump(1)
@@ -3308,7 +3409,7 @@ fn leading_positive_unary_operator_on_double_does_not_generate_rir_instruction()
                 Variable(3, Double) = Store Variable(2, Double)
                 Variable(4, Double) = Store Variable(3, Double)
                 Call id(4), args( Variable(4, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -3385,7 +3486,7 @@ fn leading_negative_unary_operator_on_double_generates_rir_instruction() {
                 Variable(4, Double) = Fmul Double(-1), Variable(3, Double)
                 Variable(5, Double) = Store Variable(4, Double)
                 Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -3464,7 +3565,7 @@ fn double_add_with_lhs_classical_double_and_rhs_dynamic_double() {
                 Variable(4, Double) = Fadd Double(1), Variable(3, Double)
                 Variable(5, Double) = Store Variable(4, Double)
                 Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -3543,7 +3644,7 @@ fn double_sub_with_lhs_dynamic_double_and_rhs_classical_double() {
                 Variable(4, Double) = Fsub Variable(3, Double), Double(1)
                 Variable(5, Double) = Store Variable(4, Double)
                 Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -3635,7 +3736,7 @@ fn double_mul_with_lhs_dynamic_double_and_rhs_dynamic_double() {
                 Variable(8, Double) = Fmul Variable(3, Double), Variable(7, Double)
                 Variable(9, Double) = Store Variable(8, Double)
                 Call id(4), args( Variable(9, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Double) = Store Double(1.1)
                 Jump(4)
@@ -3714,7 +3815,7 @@ fn double_div_with_lhs_classical_double_and_rhs_dynamic_double() {
                 Variable(4, Double) = Fdiv Double(1), Variable(3, Double)
                 Variable(5, Double) = Store Variable(4, Double)
                 Call id(4), args( Variable(5, Double), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -3815,7 +3916,7 @@ fn double_equality_comparison_with_lhs_dynamic_double_and_rhs_classical_double()
                 Variable(4, Boolean) = Fcmp Oeq, Variable(3, Double), Double(1)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -3907,7 +4008,7 @@ fn double_inequality_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double()
                 Variable(8, Boolean) = Fcmp One, Variable(3, Double), Variable(7, Double)
                 Variable(9, Boolean) = Store Variable(8, Boolean)
                 Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Double) = Store Double(1.1)
                 Jump(4)
@@ -3986,7 +4087,7 @@ fn double_greater_than_comparison_with_lhs_classical_double_and_rhs_dynamic_doub
                 Variable(4, Boolean) = Fcmp Ogt, Double(1), Variable(3, Double)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -4065,7 +4166,7 @@ fn double_greater_or_equal_than_comparison_with_lhs_dynamic_double_and_rhs_class
                 Variable(4, Boolean) = Fcmp Oge, Variable(3, Double), Double(1)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)
@@ -4157,7 +4258,7 @@ fn double_less_than_comparison_with_lhs_dynamic_double_and_rhs_dynamic_double() 
                 Variable(8, Boolean) = Fcmp Olt, Variable(3, Double), Variable(7, Double)
                 Variable(9, Boolean) = Store Variable(8, Boolean)
                 Call id(4), args( Variable(9, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
             Block 5:Block:
                 Variable(6, Double) = Store Double(1.1)
                 Jump(4)
@@ -4236,7 +4337,86 @@ fn double_less_or_equal_than_comparison_with_lhs_classical_double_and_rhs_dynami
                 Variable(4, Boolean) = Fcmp Ole, Double(1), Variable(3, Double)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
-                Return
+                Return Integer(0)
+            Block 2:Block:
+                Variable(2, Double) = Store Double(0)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Double) = Store Double(1)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn double_mod_with_lhs_dynamic_double_and_rhs_classical_double() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Double {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0.0 | 1.0;
+                i % 2.0
+            }
+        }
+        "#,
+    });
+    let measurement_callable_id = CallableId(1);
+    assert_callable(
+        &program,
+        measurement_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let readout_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        readout_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let output_record_id = CallableId(3);
+    assert_callable(
+        &program,
+        output_record_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Variable(3, Double) = Store Variable(2, Double)
+                Variable(4, Double) = Frem Variable(3, Double), Double(2)
+                Variable(5, Double) = Store Variable(4, Double)
+                Call id(4), args( Variable(5, Double), Tag(0, 3), )
+                Return Integer(0)
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)
                 Jump(1)

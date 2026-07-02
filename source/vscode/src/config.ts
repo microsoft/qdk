@@ -12,6 +12,8 @@ export function getTargetFriendlyName(targetProfile?: string) {
       return "QIR Adaptive RI";
     case "adaptive_rif":
       return "QIR Adaptive RIF";
+    case "adaptive":
+      return "QIR Adaptive";
     case "unrestricted":
       return "QIR Unrestricted";
     default:

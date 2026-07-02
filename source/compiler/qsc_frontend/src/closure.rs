@@ -5,8 +5,8 @@ use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     assigner::Assigner,
     hir::{
-        Block, CallableDecl, CallableKind, Expr, ExprKind, Ident, Mutability, NodeId, Pat, PatKind,
-        Res, SpecBody, SpecDecl, Stmt, StmtKind,
+        Block, CallableDecl, CallableKind, Expr, ExprKind, Ident, LocalItemId, Mutability, NodeId,
+        Pat, PatKind, Res, SpecBody, SpecDecl, Stmt, StmtKind,
     },
     mut_visit::{self, MutVisitor},
     ty::{Arrow, FunctorSetValue, Ty},
@@ -86,6 +86,7 @@ pub(super) fn lift(
     assigner: &mut Assigner,
     locals: &IndexMap<NodeId, (Ident, Ty)>,
     mut lambda: Lambda,
+    item: LocalItemId,
     span: Span,
 ) -> (Vec<NodeId>, CallableDecl) {
     let mut finder = VarFinder {
@@ -125,7 +126,7 @@ pub(super) fn lift(
         name: Ident {
             id: assigner.next_node(),
             span,
-            name: "<lambda>".into(),
+            name: format!(".lambda_{item}").into(),
         },
         generics: Vec::new(),
         input,
@@ -318,6 +319,26 @@ pub(super) fn partial_app_tuple(
     (expr, PartialApp { bindings, input })
 }
 
+/// Creates the input pattern for a lifted closure callable.
+///
+/// For non-zero captures, the result is `PatKind::Tuple(captures ++ [input])` with
+/// `Ty::Tuple(capture_tys ++ [input_ty])`, which is the standard closure calling convention:
+/// fixed captures are prepended to the user's input.
+///
+/// For zero captures, the result is still `PatKind::Tuple([input])` with `Ty::Tuple([input_ty])`.
+/// This 1-tuple wrapping is an intentional convention — **not** incidental — and multiple
+/// downstream passes depend on it:
+///
+/// - `direct_lambda_packaged_input` (defunc rewrite) detects zero-capture lambdas by matching
+///   `Ty::Tuple(items) if items.len() == 1`
+/// - `rewrite_direct_closure_args` wraps call-site arguments in `Tuple([args])` to match
+/// - `map_input_pattern_to_input_expressions` (RCA) uses `skip_ahead` logic assuming the 1-tuple
+/// - `merge_fixed_args` (eval) wraps `Value::Tuple([arg])` for `Some([])`
+/// - `resolve_args` (partial eval) has a fallback for post-defunc mismatches
+///
+/// Changing this to return bare `input` for zero captures requires coordinated updates
+/// across all five sites: `direct_lambda_packaged_input`, `rewrite_direct_closure_args`,
+/// `map_input_pattern_to_input_expressions`, `merge_fixed_args`, and `resolve_args`.
 fn closure_input(
     vars: impl IntoIterator<Item = (NodeId, (Ident, Ty))>,
     input: Pat,

@@ -90,7 +90,11 @@ fn shot_init_per_op(shot_idx: u32) {
     shot.rand_damping = next_rand_f32(shot_idx);
     shot.rand_dephase = next_rand_f32(shot_idx);
     shot.rand_measure = next_rand_f32(shot_idx);
-    shot.rand_loss = next_rand_f32(shot_idx);
+    // Reserved draw: qubit loss is now sampled from the combined `rand_pauli`
+    // distribution rather than its own value, but we still advance the RNG by
+    // one draw here to keep the per-op random stream (and thus seeded results)
+    // identical to the previous loss model.
+    next_rand_f32(shot_idx);
 }
 
 // Resets the entire shot state, including RNG, probabilities, and per-qubit tracking.
@@ -126,6 +130,7 @@ fn reset_all(shot_idx: i32) {
     shot.qubit_is_0_mask = (1u << u32(QUBIT_COUNT)) - 1u; // All qubits are |0>
     shot.qubit_is_1_mask = 0u;
     shot.qubits_updated_last_op_mask = 0;
+    shot.pending_loss_mask = 0u;
 
     // Initialize all qubit probabilities to 100% |0>
     for (var i: i32 = 0; i < QUBIT_COUNT; i++) {
@@ -221,44 +226,13 @@ fn update_qubit_state(shot_idx: u32) {
     }
 }
 
-fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: bool, resets_to_zero: bool) {
+// Build a measure-and-reset (or measure-only) instrument for `qubit` given a
+// measured `result`, store it in the shot buffer, set up renormalization, and
+// mark the qubit as no longer in a definite basis state so the execute stage
+// recomputes its probabilities. Shared by `prep_measure_reset` and
+// `prep_loss_commit`; the caller sets `shot.op_idx` and `shot.op_type`.
+fn prep_measure_reset_instrument(shot_idx: u32, qubit: u32, result: u32, resets_to_zero: bool) {
     let shot = &shots[shot_idx];
-    let op = &ops[op_idx];
-
-    // Choose measurement result based on qubit probabilities and random number
-    let qubit = get_measure_qubit(shot_idx, op_idx);
-    let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
-
-    // If this is being called due to loss noise, we don't write the result back to the results buffer
-    // Instead, mark the qubit as lost by setting the heat to -1.0
-    if !is_loss {
-        if stores_result {
-            let result_id = get_measure_result(shot_idx, op_idx); // Result id to store the measurement result in is stored in q2
-
-            // If the qubit is already marked as lost, just report that and exit. It's already in the zero
-            // state so nothing to update or renormalize. The execute op should be a no-op (ID)
-            if shot.qubit_state[qubit].heat == -1.0 {
-                atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], 2u);
-                shot.op_type = OPID_ID;
-                shot.op_idx = op_idx;
-                // Qubit get reloaded after a Measurement, so set the heat back to 0.0
-                shot.qubit_state[qubit].heat = 0.0;
-                return;
-            } else {
-                atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], result);
-            }
-        } else {
-            // No result to store (e.g. ResetZ). If the qubit is lost, it's already in the zero
-            // state so nothing to update. Just set to ID and return.
-            if shot.qubit_state[qubit].heat == -1.0 {
-                shot.op_type = OPID_ID;
-                shot.op_idx = op_idx;
-                return;
-            }
-        }
-    } else {
-        shot.qubit_state[qubit].heat = -1.0;
-    }
 
     // Construct the measurement/reset instrument based on the measured result
     // Put the instrument into the shot buffer for the execute_op stage to apply
@@ -297,6 +271,48 @@ fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: 
         ((1u << u32(QUBIT_COUNT)) - 1u)
         // Exclude qubits already in definite states
             & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
+}
+
+fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: bool, resets_to_zero: bool) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+    let qubit = get_measure_qubit(shot_idx, op_idx);
+
+    // Choose measurement result based on qubit probabilities and random number
+    let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
+
+    // If this is being called due to loss noise, we don't write the result back to the results buffer
+    // Instead, mark the qubit as lost by setting the heat to -1.0
+    if !is_loss {
+        if stores_result {
+            let result_id = get_measure_result(shot_idx, op_idx); // Result id to store the measurement result in is stored in q2
+
+            // If the qubit is already marked as lost, just report that and exit. It's already in the zero
+            // state so nothing to update or renormalize. The execute op should be a no-op (ID)
+            if shot.qubit_state[qubit].heat == -1.0 {
+                atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], 2u);
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                // Qubit get reloaded after a Measurement, so set the heat back to 0.0
+                shot.qubit_state[qubit].heat = 0.0;
+                return;
+            } else {
+                atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], result);
+            }
+        } else {
+            // No result to store (e.g. ResetZ). If the qubit is lost, it's already in the zero
+            // state so nothing to update. Just set to ID and return.
+            if shot.qubit_state[qubit].heat == -1.0 {
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                return;
+            }
+        }
+    } else {
+        shot.qubit_state[qubit].heat = -1.0;
+    }
+
+    prep_measure_reset_instrument(shot_idx, qubit, result, resets_to_zero);
 
     shot.op_idx = op_idx;
     // Use OPID_MRESETZ as the op_type for all three variants in execute stage
@@ -315,30 +331,22 @@ fn get_pauli_noise_idx(op_idx: u32) -> u32 {
     return 0u;
 }
 
-// From the starting index given, return the next index if loss noise, else 0
-fn get_loss_idx(op_idx: u32) -> u32 {
-    if (arrayLength(&ops) > (op_idx + 1)) {
-        let op = &ops[op_idx + 1];
-        if (op.id == OPID_LOSS_NOISE) {
-            return op_idx + 1u;
-        }
-    }
-    return 0u;
-}
 
-
-fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32, q1: u32) {
     // NOTE: Assumes that whatever prepared the program ensured that noise_op.q1 matches op.q1 and
-    // that op is a 1-qubit gate
+    // that op is a 1-qubit gate. `q1` is the resolved target qubit (may be
+    // dynamic for the adaptive interpreter, where op.q1 is only a placeholder).
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
     let noise_op = &ops[noise_idx];
 
-    // Apply 1-qubit Pauli noise based on the probabilities in the op data, which are stored in
-    // the real part (x) of the first 4 vec2 entries of the unitary array (ignore [0] which is "I")
-    let p_x = noise_op.unitary[1].x;
-    let p_y = noise_op.unitary[2].x;
-    let p_z = noise_op.unitary[3].x;
+    // Categorical outcome probabilities by 3-bit term (X=1, Z=2, Y=3, L=4),
+    // stored at flat slot k = term in `unitary[k / 2][k % 2]`. The identity
+    // outcome (slot 0) is implicit.
+    let p_x = noise_op.unitary[0].y;
+    let p_z = noise_op.unitary[1].x;
+    let p_y = noise_op.unitary[1].y;
+    let p_loss = noise_op.unitary[2].x;
 
     shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
 
@@ -362,6 +370,12 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         shot.unitary[4] = cplxNeg(op.unitary[4]);
         shot.unitary[5] = cplxNeg(op.unitary[5]);
     } else {
+        // Either loss or no noise: the gate executes unmodified. If loss was
+        // sampled, schedule a loss commit for this qubit; a following
+        // loss-commit op performs the measure + reset.
+        if (rand < (p_x + p_z + p_y + p_loss)) {
+            shot.pending_loss_mask |= (1u << q1);
+        }
         // No noise. Set the op_type back to the op.id value if it's Id, MResetZ, MZ, or ResetZ, as they get handled specially in execute_op
         if (op.id == OPID_ID || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESETZ) {
             shot.op_type = op.id;
@@ -376,43 +390,53 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     if (shot.op_type == OPID_ID || shot.op_type == OPID_RZ) {
         shot.qubits_updated_last_op_mask = 0u;
     } else {
-        shot.qubits_updated_last_op_mask = 1u << op.q1;
+        shot.qubits_updated_last_op_mask = 1u << q1;
     };
 }
 
-fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32, q1: u32, q2: u32) {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
     let noise_op = &ops[noise_idx];
 
-    // Correlated noise is stored in the real parts of the unitary.
-    // unitary[0] = II, unitary[1] = IX, unitary[2] = IY, unitary[3] = IZ
-    // unitary[4] = XI, unitary[5] = XX, unitary[6] = XY, unitary[7] = XZ
-    // unitary[8] = YI, unitary[9] = YX, unitary[10]= YY, unitary[11]= YZ
-    // unitary[12]= ZI, unitary[13]= ZX, unitary[14]= ZY, unitary[15]= ZZ
-
+    // The categorical distribution over the 25 (q1_term, q2_term) outcomes is
+    // stored at flat slot k = q1_term * 5 + q2_term in `unitary[k / 2][k % 2]`.
+    // Terms use the 3-bit encoding: I=0, X=1, Z=2, Y=3, L=4. The II slot (0) is
+    // implicit and carries the remaining probability.
     var rand = shot.rand_pauli;
-    var q1_pauli = 0;
-    var q2_pauli = 0;
+    var q1_term = 0;
+    var q2_term = 0;
 
-    // Find the paulis to apply based on the random number and the probabilities
-    for (var i = 0; i < 4; i = i + 1) {
-        for (var j = 0; j < 4; j = j + 1) {
-            let p_ij = noise_op.unitary[i * 4 + j].x;
-            if (rand < p_ij) {
-                q1_pauli = i;
-                q2_pauli = j;
+    // Find the terms to apply based on the random number and the probabilities
+    for (var a = 0; a < 5; a = a + 1) {
+        for (var b = 0; b < 5; b = b + 1) {
+            let k = a * 5 + b;
+            if (k == 0) { continue; } // II carries no stored probability
+            let slot = noise_op.unitary[k / 2];
+            let p_ab = select(slot.x, slot.y, (k & 1) == 1);
+            if (rand < p_ab) {
+                q1_term = a;
+                q2_term = b;
                 // Break out of both loops
-                i = 4;
-                j = 4;
+                a = 5;
+                b = 5;
             } else {
-                rand = rand - p_ij;
+                rand = rand - p_ab;
             }
         }
     }
 
-    // Only apply noise if needed
-    if (q1_pauli != 0 || q2_pauli != 0) {
+    // Schedule loss commits for any qubit whose sampled term is loss (L = 4).
+    // A following loss-commit op performs the measure + reset.
+    if (q1_term == 4) { shot.pending_loss_mask |= (1u << q1); }
+    if (q2_term == 4) { shot.pending_loss_mask |= (1u << q2); }
+
+    // A Pauli fault (X, Z, Y = 1, 2, 3) is fused into the gate by permuting its
+    // rows. Loss (4) and identity (0) leave the gate unmodified for that qubit.
+    let q1_pauli = q1_term >= 1 && q1_term <= 3;
+    let q2_pauli = q2_term >= 1 && q2_term <= 3;
+
+    if (q1_pauli || q2_pauli) {
         // Get the rows of the 2 qubit unitary
         var op_row_0 = getOpRow(op_idx, 0);
         var op_row_1 = getOpRow(op_idx, 1);
@@ -426,7 +450,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         //   Z on q1 is -2 and -3, Z on q2 is -1 and -3
 
         // Apply the q1 permutations as needed
-        if (q1_pauli == 1) {
+        if (q1_term == 1) {
             // Apply the X permutation
             let old_row_0 = op_row_0;
             let old_row_1 = op_row_1;
@@ -434,7 +458,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
             op_row_1 = op_row_3;
             op_row_2 = old_row_0;
             op_row_3 = old_row_1;
-        } else if (q1_pauli == 2) {
+        } else if (q1_term == 3) {
             // Apply the Y permutation
             let old_row_0 = op_row_0;
             let old_row_1 = op_row_1;
@@ -442,13 +466,13 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
             op_row_1 = rowNeg(op_row_3);
             op_row_2 = old_row_0;
             op_row_3 = old_row_1;
-        } else if (q1_pauli == 3) {
+        } else if (q1_term == 2) {
             // Apply Z permutation
             op_row_2 = rowNeg(op_row_2);
             op_row_3 = rowNeg(op_row_3);
         }
         // Apply the q2 permutations as needed
-        if (q2_pauli == 1) {
+        if (q2_term == 1) {
             // Apply the X permutation
             let old_row_0 = op_row_0;
             let old_row_2 = op_row_2;
@@ -456,7 +480,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
             op_row_2 = op_row_3;
             op_row_1 = old_row_0;
             op_row_3 = old_row_2;
-        } else if (q2_pauli == 2) {
+        } else if (q2_term == 3) {
             // Apply the Y permutation
             let old_row_0 = op_row_0;
             let old_row_2 = op_row_2;
@@ -464,7 +488,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
             op_row_2 = rowNeg(op_row_3);
             op_row_1 = old_row_0;
             op_row_3 = old_row_2;
-        } else if (q2_pauli == 3) {
+        } else if (q2_term == 2) {
             // Apply Z permutation
             op_row_1 = rowNeg(op_row_1);
             op_row_3 = rowNeg(op_row_3);
@@ -476,7 +500,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         setUnitaryRow(shot_idx, 3u, op_row_3);
         shot.op_type = OPID_SHOT_BUFF_2Q;
     } else {
-        // No noise to apply. Leave if CX, CY, CZ, or RZZ as they get handled specially in execute_op
+        // No Pauli fault to fuse (identity or loss only). Leave if CX, CY, CZ, or RZZ as they get handled specially in execute_op
         if (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ || op.id == OPID_RZZ) {
             shot.op_type = op.id;
         } else {
@@ -487,7 +511,7 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     if (shot.op_type == OPID_CZ || shot.op_type == OPID_RZZ) {
         shot.qubits_updated_last_op_mask = 0u;
     } else  {
-        shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+        shot.qubits_updated_last_op_mask = (1u << q1 ) | (1u << q2);
     }
 }
 
@@ -579,8 +603,8 @@ fn apply_1q_op(workgroupId: u32, tid: u32, q1: u32) {
                 stateVector[params.shot_state_vector_start + offset0] = new0;
                 stateVector[params.shot_state_vector_start + offset1] = new1;
 
-                if shot.op_type == OPID_MRESETZ || scale != 1.0 {
-                    // For MResetZ or renormalization, we need to update the probabilities for all qubits
+                if shot.op_type == OPID_MRESETZ || shot.op_type == OPID_LOSS_NOISE || scale != 1.0 {
+                    // For MResetZ, loss-commit, or renormalization, update the probabilities for all qubits
                     update_all_qubit_probs(u32(offset0), new0, tid);
                     update_all_qubit_probs(u32(offset1), new1, tid);
                 } else {
@@ -592,7 +616,7 @@ fn apply_1q_op(workgroupId: u32, tid: u32, q1: u32) {
         entry_index += params.total_threads_per_shot;
     }
 
-    if scale == 1.0 && shot.op_type != OPID_RZ && shot.op_type != OPID_MRESETZ {
+    if scale == 1.0 && shot.op_type != OPID_RZ && shot.op_type != OPID_MRESETZ && shot.op_type != OPID_LOSS_NOISE {
         // Update this thread's totals for the two qubits in the workgroup storage
         qubitProbabilities[tid].zero[q1] = summed_probs[0];
         qubitProbabilities[tid].one[q1]  = summed_probs[1];
@@ -929,22 +953,36 @@ fn sample_correlated_noise(shot_idx: u32, op_idx: u32, noise_table_idx: u32) -> 
     return CorrelatedNoiseSample(1u, entry.paulis_lo, entry.paulis_hi);
 }
 
-// Extracts the 2-bit Pauli value for qubit position `i` from a Pauli string.
-// The Rust parsing stores paulis with the rightmost (last) character at the lowest bits,
-// so for position i we need bits at (qubit_count - 1 - i) * 2.
+// Extracts the 3-bit term value for qubit position `i` from a Pauli + loss string.
+// Terms use the encoding I=0, X=1, Z=2, Y=3, L=4. The low two bits double as the
+// bit-flip (0x1) and phase-flip (0x2) indicators, and 0x4 marks loss.
+// The Rust parsing stores terms with the rightmost (last) character at the lowest
+// bits, so for position i we read the 3 bits at (qubit_count - 1 - i) * 3.
 fn get_pauli_bits(paulis_lo: u32, paulis_hi: u32, qubit_count: u32, i: u32) -> u32 {
-    let bit_position = qubit_count - 1u - i;
-    if (bit_position < 16u) {
-        return (paulis_lo >> (bit_position * 2u)) & 0x3u;
+    let bit_position = (qubit_count - 1u - i) * 3u;
+    if (bit_position + 3u <= 32u) {
+        return (paulis_lo >> bit_position) & 0x7u;
+    } else if (bit_position >= 32u) {
+        return (paulis_hi >> (bit_position - 32u)) & 0x7u;
     } else {
-        return (paulis_hi >> ((bit_position - 16u) * 2u)) & 0x3u;
+        // The 3-bit term straddles the boundary between the lo and hi words.
+        let low_part = paulis_lo >> bit_position;
+        let high_part = paulis_hi << (32u - bit_position);
+        return (low_part | high_part) & 0x7u;
     }
 }
 
 // Commits correlated noise masks into the shot state: stores the masks, swaps probabilities and
-// tracking bits for bit-flipped qubits, and sets the shot up for the correlated noise execute stage.
-fn commit_correlated_noise(shot_idx: u32, op_idx: u32, bit_flip_mask: u32, phase_flip_mask: u32) {
+// tracking bits for bit-flipped qubits, records any loss, and sets the shot up for the correlated
+// noise execute stage. Qubits in `loss_mask` are scheduled for loss; following loss-commit ops
+// perform the measure + reset.
+fn commit_correlated_noise(shot_idx: u32, op_idx: u32, bit_flip_mask: u32, phase_flip_mask: u32, loss_mask: u32) {
     let shot = &shots[shot_idx];
+
+    // Schedule loss for any qubit whose sampled term was loss. The actual
+    // measure + reset is performed by the loss-commit ops emitted after the
+    // correlated-noise op.
+    shot.pending_loss_mask |= loss_mask;
 
     // Store the masks in the shot buffer for the execute stage
     // We use the unitary entries to store these masks (reinterpreted as floats)

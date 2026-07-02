@@ -266,7 +266,7 @@ operation I(target : Qubit) : Unit is Adj + Ctl {
 /// Measure([PauliZ], [qubit]);
 /// ```
 operation M(qubit : Qubit) : Result {
-    Measure([PauliZ], [qubit])
+    __quantum__qis__m__body(qubit)
 }
 
 /// # Summary

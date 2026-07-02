@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._application import Application
+from ._application import Application, TraceParameters
 from ._architecture import Architecture, ISAContext
 from ._estimation import estimate
 from ._instruction import (
@@ -16,6 +16,7 @@ from ._isa_enumeration import ISAQuery, ISARefNode, ISA_ROOT
 from ._qre import (
     ISA,
     InstructionFrontier,
+    Instruction,
     Constraint,
     ConstraintBound,
     EstimationResult,
@@ -37,7 +38,15 @@ from ._results import (
     EstimationTableEntry,
     plot_estimates,
 )
-from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
+from ._trace import (
+    LatticeSurgery,
+    PSSPC,
+    TraceQuery,
+    TraceTransform,
+    EvictionStrategy,
+    DynamicMemoryCompute,
+    Unmemory,
+)
 
 # Extend Rust Python types with additional Python-side functionality
 from ._instruction import _isa_as_frame, _requirements_as_frame
@@ -57,6 +66,8 @@ __all__ = [
     "Block",
     "Constraint",
     "ConstraintBound",
+    "EvictionStrategy",
+    "DynamicMemoryCompute",
     "Encoding",
     "EstimationResult",
     "EstimationTable",
@@ -66,6 +77,7 @@ __all__ = [
     "generic_function",
     "instruction_name",
     "InstructionFrontier",
+    "Instruction",
     "InstructionSource",
     "ISA",
     "ISA_ROOT",
@@ -79,8 +91,10 @@ __all__ = [
     "property_name",
     "property_name_to_key",
     "Trace",
+    "TraceParameters",
     "TraceQuery",
     "TraceTransform",
+    "Unmemory",
     "LOGICAL",
     "PHYSICAL",
 ]

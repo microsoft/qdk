@@ -20,6 +20,7 @@ export { SpaceChart } from "./spaceChart.js";
 export { ScatterChart } from "./scatterChart.js";
 export { EstimatesOverview } from "./estimatesOverview.js";
 export { EstimatesPanel } from "./estimatesPanel.js";
+export { BlochSphere } from "./bloch/bloch.js";
 export { Circuit, CircuitPanel } from "./circuit.js";
 export { setRenderer, Markdown } from "./renderers.js";
 export { Atoms, type ZoneLayout, type TraceData } from "./atoms/index.js";
