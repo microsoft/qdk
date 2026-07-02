@@ -310,6 +310,27 @@ pub enum Error {
     },
 }
 
+// This enum keeps track of which side of a controlled operation the measurement record is allowed to appear on.
+// For example, in `CX rec[-1] 0', the measurement record comes on the first side, while in 'XCZ 0 rec[-1]' it's the opposite.
+#[derive(Clone, Copy)]
+enum AllowedRecPosition {
+    First,
+    Second,
+    Either,
+}
+
+impl AllowedRecPosition {
+    fn allows_first(self) -> bool {
+        matches!(self, AllowedRecPosition::First | AllowedRecPosition::Either)
+    }
+    fn allows_second(self) -> bool {
+        matches!(
+            self,
+            AllowedRecPosition::Second | AllowedRecPosition::Either
+        )
+    }
+}
+
 struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
     record_map: Vec<u32>,  // index = result id, value = owning scope;
@@ -545,16 +566,41 @@ impl<'noise> Compiler<'noise> {
             "S_DAG" | "SQRT_Z_DAG" => self.broadcast(instruction, |s, q| s.op_adj("s", q)),
 
             // Two Qubit Clifford Gates
-            "CX" | "CNOT" | "ZCX" => self.broadcast_pair(instruction, |s, q0, q1| {
-                s.op_2("cx", q0, q1);
-            }),
+            "CX" | "CNOT" | "ZCX" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::First,
+                |s, q0, q1| {
+                    s.op_2("cx", q0, q1);
+                },
+                |s, q| {
+                    s.op("x", q);
+                },
+            ),
             "CXSWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): CX 1 0; CX 0 1
                 s.op_2("cx", q1, q0);
                 s.op_2("cx", q0, q1);
             }),
-            "CY" | "ZCY" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("cy", q0, q1)),
-            "CZ" | "ZCZ" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("cz", q0, q1)),
+            "CY" | "ZCY" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::First,
+                |s, q0, q1| {
+                    s.op_2("cy", q0, q1);
+                },
+                |s, q| {
+                    s.op("y", q);
+                },
+            ),
+            "CZ" | "ZCZ" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::Either,
+                |s, q0, q1| {
+                    s.op_2("cz", q0, q1);
+                },
+                |s, q| {
+                    s.op("z", q);
+                },
+            ),
             "CZSWAP" | "SWAPCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1
                 s.op("h", q0);
@@ -665,10 +711,17 @@ impl<'noise> Compiler<'noise> {
                 s.op("h", q0);
                 s.op("s", q1);
             }),
-            "XCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): CX 1 0
-                s.op_2("cx", q1, q0);
-            }),
+            "XCZ" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::Second,
+                |s, q0, q1| {
+                    // Stim decomposition (into H, S, CX, M, R): CX 1 0
+                    s.op_2("cx", q1, q0);
+                },
+                |s, q| {
+                    s.op("x", q);
+                },
+            ),
             "YCX" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 1; CX 1 0; S 0; H 1
                 s.op_adj("s", q0);
@@ -687,12 +740,19 @@ impl<'noise> Compiler<'noise> {
                 s.op("s", q0);
                 s.op("s", q1);
             }),
-            "YCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; CX 1 0; S 0
-                s.op_adj("s", q0);
-                s.op_2("cx", q1, q0);
-                s.op("s", q0);
-            }),
+            "YCZ" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::Second,
+                |s, q0, q1| {
+                    // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; CX 1 0; S 0
+                    s.op_adj("s", q0);
+                    s.op_2("cx", q1, q0);
+                    s.op("s", q0);
+                },
+                |s, q| {
+                    s.op("y", q);
+                },
+            ),
 
             // Noise Channels
             "E" | "CORRELATED_ERROR" => self.accumulate_correlated_error(instruction),
@@ -821,7 +881,7 @@ impl<'noise> Compiler<'noise> {
         instruction: &Instruction,
         mut f: impl FnMut(&mut Self, u32, u32),
     ) {
-        self.unsupported_args(instruction); // Temporary error
+        self.unsupported_args(instruction);
         let Some(pairs) = self.expect_target_pairs(instruction) else {
             return;
         };
@@ -834,6 +894,85 @@ impl<'noise> Compiler<'noise> {
             };
             f(self, q0, q1);
         }
+    }
+
+    fn broadcast_controlled(
+        &mut self,
+        instruction: &Instruction,
+        allowed_rec_position: AllowedRecPosition,
+        mut quantum: impl FnMut(&mut Self, u32, u32),
+        mut classical: impl FnMut(&mut Self, u32),
+    ) {
+        self.unsupported_args(instruction);
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
+            match (&pair[0].kind, &pair[1].kind) {
+                (TargetKind::Qubit { .. }, TargetKind::Qubit { .. }) => {
+                    let Some(control) = self.expect_qubit(instruction, &pair[0]) else {
+                        continue;
+                    };
+                    let Some(target) = self.expect_qubit(instruction, &pair[1]) else {
+                        continue;
+                    };
+                    quantum(self, control, target);
+                }
+                (TargetKind::MeasurementRecord { .. }, TargetKind::Qubit { .. })
+                    if allowed_rec_position.allows_first() =>
+                {
+                    self.classical_control(instruction, &pair[0], &pair[1], &mut classical);
+                }
+                (TargetKind::Qubit { .. }, TargetKind::MeasurementRecord { .. })
+                    if allowed_rec_position.allows_second() =>
+                {
+                    self.classical_control(instruction, &pair[1], &pair[0], &mut classical);
+                }
+                _ => self.push_error(Error::UnsupportedTarget {
+                    instruction: instruction.name.clone(),
+                    span: pair[0].span,
+                }),
+            }
+        }
+    }
+
+    fn classical_control(
+        &mut self,
+        instruction: &Instruction,
+        rec_target: &Target,
+        qubit_target: &Target,
+        classical: &mut impl FnMut(&mut Self, u32),
+    ) {
+        let Some((offset, negated)) = self.expect_measurement_record(instruction, rec_target)
+        else {
+            return;
+        };
+        if negated {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: rec_target.span,
+            });
+            return;
+        }
+        let Some(result_id) = self.resolve_record_offset(rec_target, offset) else {
+            return;
+        };
+        let Some(target) = self.expect_qubit(instruction, qubit_target) else {
+            return;
+        };
+
+        let measurement_result = self.id_map.fresh_name("r");
+        self.writer
+            .write_read_result(&measurement_result, result_id);
+
+        let apply_label = self.id_map.fresh_name("apply_controlled");
+        let continue_label = self.id_map.fresh_name("continue_controlled");
+        self.writer
+            .write_branch(&measurement_result, &apply_label, &continue_label);
+        self.writer.write_label(&apply_label);
+        classical(self, target);
+        self.writer.write_jump(&continue_label);
+        self.writer.write_label(&continue_label);
     }
 
     fn op(&mut self, intrinsic: &str, qubit: u32) {
