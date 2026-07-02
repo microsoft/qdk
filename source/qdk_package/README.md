@@ -103,6 +103,24 @@ For convenience, the following helpers and types are also importable directly fr
 | `PhaseFlipNoise`     | class    | `qdk.qsharp.PhaseFlipNoise`     | Phase-flip noise model spec.                                           |
 | `Context`            | class    | `qdk.Context`                   | Isolated Q# and OpenQASM interpreter context for independent sessions. |
 
+### Configuration Map
+
+You can provide simple host-side configuration values and read them from Q#.
+
+- Python: use `Context.set_config(key, value)` where `value` is one of `int`, `float`, `str`, or `bool`.
+- Q#: read values with `Std.Diagnostics.GetConfig(name, defaultValue)`.
+
+Example:
+
+```python
+import qdk
+
+ctx = qdk.Context()
+ctx.set_config("experiment_name", "baseline")
+name = ctx.eval('Std.Diagnostics.GetConfig("experiment_name", "")')
+assert name == "baseline"
+```
+
 ## Telemetry
 
 This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.

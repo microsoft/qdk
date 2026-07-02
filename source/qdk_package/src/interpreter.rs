@@ -40,9 +40,9 @@ use num_bigint::BigUint;
 use num_complex::Complex64;
 use pyo3::{
     IntoPyObjectExt, create_exception,
-    exceptions::{PyException, PyValueError},
+    exceptions::{PyException, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyDict, PyList, PyString, PyTuple, PyType},
+    types::{PyBool, PyDict, PyList, PyString, PyTuple, PyType},
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
@@ -687,6 +687,28 @@ impl Interpreter {
     #[pyo3(signature=(seed=None))]
     fn set_classical_seed(&mut self, seed: Option<u64>) {
         self.interpreter.set_classical_seed(seed);
+    }
+
+    /// Sets a read-only config value available from Q# via Std.Diagnostics.GetConfig.
+    #[allow(clippy::needless_pass_by_value)]
+    fn set_config(&mut self, py: Python, key: &str, value: Py<PyAny>) -> PyResult<()> {
+        let value = value.bind(py);
+        let config_value = if value.is_instance_of::<PyBool>() {
+            Value::Bool(value.extract::<bool>()?)
+        } else if let Ok(value) = value.extract::<i64>() {
+            Value::Int(value)
+        } else if let Ok(value) = value.extract::<f64>() {
+            Value::Double(value)
+        } else if let Ok(value) = value.extract::<String>() {
+            Value::String(value.into())
+        } else {
+            return Err(PyTypeError::new_err(
+                "config value must be bool, int, float, or str",
+            ));
+        };
+
+        self.interpreter.set_config(key, config_value);
+        Ok(())
     }
 
     /// Dumps the quantum state of the interpreter.

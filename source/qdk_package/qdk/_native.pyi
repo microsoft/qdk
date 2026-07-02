@@ -339,6 +339,17 @@ class Interpreter:
         """
         ...
 
+    def set_config(self, key: str, value: int | float | str | bool) -> None:
+        """
+        Sets a read-only config value that can be accessed from Q# with
+        ``Std.Diagnostics.GetConfig``.
+
+        :param key: The config key.
+        :param value: The config value. Supported types are
+            ``int``, ``float``, ``str``, and ``bool``.
+        """
+        ...
+
     def dump_machine(self) -> StateDumpData:
         """
         Returns the sparse state vector of the simulator as a StateDump object.

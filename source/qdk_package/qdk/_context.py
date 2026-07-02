@@ -1021,3 +1021,16 @@ class Context:
     def get_target_profile(self) -> TargetProfile:
         """Returns target profile for this Context."""
         return self._target_profile
+
+    def set_config(self, key: str, value: int | float | str | bool) -> None:
+        """
+        Sets a read-only configuration value for this context.
+
+        Values set here can be read from Q# with
+        ``Std.Diagnostics.GetConfig(name, defaultValue)``.
+
+        :param key: The configuration key.
+        :param value: The configuration value. Supported types are
+            ``int``, ``float``, ``str``, and ``bool``.
+        """
+        self._interpreter.set_config(key, value)

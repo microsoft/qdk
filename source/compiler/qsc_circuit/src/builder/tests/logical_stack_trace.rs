@@ -19,6 +19,7 @@ use qsc_fir::fir::{self, ExecGraphConfig};
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
+use rustc_hash::FxHashMap;
 
 use crate::builder::{LogicalStack, LogicalStackWithSourceLookup};
 
@@ -147,6 +148,7 @@ fn check_trace(file: &str, expr: &str, exec_graph_config: ExecGraphConfig, expec
         entry,
         exec_graph_config,
         None,
+        FxHashMap::default(),
         ErrorBehavior::FailOnError,
     );
 
