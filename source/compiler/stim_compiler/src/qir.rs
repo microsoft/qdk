@@ -11,6 +11,7 @@ use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
+use std::slice::Chunks;
 use thiserror::Error;
 
 struct QirWriter {
@@ -274,9 +275,9 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("instruction {instruction} requires an even number of qubit targets")]
-    #[diagnostic(code("Stim.OddQubitCount"))]
-    OddQubitCount {
+    #[error("instruction {instruction} requires an even number of targets")]
+    #[diagnostic(code("Stim.OddTargetCount"))]
+    OddTargetCount {
         instruction: String,
         #[label]
         span: Span,
@@ -821,8 +822,10 @@ impl<'noise> Compiler<'noise> {
         mut f: impl FnMut(&mut Self, u32, u32),
     ) {
         self.unsupported_args(instruction); // Temporary error
-        let targets = &instruction.targets;
-        for pair in targets.chunks(2) {
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
             let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
                 continue;
             };
@@ -1003,18 +1006,14 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_depolarize_2(&mut self, instruction: &Instruction) {
-        if !instruction.targets.len().is_multiple_of(2) {
-            self.push_error(Error::OddQubitCount {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return;
-        }
         let Some(probability) = self.expect_probability(instruction) else {
             return;
         };
         let each = probability / 15.0;
-        for pair in instruction.targets.chunks(2) {
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
             let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
                 continue;
             };
@@ -1189,6 +1188,20 @@ impl<'noise> Compiler<'noise> {
             return None;
         };
         Some(probability)
+    }
+
+    fn expect_target_pairs<'a>(
+        &mut self,
+        instruction: &'a Instruction,
+    ) -> Option<Chunks<'a, Target>> {
+        if !instruction.targets.len().is_multiple_of(2) {
+            self.push_error(Error::OddTargetCount {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(instruction.targets.chunks(2))
     }
 
     fn unsupported(&mut self, instruction: &Instruction) {
