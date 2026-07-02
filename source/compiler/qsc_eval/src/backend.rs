@@ -4,10 +4,11 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use crate::debug::Frame;
+use crate::output::GenericReceiver;
 use crate::val::{self, Value};
-use crate::{noise::PauliNoise, val::unwrap_tuple};
+use crate::{Env, noise::PauliNoise, val::unwrap_tuple};
 use ndarray::Array2;
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
 use num_complex::Complex;
 use num_traits::Zero;
 use qdk_simulators::{
@@ -16,6 +17,7 @@ use qdk_simulators::{
     stabilizer_simulator::StabilizerSimulator,
 };
 use qsc_data_structures::index_map::IndexMap;
+use qsc_fir::fir::{ExecGraphConfig, PackageStoreLookup};
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
 
@@ -118,7 +120,12 @@ pub trait Backend {
     /// Executes custom intrinsic specified by `_name`.
     /// Returns None if this intrinsic is unknown.
     /// Otherwise returns Some(Result), with the Result from intrinsic.
-    fn custom_intrinsic(&mut self, _name: &str, _arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        _name: &str,
+        _arg: Value,
+        _globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         None
     }
     fn set_seed(&mut self, _seed: Option<u64>) {}
@@ -476,12 +483,13 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         name: &str,
         arg: Value,
         stack: &[Frame],
+        globals: &impl PackageStoreLookup,
     ) -> Option<Result<Value, String>> {
         if let Some(tracer) = &mut self.tracer {
             tracer.custom_intrinsic(stack, name, arg.clone());
         }
         match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg),
+            OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg, globals),
             OptionalBackend::None(_) => {
                 match name {
                     // Special case this known intrinsic to match the simulator
@@ -551,6 +559,8 @@ pub struct SparseSim {
     /// Random number generator to sample any noise.
     /// Noise is not applied when rng is None.
     pub rng: Option<StdRng>,
+    /// Helper to evaluate classical arithmetic functions.
+    pub arithmetic_evaluator: ArithmeticEvaluator,
 }
 
 impl Default for SparseSim {
@@ -569,6 +579,7 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: None,
+            arithmetic_evaluator: ArithmeticEvaluator::default(),
         }
     }
 
@@ -588,6 +599,7 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: Some(StdRng::from_rng(&mut rand::rng())),
+            arithmetic_evaluator: ArithmeticEvaluator::default(),
         }
     }
 
@@ -709,6 +721,25 @@ impl SparseSim {
     /// Checks if the qubit is lost.
     fn is_qubit_lost(&self, q: usize) -> bool {
         self.lost_qubits.bit(q as u64)
+    }
+
+    fn apply_classical_function(
+        &mut self,
+        arg: Value,
+        globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
+        let [function_val, qubits_val] = unwrap_tuple(arg);
+        let qubits = qubits_val
+            .unwrap_array()
+            .iter()
+            .filter_map(|q| q.clone().unwrap_qubit().try_deref().map(|q| q.0))
+            .collect::<Vec<_>>();
+        let func = |x| {
+            self.arithmetic_evaluator
+                .evaluate(globals, &function_val, x)
+        };
+        let result = self.sim.apply_arithmetic_gate(func, &qubits);
+        Some(result.map(|()| Value::unit()))
     }
 }
 
@@ -1040,7 +1071,12 @@ impl Backend for SparseSim {
         Ok(self.sim.qubit_is_zero(q))
     }
 
-    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         // These intrinsics aren't subject to noise.
         match name {
             "GlobalPhase" => {
@@ -1143,6 +1179,7 @@ impl Backend for SparseSim {
                 }
                 Some(Ok(Value::unit()))
             }
+            "ApplyClassicalFunctionInternal" => self.apply_classical_function(arg, globals),
             _ => None,
         }
     }
@@ -1390,7 +1427,12 @@ impl Backend for CliffordSim {
         Err("adjoint T gate is not supported in Clifford simulation".to_string())
     }
 
-    fn custom_intrinsic(&mut self, name: &str, _arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        _arg: Value,
+        _globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
             "GlobalPhase"
@@ -1464,5 +1506,55 @@ fn check_normalized_angle(theta: f64) -> Result<(), String> {
         Ok(())
     } else {
         Err("angle must be a multiple of PI/2 in Clifford simulation".to_string())
+    }
+}
+
+/// A zero-sized backend used only to evaluate classical arithmetic functions.
+struct ClassicalBackend;
+
+impl Backend for ClassicalBackend {}
+
+/// Helper to evaluate classical arithmetic functions for usage in `ApplyClassicalFunctionInternal`.
+#[derive(Default)]
+pub struct ArithmeticEvaluator {
+    /// Evaluation environment, allocated once and reused across basis states.
+    env: Env,
+}
+
+impl ArithmeticEvaluator {
+    /// Evaluates Q# function on the given input.
+    fn evaluate(
+        &mut self,
+        globals: &impl PackageStoreLookup,
+        function_val: &Value,
+        input: BigUint,
+    ) -> Result<BigUint, String> {
+        let package = match function_val {
+            Value::Closure(closure) => closure.id.package,
+            Value::Global(id, _) => id.package,
+            _ => return Err("classical arithmetic function must be callable".to_string()),
+        };
+        let mut scratch = ClassicalBackend;
+        let mut backend = TracingBackend::no_tracer(&mut scratch);
+        let mut sink = std::io::sink();
+        let mut receiver = GenericReceiver::new(&mut sink);
+        let result = crate::invoke(
+            package,
+            None,
+            globals,
+            ExecGraphConfig::NoDebug,
+            &mut self.env,
+            &mut backend,
+            &mut receiver,
+            function_val.clone(),
+            Value::BigInt(BigInt::from(input)),
+        )
+        .map_err(|(err, _)| err.to_string())?;
+        let Value::BigInt(output) = result else {
+            return Err("classical arithmetic function must return a BigInt".to_string());
+        };
+        output
+            .to_biguint()
+            .ok_or_else(|| "function result must be non-negative".to_string())
     }
 }

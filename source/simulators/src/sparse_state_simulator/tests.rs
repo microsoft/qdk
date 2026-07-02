@@ -721,3 +721,51 @@ fn test_global_phase_dropped_when_all_qubits_released() {
     assert_eq!(index, &BigUint::zero());
     assert_eq!(value, &Complex64::one());
 }
+
+#[test]
+fn test_apply_arithmetic_gate_increment() {
+    let mut sim = SparseStateSim::default();
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    let q2 = sim.allocate();
+
+    // Prepare state |5⟩ = |101⟩ (little-endian: q0=1, q1=0, q2=1).
+    sim.x(q0);
+    sim.x(q2);
+
+    sim.apply_arithmetic_gate(|x| Ok(x + BigUint::one()), &[q0, q1, q2])
+        .expect("arithmetic gate should succeed");
+
+    // |5⟩ + 1 = |6⟩.
+    let (state, _) = sim.get_state();
+    assert_eq!(state.len(), 1);
+    assert_eq!(state[0].0, BigUint::from(6u64));
+
+    sim.release(q2);
+    sim.release(q1);
+    sim.release(q0);
+}
+
+#[test]
+fn test_apply_arithmetic_gate_double() {
+    let mut sim = SparseStateSim::default();
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    let q2 = sim.allocate();
+
+    // Prepare state |3⟩ = |011⟩.
+    sim.x(q0);
+    sim.x(q1);
+
+    sim.apply_arithmetic_gate(|x| Ok(x * 2u64), &[q0, q1, q2])
+        .expect("arithmetic gate should succeed");
+
+    // |3⟩ * 2 = |6⟩.
+    let (state, _) = sim.get_state();
+    assert_eq!(state.len(), 1);
+    assert_eq!(state[0].0, BigUint::from(6u64));
+
+    sim.release(q2);
+    sim.release(q1);
+    sim.release(q0);
+}
