@@ -15,6 +15,7 @@ use super::types::{CallableParam, CalleeLattice, ConcreteCallable};
 use crate::fir_builder::reachable_local_callables;
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::collect_reachable_from_entry;
+use crate::test_utils::compile_to_monomorphized_fir_with_capabilities_with_entry;
 use crate::test_utils::{
     compile_to_monomorphized_fir, compile_to_monomorphized_fir_with_capabilities,
 };
@@ -102,6 +103,14 @@ fn compile_and_defunctionalize(source: &str) -> (fir::PackageStore, fir::Package
 fn check_rewrite(source: &str, expect: &Expect) {
     check_rewrite_with_capabilities(source, TargetCapabilityFlags::empty(), expect);
 }
+fn check_rewrite_with_entry(source: &str, entry: &str, expect: &Expect) {
+    check_rewrite_with_capabilities_with_entry(
+        source,
+        entry,
+        TargetCapabilityFlags::empty(),
+        expect,
+    );
+}
 
 /// Like [`check_rewrite`] but compiles with the given target capabilities so
 /// before/after snapshots can be captured for sources that require non-default
@@ -113,6 +122,21 @@ fn check_rewrite_with_capabilities(
 ) {
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
+    let before = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert_no_defunctionalization_errors("defunctionalization", &errors);
+    let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+    expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
+}
+fn check_rewrite_with_capabilities_with_entry(
+    source: &str,
+    entry: &str,
+    capabilities: TargetCapabilityFlags,
+    expect: &Expect,
+) {
+    let (mut fir_store, fir_pkg_id) =
+        compile_to_monomorphized_fir_with_capabilities_with_entry(source, entry, capabilities);
     let before = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
@@ -447,6 +471,11 @@ fn check_errors(source: &str, expect: &Expect) {
 /// defunctionalization, and subsequent passes.
 fn check_pipeline(source: &str) {
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_fir(source);
+    let result = crate::run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
+    crate::test_utils::assert_no_pipeline_errors("run_pipeline", &result.errors);
+}
+fn check_pipeline_with_entry(source: &str, entry: &str) {
+    let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_fir_with_entry(source, entry);
     let result = crate::run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
     crate::test_utils::assert_no_pipeline_errors("run_pipeline", &result.errors);
 }

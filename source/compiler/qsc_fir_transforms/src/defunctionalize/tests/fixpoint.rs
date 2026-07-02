@@ -2403,6 +2403,953 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
     );
 }
 
+#[test]
+fn prepselprep() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            struct StatePreparationParams {
+                rowMap : Int[],
+                stateVector : Double[],
+                expansionOps : Int[][],
+                numQubits : Int
+            }
+
+            operation ApplyStatePreparation(params : StatePreparationParams, qs : Qubit[]) : Unit is Adj + Ctl {
+                if Length(params.expansionOps) != 0 {
+                    X(qs[0]);
+                }
+            }
+
+            function MakeStatePreparationOp(
+                rowMap : Int[],
+                stateVector : Double[],
+                expansionOps : Int[][],
+                numQubits : Int
+            ) : Qubit[] => Unit is Adj + Ctl {
+                ApplyStatePreparation(
+                    new StatePreparationParams {
+                        rowMap = rowMap,
+                        stateVector = stateVector,
+                        expansionOps = expansionOps,
+                        numQubits = numQubits
+                    },
+                    _
+                )
+            }
+
+            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+            operation PrepSelPrep(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                targetRegister : Qubit[],
+                ancillaRegister : Qubit[],
+            ) : Unit is Adj + Ctl {
+                body ... {
+                    let numAncillaQubits = Length(ancillaRegister);
+                    if (numAncillaQubits == 0) {
+                        selectOp([], targetRegister);
+                    } else {
+                        within {
+                            prepareOp(ancillaRegister);
+                        } apply {
+                            selectOp(ancillaRegister, targetRegister);
+                        }
+                    }
+                }
+                adjoint auto;
+                controlled (ctls, ...) {
+                    // Per Babbush et al. (arXiv:1805.03662): only SELECT is controlled;
+                    // PREPARE and PREPARE† run unconditionally.
+                    let numAncillaQubits = Length(ancillaRegister);
+                    if (numAncillaQubits == 0) {
+                        Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        prepareOp(ancillaRegister);
+                        Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+                }
+                controlled adjoint auto;
+            }
+
+            function MakeControlledPrepSelPrepOp(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : (Qubit, Qubit[]) => Unit {
+                (control, allQubits) => {
+                    let systems = allQubits[0..numSystemQubits - 1];
+                    let ancilla = allQubits[numSystemQubits...];
+                    for _ in 0..power - 1 {
+                        Controlled PrepSelPrep([control], (prepareOp, selectOp, systems, ancilla));
+                    }
+                }
+            }
+
+            operation MakeControlledPrepSelPrepCircuit(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : Unit {
+                use control = Qubit();
+                use systems = Qubit[numSystemQubits + numAncillaQubits];
+                let op = MakeControlledPrepSelPrepOp(
+                    prepareOp,
+                    selectOp,
+                    numSystemQubits,
+                    numAncillaQubits,
+                    power
+                );
+                op(control, systems);
+            }
+        }
+    "#};
+    check_pipeline_with_entry(
+        source,
+        "Test.MakeControlledPrepSelPrepCircuit(Test.ApplyStatePreparation(new Test.StatePreparationParams { rowMap = [0], stateVector = [1.0, 0.0], expansionOps = [], numQubits = 1 }, _), Test.SelectIdentity, 1, 1, 1)",
+    );
+    check_rewrite_with_entry(
+        source,
+        "Test.MakeControlledPrepSelPrepCircuit(Test.ApplyStatePreparation(new Test.StatePreparationParams { rowMap = [0], stateVector = [1.0, 0.0], expansionOps = [], numQubits = 1 }, _), Test.SelectIdentity, 1, 1, 1)",
+        &expect![[r#"
+            BEFORE:
+            newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
+            operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    if Length(params::expansionOps) != 0 {
+                        X(qs[0]);
+                    }
+
+                }
+                adjoint ... {
+                    if Length(params::expansionOps) != 0 {
+                        Adjoint X(qs[0]);
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    if Length(params::expansionOps) != 0 {
+                        Controlled X(ctls, qs[0]);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    if Length(params::expansionOps) != 0 {
+                        Controlled Adjoint X(ctls, qs[0]);
+                    }
+
+                }
+            }
+            function MakeStatePreparationOp(rowMap : Int[], stateVector : Double[], expansionOps : Int[][], numQubits : Int) : (Qubit[] => Unit is Adj + Ctl) {
+                {
+                    let arg : __UDT_Item_1__Package_2_ = new StatePreparationParams {
+                        rowMap = rowMap,
+                        stateVector = stateVector,
+                        expansionOps = expansionOps,
+                        numQubits = numQubits
+                    };
+                    / * closure item = 8 captures = [arg] * / _lambda_8
+                }
+
+            }
+            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+                body ... {}
+                adjoint ... {}
+                controlled (ctls, ...) {}
+                controlled adjoint (ctls, ...) {}
+            }
+            operation PrepSelPrep(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), targetRegister : Qubit[], ancillaRegister : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                adjoint ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                Adjoint selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        prepareOp(ancillaRegister);
+                        Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        Adjoint Adjoint prepareOp(ancillaRegister);
+                        Adjoint Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+            }
+            function MakeControlledPrepSelPrepOp(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, numAncillaQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+                / * closure item = 9 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_9
+            }
+            operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, numAncillaQubits : Int, power : Int) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + numAncillaQubits);
+                let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, numAncillaQubits, power);
+                op(control, systems);
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            operation _lambda_8(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    ApplyStatePreparation(arg, hole)
+                }
+                adjoint ... {
+                    Adjoint ApplyStatePreparation(arg, hole)
+                }
+                controlled (ctls, ...) {
+                    Controlled ApplyStatePreparation(ctls, (arg, hole))
+                }
+                controlled adjoint (ctls, ...) {
+                    Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
+                }
+            }
+            operation _lambda_9(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+                {
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_633 : Range = 0..power - 1;
+                        mutable _index_id_636 : Int = _range_id_633::Start;
+                        let _step_id_641 : Int = _range_id_633::Step;
+                        let _end_id_646 : Int = _range_id_633::End;
+                        while _step_id_641 > 0 and _index_id_636 <= _end_id_646 or _step_id_641 < 0 and _index_id_636 >= _end_id_646 {
+                            let _ : Int = _index_id_636;
+                            Controlled PrepSelPrep_AdjCtl__AdjCtl_([control], (prepareOp, selectOp, systems, ancilla));
+                            _index_id_636 += _step_id_641;
+                        }
+
+                    }
+
+                }
+
+            }
+            operation _lambda_10(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    ApplyStatePreparation(arg, hole)
+                }
+                adjoint ... {
+                    Adjoint ApplyStatePreparation(arg, hole)
+                }
+                controlled (ctls, ...) {
+                    Controlled ApplyStatePreparation(ctls, (arg, hole))
+                }
+                controlled adjoint (ctls, ...) {
+                    Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
+                }
+            }
+            operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, numAncillaQubits : Int, power : Int) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + numAncillaQubits);
+                let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, numAncillaQubits, power);
+                op(control, systems);
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            operation PrepSelPrep_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), targetRegister : Qubit[], ancillaRegister : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                adjoint ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                Adjoint selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        prepareOp(ancillaRegister);
+                        Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        Adjoint Adjoint prepareOp(ancillaRegister);
+                        Adjoint Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+            }
+            function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, numAncillaQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+                / * closure item = 14 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_9
+            }
+            operation _lambda_9(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+                {
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_633 : Range = 0..power - 1;
+                        mutable _index_id_636 : Int = _range_id_633::Start;
+                        let _step_id_641 : Int = _range_id_633::Step;
+                        let _end_id_646 : Int = _range_id_633::End;
+                        while _step_id_641 > 0 and _index_id_636 <= _end_id_646 or _step_id_641 < 0 and _index_id_636 >= _end_id_646 {
+                            let _ : Int = _index_id_636;
+                            Controlled PrepSelPrep_AdjCtl__AdjCtl_([control], (prepareOp, selectOp, systems, ancilla));
+                            _index_id_636 += _step_id_641;
+                        }
+
+                    }
+
+                }
+
+            }
+            // entry
+            MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_({
+                let arg : __UDT_Item_1__Package_2_ = new StatePreparationParams {
+                    rowMap = [0],
+                    stateVector = [1., 0.],
+                    expansionOps = [],
+                    numQubits = 1
+                };
+                / * closure item = 10 captures = [_local0] * / _lambda_10
+            }, SelectIdentity, 1, 1, 1)
+
+            AFTER:
+            newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
+            operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    if Length(params::expansionOps) != 0 {
+                        X(qs[0]);
+                    }
+
+                }
+                adjoint ... {
+                    if Length(params::expansionOps) != 0 {
+                        Adjoint X(qs[0]);
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    if Length(params::expansionOps) != 0 {
+                        Controlled X(ctls, qs[0]);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    if Length(params::expansionOps) != 0 {
+                        Controlled Adjoint X(ctls, qs[0]);
+                    }
+
+                }
+            }
+            function MakeStatePreparationOp(rowMap : Int[], stateVector : Double[], expansionOps : Int[][], numQubits : Int) : (Qubit[] => Unit is Adj + Ctl) {
+                {
+                    let arg : __UDT_Item_1__Package_2_ = new StatePreparationParams {
+                        rowMap = rowMap,
+                        stateVector = stateVector,
+                        expansionOps = expansionOps,
+                        numQubits = numQubits
+                    };
+                    / * closure item = 8 captures = [arg] * / _lambda_8
+                }
+
+            }
+            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+                body ... {}
+                adjoint ... {}
+                controlled (ctls, ...) {}
+                controlled adjoint (ctls, ...) {}
+            }
+            operation PrepSelPrep(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), targetRegister : Qubit[], ancillaRegister : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                adjoint ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                Adjoint selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        prepareOp(ancillaRegister);
+                        Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        Adjoint Adjoint prepareOp(ancillaRegister);
+                        Adjoint Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+            }
+            function MakeControlledPrepSelPrepOp(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, numAncillaQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+                / * closure item = 9 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_9
+            }
+            operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, numAncillaQubits : Int, power : Int) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + numAncillaQubits);
+                let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, numAncillaQubits, power);
+                op(control, systems);
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            operation _lambda_8(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    ApplyStatePreparation(arg, hole)
+                }
+                adjoint ... {
+                    Adjoint ApplyStatePreparation(arg, hole)
+                }
+                controlled (ctls, ...) {
+                    Controlled ApplyStatePreparation(ctls, (arg, hole))
+                }
+                controlled adjoint (ctls, ...) {
+                    Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
+                }
+            }
+            operation _lambda_9(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+                {
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_633 : Range = 0..power - 1;
+                        mutable _index_id_636 : Int = _range_id_633::Start;
+                        let _step_id_641 : Int = _range_id_633::Step;
+                        let _end_id_646 : Int = _range_id_633::End;
+                        while _step_id_641 > 0 and _index_id_636 <= _end_id_646 or _step_id_641 < 0 and _index_id_636 >= _end_id_646 {
+                            let _ : Int = _index_id_636;
+                            Controlled PrepSelPrep_AdjCtl__AdjCtl_([control], (prepareOp, selectOp, systems, ancilla));
+                            _index_id_636 += _step_id_641;
+                        }
+
+                    }
+
+                }
+
+            }
+            operation _lambda_10(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    ApplyStatePreparation(arg, hole)
+                }
+                adjoint ... {
+                    Adjoint ApplyStatePreparation(arg, hole)
+                }
+                controlled (ctls, ...) {
+                    Controlled ApplyStatePreparation(ctls, (arg, hole))
+                }
+                controlled adjoint (ctls, ...) {
+                    Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
+                }
+            }
+            operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, numAncillaQubits : Int, power : Int) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + numAncillaQubits);
+                _lambda_9(prepareOp, selectOp, numSystemQubits, power, (control, systems));
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            operation PrepSelPrep_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), targetRegister : Qubit[], ancillaRegister : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                adjoint ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                Adjoint selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        prepareOp(ancillaRegister);
+                        Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        Adjoint Adjoint prepareOp(ancillaRegister);
+                        Adjoint Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+            }
+            function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, numAncillaQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+                ()
+            }
+            operation _lambda_9(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+                {
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_633 : Range = 0..power - 1;
+                        mutable _index_id_636 : Int = _range_id_633::Start;
+                        let _step_id_641 : Int = _range_id_633::Step;
+                        let _end_id_646 : Int = _range_id_633::End;
+                        while _step_id_641 > 0 and _index_id_636 <= _end_id_646 or _step_id_641 < 0 and _index_id_636 >= _end_id_646 {
+                            let _ : Int = _index_id_636;
+                            Controlled PrepSelPrep_AdjCtl__AdjCtl_([control], (prepareOp, selectOp, systems, ancilla));
+                            _index_id_636 += _step_id_641;
+                        }
+
+                    }
+
+                }
+
+            }
+            operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, numAncillaQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + numAncillaQubits);
+                _lambda_9_closure__SelectIdentity_(numSystemQubits, power, (control, systems), __capture_0);
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, numAncillaQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
+                / * closure item = 17 captures = [numSystemQubits, power] * / _lambda_9
+            }
+            operation _lambda_9(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+                {
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_633 : Range = 0..power - 1;
+                        mutable _index_id_636 : Int = _range_id_633::Start;
+                        let _step_id_641 : Int = _range_id_633::Step;
+                        let _end_id_646 : Int = _range_id_633::End;
+                        while _step_id_641 > 0 and _index_id_636 <= _end_id_646 or _step_id_641 < 0 and _index_id_636 >= _end_id_646 {
+                            let _ : Int = _index_id_636;
+                            Controlled PrepSelPrep_AdjCtl__AdjCtl_([control], (/ * closure item = 10 captures = [allQubits] * / _lambda_10, SelectIdentity, systems, ancilla));
+                            _index_id_636 += _step_id_641;
+                        }
+
+                    }
+
+                }
+
+            }
+            operation _lambda_9_closure__SelectIdentity_(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[]), __capture_0 : __UDT_Item_1__Package_2_) : Unit {
+                {
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_633 : Range = 0..power - 1;
+                        mutable _index_id_636 : Int = _range_id_633::Start;
+                        let _step_id_641 : Int = _range_id_633::Step;
+                        let _end_id_646 : Int = _range_id_633::End;
+                        while _step_id_641 > 0 and _index_id_636 <= _end_id_646 or _step_id_641 < 0 and _index_id_636 >= _end_id_646 {
+                            let _ : Int = _index_id_636;
+                            Controlled PrepSelPrep_AdjCtl__AdjCtl__closure__SelectIdentity_([control], (systems, ancilla), __capture_0);
+                            _index_id_636 += _step_id_641;
+                        }
+
+                    }
+
+                }
+
+            }
+            operation PrepSelPrep_AdjCtl__AdjCtl__closure_(selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), targetRegister : Qubit[], ancillaRegister : Qubit[], __capture_0 : __UDT_Item_1__Package_2_) : Unit is Adj + Ctl {
+                body ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                _lambda_10(__capture_0, ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint _lambda_10(__capture_0, ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                adjoint ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint selectOp([], targetRegister);
+                    } else {
+                        {
+                            {
+                                _lambda_10(__capture_0, ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                Adjoint selectOp(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint _lambda_10(__capture_0, ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        _lambda_10(__capture_0, ancillaRegister);
+                        Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint _lambda_10(__capture_0, ancillaRegister);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint Controlled selectOp(ctls, ([], targetRegister));
+                    } else {
+                        _lambda_10(__capture_0, ancillaRegister);
+                        Adjoint Controlled selectOp(ctls, (ancillaRegister, targetRegister));
+                        Adjoint _lambda_10(__capture_0, ancillaRegister);
+                    }
+
+                }
+            }
+            operation PrepSelPrep_AdjCtl__AdjCtl__SelectIdentity_(prepareOp : (Qubit[] => Unit is Adj + Ctl), targetRegister : Qubit[], ancillaRegister : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        SelectIdentity([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                SelectIdentity(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                adjoint ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint SelectIdentity([], targetRegister);
+                    } else {
+                        {
+                            {
+                                prepareOp(ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                Adjoint SelectIdentity(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint prepareOp(ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled SelectIdentity(ctls, ([], targetRegister));
+                    } else {
+                        prepareOp(ancillaRegister);
+                        Controlled SelectIdentity(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled Adjoint SelectIdentity(ctls, ([], targetRegister));
+                    } else {
+                        Adjoint Adjoint prepareOp(ancillaRegister);
+                        Controlled Adjoint SelectIdentity(ctls, (ancillaRegister, targetRegister));
+                        Adjoint prepareOp(ancillaRegister);
+                    }
+
+                }
+            }
+            operation PrepSelPrep_AdjCtl__AdjCtl__closure__SelectIdentity_(targetRegister : Qubit[], ancillaRegister : Qubit[], __capture_0 : __UDT_Item_1__Package_2_) : Unit is Adj + Ctl {
+                body ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        SelectIdentity([], targetRegister);
+                    } else {
+                        {
+                            {
+                                _lambda_10(__capture_0, ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                SelectIdentity(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint _lambda_10(__capture_0, ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                adjoint ... {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Adjoint SelectIdentity([], targetRegister);
+                    } else {
+                        {
+                            {
+                                _lambda_10(__capture_0, ancillaRegister);
+                            }
+
+                            let _apply_res : Unit = {
+                                Adjoint SelectIdentity(ancillaRegister, targetRegister);
+                            };
+                            {
+                                Adjoint _lambda_10(__capture_0, ancillaRegister);
+                            }
+
+                            _apply_res
+                        }
+
+                    }
+
+                }
+                controlled (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled SelectIdentity(ctls, ([], targetRegister));
+                    } else {
+                        _lambda_10(__capture_0, ancillaRegister);
+                        Controlled SelectIdentity(ctls, (ancillaRegister, targetRegister));
+                        Adjoint _lambda_10(__capture_0, ancillaRegister);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    let numAncillaQubits : Int = Length(ancillaRegister);
+                    if numAncillaQubits == 0 {
+                        Controlled Adjoint SelectIdentity(ctls, ([], targetRegister));
+                    } else {
+                        _lambda_10(__capture_0, ancillaRegister);
+                        Controlled Adjoint SelectIdentity(ctls, (ancillaRegister, targetRegister));
+                        Adjoint _lambda_10(__capture_0, ancillaRegister);
+                    }
+
+                }
+            }
+            // entry
+            MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(1, 1, 1, new StatePreparationParams {
+                rowMap = [0],
+                stateVector = [1., 0.],
+                expansionOps = [],
+                numQubits = 1
+            })
+        "#]],
+    );
+}
+
 fn nested_hof_source(level_count: usize) -> String {
     assert!(level_count > 0);
 

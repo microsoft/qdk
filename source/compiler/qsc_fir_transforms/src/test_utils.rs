@@ -272,6 +272,13 @@ pub fn compile_to_fir_with_capabilities(
 ) -> (fir::PackageStore, fir::PackageId) {
     compile_to_fir_with_cached_stdlib(source, None, capabilities)
 }
+pub fn compile_to_fir_with_capabilities_with_entry(
+    source: &str,
+    entry: Option<&str>,
+    capabilities: TargetCapabilityFlags,
+) -> (fir::PackageStore, fir::PackageId) {
+    compile_to_fir_with_cached_stdlib(source, entry, capabilities)
+}
 
 /// Compiles a library Q# source and user Q# source through
 /// core+std+lib → HIR passes → FIR lowering.
@@ -454,6 +461,18 @@ pub fn compile_to_monomorphized_fir_with_capabilities(
     capabilities: TargetCapabilityFlags,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir_with_capabilities(source, capabilities);
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
+    (store, pkg_id)
+}
+#[must_use]
+pub fn compile_to_monomorphized_fir_with_capabilities_with_entry(
+    source: &str,
+    entry: &str,
+    capabilities: TargetCapabilityFlags,
+) -> (fir::PackageStore, fir::PackageId) {
+    let (mut store, pkg_id) =
+        compile_to_fir_with_capabilities_with_entry(source, Some(entry), capabilities);
     let mut assigners = PackageAssigners::new(&store, pkg_id);
     crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
     (store, pkg_id)
