@@ -7,9 +7,6 @@
       "include": "#comment"
     },
     {
-      "include": "#custom-instruction"
-    },
-    {
       "include": "#control-flow"
     },
     {
@@ -48,12 +45,8 @@
   ],
   "repository": {
     "comment": {
-      "match": "#(?!!).*$",
+      "match": "#.*$",
       "name": "comment.line.number-sign.stim"
-    },
-    "custom-instruction": {
-      "match": "(?:#!|!(?![XYZL]\\d))[A-Za-z_][A-Za-z0-9_]*",
-      "name": "keyword.other.custom.stim"
     },
     "control-flow": {
       "match": "\\b(REPEAT)\\b",
