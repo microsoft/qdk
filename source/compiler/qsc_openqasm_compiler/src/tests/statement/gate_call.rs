@@ -446,6 +446,25 @@ fn implicit_cast_to_angle_works() -> miette::Result<(), Vec<Report>> {
 }
 
 #[test]
+fn custom_gate_with_angle_parameter_generates_qir() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        #pragma qdk.qir.profile Adaptive
+        gate phase_by(theta) q {
+            rz(theta) q;
+        }
+        qubit q;
+        output bit c;
+        phase_by(1.0) q;
+        c = measure q;
+    "#;
+
+    let _ = compile_qasm_to_qir(source)?;
+    Ok(())
+}
+
+#[test]
 fn custom_gate_can_be_called() -> miette::Result<(), Vec<Report>> {
     let source = r#"
         include "stdgates.inc";

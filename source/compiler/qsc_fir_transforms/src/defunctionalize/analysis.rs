@@ -202,6 +202,17 @@ fn extract_arrow_params_from_ty(
                 field_path.pop();
             }
         }
+        Ty::Array(item_ty) if matches!(item_ty.as_ref(), Ty::Arrow(_)) => {
+            params.push(CallableParam::new(
+                context.callable_id,
+                context.param_pat_id,
+                context.top_level_param,
+                field_path.clone(),
+                context.param_var,
+                param_ty.clone(),
+                context.hof_input_is_tuple,
+            ));
+        }
         Ty::Udt(Res::Item(item_id)) => {
             let package = context.store.get(item_id.package);
             let item = package.get_item(item_id.item);
@@ -342,6 +353,7 @@ fn collect_call_sites(
 
 /// Inspects a single expression for HOF call-site patterns.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn inspect_call_expr(
     store: &PackageStore,
     pkg: &Package,
@@ -395,6 +407,9 @@ fn inspect_call_expr(
                             package: hof_store_id.package,
                             item: hof_store_id.item,
                         },
+                        top_level_param: cp.top_level_param,
+                        field_path: cp.field_path.clone(),
+                        hof_input_is_tuple: cp.hof_input_is_tuple,
                         callable_arg: cc,
                         arg_expr_id: resolved_arg_id,
                         condition: vec![],
@@ -409,6 +424,9 @@ fn inspect_call_expr(
                                 package: hof_store_id.package,
                                 item: hof_store_id.item,
                             },
+                            top_level_param: cp.top_level_param,
+                            field_path: cp.field_path.clone(),
+                            hof_input_is_tuple: cp.hof_input_is_tuple,
                             callable_arg: cc,
                             arg_expr_id: resolved_arg_id,
                             condition: cond,
@@ -423,6 +441,9 @@ fn inspect_call_expr(
                             package: hof_store_id.package,
                             item: hof_store_id.item,
                         },
+                        top_level_param: cp.top_level_param,
+                        field_path: cp.field_path.clone(),
+                        hof_input_is_tuple: cp.hof_input_is_tuple,
                         callable_arg: ConcreteCallable::Dynamic,
                         arg_expr_id: resolved_arg_id,
                         condition: vec![],
@@ -698,6 +719,25 @@ fn resolve_callee_at_path(
     }
 
     if path.is_empty() {
+        if matches!(pkg.get_expr(args_expr_id).ty, Ty::Array(_))
+            && let Some(candidates) = resolve_indexed_callable_candidates(
+                pkg,
+                store,
+                locals,
+                args_expr_id,
+                depth + 1,
+                allow_scoped_capture_exprs,
+                scoped_capture_vars,
+                package_id,
+            )
+        {
+            return CalleeLattice::Multi(
+                candidates
+                    .into_iter()
+                    .map(|callable| (callable, vec![]))
+                    .collect(),
+            );
+        }
         return resolve_callee(
             pkg,
             store,
@@ -731,6 +771,26 @@ fn resolve_callee_at_path(
         indices: path.to_vec(),
     };
     if let Some(field_value_id) = resolve_struct_field(pkg, locals, args_expr_id, &field_path, 0) {
+        if matches!(pkg.get_expr(field_value_id).ty, Ty::Array(_))
+            && let Some(candidates) = resolve_indexed_callable_candidates(
+                pkg,
+                store,
+                locals,
+                field_value_id,
+                depth + 1,
+                allow_scoped_capture_exprs,
+                scoped_capture_vars,
+                package_id,
+            )
+        {
+            return CalleeLattice::Multi(
+                candidates
+                    .into_iter()
+                    .map(|callable| (callable, vec![]))
+                    .collect(),
+            );
+        }
+
         return resolve_callee(
             pkg,
             store,
@@ -1800,20 +1860,25 @@ fn resolve_indexed_callable_candidates(
     let mut candidates = Vec::new();
 
     for elem_expr_id in element_expr_ids {
+        let elem_allow_scoped_capture_exprs = allow_scoped_capture_exprs
+            || matches!(
+                pkg.get_expr(elem_expr_id).kind,
+                ExprKind::Block(_) | ExprKind::If(_, _, _)
+            );
         let resolved = resolve_callee(
             pkg,
             store,
             locals,
             elem_expr_id,
             depth + 1,
-            allow_scoped_capture_exprs,
+            elem_allow_scoped_capture_exprs,
             scoped_capture_vars,
             package_id,
         );
 
         match resolved {
             CalleeLattice::Single(callable) => {
-                if !candidates.contains(&callable) {
+                if should_add_indexed_callable_candidate(&candidates, &callable) {
                     candidates.push(callable);
                 }
             }
@@ -1822,7 +1887,7 @@ fn resolve_indexed_callable_candidates(
                     if !condition.is_empty() {
                         return None;
                     }
-                    if !candidates.contains(&callable) {
+                    if should_add_indexed_callable_candidate(&candidates, &callable) {
                         candidates.push(callable);
                     }
                 }
@@ -1836,6 +1901,17 @@ fn resolve_indexed_callable_candidates(
     }
 
     (!candidates.is_empty()).then_some(candidates)
+}
+
+fn should_add_indexed_callable_candidate(
+    candidates: &[ConcreteCallable],
+    callable: &ConcreteCallable,
+) -> bool {
+    if matches!(callable, ConcreteCallable::Closure { .. }) {
+        true
+    } else {
+        !candidates.contains(callable)
+    }
 }
 
 /// Resolves an array-literal expression to the concrete callables stored in
@@ -2132,7 +2208,7 @@ fn collect_binding_types_from_pat(
     map
 }
 
-/// Recursively records `LocalVarId` → `Ty` for every binding in a pattern.
+/// Recursively records `LocalVarId` => `Ty` for every binding in a pattern.
 fn collect_binding_types_from_pat_into(
     pkg: &Package,
     pat_id: qsc_fir::fir::PatId,
@@ -2857,7 +2933,7 @@ fn collect_assigned_vars_expr(pkg: &Package, expr_id: ExprId, vars: &mut Vec<Loc
 }
 
 /// Extracts bindings from a pattern. For `Bind(ident)` patterns, records
-/// `ident.id → init_expr_id`. For `Tuple` patterns, we cannot easily
+/// `ident.id => init_expr_id`. For `Tuple` patterns, we cannot easily
 /// split the init expression, so we skip those.
 fn collect_bindings_from_pat(
     pkg: &Package,

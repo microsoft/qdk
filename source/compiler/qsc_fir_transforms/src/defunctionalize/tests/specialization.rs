@@ -1216,14 +1216,6 @@ fn multiple_callable_parameters_specialize_independently() {
                 f(q);
                 g(q);
             }
-            operation ApplyTwo_AdjCtl__AdjCtl__H_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(q);
-                g(q);
-            }
-            operation ApplyTwo_AdjCtl__AdjCtl__X_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                X(q);
-                g(q);
-            }
             operation ApplyTwo_AdjCtl__AdjCtl__H__X_(q : Qubit) : Unit {
                 H(q);
                 X(q);
@@ -1234,18 +1226,23 @@ fn multiple_callable_parameters_specialize_independently() {
     );
 }
 
-/// Focused coverage for `reindex_sibling_field_access` with more than two
-/// callable fields in a single tuple-typed parameter.
+/// Three statically-resolved callable fields in a single tuple-typed parameter
+/// are removed together in one combined specialization.
 ///
-/// The two-callable-field case only exercises the `Collapse` arm (removing one
-/// of two siblings leaves a single element, so the tuple slot collapses). With
-/// three callable fields the first removal leaves a two-element tuple, so the
-/// later siblings must be *reindexed* (shifted down by one) rather than
-/// collapsed — that is the `Reindex` arm. A field-index mix-up here would emit
-/// the per-field gates out of order or dispatch the wrong callable, so the
-/// snapshot pins `First -> H`, `Second -> X`, `Third -> Y` in that order.
+/// When every field of the tuple-valued parameter is a concrete callable, the
+/// group is combine-eligible per `super::is_combined_eligible`, so the whole
+/// `ops` slot is dropped in a single pass rather than removed one field at a
+/// time across iterations. The snapshot pins the single collapsed
+/// specialization `RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_(q)` with the fields
+/// inlined in order `First -> H`, `Second -> X`, `Third -> Y`; a field-index
+/// mix-up would inline the gates out of order or dispatch the wrong callable.
+///
+/// The per-field `reindex_sibling_field_access` path, which shifts surviving
+/// siblings down as each is removed, is exercised only when the group is not
+/// combine-eligible, for example when the tuple's fields are only partially
+/// covered by concrete callables.
 #[test]
-fn three_callable_field_tuple_param_reindexes_siblings() {
+fn three_callable_field_tuple_param_combines_into_one_spec() {
     check_rewrite(
         r#"
         operation RunOps(ops : (Qubit => Unit, Qubit => Unit, Qubit => Unit), q : Qubit) : Unit {
@@ -1299,40 +1296,94 @@ fn three_callable_field_tuple_param_reindexes_siblings() {
                 second(q);
                 third(q);
             }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__H_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl)), q : Qubit) : Unit {
-                let (second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
-                H(q);
-                second(q);
-                third(q);
-            }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__X_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl)), q : Qubit) : Unit {
-                let (second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
-                X(q);
-                second(q);
-                third(q);
-            }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__Y_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl)), q : Qubit) : Unit {
-                let (second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
-                Y(q);
-                second(q);
-                third(q);
-            }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__H__X_(ops : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                let third : (Qubit => Unit is Adj + Ctl) = ops;
-                H(q);
-                X(q);
-                third(q);
-            }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__H__Y_(ops : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                let third : (Qubit => Unit is Adj + Ctl) = ops;
-                H(q);
-                Y(q);
-                third(q);
-            }
             operation RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_(q : Qubit) : Unit {
                 H(q);
                 X(q);
                 Y(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// The combined rewrite reduces a non-inline argument: a single tuple-valued
+/// parameter HOF called with a pre-bound tuple local such as `let ops = (H, X,
+/// Y); RunOps(ops)` rather than an inline tuple literal.
+///
+/// Because the argument is `Var(ops)`, the rewrite cannot drop tuple slots in
+/// place; it projects the surviving slots through the local's initializer. Here
+/// every field is a global callable removed together, so the reduced call takes
+/// no arguments, the now-dead `let ops` binding is pruned, and the collapsed
+/// specialization inlines `H, X, Y` in order. A projection error would leave the
+/// arrow-typed `let ops` binding behind or pass a stale full-arity argument.
+#[test]
+fn bound_tuple_arg_combines_into_one_spec() {
+    check_rewrite(
+        r#"
+        operation RunOps(ops : (Qubit => Unit, Qubit => Unit, Qubit => Unit)) : Unit {
+            use q = Qubit();
+            let (first, second, third) = ops;
+            first(q);
+            second(q);
+            third(q);
+        }
+        operation Main() : Unit {
+            let ops = (H, X, Y);
+            RunOps(ops);
+        }
+        "#,
+        &expect![[r#"
+            BEFORE:
+            operation RunOps(ops : ((Qubit => Unit), (Qubit => Unit), (Qubit => Unit))) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : (Qubit => Unit), second : (Qubit => Unit), third : (Qubit => Unit)) = ops;
+                first(q);
+                second(q);
+                third(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Main() : Unit {
+                let ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl)) = (H, X, Y);
+                RunOps_AdjCtl__AdjCtl__AdjCtl_(ops);
+            }
+            operation RunOps_AdjCtl__AdjCtl__AdjCtl_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl))) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
+                first(q);
+                second(q);
+                third(q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation RunOps(ops : ((Qubit => Unit), (Qubit => Unit), (Qubit => Unit))) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : (Qubit => Unit), second : (Qubit => Unit), third : (Qubit => Unit)) = ops;
+                first(q);
+                second(q);
+                third(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Main() : Unit {
+                RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_();
+            }
+            operation RunOps_AdjCtl__AdjCtl__AdjCtl_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl))) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
+                first(q);
+                second(q);
+                third(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                H(q);
+                X(q);
+                Y(q);
+                __quantum__rt__qubit_release(q);
             }
             // entry
             Main()
