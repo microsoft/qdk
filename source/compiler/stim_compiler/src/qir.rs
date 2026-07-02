@@ -6,6 +6,7 @@ mod tests;
 
 use qdk_simulators::noise_config::{NoiseConfig, NoiseTable, encode_pauli};
 
+use crate::parser::Pauli::{X, Y, Z};
 use crate::parser::*;
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
@@ -206,21 +207,18 @@ impl QirWriter {
     }
 }
 
-/// A single fault term (`X`, `Y`, `Z`, or `L`) applied to a qubit.
 #[derive(Clone, Copy)]
 enum FaultChar {
-    X,
-    Y,
-    Z,
+    Pauli(Pauli),
     Loss,
 }
 
 impl FaultChar {
     fn as_char(self) -> char {
         match self {
-            FaultChar::X => 'X',
-            FaultChar::Y => 'Y',
-            FaultChar::Z => 'Z',
+            FaultChar::Pauli(X) => 'X',
+            FaultChar::Pauli(Y) => 'Y',
+            FaultChar::Pauli(Z) => 'Z',
             FaultChar::Loss => 'L',
         }
     }
@@ -1141,9 +1139,9 @@ impl<'noise> Compiler<'noise> {
     fn compile_fault_error(&mut self, instruction: &Instruction) {
         let gate = instruction.name.to_lowercase();
         let fault = match gate.as_str() {
-            "x_error" => FaultChar::X,
-            "y_error" => FaultChar::Y,
-            "z_error" => FaultChar::Z,
+            "x_error" => FaultChar::Pauli(X),
+            "y_error" => FaultChar::Pauli(Y),
+            "z_error" => FaultChar::Pauli(Z),
             _ => FaultChar::Loss,
         };
         let Some(probability) = self.expect_probability(instruction) else {
@@ -1178,7 +1176,11 @@ impl<'noise> Compiler<'noise> {
                     .current_correlated_group
                     .get_or_insert_with(CorrelatedGroup::default);
                 group.independent = true;
-                for fault in [FaultChar::X, FaultChar::Y, FaultChar::Z] {
+                for fault in [
+                    FaultChar::Pauli(X),
+                    FaultChar::Pauli(Y),
+                    FaultChar::Pauli(Z),
+                ] {
                     group.rows.push(CorrelatedRow {
                         terms: vec![(value, fault)],
                         probability: each,
@@ -1212,9 +1214,9 @@ impl<'noise> Compiler<'noise> {
                 // All 16 (p0, p1) combos except (I, I); None means identity on that qubit.
                 let options = [
                     None,
-                    Some(FaultChar::X),
-                    Some(FaultChar::Y),
-                    Some(FaultChar::Z),
+                    Some(FaultChar::Pauli(X)),
+                    Some(FaultChar::Pauli(Y)),
+                    Some(FaultChar::Pauli(Z)),
                 ];
                 for p0 in options {
                     for p1 in options {
@@ -1247,12 +1249,7 @@ impl<'noise> Compiler<'noise> {
         for target in &instruction.targets {
             match &target.kind {
                 TargetKind::Pauli { pauli, value, .. } => {
-                    let fault = match pauli {
-                        Pauli::X => FaultChar::X,
-                        Pauli::Y => FaultChar::Y,
-                        Pauli::Z => FaultChar::Z,
-                    };
-                    terms.push((*value, fault));
+                    terms.push((*value, FaultChar::Pauli(*pauli)));
                 }
                 TargetKind::Loss { value } => {
                     terms.push((*value, FaultChar::Loss));
