@@ -5,59 +5,66 @@ use crate::{
     code_action,
     test_utils::{compile_project_with_markers_no_cursor, whole_document_range},
 };
-use qsc::line_column::Encoding;
+use qsc::{line_column::Encoding, location::Location};
 
-fn get_wrap_in_array_actions(source: &str) -> Vec<crate::protocol::CodeAction> {
-    let (compilation, _targets) =
+fn get_wrap_in_array_actions(source: &str) -> (Vec<Location>, Vec<crate::protocol::CodeAction>) {
+    let (compilation, targets) =
         compile_project_with_markers_no_cursor(&[("<source>", source)], false);
     let range = whole_document_range(source);
     let actions = code_action::get_code_actions(&compilation, "<source>", range, Encoding::Utf8);
-    actions
-        .into_iter()
-        .filter(|a| a.title == "Convert to single-element array")
-        .collect()
+    (
+        targets,
+        actions
+            .into_iter()
+            .filter(|a| a.title == "Convert to single-element array")
+            .collect(),
+    )
 }
 
 #[test]
-fn single_arg_qubit_to_qubit_array() {
+fn single_arg_qubit_to_qubit_array_fix_offered() {
     let source = "namespace A {
     operation Foo(qs: Qubit[]) : Unit is Adj {
         use q = Qubit();
-        Foo(q);
+        Foo(◉◉q◉◉);
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (locations, actions) = get_wrap_in_array_actions(source);
     assert_eq!(actions.len(), 1, "Expected 1 action, got: {actions:?}");
     let action = &actions[0];
     let edit = action.edit.as_ref().expect("expected edit");
     let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), 2);
+    assert_eq!(text_edits.len(), locations.len());
     assert_eq!(text_edits[0].new_text, "[");
+    assert_eq!(text_edits[0].range, locations[0].range);
     assert_eq!(text_edits[1].new_text, "]");
+    assert_eq!(text_edits[1].range, locations[1].range);
 }
 
 #[test]
-fn multi_arg_second_param_is_array() {
+fn multi_arg_second_param_is_array_fix_offered() {
     let source = "namespace A {
     operation Bar(x: Int, qs: Qubit[]) : Unit {
         use q = Qubit();
-        Bar(1, q);
+        Bar(1, ◉◉q◉◉);
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (locations, actions) = get_wrap_in_array_actions(source);
     assert_eq!(actions.len(), 1, "Expected 1 action, got: {actions:?}");
     let action = &actions[0];
     let edit = action.edit.as_ref().expect("expected edit");
     let (_, text_edits) = &edit.changes[0];
-    assert_eq!(text_edits.len(), 2);
+    assert_eq!(text_edits.len(), locations.len());
     assert_eq!(text_edits[0].new_text, "[");
+    assert_eq!(text_edits[0].range, locations[0].range);
     assert_eq!(text_edits[1].new_text, "]");
+    assert_eq!(text_edits[1].range, locations[1].range);
 }
 
 #[test]
-fn no_action_when_types_already_match() {
+fn types_already_match_fix_not_offered() {
     let source = "namespace A {
     operation Foo(qs: Qubit[]) : Unit is Adj {
         use q = Qubit();
@@ -65,12 +72,12 @@ fn no_action_when_types_already_match() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
 #[test]
-fn no_action_for_unrelated_mismatch() {
+fn unrelated_mismatch_fix_not_offered() {
     // Int passed where String expected - should NOT offer wrap in array.
     let source = "namespace A {
     function Foo(s: String) : Unit {}
@@ -79,12 +86,12 @@ fn no_action_for_unrelated_mismatch() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
 #[test]
-fn no_action_for_tuple_to_tuple_array() {
+fn tuple_to_tuple_array_fix_not_offered() {
     // (Qubit, Qubit) passed where (Qubit, Qubit)[] expected - not a primitive type.
     let source = "namespace A {
     operation Foo(qs: (Qubit, Qubit)[]) : Unit {}
@@ -94,12 +101,12 @@ fn no_action_for_tuple_to_tuple_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
 #[test]
-fn no_action_for_array_to_nested_array() {
+fn array_to_nested_array_fix_not_offered() {
     // Qubit[] passed where Qubit[][] expected - the expression type is Qubit[] (not
     // a primitive), so the code action should not be offered.
     let source = "namespace A {
@@ -109,12 +116,12 @@ fn no_action_for_array_to_nested_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
 #[test]
-fn no_action_for_arrow_to_arrow_array() {
+fn arrow_to_arrow_array_fix_not_offered() {
     // An operation value passed where ((Qubit) => Unit)[] expected - not a primitive type.
     let source = "namespace A {
     operation MyOp(q: Qubit) : Unit {}
@@ -124,12 +131,12 @@ fn no_action_for_arrow_to_arrow_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
 #[test]
-fn no_action_for_param_to_param_array() {
+fn param_to_param_array_fix_not_offered() {
     // A generic type parameter passed where 'T[] expected - not a primitive type.
     let source = "namespace A {
     operation Foo<'T>(ts: 'T[]) : Unit {}
@@ -138,12 +145,12 @@ fn no_action_for_param_to_param_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }
 
 #[test]
-fn no_action_for_udt_to_udt_array() {
+fn udt_to_udt_array_fix_not_offered() {
     // A UDT value passed where MyType[] expected - not a primitive type.
     let source = "namespace A {
     newtype MyType = Int;
@@ -153,6 +160,6 @@ fn no_action_for_udt_to_udt_array() {
     }
 }
 ";
-    let actions = get_wrap_in_array_actions(source);
+    let (_, actions) = get_wrap_in_array_actions(source);
     assert!(actions.is_empty(), "Expected no actions, got: {actions:?}");
 }

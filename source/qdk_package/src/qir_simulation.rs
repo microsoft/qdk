@@ -532,9 +532,35 @@ impl NoiseTable {
             2 => {
                 let single = value * (1.0 - value);
                 let both = value * value;
+                for fault in ["XL", "YL", "ZL", "LX", "LY", "LZ"] {
+                    self.set_pauli_noise_elt(fault, 0.0)?;
+                }
                 self.set_pauli_noise_elt("IL", single)?;
                 self.set_pauli_noise_elt("LI", single)?;
                 self.set_pauli_noise_elt("LL", both)
+            }
+            n => Err(PyAttributeError::new_err(format!(
+                "The `loss` attribute is only supported for one- and two-qubit operations, but this operation targets {n} qubits."
+            ))),
+        }
+    }
+
+    fn get_loss(&self) -> PyResult<Probability> {
+        match self.qubits {
+            1 => self.get_pauli_noise_elt("L"),
+            2 => {
+                for fault in ["XL", "YL", "ZL", "LX", "LY", "LZ"] {
+                    if self.get_pauli_noise_elt(fault)? > 0.0 {
+                        return Err(PyAttributeError::new_err(
+                            "`.loss` convenience mechanism should not be used with setting correlated faults individually.
+To get the loss probabilities, access the correlated strings individually.
+E.g.: `noise_config.cz.IL`"
+                                .to_string(),
+                        ));
+                    }
+                }
+                let both = self.get_pauli_noise_elt("LL")?;
+                Ok(both.sqrt())
             }
             n => Err(PyAttributeError::new_err(format!(
                 "The `loss` attribute is only supported for one- and two-qubit operations, but this operation targets {n} qubits."
@@ -565,12 +591,7 @@ impl NoiseTable {
     /// for arbitrary pauli fields.
     fn __getattr__(&mut self, name: &str) -> PyResult<Probability> {
         if name == "loss" {
-            return Err(PyAttributeError::new_err(
-                "`.loss` is a convenience over setting correlated faults individually.
-To get the loss probabilities, access the correlated strings individually.
-E.g.: `noise_config.cz.IL`"
-                    .to_string(),
-            ));
+            return self.get_loss();
         }
         self.get_pauli_noise_elt(&name.to_uppercase())
     }

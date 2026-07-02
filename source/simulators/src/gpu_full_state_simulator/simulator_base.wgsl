@@ -321,11 +321,11 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     if pauli_op_idx != 0 {
         if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-            apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, op.q1);
             // This will have set up all the state we need.
             return;
         } else {
-            apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, op.q1, op.q2);
             return;
         }
     }

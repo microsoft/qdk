@@ -696,6 +696,8 @@ bitflags! {
         const UseOfDynamicGeneric = 1 << 28;
         /// A callable allocates qubits (directly or transitively).
         const QubitAllocation = 1 << 29;
+        /// A dynamic release of a qubit.
+        const UseOfDynamicQubitRelease = 1 << 30;
     }
 }
 
@@ -808,6 +810,9 @@ impl RuntimeFeatureFlags {
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicQubitRelease) {
+            capabilities |= TargetCapabilityFlags::DynamicQubitAllocation;
         }
         capabilities
     }

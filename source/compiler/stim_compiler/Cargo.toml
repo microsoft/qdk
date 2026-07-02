@@ -12,3 +12,5 @@ miette = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+expect-test = { workspace = true }
+miette = { workspace = true, features = ["fancy-no-syscall"] }

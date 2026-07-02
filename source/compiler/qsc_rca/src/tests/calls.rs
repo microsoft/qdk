@@ -222,7 +222,7 @@ fn check_rca_for_call_to_operation_with_one_classical_return_and_one_dynamic_ret
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | ReturnWithinDynamicScope | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | ReturnWithinDynamicScope | QubitAllocation | UseOfDynamicQubitRelease)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

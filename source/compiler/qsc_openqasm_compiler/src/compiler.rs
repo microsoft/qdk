@@ -64,6 +64,20 @@ const QDK_QIR_NOISE_INTRINSIC_ANNOTATION: &str = "qdk.qir.noise_intrinsic";
 const QSHARP_CONFIG_ANNOTATION: &str = "Config";
 const QDK_CONFIG_ANNOTATION: &str = "qdk.qir.profile";
 
+/// The QDK-namespaced annotation names recognized by the compiler.
+pub const SUPPORTED_QDK_ANNOTATIONS: [&str; 3] = [
+    QDK_QIR_INTRINSIC_ANNOTATION,
+    QDK_QIR_NOISE_INTRINSIC_ANNOTATION,
+    QDK_CONFIG_ANNOTATION,
+];
+
+/// Returns `true` if the given annotation name configures the QIR target profile,
+/// accepting either the QDK-namespaced or bare Q#-style spelling.
+#[must_use]
+pub fn annotation_configures_profile(name: &str) -> bool {
+    name == QSHARP_CONFIG_ANNOTATION || name == QDK_CONFIG_ANNOTATION
+}
+
 /// Helper to create an error expression. Used when we fail to
 /// compile an expression. It is assumed that an error was
 /// already reported.
@@ -132,17 +146,62 @@ pub enum PragmaKind {
     QdkQirProfile,
 }
 
+impl PragmaKind {
+    /// Returns the canonical source spelling of the pragma name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PragmaKind::QdkBoxOpen => "qdk.box.open",
+            PragmaKind::QdkBoxClose => "qdk.box.close",
+            PragmaKind::QdkQirProfile => "qdk.qir.profile",
+        }
+    }
+
+    /// Returns all supported pragma kinds.
+    #[must_use]
+    pub fn all() -> [PragmaKind; 3] {
+        [
+            PragmaKind::QdkBoxOpen,
+            PragmaKind::QdkBoxClose,
+            PragmaKind::QdkQirProfile,
+        ]
+    }
+}
+
 impl FromStr for PragmaKind {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "qdk.box.open" => Ok(PragmaKind::QdkBoxOpen),
-            "qdk.box.close" => Ok(PragmaKind::QdkBoxClose),
-            "qdk.qir.profile" => Ok(PragmaKind::QdkQirProfile),
-            _ => Err(()),
-        }
+        let lowered = s.to_lowercase();
+        PragmaKind::all()
+            .into_iter()
+            .find(|kind| kind.as_str() == lowered)
+            .ok_or(())
     }
+}
+
+/// Returns true when the function type takes no parameters and returns void.
+/// This is the requirement for a `qdk.box.open`/`qdk.box.close` pragma target.
+fn is_parameterless_and_returns_void(args: &Arc<[Type]>, return_ty: &Arc<Type>) -> bool {
+    args.is_empty() && matches!(&**return_ty, Type::Void)
+}
+
+/// Returns the names of all symbols that are valid targets for the
+/// `qdk.box.open` and `qdk.box.close` pragmas. A valid target is a function
+/// that takes no parameters and returns void.
+#[must_use]
+pub fn valid_box_pragma_targets(symbols: &SymbolTable) -> Vec<String> {
+    symbols
+        .symbols()
+        .filter_map(|symbol| match &symbol.ty {
+            Type::Function(args, return_ty)
+                if is_parameterless_and_returns_void(args, return_ty) =>
+            {
+                Some(symbol.name.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 #[derive(Eq, PartialEq, Default)]
@@ -1315,14 +1374,6 @@ impl QasmCompiler {
     }
 
     fn compile_pragma_stmt(&mut self, stmt: &semast::Pragma) {
-        fn is_parameterless_and_returns_void(args: &Arc<[Type]>, return_ty: &Arc<Type>) -> bool {
-            args.is_empty()
-                && matches!(
-                    &**return_ty,
-                    qsc_openqasm_parser::semantic::types::Type::Void
-                )
-        }
-
         let name_str = stmt
             .identifier
             .as_ref()

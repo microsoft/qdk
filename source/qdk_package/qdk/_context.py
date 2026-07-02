@@ -527,7 +527,9 @@ class Context:
         try:
             _, circuit_json = read_file(resolved_path)
         except Exception as err:
-            raise QSharpError(f"Error reading visual circuit file {resolved_path}.") from err
+            raise QSharpError(
+                f"Error reading visual circuit file {resolved_path}."
+            ) from err
 
         circuit_count = _visual_circuit_count(circuit_json)
         operation_base_name = name if name is not None else _path_stem(resolved_path)

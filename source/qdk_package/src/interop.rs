@@ -362,7 +362,7 @@ pub(crate) fn compile_qasm_program_to_qir(
 
     let package_type = PackageType::Lib;
     let language_features = LanguageFeatures::default();
-    let target = user_profile.unwrap_or(pragma_profile.unwrap_or(Profile::AdaptiveRIF));
+    let target = user_profile.unwrap_or(pragma_profile.unwrap_or(Profile::Adaptive));
     let mut interpreter =
         create_interpreter_from_ast(package, source_map, target, language_features, package_type)
             .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
@@ -476,15 +476,8 @@ pub(crate) fn compile_stim_to_qir(
         |noise_config| unbind_noise_config(py, noise_config),
     );
 
-    let qir = stim_compiler::compile(source, &mut noise_config).map_err(|errors| {
-        StimError::new_err(
-            errors
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
-    })?;
+    let qir = stim_compiler::compile(source, &mut noise_config)
+        .map_err(|errors| StimError::new_err(stim_compiler::format_stim_errors(errors)))?;
     Ok((qir, bind_stim_noise_config(py, &noise_config)?))
 }
 
