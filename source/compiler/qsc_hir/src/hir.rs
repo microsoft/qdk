@@ -696,6 +696,8 @@ pub enum ExprKind {
     Index(Box<Expr>, Box<Expr>),
     /// A literal.
     Lit(Lit),
+    /// A parallel expression: `parallel a` or `parallel within n a`.
+    Parallel(Option<Box<Expr>>, Box<Expr>),
     /// A range: `start..step..end`, `start..end`, `start...`, `...end`, or `...`.
     Range(Option<Box<Expr>>, Option<Box<Expr>>, Option<Box<Expr>>),
     /// A repeat-until loop with an optional fixup: `repeat { ... } until a fixup { ... }`.
@@ -750,6 +752,7 @@ impl Display for ExprKind {
             ExprKind::If(cond, body, els) => display_if(indent, cond, body, els.as_deref())?,
             ExprKind::Index(array, index) => display_index(indent, array, index)?,
             ExprKind::Lit(lit) => write!(indent, "Lit: {lit}")?,
+            ExprKind::Parallel(limit, expr) => display_parallel(indent, limit.as_deref(), expr)?,
             ExprKind::Range(start, step, end) => {
                 display_range(indent, start.as_deref(), step.as_deref(), end.as_deref())?;
             }
@@ -934,6 +937,20 @@ fn display_index(mut indent: Indented<Formatter>, array: &Expr, index: &Expr) ->
     indent = set_indentation(indent, 1);
     write!(indent, "\n{array}")?;
     write!(indent, "\n{index}")?;
+    Ok(())
+}
+
+fn display_parallel(
+    mut indent: Indented<Formatter>,
+    limit: Option<&Expr>,
+    body: &Expr,
+) -> fmt::Result {
+    write!(indent, "Parallel:")?;
+    indent = set_indentation(indent, 1);
+    if let Some(l) = limit {
+        write!(indent, "\nLimit: {l}")?;
+    }
+    write!(indent, "\nBody: {body}")?;
     Ok(())
 }
 

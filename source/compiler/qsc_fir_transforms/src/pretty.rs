@@ -431,6 +431,12 @@ impl<'a> FirQSharpGen<'a> {
                 self.collect_expr_local_names(*cond, local_names);
                 self.collect_block_local_names(*block, local_names);
             }
+            ExprKind::Parallel(limit, body) => {
+                if let Some(l) = limit {
+                    self.collect_expr_local_names(*l, local_names);
+                }
+                self.collect_expr_local_names(*body, local_names);
+            }
         }
     }
 
@@ -743,6 +749,15 @@ impl<'a> FirQSharpGen<'a> {
                 self.write("while ");
                 self.emit_expr(*cond);
                 self.emit_block(*block);
+            }
+            ExprKind::Parallel(limit, body) => {
+                self.write("parallel ");
+                if let Some(l) = limit {
+                    self.write("within ");
+                    self.emit_expr(*l);
+                    self.write(" ");
+                }
+                self.emit_expr(*body);
             }
         }
     }

@@ -229,6 +229,22 @@ pub enum Error {
     #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicGeneric"))]
     UseOfDynamicGeneric(#[label] Span),
 
+    #[error("cannot use dynamic branching in parallel expression")]
+    #[diagnostic(help(
+        "using branching based on a measurement result in a parallel expression is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-branching-in-parallel-expr"))]
+    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicBranchingInParallelExpr"))]
+    UseOfDynamicBranchingInParallelExpr(#[label] Span),
+
+    #[error("cannot use dynamic limit for a parallel expression")]
+    #[diagnostic(help(
+        "using a dynamic limit for a parallel expression is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-limit-in-parallel-expr"))]
+    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicLimitInParallelExpr"))]
+    UseOfDynamicLimitInParallelExpr(#[label] Span),
+
     #[error("cannot use a dynamic qubit release")]
     #[diagnostic(help(
         "non-deterministic qubit release, often from patterns like dynamic early returns, requires the dynamic qubit allocation feature and is not supported by the configured target profile"
@@ -238,6 +254,7 @@ pub enum Error {
     UseOfDynamicQubitRelease(#[label] Span),
 }
 
+#[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn generate_errors_from_runtime_features(
     runtime_features: RuntimeFeatureFlags,
@@ -330,6 +347,12 @@ pub fn generate_errors_from_runtime_features(
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
         errors.push(Error::UseOfDynamicGeneric(span));
+    }
+    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicBranchingInParallelExpr) {
+        errors.push(Error::UseOfDynamicBranchingInParallelExpr(span));
+    }
+    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicLimitInParallelExpr) {
+        errors.push(Error::UseOfDynamicLimitInParallelExpr(span));
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicQubitRelease) {
         errors.push(Error::UseOfDynamicQubitRelease(span));

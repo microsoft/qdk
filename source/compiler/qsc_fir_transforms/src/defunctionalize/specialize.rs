@@ -270,6 +270,10 @@ fn refresh_stmt_types(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
 /// Recomputes the type of an expression after rewriting, propagating the
 /// refreshed type through nested blocks, conditionals, calls, and tuple
 /// constructors.
+///
+/// Rewrites `Expr.ty` in place and recursively refreshes all reachable
+/// sub-expressions.
+#[allow(clippy::too_many_lines)]
 fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
     let expr = package.get_expr(expr_id).clone();
     let new_ty = match expr.kind {
@@ -363,6 +367,15 @@ fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
                 let _ = refresh_expr_types(package, field.value);
             }
             expr.ty
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                // Limit expressions must always be integers, so refresh inner sub-expressions but leave
+                // the limit itself unchanged.
+                let _ = refresh_expr_types(package, limit);
+            }
+            // The type of a parallel expression is the same as the type of its body, so refresh that and return it.
+            refresh_expr_types(package, body)
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {
             expr.ty
@@ -1136,6 +1149,12 @@ fn transform_expr(
                 concrete,
                 assigner,
             );
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                refresh_expr_types(package, *limit);
+            }
+            refresh_expr_types(package, *body);
         }
         // When a closure captures the callable parameter being specialized,
         // propagate the specialization into the closure's target callable and
@@ -2088,6 +2107,26 @@ fn rewrite_closure_target_call_args_in_expr(
                 );
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                rewrite_closure_target_call_args_in_expr(
+                    package,
+                    limit,
+                    package_id,
+                    closure_target,
+                    capture_bindings,
+                    assigner,
+                );
+            }
+            rewrite_closure_target_call_args_in_expr(
+                package,
+                body,
+                package_id,
+                closure_target,
+                capture_bindings,
+                assigner,
+            );
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -2811,6 +2850,12 @@ fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
         ExprKind::While(cond, block) => {
             extract_expr(source, *cond, target);
             extract_block(source, *block, target);
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                extract_expr(source, *limit, target);
+            }
+            extract_expr(source, *body, target);
         }
         ExprKind::Closure(_, target_item) => {
             extract_item(source, *target_item, target);

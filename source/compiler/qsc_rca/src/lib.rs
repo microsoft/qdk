@@ -635,7 +635,7 @@ bitflags! {
     /// Runtime features represent anything a program can do that is more complex than executing quantum operations on
     /// statically allocated qubits and using constant arguments.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct RuntimeFeatureFlags: u32 {
+    pub struct RuntimeFeatureFlags: u64 {
         /// Use of a dynamic `Bool`.
         const UseOfDynamicBool = 1 << 0;
         /// Use of a dynamic `Int`.
@@ -698,6 +698,10 @@ bitflags! {
         const QubitAllocation = 1 << 29;
         /// A dynamic release of a qubit.
         const UseOfDynamicQubitRelease = 1 << 30;
+        /// Use of dynamic branching in a parallel expression.
+        const UseOfDynamicBranchingInParallelExpr = 1 << 31;
+        /// Use of a dynamic limit in a parallel expression.
+        const UseOfDynamicLimitInParallelExpr = 1 << 32;
     }
 }
 
@@ -716,6 +720,7 @@ impl RuntimeFeatureFlags {
     }
 
     /// Maps program constructs to target capabilities.
+    #[allow(clippy::too_many_lines)]
     #[must_use]
     pub fn target_capabilities(&self) -> TargetCapabilityFlags {
         let mut capabilities = TargetCapabilityFlags::empty();
@@ -813,6 +818,12 @@ impl RuntimeFeatureFlags {
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicQubitRelease) {
             capabilities |= TargetCapabilityFlags::DynamicQubitAllocation;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicBranchingInParallelExpr) {
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicLimitInParallelExpr) {
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         capabilities
     }

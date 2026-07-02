@@ -2379,6 +2379,25 @@ fn cross_package_generic_function_monomorphized() {
 }
 
 #[test]
+fn mono_generic_inside_parallel() {
+    let source = indoc! {r#"
+        operation Identity<'T>(x : 'T) : 'T { x }
+        operation Main() : Int {
+            parallel {
+                Identity(42)
+            }
+        }
+    "#};
+    check(
+        source,
+        &expect![[r#"
+            Identity: generics=1, input=Param<0>, output=Param<0>
+            Identity<Int>: generics=0, input=Int, output=Int
+            Main: generics=0, input=Unit, output=Int"#]],
+    );
+}
+
+#[test]
 fn cross_package_generic_specialization_lives_in_library_package() {
     // A generic library callable instantiated from the user package is
     // monomorphized in place into the library (owning) package rather than
@@ -2426,6 +2445,79 @@ fn cross_package_generic_specialization_lives_in_library_package() {
     assert!(
         lib_render.contains("Identity<Int>"),
         "library package should contain the monomorphized Identity specialization:\n{lib_render}"
+    );
+}
+
+#[test]
+fn mono_generic_inside_parallel_within_limit() {
+    let source = indoc! {r#"
+        operation Identity<'T>(x : 'T) : 'T { x }
+        operation Main() : Int {
+            parallel within 2 {
+                Identity(42)
+            }
+        }
+    "#};
+    check(
+        source,
+        &expect![[r#"
+            Identity: generics=1, input=Param<0>, output=Param<0>
+            Identity<Int>: generics=0, input=Int, output=Int
+            Main: generics=0, input=Unit, output=Int"#]],
+    );
+}
+
+#[test]
+fn mono_generic_call_as_parallel_within_limit_expr() {
+    // A generic callable used in the limit position of `parallel within`
+    // should be monomorphized correctly.
+    let source = indoc! {r#"
+        function ToInt<'T>(x : 'T) : Int { 4 }
+        operation Main() : Int {
+            parallel within ToInt(true) {
+                42
+            }
+        }
+    "#};
+    check(
+        source,
+        &expect![[r#"
+            Main: generics=0, input=Unit, output=Int
+            ToInt: generics=1, input=Param<0>, output=Int
+            ToInt<Bool>: generics=0, input=Bool, output=Int"#]],
+    );
+    check_before_after(
+        source,
+        &expect![[r#"
+            BEFORE:
+            function ToInt(x : 'T0) : Int {
+                4
+            }
+            operation Main() : Int {
+                parallel within ToInt < Bool > (true) {
+                    42
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            function ToInt(x : 'T0) : Int {
+                4
+            }
+            operation Main() : Int {
+                parallel within ToInt_Bool_(true) {
+                    42
+                }
+
+            }
+            function ToInt_Bool_(x : Bool) : Int {
+                4
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

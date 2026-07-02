@@ -115,6 +115,7 @@ bitflags! {
         const Open = keyword_bit(Keyword::Open);
         const Operation = keyword_bit(Keyword::Operation);
         const Or = keyword_bit(Keyword::Or);
+        const Parallel = keyword_bit(Keyword::Parallel);
         const PauliI = keyword_bit(Keyword::PauliI);
         const PauliX = keyword_bit(Keyword::PauliX);
         const PauliY = keyword_bit(Keyword::PauliY);

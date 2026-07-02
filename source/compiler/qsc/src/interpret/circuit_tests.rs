@@ -2137,3 +2137,232 @@ mod debugger_stepping {
         .assert_eq(&circs);
     }
 }
+
+// Without parallel, released qubits have their IDs recycled on subsequent allocations.
+// The inner block releases q1/q2, so q3/q4 reuse the same wires (q_0, q_1).
+#[test]
+fn parallel_baseline_qubit_ids_recycled_without_parallel() {
+    let circ = circuit_without_groups(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    { use q1 = Qubit(); H(q1); use q2 = Qubit(); H(q2); }
+                    use q3 = Qubit();
+                    H(q3);
+                    use q4 = Qubit();
+                    H(q4);
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:4:22, test.qs:5:20 ─ H@test.qs:4:40 ─── H@test.qs:6:20 ──
+        q_1@test.qs:4:47, test.qs:7:20 ─ H@test.qs:4:65 ─── H@test.qs:8:20 ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+// Inside a parallel expression all releases are deferred, so q3/q4 get fresh wires
+// instead of reusing q_0/q_1. This mirrors the baseline test with `parallel` added.
+#[test]
+fn parallel_defers_qubit_release() {
+    let circ = circuit_without_groups(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel {
+                        { use q1 = Qubit(); H(q1); use q2 = Qubit(); H(q2); }
+                        use q3 = Qubit();
+                        H(q3);
+                        use q4 = Qubit();
+                        H(q4);
+                    }
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:5:26 ─ H@test.qs:5:44 ──
+        q_1@test.qs:5:51 ─ H@test.qs:5:69 ──
+        q_2@test.qs:6:24 ─ H@test.qs:7:24 ──
+        q_3@test.qs:8:24 ─ H@test.qs:9:24 ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+// After a parallel block ends its deferred releases become available, so a second
+// parallel block reuses the same qubit wires.
+#[test]
+fn parallel_releases_available_after_block_ends() {
+    let circ = circuit_without_groups(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel {
+                        use q = Qubit();
+                        H(q);
+                    }
+                    parallel {
+                        use q = Qubit();
+                        X(q);
+                    }
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:5:24, test.qs:9:24 ─ H@test.qs:6:24 ─── X@test.qs:10:24 ─
+    "#]]
+    .assert_eq(&circ);
+}
+
+// In nested parallel expressions, inner block qubits flow to the outer layer on removal
+// so the outer block allocates fresh wires even after the inner block ends.
+#[test]
+fn parallel_nested_defers_inner_releases_to_outer() {
+    let circ = circuit_without_groups(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel {
+                        use outer = Qubit();
+                        H(outer);
+                        parallel {
+                            use inner1 = Qubit();
+                            H(inner1);
+                            use inner2 = Qubit();
+                            H(inner2);
+                        }
+                        use outer2 = Qubit();
+                        H(outer2);
+                    }
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:5:24   ─ H@test.qs:6:24 ──
+        q_1@test.qs:8:28   ─ H@test.qs:9:28 ──
+        q_2@test.qs:10:28  ─ H@test.qs:11:28 ─
+        q_3@test.qs:13:24  ─ H@test.qs:14:24 ─
+    "#]]
+    .assert_eq(&circ);
+}
+
+// parallel within N: once N qubits are deferred the pool replenishes, so later
+// allocations reuse existing wires rather than creating new ones.
+#[test]
+fn parallel_within_reuses_wires_after_limit() {
+    let circ = circuit_without_groups(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel within 2 {
+                        { use q1 = Qubit(); H(q1); }
+                        { use q2 = Qubit(); H(q2); }
+                        { use q3 = Qubit(); H(q3); }
+                        { use q4 = Qubit(); H(q4); }
+                    }
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:5:26 ─ H@test.qs:5:44 ─── H@test.qs:7:44 ──
+        q_1@test.qs:6:26 ─ H@test.qs:6:44 ─── H@test.qs:8:44 ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+// Outer `parallel within 6` with inner `parallel within 2`. The inner limit reuses
+// wires within each iteration. Once the outer deferred count reaches 6 (iteration 3),
+// the outer layer replenishes and reuses its wires too.
+#[test]
+fn parallel_within_nested_defers_through_outer_limit() {
+    let circ = circuit_without_groups(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel within 6 {
+                        for _ in 0..2 {
+                            { use q0 = Qubit(); H(q0); }
+                            parallel within 2 {
+                                { use q1 = Qubit(); H(q1); }
+                                { use q2 = Qubit(); H(q2); }
+                                { use q3 = Qubit(); H(q3); }
+                                { use q4 = Qubit(); H(q4); }
+                            }
+                        }
+                    }
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:6:30 ─ H@test.qs:6:48 ─── H@test.qs:6:48 ────────────────────────────────────────
+        q_1@test.qs:8:34 ─ H@test.qs:8:52 ─── H@test.qs:10:52 ── H@test.qs:8:52 ─── H@test.qs:10:52 ─
+        q_2@test.qs:9:34 ─ H@test.qs:9:52 ─── H@test.qs:11:52 ── H@test.qs:9:52 ─── H@test.qs:11:52 ─
+        q_3@test.qs:6:30 ─ H@test.qs:6:48 ───────────────────────────────────────────────────────────
+        q_4@test.qs:8:34 ─ H@test.qs:8:52 ─── H@test.qs:10:52 ───────────────────────────────────────
+        q_5@test.qs:9:34 ─ H@test.qs:9:52 ─── H@test.qs:11:52 ───────────────────────────────────────
+    "#]].assert_eq(&circ);
+}
+
+// Same structure but the outer parallel has no limit. The inner `parallel within 2`
+// still reuses within each iteration, but the outer unlimited layer never replenishes,
+// so iteration 3 allocates fresh wires (q_6/q_7/q_8) instead of reusing q_0/q_1/q_2.
+#[test]
+fn parallel_nested_unlimited_outer_defers_all() {
+    let circ = circuit_without_groups(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel {
+                        for _ in 0..2 {
+                            { use q0 = Qubit(); H(q0); }
+                            parallel within 2 {
+                                { use q1 = Qubit(); H(q1); }
+                                { use q2 = Qubit(); H(q2); }
+                                { use q3 = Qubit(); H(q3); }
+                                { use q4 = Qubit(); H(q4); }
+                            }
+                        }
+                    }
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:6:30 ─ H@test.qs:6:48 ─────────────────────
+        q_1@test.qs:8:34 ─ H@test.qs:8:52 ─── H@test.qs:10:52 ─
+        q_2@test.qs:9:34 ─ H@test.qs:9:52 ─── H@test.qs:11:52 ─
+        q_3@test.qs:6:30 ─ H@test.qs:6:48 ─────────────────────
+        q_4@test.qs:8:34 ─ H@test.qs:8:52 ─── H@test.qs:10:52 ─
+        q_5@test.qs:9:34 ─ H@test.qs:9:52 ─── H@test.qs:11:52 ─
+        q_6@test.qs:6:30 ─ H@test.qs:6:48 ─────────────────────
+        q_7@test.qs:8:34 ─ H@test.qs:8:52 ─── H@test.qs:10:52 ─
+        q_8@test.qs:9:34 ─ H@test.qs:9:52 ─── H@test.qs:11:52 ─
+    "#]]
+    .assert_eq(&circ);
+}

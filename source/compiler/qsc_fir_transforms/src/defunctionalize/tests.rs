@@ -557,6 +557,171 @@ fn empty_entrypoint_remains_unchanged() {
 }
 
 #[test]
+fn closure_inside_parallel_defunctionalizes() {
+    // A closure passed to a HOF inside a parallel block should be defunctionalized
+    // the same way it would be outside a parallel block.
+    let source = indoc::indoc! {"
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        @EntryPoint()
+        operation Main() : Int {
+            parallel {
+                Apply(x -> x + 1, 5)
+            }
+        }
+    "};
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            function Apply(f : (Int -> Int), x : Int) : Int {
+                f(x)
+            }
+            operation Main() : Int {
+                parallel {
+                    Apply(/ * closure item = 3 captures = [] * / _lambda_3, 5)
+                }
+
+            }
+            function _lambda_3(x : Int, ) : Int {
+                x + 1
+            }
+            // entry
+            Main()
+
+            AFTER:
+            function Apply(f : (Int -> Int), x : Int) : Int {
+                f(x)
+            }
+            operation Main() : Int {
+                parallel {
+                    Apply_closure_(5)
+                }
+
+            }
+            function _lambda_3(x : Int, ) : Int {
+                x + 1
+            }
+            function Apply_closure_(x : Int) : Int {
+                _lambda_3(x, )
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn closure_inside_parallel_within_limit_defunctionalizes() {
+    // A closure passed to a HOF inside a parallel-within-limit block should also
+    // be defunctionalized normally.
+    let source = indoc::indoc! {"
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        @EntryPoint()
+        operation Main() : Int {
+            parallel within 4 {
+                Apply(x -> x + 1, 5)
+            }
+        }
+    "};
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            function Apply(f : (Int -> Int), x : Int) : Int {
+                f(x)
+            }
+            operation Main() : Int {
+                parallel within 4 {
+                    Apply(/ * closure item = 3 captures = [] * / _lambda_3, 5)
+                }
+
+            }
+            function _lambda_3(x : Int, ) : Int {
+                x + 1
+            }
+            // entry
+            Main()
+
+            AFTER:
+            function Apply(f : (Int -> Int), x : Int) : Int {
+                f(x)
+            }
+            operation Main() : Int {
+                parallel within 4 {
+                    Apply_closure_(5)
+                }
+
+            }
+            function _lambda_3(x : Int, ) : Int {
+                x + 1
+            }
+            function Apply_closure_(x : Int) : Int {
+                _lambda_3(x, )
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn closure_inside_parallel_within_limit_expr_defunctionalizes() {
+    // A closure passed to a HOF inside the *limit* expression of a parallel-within
+    // should be defunctionalized the same way as in the body.
+    let source = indoc::indoc! {"
+        function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+        @EntryPoint()
+        operation Main() : Int {
+            parallel within Apply(x -> x + 1, 3) {
+                42
+            }
+        }
+    "};
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            function Apply(f : (Int -> Int), x : Int) : Int {
+                f(x)
+            }
+            operation Main() : Int {
+                parallel within Apply(/ * closure item = 3 captures = [] * / _lambda_3, 3) {
+                    42
+                }
+
+            }
+            function _lambda_3(x : Int, ) : Int {
+                x + 1
+            }
+            // entry
+            Main()
+
+            AFTER:
+            function Apply(f : (Int -> Int), x : Int) : Int {
+                f(x)
+            }
+            operation Main() : Int {
+                parallel within Apply_closure_(3) {
+                    42
+                }
+
+            }
+            function _lambda_3(x : Int, ) : Int {
+                x + 1
+            }
+            function Apply_closure_(x : Int) : Int {
+                _lambda_3(x, )
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
 fn test_helpers_surface_defunctionalization_errors() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }

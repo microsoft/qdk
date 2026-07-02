@@ -2764,6 +2764,19 @@ fn analyze_expr_flow(
                 }
             }
         }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(l) = limit {
+                analyze_expr_flow(pkg, store, *l, state, package_id, recorder.as_deref_mut());
+            }
+            analyze_expr_flow(
+                pkg,
+                store,
+                *expr,
+                state,
+                package_id,
+                recorder.as_deref_mut(),
+            );
+        }
         // Leaves: no nested expressions to analyze.
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }

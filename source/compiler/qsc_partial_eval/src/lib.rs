@@ -926,6 +926,7 @@ impl<'a> PartialEvaluator<'a> {
         bin_op: BinOp,
         lhs_eval_var: Var,
         rhs_expr_id: ExprId,
+        bin_op_expr_span: PackageSpan,
     ) -> Result<EvalControlFlow, Error> {
         let result_var = match bin_op {
             BinOp::Eq | BinOp::Neq => {
@@ -934,12 +935,12 @@ impl<'a> PartialEvaluator<'a> {
             BinOp::AndL => {
                 // Logical AND Boolean operations short-circuit on false.
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
-                self.eval_logical_bool_bin_op(false, lhs_rir_var, rhs_expr_id)?
+                self.eval_logical_bool_bin_op(false, lhs_rir_var, rhs_expr_id, bin_op_expr_span)?
             }
             BinOp::OrL => {
                 // Logical OR Boolean operations short-circuit on true.
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
-                self.eval_logical_bool_bin_op(true, lhs_rir_var, rhs_expr_id)?
+                self.eval_logical_bool_bin_op(true, lhs_rir_var, rhs_expr_id, bin_op_expr_span)?
             }
             _ => panic!("invalid Boolean operator {bin_op:?}"),
         };
@@ -997,7 +998,10 @@ impl<'a> PartialEvaluator<'a> {
         short_circuit_on_true: bool,
         lhs_rir_var: rir::Variable,
         rhs_expr_id: ExprId,
+        bin_op_expr_span: PackageSpan,
     ) -> Result<Var, Error> {
+        self.fail_if_in_parallel_expr(bin_op_expr_span)?;
+
         // Create the variable where we will store the result of the Boolean operation and store a default value in it,
         // which will only be changed inside the conditional block where the RHS expression is evaluated.
         let result_var_id = self.resource_manager.next_var();
@@ -1189,9 +1193,12 @@ impl<'a> PartialEvaluator<'a> {
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<EvalControlFlow, Error> {
         match lhs_eval_var.ty {
-            VarTy::Boolean => {
-                self.eval_bin_op_with_lhs_dynamic_bool_operand(bin_op, lhs_eval_var, rhs_expr_id)
-            }
+            VarTy::Boolean => self.eval_bin_op_with_lhs_dynamic_bool_operand(
+                bin_op,
+                lhs_eval_var,
+                rhs_expr_id,
+                bin_op_expr_span,
+            ),
             VarTy::Integer => {
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
                 let lhs_operand = Operand::Variable(lhs_rir_var);
@@ -1344,6 +1351,9 @@ impl<'a> PartialEvaluator<'a> {
                 "literal should have been classically evaluated".to_string(),
                 expr_package_span,
             )),
+            ExprKind::Parallel(limit_id, expr_id) => {
+                self.eval_expr_parallel(*expr_id, limit_id.as_ref())
+            }
             ExprKind::Range(start, step, end) => {
                 self.eval_expr_range(*start, *step, *end, expr_package_span)
             }
@@ -2517,6 +2527,7 @@ impl<'a> PartialEvaluator<'a> {
         // At this point the condition value is not classical, so we need to generate a branching instruction.
         // First, we pop the current block node and generate a new one which the new branches will jump to when their
         // instructions end.
+        self.fail_if_in_parallel_expr(self.get_expr_package_span(if_expr_id))?;
         let current_block_node = self.eval_context.pop_block_node();
         let continuation_block_node_id = self.create_program_block();
         let continuation_block_node = BlockNode {
@@ -3059,6 +3070,8 @@ impl<'a> PartialEvaluator<'a> {
             let _ = self.eval_context.pop_block_node();
             return Ok(EvalControlFlow::Continue(Value::unit()));
         }
+
+        self.fail_if_in_parallel_expr(self.get_expr_package_span(loop_expr_id))?;
 
         // Otherwise, branch to either the body block or the continuation block.
         let body_block_node_id = self.create_program_block();
@@ -3774,7 +3787,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             _ => {
                 return Err(Error::Unimplemented(
-                    "release release of dynamic qubit variable".to_string(),
+                    "release of dynamic qubit variable".to_string(),
                     arg_span,
                 ));
             }
@@ -4708,6 +4721,49 @@ impl<'a> PartialEvaluator<'a> {
         })?;
 
         Ok(Value::Var(eval_variable))
+    }
+
+    fn eval_expr_parallel(
+        &mut self,
+        expr_id: ExprId,
+        limit_id: Option<&ExprId>,
+    ) -> Result<EvalControlFlow, Error> {
+        let limit = if let Some(&limit_id) = limit_id {
+            let limit_control_flow = self.try_eval_expr(limit_id)?;
+            let EvalControlFlow::Continue(limit_value) = limit_control_flow else {
+                return Err(Error::Unexpected(
+                    "embedded return in parallel limit expression".to_string(),
+                    self.get_expr_package_span(limit_id),
+                ));
+            };
+            let limit = limit_value.unwrap_int();
+            if limit < 0 {
+                return Err(EvalError::InvalidNegativeInt(
+                    limit,
+                    self.get_expr_package_span(limit_id),
+                )
+                .into());
+            }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Some(limit as usize)
+        } else {
+            None
+        };
+
+        self.resource_manager.start_delayed_release_layer(limit);
+        let result = self.try_eval_expr(expr_id)?;
+        self.resource_manager.end_delayed_release_layer();
+        Ok(result)
+    }
+
+    fn fail_if_in_parallel_expr(&self, span: PackageSpan) -> Result<(), Error> {
+        if self.resource_manager.is_delaying_release() {
+            return Err(Error::Unimplemented(
+                "dynamic branching within parallel expression".to_string(),
+                span,
+            ));
+        }
+        Ok(())
     }
 
     fn eval_expr_range(

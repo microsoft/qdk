@@ -152,7 +152,7 @@ impl QubitRef {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct Qubit(pub usize);
 
 #[derive(Clone, Copy, Debug, PartialEq)]

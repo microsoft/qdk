@@ -101,7 +101,7 @@ pub(super) fn is_stmt_final(kind: &ExprKind) -> bool {
             | ExprKind::If(..)
             | ExprKind::Repeat(..)
             | ExprKind::While(..)
-    )
+    ) || matches!(kind, ExprKind::Parallel(_, expr) if is_stmt_final(&expr.kind))
 }
 
 fn expr_op(s: &mut ParserContext, context: OpContext) -> Result<Box<Expr>> {
@@ -174,6 +174,7 @@ fn expr_op(s: &mut ParserContext, context: OpContext) -> Result<Box<Expr>> {
     Ok(lhs)
 }
 
+#[allow(clippy::too_many_lines)]
 fn expr_base(s: &mut ParserContext) -> Result<Box<Expr>> {
     let lo = s.peek().span.lo;
     let kind = if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
@@ -229,6 +230,15 @@ fn expr_base(s: &mut ParserContext) -> Result<Box<Expr>> {
         Ok(Box::new(ExprKind::Repeat(body, cond, fixup)))
     } else if token(s, TokenKind::Keyword(Keyword::Return)).is_ok() {
         Ok(Box::new(ExprKind::Return(expr(s)?)))
+    } else if token(s, TokenKind::Keyword(Keyword::Parallel)).is_ok() {
+        if s.peek().kind == TokenKind::Keyword(Keyword::Within) {
+            s.advance();
+            let limit = expr(s)?;
+            let body = expr(s)?;
+            Ok(Box::new(ExprKind::Parallel(Some(limit), body)))
+        } else {
+            Ok(Box::new(ExprKind::Parallel(None, expr(s)?)))
+        }
     } else if !s.contains_language_feature(LanguageFeatures::V2PreviewSyntax)
         && token(s, TokenKind::Keyword(Keyword::Set)).is_ok()
     {
