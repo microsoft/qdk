@@ -2,13 +2,17 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Encoding, LanguageService, UpdateHandler,
-    protocol::{DiagnosticUpdate, ErrorKind, TestCallables},
+    Encoding, LanguageService, Update, UpdateHandler,
+    protocol::{DiagnosticUpdate, ErrorKind, TestCallables, WorkspaceConfigurationUpdate},
+    push_update,
 };
 use expect_test::{Expect, expect};
 use miette::Diagnostic;
 use qsc::{compile, line_column::Position, project};
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 use test_fs::{FsNode, TestProjectHost, dir, file};
 
 pub(crate) mod test_fs;
@@ -365,6 +369,158 @@ fn assert_compilation(ls: &LanguageService, uri: &str, expected: &Expect) {
         .get_compilation(uri)
         .expect("compilation should exist");
     expected.assert_debug_eq(&compilation.user_unit().sources);
+}
+
+/// Drives the real `run()` loop to verify that updates delivered by the host while an
+/// update is in flight get coalesced into a single compilation.
+///
+/// The host event loop is simulated by the yield closure: it pushes updates on the
+/// iteration where a real host would have delivered queued keystrokes. No timers are
+/// involved, so this is deterministic.
+#[tokio::test]
+async fn run_coalesces_updates_delivered_while_yielding() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
+
+    // Unterminated namespace, so every version reports a diagnostic and is therefore
+    // observable in `received_errors`.
+    ls.update_document("foo.qs", 1, "namespace Foo { ", "qsharp");
+
+    let ls = RefCell::new(ls);
+    let yields = Cell::new(0);
+    let yield_to_host = || {
+        match yields.replace(yields.get() + 1) {
+            0 => {
+                // Two more keystrokes land while the first update is being handled.
+                ls.borrow_mut()
+                    .update_document("foo.qs", 2, "namespace Foo { a", "qsharp");
+                ls.borrow_mut()
+                    .update_document("foo.qs", 3, "namespace Foo { ab", "qsharp");
+            }
+            // Nothing further arrives, so the loop should stop yielding. Closing the
+            // channel is what lets `run()` return instead of waiting forever.
+            _ => ls.borrow_mut().stop_updates(),
+        }
+        std::future::ready(())
+    };
+
+    worker.run(yield_to_host).await;
+
+    let applied: Vec<Option<u32>> = received_errors
+        .borrow()
+        .iter()
+        .map(|(_, version, _, _)| *version)
+        .collect();
+
+    // All three collapse into one compilation. Version 1 is included even though it was
+    // dequeued first, because yielding happens before it is applied, so there is nothing
+    // in flight that has to be finished. The diagnostics that do get published describe
+    // the document as it actually stands.
+    assert_eq!(applied, vec![Some(3)]);
+
+    // One yield to pick up the backlog, one to discover there is nothing left.
+    assert_eq!(yields.get(), 2);
+}
+
+/// Coalescing must not drop updates that aren't redundant with each other.
+#[tokio::test]
+async fn run_applies_updates_to_distinct_documents() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
+
+    ls.update_document("foo.qs", 1, "namespace Foo { ", "qsharp");
+
+    let ls = RefCell::new(ls);
+    let yields = Cell::new(0);
+    let yield_to_host = || {
+        match yields.replace(yields.get() + 1) {
+            0 => ls
+                .borrow_mut()
+                .update_document("bar.qs", 1, "namespace Bar { ", "qsharp"),
+            _ => ls.borrow_mut().stop_updates(),
+        }
+        std::future::ready(())
+    };
+
+    worker.run(yield_to_host).await;
+
+    // Diagnostics get republished for every compilation on each update, so compare the
+    // set of documents that were compiled rather than the exact publish sequence.
+    let mut applied: Vec<String> = received_errors
+        .borrow()
+        .iter()
+        .map(|(uri, _, _, _)| uri.clone())
+        .collect();
+    applied.sort();
+    applied.dedup();
+
+    assert_eq!(applied, ["bar.qs", "foo.qs"]);
+}
+
+#[test]
+fn push_update_merges_consecutive_updates_to_same_document() {
+    let mut updates = Vec::new();
+    push_update(&mut updates, document_update("foo.qs", 1));
+    push_update(&mut updates, document_update("foo.qs", 2));
+    push_update(&mut updates, document_update("foo.qs", 3));
+
+    assert_eq!(update_summaries(&updates), ["Document(foo.qs, 3)"]);
+}
+
+#[test]
+fn push_update_keeps_updates_to_different_documents() {
+    let mut updates = Vec::new();
+    push_update(&mut updates, document_update("foo.qs", 1));
+    push_update(&mut updates, document_update("bar.qs", 1));
+    push_update(&mut updates, document_update("foo.qs", 2));
+
+    assert_eq!(
+        update_summaries(&updates),
+        [
+            "Document(foo.qs, 1)",
+            "Document(bar.qs, 1)",
+            "Document(foo.qs, 2)"
+        ]
+    );
+}
+
+#[test]
+fn push_update_does_not_merge_across_a_configuration_update() {
+    let mut updates = Vec::new();
+    push_update(&mut updates, document_update("foo.qs", 1));
+    push_update(
+        &mut updates,
+        Update::Configuration {
+            changed: WorkspaceConfigurationUpdate::default(),
+        },
+    );
+    push_update(&mut updates, document_update("foo.qs", 2));
+
+    assert_eq!(
+        update_summaries(&updates),
+        [
+            "Document(foo.qs, 1)",
+            "Configuration",
+            "Document(foo.qs, 2)"
+        ]
+    );
+}
+
+fn document_update(uri: &str, version: u32) -> Update {
+    Update::Document {
+        uri: uri.into(),
+        version,
+        text: "namespace Foo { }".into(),
+        language_id: "qsharp".into(),
+    }
+}
+
+fn update_summaries(updates: &[Update]) -> Vec<String> {
+    updates.iter().map(Update::summary).collect()
 }
 
 type ErrorInfo = (

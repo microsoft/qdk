@@ -17,6 +17,9 @@ pub struct WorkspaceConfigurationUpdate {
     pub language_features: Option<LanguageFeatures>,
     pub lints_config: Option<Vec<LintOrGroupConfig>>,
     pub dev_diagnostics: Option<bool>,
+    /// Test-only. Artificially slows down each document update to make the update
+    /// loop's coalescing behavior observable in a release build.
+    pub simulated_compile_delay_ms: Option<u32>,
 }
 
 #[derive(Clone, Debug, Diagnostic, Error)]

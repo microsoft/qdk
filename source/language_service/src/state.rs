@@ -70,6 +70,8 @@ struct Configuration {
     pub lints_config: Vec<LintOrGroupConfig>,
     /// Enables non-user-facing developer diagnostics.
     pub dev_diagnostics: bool,
+    /// Test-only. See [`crate::typing_simulation`].
+    pub simulated_compile_delay_ms: u32,
 }
 
 impl Default for Configuration {
@@ -80,6 +82,7 @@ impl Default for Configuration {
             language_features: LanguageFeatures::default(),
             lints_config: Vec::default(),
             dev_diagnostics: false,
+            simulated_compile_delay_ms: 0,
         }
     }
 }
@@ -190,6 +193,8 @@ impl<'a> CompilationStateUpdater<'a> {
         }
 
         self.insert_buffer_aware_compilation(project);
+
+        crate::typing_simulation::busy_wait(self.configuration.simulated_compile_delay_ms);
 
         self.publish_diagnostics_and_test_callables();
     }
@@ -585,6 +590,11 @@ impl<'a> CompilationStateUpdater<'a> {
             self.configuration.dev_diagnostics = dev_diagnostics;
         }
 
+        // Doesn't affect compilation output, so never triggers a recompile.
+        if let Some(delay_ms) = configuration.simulated_compile_delay_ms {
+            self.configuration.simulated_compile_delay_ms = delay_ms;
+        }
+
         // Possible optimization: some projects will have overrides for these configurations,
         // so workspace updates won't impact them. We could exclude those projects
         // from recompilation, but we don't right now.
@@ -677,6 +687,12 @@ fn is_openqasm_file(language_id: &str) -> bool {
 }
 
 impl CompilationState {
+    /// The version of `uri` that the client last told us about and that has since been
+    /// applied. `None` if we haven't processed any update for the document yet.
+    pub(crate) fn get_open_document_version(&self, uri: &str) -> Option<u32> {
+        self.open_documents.get(uri).map(|doc| doc.version)
+    }
+
     pub(crate) fn get_compilation(&self, uri: &str) -> Option<&Compilation> {
         let compilation_uri = &self
             .open_documents
@@ -794,5 +810,6 @@ fn merge_configurations(
             .unwrap_or(workspace_scope.language_features),
         lints_config: merged_lints,
         dev_diagnostics: workspace_scope.dev_diagnostics,
+        simulated_compile_delay_ms: workspace_scope.simulated_compile_delay_ms,
     }
 }

@@ -47,6 +47,26 @@ export type LanguageServiceEvent =
   | LanguageServiceDiagnosticEvent
   | LanguageServiceTestCallablesEvent;
 
+/**
+ * A completion list, plus whether the caller should ask again as the user keeps typing.
+ *
+ * VS Code filters a complete list client-side and won't re-request it, so this has to be
+ * set whenever the list isn't the real answer for the requested document version.
+ */
+export type CompletionListResult = ICompletionList & {
+  isIncomplete?: boolean;
+};
+
+/**
+ * How long to wait for a completion request's document version to be compiled.
+ *
+ * This is a liveness backstop, not a tuning knob. A version that gets coalesced away is
+ * reported as superseded immediately, so hitting this timeout means the update is
+ * genuinely stuck, such as behind a slow project load. Expiring returns an incomplete
+ * list, so VS Code asks again rather than showing a stale one.
+ */
+const completionWaitTimeoutMs = 2000;
+
 // These need to be async/promise results for when communicating across a WebWorker, however
 // for running the compiler in the same thread the result will be synchronous (a resolved promise).
 export interface ILanguageService {
@@ -72,8 +92,9 @@ export interface ILanguageService {
   getCodeActions(documentUri: string, range: IRange): Promise<ICodeAction[]>;
   getCompletions(
     documentUri: string,
+    version: number,
     position: IPosition,
-  ): Promise<ICompletionList>;
+  ): Promise<CompletionListResult>;
   getFormatChanges(documentUri: string): Promise<ITextEdit[]>;
   getHover(
     documentUri: string,
@@ -121,6 +142,38 @@ export const qsharpGithubUriScheme = "qsharp-github-source";
 
 export type ILanguageServiceWorker = ILanguageService & IServiceProxy;
 
+/**
+ * Builds a function that yields to the host's macrotask queue.
+ *
+ * The update loop calls this to let the host deliver input events that piled up while
+ * a compilation was blocking the event loop, so they can be coalesced instead of
+ * processed one at a time.
+ *
+ * The primitive matters. `setImmediate` runs in Node's check phase, after the poll
+ * phase where the extension host reads queued IPC messages. `MessageChannel` posts an
+ * unclamped task that queues behind already-posted message events. A plain
+ * `setTimeout(0)` is neither: it runs in the timers phase, which can precede poll, and
+ * browsers clamp it to 4ms once nested. It is only a last resort.
+ */
+export function createHostYield(): () => Promise<void> {
+  if (typeof setImmediate === "function") {
+    return () => new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  if (typeof MessageChannel === "function") {
+    const channel = new MessageChannel();
+    const pending: (() => void)[] = [];
+    channel.port1.onmessage = () => pending.shift()?.();
+    return () =>
+      new Promise<void>((resolve) => {
+        pending.push(resolve);
+        channel.port2.postMessage(null);
+      });
+  }
+
+  return () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 export class QSharpLanguageService implements ILanguageService {
   private languageService: LanguageService;
   private eventHandler =
@@ -145,6 +198,7 @@ export class QSharpLanguageService implements ILanguageService {
       this.onDiagnostics.bind(this),
       this.onTestCallables.bind(this),
       host,
+      createHostYield(),
     );
   }
 
@@ -192,15 +246,26 @@ export class QSharpLanguageService implements ILanguageService {
 
   async getCompletions(
     documentUri: string,
+    version: number,
     position: IPosition,
-  ): Promise<ICompletionList> {
-    // Tiny delay to let the compilation catch up before we invoke
-    // the completion provider.
-    // This becomes important when the completion list is triggered
-    // during typing. If the last character typed is significant to
-    // the completion (e.g. in `Foo.` completions)
-    // it's critical that the completion provider "sees" this character.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+  ): Promise<CompletionListResult> {
+    // The position was computed against this exact version of the document, so a later
+    // one is not an acceptable substitute: it may put the position somewhere else
+    // entirely. This matters most when the last character typed is significant to the
+    // completion, as in `Foo.`.
+    const status = await this.languageService.wait_for_document_version(
+      documentUri,
+      version,
+      completionWaitTimeoutMs,
+    );
+
+    if (status !== "ready") {
+      // Can't answer for this version, and answering for another would be wrong.
+      // Reporting the list as incomplete makes VS Code ask again on the next keystroke,
+      // and that request will be for a version that does get compiled.
+      return { items: [], isIncomplete: true };
+    }
+
     return this.languageService.get_completions(documentUri, position);
   }
 

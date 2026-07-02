@@ -20,9 +20,11 @@ mod state;
 mod test_utils;
 #[cfg(test)]
 mod tests;
+pub mod typing_simulation;
 
 use compilation::Compilation;
 use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};
+use futures::channel::oneshot;
 use futures_util::StreamExt;
 use log::{trace, warn};
 use protocol::{
@@ -48,6 +50,19 @@ pub struct LanguageService {
     state: Rc<RefCell<CompilationState>>,
     /// Channel for compilation state update messages coming from the client.
     state_updater: Option<UnboundedSender<Update>>,
+    /// Callers parked in [`LanguageService::wait_for_document_version`]. Woken after
+    /// every applied batch of updates, at which point they re-inspect the state.
+    version_waiters: Rc<RefCell<Vec<oneshot::Sender<()>>>>,
+}
+
+/// The outcome of waiting for a specific version of a document to be compiled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VersionWait {
+    /// The compilation state reflects exactly the requested version.
+    Ready,
+    /// The document has already moved past the requested version. That version was
+    /// coalesced away and will never be compiled, so it can no longer be answered for.
+    Superseded,
 }
 
 impl LanguageService {
@@ -57,6 +72,7 @@ impl LanguageService {
             position_encoding,
             state: Rc::default(),
             state_updater: Option::default(),
+            version_waiters: Rc::default(),
         }
     }
 
@@ -64,7 +80,7 @@ impl LanguageService {
     /// to the update channel and apply them, sequentially, to the compilation state.
     ///
     /// This method *must* be called for the language service to do any work.
-    /// The caller needs to start the handler by calling `.run()` .
+    /// The caller needs to start the handler by calling `.run()` with a yield function.
     pub fn create_update_handler<'a>(
         &mut self,
         diagnostics_receiver: impl Fn(DiagnosticUpdate) + 'a,
@@ -84,6 +100,7 @@ impl LanguageService {
                 self.position_encoding,
             ),
             recv,
+            version_waiters: self.version_waiters.clone(),
         };
         self.state_updater = Some(send);
         handler
@@ -181,6 +198,49 @@ impl LanguageService {
         self.send_update(Update::CloseNotebookDocument {
             notebook_uri: notebook_uri.into(),
         });
+    }
+
+    /// Waits until the compilation state reflects exactly `version` of `uri`.
+    ///
+    /// The match has to be exact. A later version is not an acceptable substitute: the
+    /// caller's `position` was computed against `version`, so against newer text it may
+    /// point somewhere else entirely, or not exist at all.
+    ///
+    /// The returned future is independent of `&self` so that callers can hold it across
+    /// await points without keeping the language service borrowed.
+    pub fn wait_for_document_version(
+        &self,
+        uri: &str,
+        version: u32,
+    ) -> impl std::future::Future<Output = VersionWait> + 'static + use<> {
+        let state = self.state.clone();
+        let waiters = self.version_waiters.clone();
+        let uri = uri.to_string();
+
+        async move {
+            loop {
+                // Scoped so the borrow is released before awaiting. Holding it across an
+                // await would break the updater, which needs mutable access.
+                let receiver = {
+                    let state = state.borrow();
+                    match state.get_open_document_version(&uri) {
+                        Some(current) if current == version => return VersionWait::Ready,
+                        Some(current) if current > version => return VersionWait::Superseded,
+                        // Either behind, or the document hasn't been processed at all yet.
+                        _ => {
+                            let (send, recv) = oneshot::channel();
+                            waiters.borrow_mut().push(send);
+                            recv
+                        }
+                    }
+                };
+
+                if receiver.await.is_err() {
+                    // The update handler is gone, so the version will never arrive.
+                    return VersionWait::Superseded;
+                }
+            }
+        }
     }
 
     #[must_use]
@@ -336,7 +396,13 @@ impl LanguageService {
 pub struct UpdateHandler<'a> {
     updater: CompilationStateUpdater<'a>,
     recv: UnboundedReceiver<Update>,
+    version_waiters: Rc<RefCell<Vec<oneshot::Sender<()>>>>,
 }
+
+/// Caps how many times [`UpdateHandler::run`] will give the host a turn to deliver more
+/// input before processing what it has. Only bounds the worst case: the loop normally
+/// exits earlier, as soon as a yield produces nothing new.
+const MAX_YIELDS_PER_BATCH: usize = 4;
 
 impl UpdateHandler<'_> {
     /// Runs the update handler. This method is expected to run
@@ -346,9 +412,37 @@ impl UpdateHandler<'_> {
     /// language service has explicitly closed the message
     /// channel, in `stop_update_handler()`.
     ///
-    pub async fn run(&mut self) {
+    /// `yield_to_host` gives the host event loop a turn. Applying an update blocks that
+    /// loop, so input events that arrive while one is in flight aren't delivered until
+    /// we yield. Without yielding, the channel looks empty and each event ends up being
+    /// processed on its own instead of being coalesced with the others.
+    pub async fn run<F, Fut>(&mut self, yield_to_host: F)
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
         while let Some(update) = self.recv.next().await {
-            self.apply_this_and_pending(vec![update]).await;
+            let mut updates = vec![update];
+
+            // Keep giving the host a turn for as long as it has more to deliver. When the
+            // user pauses, the first yield comes back with nothing and this exits after a
+            // single tick. While they're typing, the backlog arrives over a few passes.
+            for _ in 0..MAX_YIELDS_PER_BATCH {
+                yield_to_host().await;
+
+                let batch_before = updates.len();
+                let drained = self.drain_pending(&mut updates);
+                if drained == 0 {
+                    break;
+                }
+
+                // Every drained update either claims a new slot in the batch or merges
+                // into an existing one, and each merge discards one update.
+                let dropped = drained - (updates.len() - batch_before);
+                trace!("drained {drained} update(s), merging dropped {dropped} as redundant");
+            }
+
+            self.apply(updates).await;
         }
     }
 
@@ -361,19 +455,31 @@ impl UpdateHandler<'_> {
     /// if `run()` has been called.
     #[cfg(test)]
     async fn apply_pending(&mut self) {
-        self.apply_this_and_pending(vec![]).await;
+        let mut updates = Vec::new();
+        self.drain_pending(&mut updates);
+        self.apply(updates).await;
     }
 
-    async fn apply_this_and_pending(&mut self, mut updates: Vec<Update>) {
-        // Consume any backed up messages in the channel as well.
+    /// Drains everything currently queued into `updates`, returning the number of
+    /// messages received. A closed channel reports zero, since `Closed` means empty
+    /// *and* closed: messages already buffered are still handed over first.
+    ///
+    /// The count is of messages received rather than the length of `updates`, because
+    /// [`push_update`] merges redundant updates in place and so may not grow it.
+    fn drain_pending(&mut self, updates: &mut Vec<Update>) -> usize {
+        let mut received = 0;
         loop {
             match self.recv.try_recv() {
-                Ok(update) => push_update(&mut updates, update),
-                Err(TryRecvError::Closed) => return, // channel has been closed, don't bother with updates.
-                Err(TryRecvError::Empty) => break,
+                Ok(update) => {
+                    push_update(updates, update);
+                    received += 1;
+                }
+                Err(TryRecvError::Empty | TryRecvError::Closed) => return received,
             }
         }
+    }
 
+    async fn apply(&mut self, mut updates: Vec<Update>) {
         trace!("applying {} updates", updates.len());
         if updates.len() > 100 {
             // This indicates that we're not keeping up with incoming updates.
@@ -389,6 +495,11 @@ impl UpdateHandler<'_> {
             apply_update(&mut self.updater, update).await;
         }
         trace!("end applying updates");
+
+        // Let anyone waiting on a particular version re-check where the state landed.
+        for waiter in self.version_waiters.borrow_mut().drain(..) {
+            let _ = waiter.send(());
+        }
     }
 }
 
@@ -486,4 +597,21 @@ enum Update {
     CloseNotebookDocument {
         notebook_uri: String,
     },
+}
+
+impl Update {
+    #[cfg(test)]
+    fn summary(&self) -> String {
+        match self {
+            Update::Configuration { .. } => "Configuration".to_string(),
+            Update::Document { uri, version, .. } => format!("Document({uri}, {version})"),
+            Update::CloseDocument { uri, .. } => format!("CloseDocument({uri})"),
+            Update::NotebookDocument { notebook_uri, .. } => {
+                format!("NotebookDocument({notebook_uri})")
+            }
+            Update::CloseNotebookDocument { notebook_uri } => {
+                format!("CloseNotebookDocument({notebook_uri})")
+            }
+        }
+    }
 }

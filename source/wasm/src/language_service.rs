@@ -13,12 +13,19 @@ use qsc::{
     target::Profile,
 };
 use qsc_project::Manifest;
+use qsls::VersionWait;
 use qsls::protocol::{DiagnosticUpdate, TestCallable, TestCallables};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_name = setTimeout)]
+    fn set_timeout(closure: &js_sys::Function, ms: i32);
+}
 
 #[wasm_bindgen]
 pub struct LanguageService(qsls::LanguageService);
@@ -28,14 +35,25 @@ impl LanguageService {
     #[wasm_bindgen(constructor)]
     #[allow(clippy::new_without_default)] // wasm-bindgen requires constructor to be explicitly defined
     pub fn new() -> Self {
+        // Only ever does anything when a test opts in via `simulatedCompileDelayMs`.
+        qsls::typing_simulation::set_busy_wait_callback(Box::new(|ms: u32| {
+            let end = js_sys::Date::now() + f64::from(ms);
+            while js_sys::Date::now() < end {
+                std::hint::spin_loop();
+            }
+        }));
         LanguageService(qsls::LanguageService::new(Encoding::Utf16))
     }
 
+    /// `yield_to_host` must return a promise that resolves on a later iteration of the
+    /// host's event loop, giving it a chance to deliver queued input events. The choice
+    /// of primitive is left to JavaScript because it differs by host.
     pub fn start_update_loop(
         &mut self,
         diagnostics_callback: &DiagnosticsCallback,
         test_callables_callback: &TestCallableCallback,
         host: ProjectHost,
+        yield_to_host: &js_sys::Function,
     ) -> js_sys::Promise {
         let diagnostics_callback = diagnostics_callback
             .dyn_ref::<js_sys::Function>()
@@ -94,12 +112,23 @@ impl LanguageService {
                 )
                 .expect("callback should succeed");
         };
-        let mut worker =
+        let mut handler =
             self.0
                 .create_update_handler(diagnostics_callback, test_callables_callback, host);
 
+        let yield_to_host = yield_to_host.clone();
+        let yield_to_host = move || {
+            let promise = yield_to_host
+                .call0(&JsValue::NULL)
+                .expect("yield_to_host should not throw");
+            let future = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise));
+            async move {
+                let _ = future.await;
+            }
+        };
+
         future_to_promise(async move {
-            worker.run().await;
+            handler.run(yield_to_host).await;
             Ok(JsValue::undefined())
         })
     }
@@ -125,6 +154,7 @@ impl LanguageService {
                     .map(|features| features.iter().collect::<LanguageFeatures>()),
                 lints_config: config.lints,
                 dev_diagnostics: config.devDiagnostics,
+                simulated_compile_delay_ms: config.simulatedCompileDelayMs,
             });
     }
 
@@ -185,10 +215,47 @@ impl LanguageService {
             .collect()
     }
 
+    /// Resolves once the compilation state reflects exactly `version` of `uri`, or the
+    /// document moves past it, or `timeout_ms` elapses. Resolves to `"ready"`,
+    /// `"superseded"` or `"timeout"`.
+    ///
+    /// The timeout is a liveness backstop rather than a tuning knob. A version that gets
+    /// coalesced away reports `"superseded"` immediately, so reaching the timeout means
+    /// the update is genuinely stuck, for instance behind a slow project load.
+    pub fn wait_for_document_version(
+        &self,
+        uri: &str,
+        version: u32,
+        timeout_ms: i32,
+    ) -> js_sys::Promise {
+        let wait = self.0.wait_for_document_version(uri, version);
+        let uri = uri.to_string();
+
+        future_to_promise(async move {
+            let timeout =
+                wasm_bindgen_futures::JsFuture::from(js_sys::Promise::new(&mut |resolve, _| {
+                    set_timeout(&resolve, timeout_ms);
+                }));
+            futures_util::pin_mut!(wait, timeout);
+
+            let result = match futures_util::future::select(wait, timeout).await {
+                futures_util::future::Either::Left((VersionWait::Ready, _)) => "ready",
+                futures_util::future::Either::Left((VersionWait::Superseded, _)) => "superseded",
+                futures_util::future::Either::Right(_) => {
+                    log::debug!(
+                        "timed out after {timeout_ms}ms waiting for {uri} version {version}"
+                    );
+                    "timeout"
+                }
+            };
+            Ok(JsValue::from_str(result))
+        })
+    }
+
     pub fn get_completions(&self, uri: &str, position: IPosition) -> ICompletionList {
         let position: Position = position.into();
         let completion_list = self.0.get_completions(uri, position.into());
-        CompletionList {
+        let result: ICompletionList = CompletionList {
             items: completion_list
                 .items
                 .into_iter()
@@ -220,7 +287,8 @@ impl LanguageService {
                 })
                 .collect(),
         }
-        .into()
+        .into();
+        result
     }
 
     pub fn get_definition(&self, uri: &str, position: IPosition) -> Option<ILocation> {
@@ -382,6 +450,7 @@ serializable_type! {
         pub languageFeatures: Option<Vec<String>>,
         pub lints: Option<Vec<LintOrGroupConfig>>,
         pub devDiagnostics: Option<bool>,
+        pub simulatedCompileDelayMs: Option<u32>,
     },
     r#"export interface IWorkspaceConfiguration {
         targetProfile?: TargetProfile;
@@ -389,6 +458,7 @@ serializable_type! {
         languageFeatures?: LanguageFeatures[];
         lints?: ({ lint: string; level: string } | { group: string; level: string })[];
         devDiagnostics?: boolean;
+        simulatedCompileDelayMs?: number;
     }"#,
     IWorkspaceConfiguration
 }

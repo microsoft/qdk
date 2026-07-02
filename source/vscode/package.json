@@ -185,6 +185,16 @@
             "hidden"
           ]
         },
+        "Q#.dev.simulatedCompileDelayMs": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Block the extension host for this many milliseconds on every document compilation. This is for internal development and testing purposes, and will make the editor unresponsive while typing.",
+          "tags": [
+            "hidden"
+          ]
+        },
         "Q#.notifications.suppressUpdateNotifications": {
           "type": "boolean",
           "default": false,

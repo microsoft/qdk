@@ -14,7 +14,10 @@ import {
   openqasmLanguageId,
   qsharpLanguageId,
 } from "../common.js";
-import { getShowDevDiagnostics } from "../config.js";
+import {
+  getShowDevDiagnostics,
+  getSimulatedCompileDelayMs,
+} from "../config.js";
 import {
   fetchGithubRaw,
   findManifestDirectory,
@@ -173,6 +176,7 @@ async function loadLanguageService(
   const wasmUri = vscode.Uri.joinPath(baseUri, "./wasm/qsc_wasm_bg.wasm");
   const wasmBytes = await vscode.workspace.fs.readFile(wasmUri);
   await loadWasmModule(wasmBytes);
+
   const languageService = await getLanguageService({
     findManifestDirectory,
     readFile,
@@ -180,6 +184,7 @@ async function loadLanguageService(
     resolvePath: async (a, b) => resolvePath(a, b),
     fetchGithub: fetchGithubRaw,
   });
+
   await updateLanguageServiceConfiguration(languageService);
   const end = performance.now();
   sendTelemetryEvent(
@@ -307,7 +312,10 @@ function registerConfigurationChangeHandlers(
   languageService: ILanguageService,
 ) {
   return vscode.workspace.onDidChangeConfiguration((event) => {
-    if (event.affectsConfiguration("Q#.dev.showDevDiagnostics")) {
+    if (
+      event.affectsConfiguration("Q#.dev.showDevDiagnostics") ||
+      event.affectsConfiguration("Q#.dev.simulatedCompileDelayMs")
+    ) {
       updateLanguageServiceConfiguration(languageService);
     }
   });
@@ -317,12 +325,14 @@ async function updateLanguageServiceConfiguration(
   languageService: ILanguageService,
 ) {
   const showDevDiagnostics = getShowDevDiagnostics();
+  const simulatedCompileDelayMs = getSimulatedCompileDelayMs();
 
   log.debug("Show dev diagnostics set to: " + showDevDiagnostics);
 
   // Update all configuration settings
   languageService.updateConfiguration({
     devDiagnostics: showDevDiagnostics,
+    simulatedCompileDelayMs,
     lints: [{ lint: "needlessOperation", level: "warn" }],
   });
 }

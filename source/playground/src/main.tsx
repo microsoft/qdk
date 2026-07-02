@@ -308,6 +308,7 @@ function registerMonacoLanguageServiceProviders(
     ) => {
       const completions = await languageService.getCompletions(
         model.uri.toString(),
+        model.getVersionId(),
         monacoPositionToLsPosition(position),
       );
       return {
