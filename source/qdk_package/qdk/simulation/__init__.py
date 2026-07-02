@@ -15,6 +15,10 @@ This module exposes the core building blocks for noise-aware quantum simulation:
   to individual gate intrinsics to model depolarizing, bit-flip, phase-flip,
   or correlated noise channels.
 
+- :class:`~qdk.simulation.LossPolicy` — selects how a gate behaves when one of
+  its qubit operands is lost. Assign it to a noise table's ``on_loss`` attribute
+  (e.g. ``noise.cx.on_loss = LossPolicy.SKIP``).
+
 - :func:`~qdk.simulation.run_qir` — simulates QIR as given in one of
   three backend simulators: clifford, gpu or cpu.
 
@@ -26,7 +30,7 @@ This module exposes the core building blocks for noise-aware quantum simulation:
 """
 
 from .._device._atom import NeutralAtomDevice
-from ._simulation import NoiseConfig, run_qir
+from ._simulation import NoiseConfig, LossPolicy, run_qir
 from ._noisy_simulator import (
     NoisySimulatorError,
     DensityMatrixSimulator,
@@ -40,6 +44,7 @@ from ._noisy_simulator import (
 __all__ = [
     "NeutralAtomDevice",
     "NoiseConfig",
+    "LossPolicy",
     "run_qir",
     "NoisySimulatorError",
     "Operation",
