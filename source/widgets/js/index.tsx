@@ -15,10 +15,10 @@ import {
   Atoms,
   type ZoneLayout,
   type TraceData,
-  MoleculeViewer,
   Entanglement,
   type EntanglementProps,
 } from "qsharp-lang/ux";
+import { MoleculeViewer } from "qsharp-lang/ux/chem";
 import markdownIt from "markdown-it";
 import "./widgets.css";
 
