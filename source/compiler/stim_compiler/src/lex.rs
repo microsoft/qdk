@@ -254,13 +254,8 @@ impl Iterator for Lexer<'_> {
                 return self.next();
             }
             '#' => {
-                if self.chars.next_if(|(_, c)| *c == '!').is_some() {
-                    self.eat_while(|c| !c.is_whitespace());
-                    TokenKind::InstructionName
-                } else {
-                    self.comment();
-                    return self.next();
-                }
+                self.comment();
+                return self.next();
             }
             '(' => TokenKind::Open(Paren),
             ')' => TokenKind::Close(Paren),
