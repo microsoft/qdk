@@ -11,6 +11,7 @@ use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
+use std::slice::Chunks;
 use thiserror::Error;
 
 struct QirWriter {
@@ -267,6 +268,29 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("measurement record target in an unsupported position in instruction: {instruction}")]
+    #[diagnostic(code("Stim.MisplacedMeasurementRecord"))]
+    MisplacedMeasurementRecord {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("measurement record control cannot be negated in instruction: {instruction}")]
+    #[diagnostic(code("Stim.NegatedMeasurementRecord"))]
+    NegatedMeasurementRecord {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error(
+        "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
+    )]
+    #[diagnostic(code("Stim.MeasurementRecordWithoutQubit"))]
+    MeasurementRecordWithoutQubit {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error("missing probability argument in instruction: {instruction}")]
     #[diagnostic(code("Stim.MissingProbability"))]
     MissingProbability {
@@ -274,9 +298,9 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("instruction {instruction} requires an even number of qubit targets")]
-    #[diagnostic(code("Stim.OddQubitCount"))]
-    OddQubitCount {
+    #[error("instruction {instruction} requires an even number of targets")]
+    #[diagnostic(code("Stim.OddTargetCount"))]
+    OddTargetCount {
         instruction: String,
         #[label]
         span: Span,
@@ -307,6 +331,27 @@ pub enum Error {
         #[label]
         span: Span,
     },
+}
+
+// This enum keeps track of which side of a controlled operation the measurement record is allowed to appear on.
+// For example, in `CX rec[-1] 0', the measurement record comes on the first side, while in 'XCZ 0 rec[-1]' it's the opposite.
+#[derive(Clone, Copy)]
+enum AllowedRecPosition {
+    First,
+    Second,
+    Either,
+}
+
+impl AllowedRecPosition {
+    fn allows_first(self) -> bool {
+        matches!(self, AllowedRecPosition::First | AllowedRecPosition::Either)
+    }
+    fn allows_second(self) -> bool {
+        matches!(
+            self,
+            AllowedRecPosition::Second | AllowedRecPosition::Either
+        )
+    }
 }
 
 struct IdMap {
@@ -544,16 +589,41 @@ impl<'noise> Compiler<'noise> {
             "S_DAG" | "SQRT_Z_DAG" => self.broadcast(instruction, |s, q| s.op_adj("s", q)),
 
             // Two Qubit Clifford Gates
-            "CX" | "CNOT" | "ZCX" => self.broadcast_pair(instruction, |s, q0, q1| {
-                s.op_2("cx", q0, q1);
-            }),
+            "CX" | "CNOT" | "ZCX" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::First,
+                |s, q0, q1| {
+                    s.op_2("cx", q0, q1);
+                },
+                |s, q| {
+                    s.op("x", q);
+                },
+            ),
             "CXSWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): CX 1 0; CX 0 1
                 s.op_2("cx", q1, q0);
                 s.op_2("cx", q0, q1);
             }),
-            "CY" | "ZCY" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("cy", q0, q1)),
-            "CZ" | "ZCZ" => self.broadcast_pair(instruction, |s, q0, q1| s.op_2("cz", q0, q1)),
+            "CY" | "ZCY" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::First,
+                |s, q0, q1| {
+                    s.op_2("cy", q0, q1);
+                },
+                |s, q| {
+                    s.op("y", q);
+                },
+            ),
+            "CZ" | "ZCZ" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::Either,
+                |s, q0, q1| {
+                    s.op_2("cz", q0, q1);
+                },
+                |s, q| {
+                    s.op("z", q);
+                },
+            ),
             "CZSWAP" | "SWAPCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1
                 s.op("h", q0);
@@ -664,10 +734,17 @@ impl<'noise> Compiler<'noise> {
                 s.op("h", q0);
                 s.op("s", q1);
             }),
-            "XCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): CX 1 0
-                s.op_2("cx", q1, q0);
-            }),
+            "XCZ" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::Second,
+                |s, q0, q1| {
+                    // Stim decomposition (into H, S, CX, M, R): CX 1 0
+                    s.op_2("cx", q1, q0);
+                },
+                |s, q| {
+                    s.op("x", q);
+                },
+            ),
             "YCX" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 1; CX 1 0; S 0; H 1
                 s.op_adj("s", q0);
@@ -686,12 +763,19 @@ impl<'noise> Compiler<'noise> {
                 s.op("s", q0);
                 s.op("s", q1);
             }),
-            "YCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
-                // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; CX 1 0; S 0
-                s.op_adj("s", q0);
-                s.op_2("cx", q1, q0);
-                s.op("s", q0);
-            }),
+            "YCZ" => self.broadcast_controlled(
+                instruction,
+                AllowedRecPosition::Second,
+                |s, q0, q1| {
+                    // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; CX 1 0; S 0
+                    s.op_adj("s", q0);
+                    s.op_2("cx", q1, q0);
+                    s.op("s", q0);
+                },
+                |s, q| {
+                    s.op("y", q);
+                },
+            ),
 
             // Noise Channels
             "E" | "CORRELATED_ERROR" => self.accumulate_correlated_error(instruction),
@@ -820,9 +904,11 @@ impl<'noise> Compiler<'noise> {
         instruction: &Instruction,
         mut f: impl FnMut(&mut Self, u32, u32),
     ) {
-        self.unsupported_args(instruction); // Temporary error
-        let targets = &instruction.targets;
-        for pair in targets.chunks(2) {
+        self.unsupported_args(instruction);
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
             let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
                 continue;
             };
@@ -831,6 +917,107 @@ impl<'noise> Compiler<'noise> {
             };
             f(self, q0, q1);
         }
+    }
+
+    fn broadcast_controlled(
+        &mut self,
+        instruction: &Instruction,
+        allowed_rec_position: AllowedRecPosition,
+        mut quantum: impl FnMut(&mut Self, u32, u32),
+        mut classical: impl FnMut(&mut Self, u32),
+    ) {
+        self.unsupported_args(instruction);
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
+            match (&pair[0].kind, &pair[1].kind) {
+                (TargetKind::Qubit { .. }, TargetKind::Qubit { .. }) => {
+                    let Some(control) = self.expect_qubit(instruction, &pair[0]) else {
+                        continue;
+                    };
+                    let Some(target) = self.expect_qubit(instruction, &pair[1]) else {
+                        continue;
+                    };
+                    quantum(self, control, target);
+                }
+                (TargetKind::MeasurementRecord { .. }, TargetKind::Qubit { .. })
+                    if allowed_rec_position.allows_first() =>
+                {
+                    self.classical_control(instruction, &pair[0], &pair[1], &mut classical);
+                }
+                (TargetKind::Qubit { .. }, TargetKind::MeasurementRecord { .. })
+                    if allowed_rec_position.allows_second() =>
+                {
+                    self.classical_control(instruction, &pair[1], &pair[0], &mut classical);
+                }
+                (TargetKind::MeasurementRecord { .. }, TargetKind::MeasurementRecord { .. }) => {
+                    self.push_error(Error::MeasurementRecordWithoutQubit {
+                        instruction: instruction.name.clone(),
+                        span: Span {
+                            lo: pair[0].span.lo,
+                            hi: pair[1].span.hi,
+                        },
+                    });
+                }
+                // A `rec` that reached here sits on a side this gate doesn't allow
+                (TargetKind::MeasurementRecord { .. }, _) => {
+                    self.push_error(Error::MisplacedMeasurementRecord {
+                        instruction: instruction.name.clone(),
+                        span: pair[0].span,
+                    });
+                }
+                (_, TargetKind::MeasurementRecord { .. }) => {
+                    self.push_error(Error::MisplacedMeasurementRecord {
+                        instruction: instruction.name.clone(),
+                        span: pair[1].span,
+                    });
+                }
+                _ => self.push_error(Error::UnsupportedTarget {
+                    instruction: instruction.name.clone(),
+                    span: pair[0].span,
+                }),
+            }
+        }
+    }
+
+    fn classical_control(
+        &mut self,
+        instruction: &Instruction,
+        rec_target: &Target,
+        qubit_target: &Target,
+        classical: &mut impl FnMut(&mut Self, u32),
+    ) {
+        let Some((offset, negated)) = self.expect_measurement_record(instruction, rec_target)
+        else {
+            return;
+        };
+        if negated {
+            self.push_error(Error::NegatedMeasurementRecord {
+                instruction: instruction.name.clone(),
+                span: rec_target.span,
+            });
+            return;
+        }
+        let Some(result_id) = self.resolve_record_offset(rec_target, offset) else {
+            return;
+        };
+        let Some(target) = self.expect_qubit(instruction, qubit_target) else {
+            return;
+        };
+
+        let measurement_result = self.id_map.fresh_name("r");
+        self.writer
+            .write_read_result(&measurement_result, result_id);
+
+        let apply_label = self.id_map.fresh_name("apply_controlled");
+        let continue_label = self.id_map.fresh_name("continue_controlled");
+        self.writer
+            .write_branch(&measurement_result, &apply_label, &continue_label);
+        self.writer.write_label(&apply_label);
+        classical(self, target);
+        self.writer.write_jump(&continue_label);
+        self.writer.write_label(&continue_label);
     }
 
     fn op(&mut self, intrinsic: &str, qubit: u32) {
@@ -1003,18 +1190,14 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_depolarize_2(&mut self, instruction: &Instruction) {
-        if !instruction.targets.len().is_multiple_of(2) {
-            self.push_error(Error::OddQubitCount {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return;
-        }
         let Some(probability) = self.expect_probability(instruction) else {
             return;
         };
         let each = probability / 15.0;
-        for pair in instruction.targets.chunks(2) {
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
             let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
                 continue;
             };
@@ -1189,6 +1372,20 @@ impl<'noise> Compiler<'noise> {
             return None;
         };
         Some(probability)
+    }
+
+    fn expect_target_pairs<'a>(
+        &mut self,
+        instruction: &'a Instruction,
+    ) -> Option<Chunks<'a, Target>> {
+        if !instruction.targets.len().is_multiple_of(2) {
+            self.push_error(Error::OddTargetCount {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(instruction.targets.chunks(2))
     }
 
     fn unsupported(&mut self, instruction: &Instruction) {
