@@ -27,7 +27,8 @@ use super::types::{
     compose_functors, peel_body_functors,
 };
 use super::{
-    build_combined_spec_key, build_spec_key, is_combined_eligible, partition_mixed_branch_split,
+    build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
+    is_combined_eligible, partition_mixed_branch_split,
 };
 use crate::EMPTY_EXEC_RANGE;
 use crate::cloner::FirCloner;
@@ -38,11 +39,12 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Functor,
-    Ident, Item, ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
-    PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId, StoreItemId, UnOp, Visibility,
+    BinOp, Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath,
+    Functor, Ident, Item, ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Package, PackageId,
+    PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId, StoreItemId, UnOp,
+    Visibility,
 };
-use qsc_fir::ty::{Arrow, Ty};
+use qsc_fir::ty::{Arrow, Prim, Ty};
 use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Write as _;
@@ -160,7 +162,7 @@ pub(super) fn specialize(
             // Combined multi-argument specialization keyed by every resolved
             // argument together.
             let hof_item_id = group[0].hof_item_id;
-            let spec_key = build_combined_spec_key(hof_item_id, group);
+            let spec_key = build_combined_spec_key_for_group(hof_item_id, group);
 
             if dedup.contains_key(&spec_key) {
                 continue;
@@ -730,14 +732,48 @@ fn specialize_many(
     // captures.
     let impl_clone = new_decl.implementation.clone();
     let mut specialized_capture_targets: FxHashSet<SpecializedCaptureKey> = FxHashSet::default();
+    let callable_array_position = find_callable_array_group_position(&remapped_params, group);
+    let concrete_group = callable_array_position
+        .as_ref()
+        .map(|position| {
+            group
+                .iter()
+                .zip(remapped_params.iter())
+                .zip(closure_infos.iter())
+                .filter(|&(((_, _), remapped_param), _)| {
+                    (
+                        remapped_param.top_level_param,
+                        remapped_param.field_path.clone(),
+                    ) == *position
+                })
+                .map(|(((call_site, _), _), closure_info)| {
+                    if let Some((_, capture_bindings)) = closure_info {
+                        concrete_with_threaded_captures(&call_site.callable_arg, capture_bindings)
+                    } else {
+                        call_site.callable_arg.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     for (((call_site, _), remapped_param), closure_info) in group
         .iter()
         .zip(remapped_params.iter())
         .zip(closure_infos.iter())
     {
         if let Some((closure_target, capture_bindings)) = closure_info {
-            let before =
-                collect_calls_to_closure_target(target, &impl_clone, package_id, *closure_target);
+            let is_callable_array_member =
+                callable_array_position.as_ref().is_some_and(|position| {
+                    (
+                        remapped_param.top_level_param,
+                        remapped_param.field_path.clone(),
+                    ) == *position
+                });
+            let before = if is_callable_array_member {
+                FxHashSet::default()
+            } else {
+                collect_calls_to_closure_target(target, &impl_clone, package_id, *closure_target)
+            };
             let concrete =
                 concrete_with_threaded_captures(&call_site.callable_arg, capture_bindings);
             transform_callable_body(
@@ -746,20 +782,27 @@ fn specialize_many(
                 &impl_clone,
                 remapped_param,
                 &concrete,
+                &concrete_group,
                 &mut specialized_capture_targets,
                 assigner,
             );
-            let after =
-                collect_calls_to_closure_target(target, &impl_clone, package_id, *closure_target);
-            let retargeted: Vec<ExprId> = after.difference(&before).copied().collect();
-            prepend_captures_to_calls(
-                target,
-                &retargeted,
-                package_id,
-                *closure_target,
-                capture_bindings,
-                assigner,
-            );
+            if !is_callable_array_member {
+                let after = collect_calls_to_closure_target(
+                    target,
+                    &impl_clone,
+                    package_id,
+                    *closure_target,
+                );
+                let retargeted: Vec<ExprId> = after.difference(&before).copied().collect();
+                prepend_captures_to_calls(
+                    target,
+                    &retargeted,
+                    package_id,
+                    *closure_target,
+                    capture_bindings,
+                    assigner,
+                );
+            }
         } else {
             transform_callable_body(
                 target,
@@ -767,6 +810,7 @@ fn specialize_many(
                 &impl_clone,
                 remapped_param,
                 &call_site.callable_arg,
+                &concrete_group,
                 &mut specialized_capture_targets,
                 assigner,
             );
@@ -786,8 +830,31 @@ fn specialize_many(
     if !nested_param_vars.is_empty() {
         remove_param_destructuring_stmts(target, &new_decl.implementation, &nested_param_vars);
     }
-    let param_refs: Vec<&CallableParam> = remapped_params.iter().collect();
-    remove_callable_params(target, &mut new_decl, &param_refs, total_captures);
+    if callable_array_position.is_some() {
+        let params_for_removal = unique_params_for_removal(&remapped_params);
+        if params_for_removal
+            .iter()
+            .all(|(param, _)| !param.field_path.is_empty())
+        {
+            let mut removal_order = params_for_removal;
+            removal_order.sort_by(|(left, _), (right, _)| {
+                right
+                    .top_level_param
+                    .cmp(&left.top_level_param)
+                    .then_with(|| right.field_path.cmp(&left.field_path))
+            });
+            for (param, had_closure_captures) in removal_order {
+                remove_nested_callable_param(target, &mut new_decl, param, had_closure_captures);
+            }
+        } else {
+            let param_refs: Vec<&CallableParam> =
+                params_for_removal.iter().map(|(param, _)| *param).collect();
+            remove_callable_params(target, &mut new_decl, &param_refs, total_captures);
+        }
+    } else {
+        let param_refs: Vec<&CallableParam> = remapped_params.iter().collect();
+        remove_callable_params(target, &mut new_decl, &param_refs, total_captures);
+    }
     refresh_rewritten_value_types(target, &new_decl.implementation);
 
     let new_item = Item {
@@ -927,6 +994,7 @@ fn specialize_one(
         &impl_clone,
         &remapped_param,
         &concrete,
+        &[],
         &mut specialized_capture_targets,
         assigner,
     );
@@ -974,6 +1042,49 @@ fn specialize_one(
     })
 }
 
+fn find_callable_array_group_position(
+    remapped_params: &[CallableParam],
+    group: &[(&CallSite, &CallableParam)],
+) -> Option<(usize, Vec<usize>)> {
+    if group.iter().any(|(call_site, _)| {
+        !call_site.condition.is_empty()
+            || matches!(call_site.callable_arg, ConcreteCallable::Dynamic)
+    }) {
+        return None;
+    }
+
+    let mut positions: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
+    for param in remapped_params {
+        *positions
+            .entry((param.top_level_param, param.field_path.clone()))
+            .or_default() += 1;
+    }
+    let repeated = positions
+        .into_iter()
+        .filter(|(_, count)| *count >= 2)
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    let [position] = repeated.as_slice() else {
+        return None;
+    };
+    remapped_params
+        .iter()
+        .find(|param| (param.top_level_param, param.field_path.clone()) == *position)
+        .and_then(|param| matches!(param.param_ty, Ty::Array(_)).then(|| position.clone()))
+}
+
+fn unique_params_for_removal(params: &[CallableParam]) -> Vec<(&CallableParam, bool)> {
+    let mut seen: FxHashSet<(usize, Vec<usize>)> = FxHashSet::default();
+    params
+        .iter()
+        .filter_map(|param| {
+            let position = (param.top_level_param, param.field_path.clone());
+            seen.insert(position)
+                .then_some((param, matches!(param.param_ty, Ty::Array(_))))
+        })
+        .collect()
+}
+
 fn concrete_with_threaded_captures(
     concrete: &ConcreteCallable,
     capture_bindings: &[(LocalVarId, Ty)],
@@ -1016,6 +1127,7 @@ fn transform_callable_body(
     callable_impl: &CallableImpl,
     param: &CallableParam,
     concrete: &ConcreteCallable,
+    concrete_group: &[ConcreteCallable],
     specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
 ) {
@@ -1029,6 +1141,7 @@ fn transform_callable_body(
                 spec_impl.body.block,
                 param,
                 concrete,
+                concrete_group,
                 &mut alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1040,6 +1153,7 @@ fn transform_callable_body(
                     adj.block,
                     param,
                     concrete,
+                    concrete_group,
                     &mut alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1052,6 +1166,7 @@ fn transform_callable_body(
                     ctl.block,
                     param,
                     concrete,
+                    concrete_group,
                     &mut alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1064,6 +1179,7 @@ fn transform_callable_body(
                     ctl_adj.block,
                     param,
                     concrete,
+                    concrete_group,
                     &mut alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1077,6 +1193,7 @@ fn transform_callable_body(
                 spec_decl.block,
                 param,
                 concrete,
+                concrete_group,
                 &mut alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1094,6 +1211,7 @@ fn transform_block(
     block_id: qsc_fir::fir::BlockId,
     param: &CallableParam,
     concrete: &ConcreteCallable,
+    concrete_group: &[ConcreteCallable],
     alias_set: &mut AliasSet,
     specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
@@ -1110,6 +1228,7 @@ fn transform_block(
             stmt_id,
             param,
             concrete,
+            concrete_group,
             alias_set,
             specialized_capture_targets,
             assigner,
@@ -1154,6 +1273,7 @@ fn transform_stmt(
     stmt_id: qsc_fir::fir::StmtId,
     param: &CallableParam,
     concrete: &ConcreteCallable,
+    concrete_group: &[ConcreteCallable],
     alias_set: &mut AliasSet,
     specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
@@ -1167,6 +1287,7 @@ fn transform_stmt(
                 *expr_id,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1198,6 +1319,7 @@ fn transform_stmt(
                 *expr_id,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1222,6 +1344,7 @@ fn transform_expr(
     expr_id: ExprId,
     param: &CallableParam,
     concrete: &ConcreteCallable,
+    concrete_group: &[ConcreteCallable],
     alias_set: &mut AliasSet,
     specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
@@ -1237,7 +1360,30 @@ fn transform_expr(
             let (base_id, body_functor) = peel_body_functors(package, callee_id);
             let base_kind = package.get_expr(base_id).kind.clone();
 
-            let replaced = if let ExprKind::Var(Res::Local(var), _) = &base_kind
+            let replaced = if let Some((array_id, index_id)) = indexed_callable_array_param_source(
+                package,
+                base_id,
+                param.param_var,
+                &param.field_path,
+            ) {
+                replace_indexed_callable_array_call(
+                    package,
+                    package_id,
+                    expr_id,
+                    callee_id,
+                    args_id,
+                    array_id,
+                    index_id,
+                    body_functor,
+                    if concrete_group.is_empty() {
+                        std::slice::from_ref(concrete)
+                    } else {
+                        concrete_group
+                    },
+                    assigner,
+                );
+                true
+            } else if let ExprKind::Var(Res::Local(var), _) = &base_kind
                 && *var == param.param_var
                 && param.field_path.is_empty()
             {
@@ -1298,6 +1444,7 @@ fn transform_expr(
                     callee_id,
                     param,
                     concrete,
+                    concrete_group,
                     alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1311,6 +1458,7 @@ fn transform_expr(
                 args_id,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1323,6 +1471,7 @@ fn transform_expr(
                 *block_id,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1335,6 +1484,7 @@ fn transform_expr(
                 *cond,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1345,6 +1495,7 @@ fn transform_expr(
                 *body,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1356,6 +1507,7 @@ fn transform_expr(
                     *els_id,
                     param,
                     concrete,
+                    concrete_group,
                     alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1369,6 +1521,7 @@ fn transform_expr(
                 *cond,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1379,6 +1532,7 @@ fn transform_expr(
                 *block_id,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1392,6 +1546,7 @@ fn transform_expr(
                     e,
                     param,
                     concrete,
+                    concrete_group,
                     alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1409,6 +1564,7 @@ fn transform_expr(
                 *lhs,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1419,6 +1575,7 @@ fn transform_expr(
                 *rhs,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1431,6 +1588,7 @@ fn transform_expr(
                 *a,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1441,6 +1599,7 @@ fn transform_expr(
                 *b,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1453,6 +1612,7 @@ fn transform_expr(
                 *a,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1463,6 +1623,7 @@ fn transform_expr(
                 *b,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1473,6 +1634,7 @@ fn transform_expr(
                 *c,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1485,6 +1647,7 @@ fn transform_expr(
                 *inner,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1493,15 +1656,17 @@ fn transform_expr(
         ExprKind::Field(inner_id, _) => {
             // For nested callable params, check if this Field expression
             // accesses the arrow element within the param variable.
-            if !param.field_path.is_empty()
-                && expr_matches_param_field_path(
+            if !param.field_path.is_empty() {
+                if expr_matches_param_field_path(
                     package,
                     expr_id,
                     param.param_var,
                     &param.field_path,
-                )
-            {
-                replace_callable_value(package, package_id, expr_id, concrete, assigner);
+                ) {
+                    replace_callable_value(package, expr_id, concrete, assigner);
+                    return;
+                }
+            } else if collect_field_path_from_param(package, expr_id, param.param_var).is_some() {
                 return;
             }
             transform_expr(
@@ -1510,6 +1675,7 @@ fn transform_expr(
                 *inner_id,
                 param,
                 concrete,
+                concrete_group,
                 alias_set,
                 specialized_capture_targets,
                 assigner,
@@ -1523,6 +1689,7 @@ fn transform_expr(
                     *a,
                     param,
                     concrete,
+                    concrete_group,
                     alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1535,6 +1702,7 @@ fn transform_expr(
                     *b,
                     param,
                     concrete,
+                    concrete_group,
                     alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1547,6 +1715,7 @@ fn transform_expr(
                     *c,
                     param,
                     concrete,
+                    concrete_group,
                     alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1562,6 +1731,7 @@ fn transform_expr(
                         *e,
                         param,
                         concrete,
+                        concrete_group,
                         alias_set,
                         specialized_capture_targets,
                         assigner,
@@ -1577,6 +1747,7 @@ fn transform_expr(
                     *c,
                     param,
                     concrete,
+                    concrete_group,
                     alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1589,6 +1760,7 @@ fn transform_expr(
                     f.value,
                     param,
                     concrete,
+                    concrete_group,
                     alias_set,
                     specialized_capture_targets,
                     assigner,
@@ -1602,7 +1774,7 @@ fn transform_expr(
             if (*var == param.param_var && param.field_path.is_empty())
                 || alias_set.contains(var) =>
         {
-            replace_callable_value(package, package_id, expr_id, concrete, assigner);
+            replace_callable_value(package, expr_id, concrete, assigner);
         }
         // When a closure captures the callable parameter being specialized,
         // propagate the specialization into the closure's target callable and
@@ -1636,33 +1808,65 @@ fn transform_expr(
 /// callable values must remain closures so nested HOFs still receive captures.
 fn replace_callable_value(
     package: &mut Package,
-    _package_id: PackageId,
     expr_id: ExprId,
     concrete: &ConcreteCallable,
     assigner: &mut Assigner,
 ) {
-    let (base_kind, functor) = match concrete {
+    let (base_kind, functor, base_ty) = match concrete {
         ConcreteCallable::Global { item_id, functor } => {
-            (ExprKind::Var(Res::Item(*item_id), Vec::new()), *functor)
+            let ty = package
+                .items
+                .get(item_id.item)
+                .and_then(|item| match &item.kind {
+                    ItemKind::Callable(decl) => Some(Ty::Arrow(Box::new(Arrow {
+                        kind: decl.kind,
+                        input: Box::new(package.get_pat(decl.input).ty.clone()),
+                        output: Box::new(decl.output.clone()),
+                        functors: qsc_fir::ty::FunctorSet::Value(decl.functors),
+                    }))),
+                    ItemKind::Ty(..) => None,
+                });
+            (ExprKind::Var(Res::Item(*item_id), Vec::new()), *functor, ty)
         }
         ConcreteCallable::Closure {
             target,
             captures,
             functor,
-        } => (
-            ExprKind::Closure(
-                captures.iter().map(|capture| capture.var).collect(),
-                *target,
-            ),
-            *functor,
-        ),
+        } => {
+            let ty =
+                build_direct_target_callee_ty(package, *target, &package.get_expr(expr_id).ty, 0)
+                    .or_else(|| {
+                        package
+                            .items
+                            .get(*target)
+                            .and_then(|item| match &item.kind {
+                                ItemKind::Callable(decl) => Some(Ty::Arrow(Box::new(Arrow {
+                                    kind: decl.kind,
+                                    input: Box::new(package.get_pat(decl.input).ty.clone()),
+                                    output: Box::new(decl.output.clone()),
+                                    functors: qsc_fir::ty::FunctorSet::Value(decl.functors),
+                                }))),
+                                ItemKind::Ty(..) => None,
+                            })
+                    });
+            (
+                ExprKind::Closure(
+                    captures.iter().map(|capture| capture.var).collect(),
+                    *target,
+                ),
+                *functor,
+                ty,
+            )
+        }
         ConcreteCallable::Dynamic => return,
     };
 
     let expr = package.exprs.get(expr_id).expect("expr not found").clone();
+    let new_ty = base_ty.unwrap_or_else(|| expr.ty.clone());
     if !functor.adjoint && functor.controlled == 0 {
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
         expr_mut.kind = base_kind;
+        expr_mut.ty = new_ty;
         return;
     }
 
@@ -1672,7 +1876,7 @@ fn replace_callable_value(
         Expr {
             id: current_id,
             span: expr.span,
-            ty: expr.ty.clone(),
+            ty: new_ty.clone(),
             kind: base_kind,
             exec_graph_range: EMPTY_EXEC_RANGE,
         },
@@ -1685,7 +1889,7 @@ fn replace_callable_value(
             Expr {
                 id: adj_id,
                 span: expr.span,
-                ty: expr.ty.clone(),
+                ty: new_ty.clone(),
                 kind: ExprKind::UnOp(UnOp::Functor(Functor::Adj), current_id),
                 exec_graph_range: EMPTY_EXEC_RANGE,
             },
@@ -1700,7 +1904,7 @@ fn replace_callable_value(
             Expr {
                 id: ctl_id,
                 span: expr.span,
-                ty: expr.ty.clone(),
+                ty: new_ty.clone(),
                 kind: ExprKind::UnOp(UnOp::Functor(Functor::Ctl), current_id),
                 exec_graph_range: EMPTY_EXEC_RANGE,
             },
@@ -1716,6 +1920,7 @@ fn replace_callable_value(
         .clone();
     let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
     expr_mut.kind = outermost_kind;
+    expr_mut.ty = new_ty;
 }
 
 /// Returns true when an expression is a field chain rooted at `param_var`
@@ -1728,6 +1933,568 @@ fn expr_matches_param_field_path(
 ) -> bool {
     collect_field_path_from_param(package, expr_id, param_var)
         .is_some_and(|path| path == field_path)
+}
+
+fn indexed_callable_array_param_source(
+    package: &Package,
+    expr_id: ExprId,
+    param_var: LocalVarId,
+    field_path: &[usize],
+) -> Option<(ExprId, ExprId)> {
+    let ExprKind::Index(array_id, index_id) = package.get_expr(expr_id).kind else {
+        return None;
+    };
+    expr_matches_param_field_path(package, array_id, param_var, field_path)
+        .then_some((array_id, index_id))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn replace_indexed_callable_array_call(
+    package: &mut Package,
+    package_id: PackageId,
+    call_expr_id: ExprId,
+    callee_expr_id: ExprId,
+    args_id: ExprId,
+    array_id: ExprId,
+    index_id: ExprId,
+    body_functor: FunctorApp,
+    concrete_group: &[ConcreteCallable],
+    assigner: &mut Assigner,
+) {
+    let Some(first) = concrete_group.first() else {
+        return;
+    };
+
+    let branch_callables: Vec<ConcreteCallable> = concrete_group
+        .iter()
+        .map(|concrete| apply_body_functor_to_concrete(concrete, body_functor))
+        .collect();
+
+    if branch_callables.len() == 1 {
+        let branch_callable = branch_callables
+            .first()
+            .expect("branch callable should exist");
+        replace_callee(
+            package,
+            package_id,
+            callee_expr_id,
+            body_functor,
+            first,
+            assigner,
+        );
+        rewrite_indexed_closure_dispatch_args(package, args_id, branch_callable, assigner);
+        return;
+    }
+
+    let Ty::Array(item_ty) = package.get_expr(array_id).ty.clone() else {
+        return;
+    };
+
+    let result_ty = package.get_expr(call_expr_id).ty.clone();
+    let span = package.get_expr(call_expr_id).span;
+    let original_args = package.get_expr(args_id).clone();
+
+    let mut branch_calls = Vec::with_capacity(branch_callables.len());
+    for (position, branch_callable) in branch_callables.iter().enumerate() {
+        let call_id = alloc_dispatch_branch_call(
+            package,
+            package_id,
+            span,
+            &result_ty,
+            item_ty.as_ref(),
+            &original_args,
+            &branch_callable,
+            assigner,
+        );
+        branch_calls.push((position, call_id));
+    }
+
+    let mut dispatch_id = branch_calls.last().expect("branch exists").1;
+    for (position, call_id) in branch_calls.into_iter().rev().skip(1) {
+        let condition_id = alloc_index_eq_expr(package, index_id, position, span, assigner);
+        dispatch_id = alloc_if_expr(
+            package,
+            span,
+            &result_ty,
+            condition_id,
+            call_id,
+            dispatch_id,
+            assigner,
+        );
+    }
+
+    let dispatch = package.get_expr(dispatch_id).clone();
+    let call_expr = package
+        .exprs
+        .get_mut(call_expr_id)
+        .expect("call expr not found");
+    call_expr.kind = dispatch.kind;
+    call_expr.ty = dispatch.ty;
+}
+
+fn apply_body_functor_to_concrete(
+    concrete: &ConcreteCallable,
+    body_functor: FunctorApp,
+) -> ConcreteCallable {
+    match concrete {
+        ConcreteCallable::Global { item_id, functor } => ConcreteCallable::Global {
+            item_id: *item_id,
+            functor: compose_functors(functor, &body_functor),
+        },
+        ConcreteCallable::Closure {
+            target,
+            captures,
+            functor,
+        } => ConcreteCallable::Closure {
+            target: *target,
+            captures: captures.clone(),
+            functor: compose_functors(functor, &body_functor),
+        },
+        ConcreteCallable::Dynamic => ConcreteCallable::Dynamic,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn alloc_dispatch_branch_call(
+    package: &mut Package,
+    package_id: PackageId,
+    span: Span,
+    result_ty: &Ty,
+    callee_ty: &Ty,
+    original_args: &Expr,
+    concrete: &ConcreteCallable,
+    assigner: &mut Assigner,
+) -> ExprId {
+    let (item_id, functor, target) = match concrete {
+        ConcreteCallable::Closure {
+            target, functor, ..
+        } => (
+            ItemId {
+                package: package_id,
+                item: *target,
+            },
+            *functor,
+            Some(*target),
+        ),
+        ConcreteCallable::Global { item_id, functor } => (*item_id, *functor, None),
+        ConcreteCallable::Dynamic => return original_args.id,
+    };
+
+    let controlled_layers = usize::from(functor.controlled);
+    let direct_ty = match concrete {
+        ConcreteCallable::Closure { target, .. } => {
+            build_direct_target_callee_ty(package, *target, callee_ty, controlled_layers)
+                .unwrap_or_else(|| callee_ty.clone())
+        }
+        _ => target
+            .and_then(|target| {
+                build_direct_target_callee_ty(package, target, callee_ty, controlled_layers)
+            })
+            .unwrap_or_else(|| callee_ty.clone()),
+    };
+
+    let callee_id = assigner.next_expr();
+    package.exprs.insert(
+        callee_id,
+        Expr {
+            id: callee_id,
+            span,
+            ty: direct_ty,
+            kind: ExprKind::Var(Res::Item(item_id), Vec::new()),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+
+    let args_id = assigner.next_expr();
+    package.exprs.insert(
+        args_id,
+        Expr {
+            id: args_id,
+            span: original_args.span,
+            ty: original_args.ty.clone(),
+            kind: original_args.kind.clone(),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+
+    if let ConcreteCallable::Closure {
+        target, captures, ..
+    } = concrete
+    {
+        if let Some(target_input) = target_callable_input(package, *target) {
+            rewrite_closure_dispatch_branch_args(
+                package,
+                args_id,
+                captures,
+                &target_input,
+                controlled_layers,
+                assigner,
+            );
+        } else {
+            let capture_bindings: Vec<(LocalVarId, Ty)> = captures
+                .iter()
+                .map(|capture| (capture.var, capture.ty.clone()))
+                .collect();
+            prepend_capture_args_to_call(
+                package,
+                args_id,
+                &capture_bindings,
+                controlled_layers,
+                assigner,
+            );
+        }
+    }
+
+    let call_id = assigner.next_expr();
+    package.exprs.insert(
+        call_id,
+        Expr {
+            id: call_id,
+            span,
+            ty: result_ty.clone(),
+            kind: ExprKind::Call(callee_id, args_id),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    call_id
+}
+
+fn target_callable_input(package: &Package, target: LocalItemId) -> Option<Ty> {
+    let ItemKind::Callable(decl) = &package.get_item(target).kind else {
+        return None;
+    };
+    Some(package.get_pat(decl.input).ty.clone())
+}
+
+fn rewrite_indexed_closure_dispatch_args(
+    package: &mut Package,
+    args_id: ExprId,
+    concrete: &ConcreteCallable,
+    assigner: &mut Assigner,
+) {
+    let ConcreteCallable::Closure {
+        target,
+        captures,
+        functor,
+    } = concrete
+    else {
+        return;
+    };
+
+    let capture_bindings: Vec<(LocalVarId, Ty)> = captures
+        .iter()
+        .map(|capture| (capture.var, capture.ty.clone()))
+        .collect();
+    rewrite_closure_target_args(
+        package,
+        args_id,
+        *target,
+        &capture_bindings,
+        usize::from(functor.controlled),
+        assigner,
+    );
+}
+
+fn rewrite_closure_target_args(
+    package: &mut Package,
+    args_id: ExprId,
+    target: LocalItemId,
+    capture_bindings: &[(LocalVarId, Ty)],
+    controlled_layers: usize,
+    assigner: &mut Assigner,
+) {
+    if let Some(target_input) = target_callable_input(package, target) {
+        let captures: Vec<CapturedVar> = capture_bindings
+            .iter()
+            .map(|(var, ty)| CapturedVar {
+                var: *var,
+                ty: ty.clone(),
+                expr: None,
+            })
+            .collect();
+        rewrite_closure_dispatch_branch_args(
+            package,
+            args_id,
+            &captures,
+            &target_input,
+            controlled_layers,
+            assigner,
+        );
+    } else {
+        prepend_capture_args_to_call(
+            package,
+            args_id,
+            capture_bindings,
+            controlled_layers,
+            assigner,
+        );
+    }
+}
+
+fn rewrite_closure_dispatch_branch_args(
+    package: &mut Package,
+    args_id: ExprId,
+    captures: &[CapturedVar],
+    target_input: &Ty,
+    controlled_layers: usize,
+    assigner: &mut Assigner,
+) {
+    if controlled_layers > 0 {
+        let inner_id = match package.get_expr(args_id).kind {
+            ExprKind::Tuple(ref elements) if elements.len() > 1 => elements[1],
+            _ => return,
+        };
+        let inner_target = match target_input {
+            Ty::Tuple(items) if items.len() > 1 => &items[1],
+            _ => target_input,
+        };
+        rewrite_closure_dispatch_branch_args(
+            package,
+            inner_id,
+            captures,
+            inner_target,
+            controlled_layers - 1,
+            assigner,
+        );
+        let inner_ty = package.get_expr(inner_id).ty.clone();
+        let args_expr = package.exprs.get_mut(args_id).expect("args expr not found");
+        if let Ty::Tuple(ref mut tys) = args_expr.ty
+            && tys.len() > 1
+        {
+            tys[1] = inner_ty;
+        }
+        return;
+    }
+
+    let Some((kind, ty)) =
+        build_closure_dispatch_branch_args_data(package, args_id, captures, target_input, assigner)
+    else {
+        return;
+    };
+
+    let args_expr = package.exprs.get_mut(args_id).expect("args expr not found");
+    args_expr.kind = kind;
+    args_expr.ty = ty;
+}
+
+fn build_closure_dispatch_branch_args_data(
+    package: &mut Package,
+    args_id: ExprId,
+    captures: &[CapturedVar],
+    target_input: &Ty,
+    assigner: &mut Assigner,
+) -> Option<(ExprKind, Ty)> {
+    let original_args = package.get_expr(args_id).clone();
+    if original_args.ty == *target_input {
+        return Some((original_args.kind, original_args.ty));
+    }
+
+    let capture_ids = allocate_capture_exprs(package, original_args.span, captures, assigner);
+    let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
+
+    let flattened = flattened_capture_arg_data(
+        package,
+        &original_args,
+        capture_ids.as_slice(),
+        &capture_tys,
+        target_input,
+    );
+    if let Some(data) = flattened {
+        return Some(data);
+    }
+
+    let grouped = grouped_capture_arg_data(
+        package,
+        &original_args,
+        capture_ids.as_slice(),
+        &capture_tys,
+        target_input,
+        assigner,
+    );
+    grouped.or_else(|| {
+        captures
+            .is_empty()
+            .then_some((original_args.kind, original_args.ty))
+    })
+}
+
+fn flattened_capture_arg_data(
+    package: &Package,
+    original_args: &Expr,
+    capture_ids: &[ExprId],
+    capture_tys: &[Ty],
+    target_input: &Ty,
+) -> Option<(ExprKind, Ty)> {
+    let Ty::Tuple(target_items) = target_input else {
+        return None;
+    };
+    let ExprKind::Tuple(arg_items) = &original_args.kind else {
+        return None;
+    };
+    let Ty::Tuple(arg_tys) = &original_args.ty else {
+        return None;
+    };
+
+    let expected_tys: Vec<Ty> = capture_tys
+        .iter()
+        .cloned()
+        .chain(arg_tys.iter().cloned())
+        .collect();
+    if expected_tys != *target_items {
+        return None;
+    }
+
+    let elements: Vec<ExprId> = capture_ids
+        .iter()
+        .copied()
+        .chain(arg_items.iter().copied())
+        .collect();
+    Some(build_expr_data_from_elements(package, elements))
+}
+
+fn grouped_capture_arg_data(
+    package: &mut Package,
+    original_args: &Expr,
+    capture_ids: &[ExprId],
+    capture_tys: &[Ty],
+    target_input: &Ty,
+    assigner: &mut Assigner,
+) -> Option<(ExprKind, Ty)> {
+    let expected_ty = if capture_tys.is_empty() {
+        original_args.ty.clone()
+    } else {
+        let mut tys = capture_tys.to_vec();
+        tys.push(original_args.ty.clone());
+        Ty::Tuple(tys)
+    };
+    if &expected_ty != target_input {
+        return None;
+    }
+
+    if capture_ids.is_empty() {
+        return Some((original_args.kind.clone(), original_args.ty.clone()));
+    }
+
+    let preserved_args_id = assigner.next_expr();
+    package.exprs.insert(
+        preserved_args_id,
+        Expr {
+            id: preserved_args_id,
+            span: original_args.span,
+            ty: original_args.ty.clone(),
+            kind: original_args.kind.clone(),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+
+    let mut elements = capture_ids.to_vec();
+    elements.push(preserved_args_id);
+    Some(build_expr_data_from_elements(package, elements))
+}
+
+fn allocate_capture_exprs(
+    package: &mut Package,
+    span: Span,
+    captures: &[CapturedVar],
+    assigner: &mut Assigner,
+) -> Vec<ExprId> {
+    let mut ids = Vec::with_capacity(captures.len());
+
+    for capture in captures {
+        if let Some(expr_id) = capture.expr {
+            ids.push(expr_id);
+            continue;
+        }
+
+        let expr_id = assigner.next_expr();
+        package.exprs.insert(
+            expr_id,
+            Expr {
+                id: expr_id,
+                span,
+                ty: capture.ty.clone(),
+                kind: ExprKind::Var(Res::Local(capture.var), Vec::new()),
+                exec_graph_range: EMPTY_EXEC_RANGE,
+            },
+        );
+        ids.push(expr_id);
+    }
+
+    ids
+}
+
+fn build_expr_data_from_elements(package: &Package, elements: Vec<ExprId>) -> (ExprKind, Ty) {
+    match elements.as_slice() {
+        [] => (ExprKind::Tuple(Vec::new()), Ty::UNIT),
+        [single] => {
+            let expr = package.get_expr(*single);
+            (expr.kind.clone(), expr.ty.clone())
+        }
+        _ => {
+            let tys = elements
+                .iter()
+                .map(|&expr_id| package.get_expr(expr_id).ty.clone())
+                .collect();
+            (ExprKind::Tuple(elements), Ty::Tuple(tys))
+        }
+    }
+}
+
+fn alloc_index_eq_expr(
+    package: &mut Package,
+    index_expr_id: ExprId,
+    index_value: usize,
+    span: Span,
+    assigner: &mut Assigner,
+) -> ExprId {
+    let lit_id = assigner.next_expr();
+    let index_value = i64::try_from(index_value).expect("dispatch index should fit in i64");
+    package.exprs.insert(
+        lit_id,
+        Expr {
+            id: lit_id,
+            span,
+            ty: Ty::Prim(Prim::Int),
+            kind: ExprKind::Lit(Lit::Int(index_value)),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+
+    let condition_id = assigner.next_expr();
+    package.exprs.insert(
+        condition_id,
+        Expr {
+            id: condition_id,
+            span,
+            ty: Ty::Prim(Prim::Bool),
+            kind: ExprKind::BinOp(BinOp::Eq, index_expr_id, lit_id),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    condition_id
+}
+
+fn alloc_if_expr(
+    package: &mut Package,
+    span: Span,
+    result_ty: &Ty,
+    condition_id: ExprId,
+    true_id: ExprId,
+    false_id: ExprId,
+    assigner: &mut Assigner,
+) -> ExprId {
+    let if_id = assigner.next_expr();
+    package.exprs.insert(
+        if_id,
+        Expr {
+            id: if_id,
+            span,
+            ty: result_ty.clone(),
+            kind: ExprKind::If(condition_id, true_id, Some(false_id)),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    if_id
 }
 
 /// Collects field indices from nested `Field(Path)` expressions rooted at `param_var`.
@@ -2065,6 +2832,7 @@ fn specialize_closure_target_for_captured_param(
         &target_decl.implementation,
         &closure_param,
         concrete,
+        &[],
         &mut specialized_capture_targets,
         assigner,
     );
@@ -2370,9 +3138,10 @@ fn prepend_captures_to_calls(
                 _,
             ) if callee_package == package_id && callee_item == closure_target
         ) {
-            prepend_capture_args_to_call(
+            rewrite_closure_target_args(
                 package,
                 args_id,
+                closure_target,
                 capture_bindings,
                 usize::from(outer_functor.controlled),
                 assigner,
@@ -2570,9 +3339,10 @@ fn rewrite_closure_target_call_args_in_expr(
                     _
                 ) if callee_package == package_id && callee_item == closure_target
             ) {
-                prepend_capture_args_to_call(
+                rewrite_closure_target_args(
                     package,
                     args_id,
+                    closure_target,
                     capture_bindings,
                     usize::from(outer_functor.controlled),
                     assigner,
@@ -2801,6 +3571,10 @@ fn prepend_capture_args_to_call(
     controlled_layers: usize,
     assigner: &mut Assigner,
 ) {
+    if capture_bindings.is_empty() {
+        return;
+    }
+
     if controlled_layers > 0 {
         let inner_id = match package.get_expr(args_id).kind {
             ExprKind::Tuple(ref elements) if elements.len() > 1 => elements[1],

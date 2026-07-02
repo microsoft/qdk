@@ -161,7 +161,7 @@ pub struct CapturedVar {
 
 /// Maximum number of concrete callables tracked in a `Multi` lattice element
 /// before degrading to `Dynamic`.
-pub(super) const MULTI_CAP: usize = 8;
+pub(super) const MULTI_CAP: usize = 1000;
 
 /// Reaching-definitions lattice for callable variables.
 /// Tracks the set of possible concrete callables at each program point.
@@ -378,6 +378,7 @@ pub enum ConcreteCallableKey {
     Closure {
         target: StoreItemId,
         functor: FunctorApp,
+        occurrence: Option<usize>,
     },
 }
 

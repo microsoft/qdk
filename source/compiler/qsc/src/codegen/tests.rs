@@ -3805,6 +3805,107 @@ fn chemistry_like_controlled_factory_generates_qir() {
 }
 
 #[test]
+fn chemistry_like_controlled_psp_wrapper_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
+
+            operation SelectIdentity(ancilla : Qubit[], systems : Qubit[]) : Unit is Adj + Ctl {}
+
+            operation PrepSelPrep(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                systems : Qubit[],
+                ancilla : Qubit[]
+            ) : Unit is Adj + Ctl {
+                body ... {
+                    prepareOp(ancilla);
+                    selectOp(ancilla, systems);
+                    Adjoint prepareOp(ancilla);
+                }
+                adjoint auto;
+                controlled (ctls, ...) {
+                    prepareOp(ancilla);
+                    Controlled selectOp(ctls, (ancilla, systems));
+                    Adjoint prepareOp(ancilla);
+                }
+                controlled adjoint auto;
+            }
+
+            function MakeControlledPrepSelPrepOp(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : (Qubit, Qubit[]) => Unit {
+                (control, allQubits) => {
+                    let systems = allQubits[0..numSystemQubits - 1];
+                    let ancilla = allQubits[numSystemQubits...];
+                    for _ in 0..power - 1 {
+                        Controlled PrepSelPrep([control], (prepareOp, selectOp, systems, ancilla));
+                    }
+                }
+            }
+
+            operation MakeControlledPrepSelPrepCircuit(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : Unit {
+                use control = Qubit();
+                use systems = Qubit[numSystemQubits + numAncillaQubits];
+                let op = MakeControlledPrepSelPrepOp(
+                    prepareOp,
+                    selectOp,
+                    numSystemQubits,
+                    numAncillaQubits,
+                    power
+                );
+                op(control, systems);
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeControlledPrepSelPrepCircuit", true),
+            ("PrepareIdentity", true),
+            ("SelectIdentity", true),
+        ],
+        caps,
+    );
+
+    let prepare = Value::Global(
+        fir_id_for(pkg, items["PrepareIdentity"]),
+        FunctorApp::default(),
+    );
+    let select = Value::Global(
+        fir_id_for(pkg, items["SelectIdentity"]),
+        FunctorApp::default(),
+    );
+    let args = Value::Tuple(
+        vec![prepare, select, Value::Int(1), Value::Int(1), Value::Int(1)].into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(
+        &store,
+        pkg,
+        items["MakeControlledPrepSelPrepCircuit"],
+        &args,
+        caps,
+    );
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()"),
+        "expected entry point in QIR:\n{qir}"
+    );
+}
+
+#[test]
 fn chemistry_like_state_preparation_closure_with_empty_expansion_ops_generates_qir() {
     let source = indoc::indoc! {r#"
         namespace Test {
@@ -3926,6 +4027,320 @@ fn chemistry_like_state_preparation_closure_with_empty_expansion_ops_generates_q
 }
 
 #[test]
+fn chemistry_like_standard_qpe_callable_array_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            struct StandardPhaseEstimationParams {
+                statePrep : Qubit[] => Unit,
+                controlledUnitary : ((Qubit, Qubit[]) => Unit)[],
+                phaseQubitPrep : Qubit[] => Unit,
+                numBits : Int,
+                systems : Int[],
+                numAncillaQubits : Int
+            }
+
+            operation PrepareSystems(systems : Qubit[]) : Unit {
+                X(systems[0]);
+            }
+
+            operation PreparePhase(ancillas : Qubit[]) : Unit {
+                for q in ancillas {
+                    H(q);
+                }
+            }
+
+            operation ControlledFirst(control : Qubit, targets : Qubit[]) : Unit {
+                Controlled X([control], targets[0]);
+            }
+
+            operation ControlledSecond(control : Qubit, targets : Qubit[]) : Unit {
+                Controlled Z([control], targets[0]);
+            }
+
+            operation RunStandardQPE(params : StandardPhaseEstimationParams) : Result[] {
+                use qs = Qubit[params.numBits + Length(params.systems) + params.numAncillaQubits];
+                let ancillas = qs[0..params.numBits - 1];
+                let allTargets = qs[params.numBits...];
+
+                params.statePrep(allTargets);
+                params.phaseQubitPrep(ancillas);
+
+                for ancillaIdx in 0..params.numBits - 1 {
+                    params.controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
+                }
+
+                ResetAll(allTargets);
+                mutable results = [Zero, size = params.numBits];
+                for idx in 0..params.numBits - 1 {
+                    set results w/= idx <- MResetZ(ancillas[idx]);
+                }
+                return results;
+            }
+
+            operation MakeStandardQPECircuit(
+                statePrep : Qubit[] => Unit,
+                controlledUnitary : ((Qubit, Qubit[]) => Unit)[],
+                numBits : Int,
+                systems : Int[],
+                phaseQubitPrep : Qubit[] => Unit,
+                numAncillaQubits : Int
+            ) : Result[] {
+                return RunStandardQPE(new StandardPhaseEstimationParams {
+                    statePrep = statePrep,
+                    controlledUnitary = controlledUnitary,
+                    phaseQubitPrep = phaseQubitPrep,
+                    numBits = numBits,
+                    systems = systems,
+                    numAncillaQubits = numAncillaQubits
+                });
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeStandardQPECircuit", true),
+            ("PrepareSystems", true),
+            ("PreparePhase", true),
+            ("ControlledFirst", true),
+            ("ControlledSecond", true),
+        ],
+        caps,
+    );
+
+    let state_prep = Value::Global(
+        fir_id_for(pkg, items["PrepareSystems"]),
+        FunctorApp::default(),
+    );
+    let controlled_unitaries = Value::Array(
+        vec![
+            Value::Global(
+                fir_id_for(pkg, items["ControlledFirst"]),
+                FunctorApp::default(),
+            ),
+            Value::Global(
+                fir_id_for(pkg, items["ControlledSecond"]),
+                FunctorApp::default(),
+            ),
+        ]
+        .into(),
+    );
+    let phase_prep = Value::Global(
+        fir_id_for(pkg, items["PreparePhase"]),
+        FunctorApp::default(),
+    );
+    let args = Value::Tuple(
+        vec![
+            state_prep,
+            controlled_unitaries,
+            Value::Int(2),
+            Value::Array(vec![Value::Int(0)].into()),
+            phase_prep,
+            Value::Int(0),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["MakeStandardQPECircuit"], &args, caps);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()"),
+        "expected entry point in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            import Std.Arrays.Subarray;
+            import Std.Canon.ApplyQFT;
+
+            struct ControlledParams {
+                angle : Double,
+                repetitions : Int
+            }
+
+            struct StatePrepParams {
+                rowMap : Int[],
+                stateVector : Double[],
+                expansionOps : Int[][],
+                numQubits : Int
+            }
+
+            struct StandardPhaseEstimationParams {
+                statePrep : Qubit[] => Unit,
+                controlledUnitary : ((Qubit, Qubit[]) => Unit)[],
+                phaseQubitPrep : Qubit[] => Unit,
+                numBits : Int,
+                ancillas : Int[],
+                systems : Int[],
+                numAncillaQubits : Int
+            }
+
+            operation PrepareSystems(systems : Qubit[]) : Unit {
+                X(systems[0]);
+            }
+
+            operation StatePreparation(params : StatePrepParams, systems : Qubit[]) : Unit {
+                if Length(params.stateVector) > 0 {
+                    X(systems[0]);
+                }
+            }
+
+            function MakeStatePreparationOp(params : StatePrepParams) : Qubit[] => Unit {
+                StatePreparation(params, _)
+            }
+
+            operation PreparePhase(ancillas : Qubit[]) : Unit {
+                for q in ancillas {
+                    H(q);
+                }
+            }
+
+            function MakePreparePhaseOp() : Qubit[] => Unit {
+                PreparePhase(_)
+            }
+
+            operation RepControlled(params : ControlledParams, control : Qubit, targets : Qubit[]) : Unit {
+                for _ in 1..params.repetitions {
+                    if params.angle > 0.0 {
+                        Controlled X([control], targets[0]);
+                    } else {
+                        Controlled Z([control], targets[0]);
+                    }
+                }
+            }
+
+            operation RunStandardQPE(params : StandardPhaseEstimationParams) : Result[] {
+                let totalQubits = params.numBits + Length(params.systems) + params.numAncillaQubits;
+                use qs = Qubit[totalQubits];
+                let ancillas = Subarray(params.ancillas, qs);
+                let systems = Subarray(params.systems, qs);
+                let unitaryAncillas = if params.numAncillaQubits == 0 {
+                    []
+                } else {
+                    qs[params.numBits + Length(params.systems)..Length(qs) - 1]
+                };
+                let allTargets = systems + unitaryAncillas;
+
+                params.statePrep(systems);
+                params.phaseQubitPrep(ancillas);
+
+                for ancillaIdx in 0..params.numBits - 1 {
+                    params.controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
+                }
+
+                Adjoint ApplyQFT(ancillas);
+
+                ResetAll(allTargets);
+                mutable results = [Zero, size = params.numBits];
+                for idx in 0..params.numBits - 1 {
+                    set results w/= idx <- MResetZ(ancillas[idx]);
+                }
+                return results;
+            }
+
+            operation MakeStandardQPECircuit(
+                statePrep : Qubit[] => Unit,
+                controlledUnitary : ((Qubit, Qubit[]) => Unit)[],
+                numBits : Int,
+                ancillas : Int[],
+                systems : Int[],
+                phaseQubitPrep : Qubit[] => Unit,
+                numAncillaQubits : Int
+            ) : Result[] {
+                return RunStandardQPE(new StandardPhaseEstimationParams {
+                    statePrep = statePrep,
+                    controlledUnitary = controlledUnitary,
+                    phaseQubitPrep = phaseQubitPrep,
+                    numBits = numBits,
+                    ancillas = ancillas,
+                    systems = systems,
+                    numAncillaQubits = numAncillaQubits
+                });
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeStandardQPECircuit", true),
+            ("PrepareSystems", true),
+            ("StatePreparation", true),
+            ("PreparePhase", true),
+            ("RepControlled", true),
+            ("ControlledParams", false),
+            ("StatePrepParams", false),
+        ],
+        caps,
+    );
+
+    let state_prep_params = Value::Tuple(
+        vec![
+            Value::Array(vec![Value::Int(1), Value::Int(0)].into()),
+            Value::Array(vec![Value::Double(0.6), Value::Double(0.8)].into()),
+            Value::Array(vec![Value::Array(vec![Value::Int(0)].into())].into()),
+            Value::Int(2),
+        ]
+        .into(),
+        None,
+    );
+    let state_prep = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![state_prep_params].into(),
+        id: fir_id_for(pkg, items["StatePreparation"]),
+        functor: FunctorApp::default(),
+    }));
+    let rep_controlled_id = fir_id_for(pkg, items["RepControlled"]);
+    let controlled_unitaries = Value::Array(
+        (0..6)
+            .map(|idx| {
+                let params = Value::Tuple(
+                    vec![
+                        Value::Double(if idx % 2 == 0 { 1.0 } else { -1.0 }),
+                        Value::Int(1),
+                    ]
+                    .into(),
+                    None,
+                );
+                Value::Closure(Box::new(qsc_eval::val::Closure {
+                    fixed_args: vec![params].into(),
+                    id: rep_controlled_id,
+                    functor: FunctorApp::default(),
+                }))
+            })
+            .collect::<Vec<_>>()
+            .into(),
+    );
+    let phase_prep = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![].into(),
+        id: fir_id_for(pkg, items["PreparePhase"]),
+        functor: FunctorApp::default(),
+    }));
+    let args = Value::Tuple(
+        vec![
+            state_prep,
+            controlled_unitaries,
+            Value::Int(6),
+            Value::Array((0..6).map(Value::Int).collect::<Vec<_>>().into()),
+            Value::Array(vec![Value::Int(6)].into()),
+            phase_prep,
+            Value::Int(0),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["MakeStandardQPECircuit"], &args, caps);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()"),
+        "expected entry point in QIR:\n{qir}"
+    );
+}
+
+#[test]
 fn chemistry_like_iqpe_params_struct_generates_qir() {
     let source = indoc::indoc! {r#"
         namespace Test {
@@ -4023,4 +4438,261 @@ fn chemistry_like_iqpe_params_struct_generates_qir() {
         qir.contains("define i64 @ENTRYPOINT__main()"),
         "expected entry point in QIR:\n{qir}"
     );
+}
+
+#[test]
+fn chemistry_like_iqpe_with_controlled_psp_closure_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            struct IterativePhaseEstimationParams {
+                statePrep : Qubit[] => Unit,
+                repControlledUnitary : (Qubit, Qubit[]) => Unit,
+                accumulatePhase : Double,
+                phaseQubit : Int,
+                systems : Int[],
+                numAncillaQubits : Int
+            }
+
+            operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
+
+            operation SelectIdentity(ancilla : Qubit[], systems : Qubit[]) : Unit is Adj + Ctl {}
+
+            operation PrepSelPrep(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                systems : Qubit[],
+                ancilla : Qubit[]
+            ) : Unit is Adj + Ctl {
+                body ... {
+                    prepareOp(ancilla);
+                    selectOp(ancilla, systems);
+                    Adjoint prepareOp(ancilla);
+                }
+                adjoint auto;
+                controlled (ctls, ...) {
+                    prepareOp(ancilla);
+                    Controlled selectOp(ctls, (ancilla, systems));
+                    Adjoint prepareOp(ancilla);
+                }
+                controlled adjoint auto;
+            }
+
+            function MakeControlledPrepSelPrepOp(
+                prepareOp : Qubit[] => Unit is Adj + Ctl,
+                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+                numSystemQubits : Int,
+                numAncillaQubits : Int,
+                power : Int
+            ) : (Qubit, Qubit[]) => Unit {
+                (control, allQubits) => {
+                    let systems = allQubits[0..numSystemQubits - 1];
+                    let ancilla = allQubits[numSystemQubits...];
+                    for _ in 0..power - 1 {
+                        Controlled PrepSelPrep([control], (prepareOp, selectOp, systems, ancilla));
+                    }
+                }
+            }
+
+            operation RunIQPE(params : IterativePhaseEstimationParams) : Result[] {
+                use qs = Qubit[Length(params.systems) + 1 + params.numAncillaQubits];
+                let phaseQubit = qs[params.phaseQubit];
+                let allTargets = qs[1...];
+
+                params.statePrep(allTargets);
+
+                within {
+                    H(phaseQubit);
+                } apply {
+                    Rz(params.accumulatePhase, phaseQubit);
+                    params.repControlledUnitary(phaseQubit, allTargets);
+                }
+                ResetAll(allTargets);
+                return [MResetZ(phaseQubit)];
+            }
+
+            operation MakeIQPECircuit(
+                statePrep : Qubit[] => Unit,
+                repControlledUnitary : (Qubit, Qubit[]) => Unit,
+                accumulatePhase : Double,
+                phaseQubit : Int,
+                systems : Int[],
+                numAncillaQubits : Int
+            ) : Result[] {
+                return RunIQPE(new IterativePhaseEstimationParams {
+                    statePrep = statePrep,
+                    repControlledUnitary = repControlledUnitary,
+                    accumulatePhase = accumulatePhase,
+                    phaseQubit = phaseQubit,
+                    systems = systems,
+                    numAncillaQubits = numAncillaQubits
+                });
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeIQPECircuit", true),
+            ("PrepareIdentity", true),
+            ("SelectIdentity", true),
+            (".lambda", true),
+        ],
+        caps,
+    );
+
+    let prepare = Value::Global(
+        fir_id_for(pkg, items["PrepareIdentity"]),
+        FunctorApp::default(),
+    );
+    let select = Value::Global(
+        fir_id_for(pkg, items["SelectIdentity"]),
+        FunctorApp::default(),
+    );
+    let rep_controlled_unitary = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![prepare.clone(), select, Value::Int(1), Value::Int(1)].into(),
+        id: fir_id_for(pkg, items[".lambda"]),
+        functor: FunctorApp::default(),
+    }));
+    let args = Value::Tuple(
+        vec![
+            prepare,
+            rep_controlled_unitary,
+            Value::Double(0.25),
+            Value::Int(0),
+            Value::Array(vec![Value::Int(1)].into()),
+            Value::Int(1),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["MakeIQPECircuit"], &args, caps);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()"),
+        "expected entry point in QIR:\n{qir}"
+    );
+}
+
+#[test]
+#[should_panic(expected = "LocalVarId consistency")]
+fn chemistry_like_iqpe_with_udt_capture_closure_hits_unbound_local_invariant() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            struct ControlledParams {
+                pauliExponents : Pauli[][],
+                pauliCoefficients : Double[],
+                repetitions : Int
+            }
+
+            struct IterativePhaseEstimationParams {
+                statePrep : Qubit[] => Unit,
+                repControlledUnitary : (Qubit, Qubit[]) => Unit,
+                accumulatePhase : Double,
+                phaseQubit : Int,
+                systems : Int[],
+                numAncillaQubits : Int
+            }
+
+            operation PrepareSystems(systems : Qubit[]) : Unit {
+                X(systems[0]);
+            }
+
+            operation RepControlledUnitary(params : ControlledParams, control : Qubit, systems : Qubit[]) : Unit {
+                for _ in 1..params.repetitions {
+                    for idx in 0..Length(params.pauliExponents) - 1 {
+                        if params.pauliCoefficients[idx] > 0.0 {
+                            Controlled X([control], systems[0]);
+                        } else {
+                            Controlled Z([control], systems[0]);
+                        }
+                    }
+                }
+            }
+
+            operation RunIQPE(params : IterativePhaseEstimationParams) : Result[] {
+                use qs = Qubit[Length(params.systems) + 1 + params.numAncillaQubits];
+                let phaseQubit = qs[params.phaseQubit];
+                let allTargets = qs[1...];
+
+                params.statePrep(allTargets);
+
+                within {
+                    H(phaseQubit);
+                } apply {
+                    Rz(params.accumulatePhase, phaseQubit);
+                    params.repControlledUnitary(phaseQubit, allTargets);
+                }
+                ResetAll(allTargets);
+                return [MResetZ(phaseQubit)];
+            }
+
+            operation MakeIQPECircuit(
+                statePrep : Qubit[] => Unit,
+                repControlledUnitary : (Qubit, Qubit[]) => Unit,
+                accumulatePhase : Double,
+                phaseQubit : Int,
+                systems : Int[],
+                numAncillaQubits : Int
+            ) : Result[] {
+                return RunIQPE(new IterativePhaseEstimationParams {
+                    statePrep = statePrep,
+                    repControlledUnitary = repControlledUnitary,
+                    accumulatePhase = accumulatePhase,
+                    phaseQubit = phaseQubit,
+                    systems = systems,
+                    numAncillaQubits = numAncillaQubits
+                });
+            }
+        }
+    "#};
+    let caps = Profile::Base.into();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("MakeIQPECircuit", true),
+            ("PrepareSystems", true),
+            ("RepControlledUnitary", true),
+            ("ControlledParams", false),
+        ],
+        caps,
+    );
+
+    let state_prep = Value::Global(
+        fir_id_for(pkg, items["PrepareSystems"]),
+        FunctorApp::default(),
+    );
+    let params = Value::Tuple(
+        vec![
+            Value::Array(
+                vec![Value::Array(
+                    vec![Value::Pauli(qsc_fir::fir::Pauli::X)].into(),
+                )]
+                .into(),
+            ),
+            Value::Array(vec![Value::Double(1.0)].into()),
+            Value::Int(1),
+        ]
+        .into(),
+        None,
+    );
+    let rep_controlled_unitary = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![params].into(),
+        id: fir_id_for(pkg, items["RepControlledUnitary"]),
+        functor: FunctorApp::default(),
+    }));
+    let args = Value::Tuple(
+        vec![
+            state_prep,
+            rep_controlled_unitary,
+            Value::Double(0.0),
+            Value::Int(0),
+            Value::Array(vec![Value::Int(1)].into()),
+            Value::Int(0),
+        ]
+        .into(),
+        None,
+    );
+
+    let _ = callable_args_to_qir(&store, pkg, items["MakeIQPECircuit"], &args, caps);
 }

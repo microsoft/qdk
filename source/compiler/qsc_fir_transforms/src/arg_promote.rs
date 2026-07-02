@@ -609,10 +609,12 @@ fn collect_first_class_callables(
     first_class
 }
 
-/// Collects the `StoreItemId`s of callables that are targets of
-/// `Closure(_, local_item_id)` in the reachable package closure. A closure
-/// target resolves in the package that contains the `Closure` expression, so
-/// the recorded `StoreItemId` uses that containing package.
+/// Collects the `StoreItemId`s of callables that are targets of closure-like
+/// dispatch in the reachable package closure. Before defunctionalization this
+/// is a direct `Closure(_, local_item_id)` expression. After defunctionalization
+/// an indexed closure-array dispatch branch calls the target item directly but
+/// still uses the closure-call ABI `(captures..., original_args)`, so the target
+/// signature must remain stable for those call sites.
 fn collect_closure_targets(
     store: &PackageStore,
     package_id: PackageId,
@@ -640,6 +642,7 @@ fn collect_closure_targets(
                         item: *local_item_id,
                     });
                 }
+                collect_closure_abi_direct_call_target(package, pkg, expr, &mut targets);
             });
         }
 
@@ -656,6 +659,7 @@ fn collect_closure_targets(
                                 item: *local_item_id,
                             });
                         }
+                        collect_closure_abi_direct_call_target(package, pkg, expr, &mut targets);
                     },
                 );
             }
@@ -663,6 +667,71 @@ fn collect_closure_targets(
     }
 
     targets
+}
+
+fn collect_closure_abi_direct_call_target(
+    package: &Package,
+    package_id: PackageId,
+    expr: &Expr,
+    targets: &mut FxHashSet<StoreItemId>,
+) {
+    let ExprKind::Call(callee_id, arg_id) = expr.kind else {
+        return;
+    };
+    let callee_expr = package.get_expr(callee_id);
+    let ExprKind::Var(Res::Item(item_id), _) = callee_expr.kind else {
+        return;
+    };
+    if item_id.package != package_id {
+        return;
+    }
+    if !call_uses_grouped_closure_payload(package, item_id.item, arg_id, Some(&callee_expr.ty)) {
+        return;
+    }
+    targets.insert(StoreItemId {
+        package: item_id.package,
+        item: item_id.item,
+    });
+}
+
+fn call_uses_grouped_closure_payload(
+    package: &Package,
+    item_id: LocalItemId,
+    arg_id: ExprId,
+    callee_ty: Option<&Ty>,
+) -> bool {
+    let ExprKind::Tuple(args) = &package.get_expr(arg_id).kind else {
+        return false;
+    };
+    if args.len() < 2 {
+        return false;
+    }
+
+    let item_input = || {
+        let Some(ItemKind::Callable(decl)) = package.items.get(item_id).map(|item| &item.kind)
+        else {
+            return None;
+        };
+        Some(package.get_pat(decl.input).ty.clone())
+    };
+    let target_input = match callee_ty {
+        Some(Ty::Arrow(arrow)) => arrow.input.as_ref().clone(),
+        _ => item_input().unwrap_or(Ty::Err),
+    };
+    let Ty::Tuple(target_items) = target_input else {
+        return false;
+    };
+    if target_items.len() <= args.len() {
+        return false;
+    }
+
+    let trailing_arg_ty = &package
+        .get_expr(*args.last().expect("args is non-empty"))
+        .ty;
+    let Ty::Tuple(trailing_items) = trailing_arg_ty else {
+        return false;
+    };
+    args.len() - 1 + trailing_items.len() == target_items.len()
 }
 
 /// Flattens an entire callable input into one flat tuple of scalar leaves,
@@ -1682,75 +1751,6 @@ fn create_rewritten_payload_arg(
     })
 }
 
-/// Wraps an existing `Call` expression in a synthesized block that places
-/// a pre-built leading statement (typically a temporary binding) before
-/// the call, preserving evaluation order.
-///
-/// # Before
-/// ```text
-/// call_expr_id = Call(callee_id, _)
-/// ```
-/// # After
-/// ```text
-/// call_expr_id = Block {
-///     leading_stmt;                       // supplied by caller
-///     Expr(Call(callee_id, new_arg_id))   // inner call with rewritten args
-/// }
-/// ```
-///
-/// # Mutations
-/// - Replaces `call_expr_id`'s `ExprKind` with `Block(..)` in place.
-/// - Allocates inner `Call`, `Stmt`, and `Block` nodes through `assigner`.
-fn wrap_call_in_block(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    call_expr_id: ExprId,
-    callee_id: ExprId,
-    new_arg_id: ExprId,
-    call_ty: &Ty,
-    leading_stmt_id: StmtId,
-) {
-    let inner_call_id = assigner.next_expr();
-    package.exprs.insert(
-        inner_call_id,
-        Expr {
-            id: inner_call_id,
-            span: Span::default(),
-            ty: call_ty.clone(),
-            kind: ExprKind::Call(callee_id, new_arg_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    let call_stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        call_stmt_id,
-        Stmt {
-            id: call_stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Expr(inner_call_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    let block_id = assigner.next_block();
-    package.blocks.insert(
-        block_id,
-        Block {
-            id: block_id,
-            span: Span::default(),
-            ty: call_ty.clone(),
-            stmts: vec![leading_stmt_id, call_stmt_id],
-        },
-    );
-
-    let call_mut = package
-        .exprs
-        .get_mut(call_expr_id)
-        .expect("call expr exists");
-    call_mut.kind = ExprKind::Block(block_id);
-}
-
 /// Rewrites a single call site: `Foo(arg)` → `Foo((arg.0, arg.1, ...))`.
 ///
 /// # Before
@@ -1781,7 +1781,6 @@ fn rewrite_single_call_site(
     let ExprKind::Call(callee_id, arg_id) = call_expr.kind else {
         return;
     };
-    let call_ty = call_expr.ty.clone();
 
     let arg_expr = package.exprs.get(arg_id).expect("arg expr exists");
     let arg_ty = arg_expr.ty.clone();
@@ -1842,15 +1841,12 @@ fn rewrite_single_call_site(
     );
 
     if let Some((_, temp_stmt_id)) = temp_binding {
-        wrap_call_in_block(
-            package,
-            assigner,
-            call_expr_id,
-            callee_id,
-            new_arg_id,
-            &call_ty,
-            temp_stmt_id,
-        );
+        let new_arg_id = create_payload_block(package, assigner, temp_stmt_id, new_arg_id);
+        let call_mut = package
+            .exprs
+            .get_mut(call_expr_id)
+            .expect("call expr exists");
+        call_mut.kind = ExprKind::Call(callee_id, new_arg_id);
     } else {
         let call_mut = package
             .exprs

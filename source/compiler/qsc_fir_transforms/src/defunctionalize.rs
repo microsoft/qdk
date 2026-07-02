@@ -339,7 +339,7 @@ fn track_specialized_closures(
     // are disjoint by argument count, so this is additive: missing a member
     // here would leave a stray `Closure` that `exec_graph_rebuild` rejects.
     for group in groups.values() {
-        let combined_key = build_combined_spec_key(group[0].hof_item_id, group);
+        let combined_key = build_combined_spec_key_for_group(group[0].hof_item_id, group);
         if spec_map.contains_key(&combined_key) {
             for cs in group {
                 if let ConcreteCallable::Closure { target, .. } = &cs.callable_arg {
@@ -820,6 +820,7 @@ fn concrete_callable_key(
         } => ConcreteCallableKey::Closure {
             target: StoreItemId::from((call_pkg_id, *target)),
             functor: *functor,
+            occurrence: None,
         },
         ConcreteCallable::Dynamic => ConcreteCallableKey::Global {
             item_id: hof_item_id,
@@ -845,20 +846,80 @@ pub(crate) fn build_spec_key(call_site: &CallSite) -> SpecKey {
 /// combinations deduplicate to one specialization, including same-target
 /// producer closures whose differing captures are not part of the key.
 pub(crate) fn build_combined_spec_key(hof_id: ItemId, group: &[&CallSite]) -> SpecKey {
+    build_combined_spec_key_with_occurrences(hof_id, group, false)
+}
+
+pub(crate) fn build_combined_spec_key_for_group(hof_id: ItemId, group: &[&CallSite]) -> SpecKey {
+    if is_static_callable_array_combined_group(group) {
+        build_static_callable_array_combined_spec_key(hof_id, group)
+    } else {
+        build_combined_spec_key(hof_id, group)
+    }
+}
+
+pub(crate) fn build_static_callable_array_combined_spec_key(
+    hof_id: ItemId,
+    group: &[&CallSite],
+) -> SpecKey {
+    build_combined_spec_key_with_occurrences(hof_id, group, true)
+}
+
+fn build_combined_spec_key_with_occurrences(
+    hof_id: ItemId,
+    group: &[&CallSite],
+    preserve_repeated_occurrences: bool,
+) -> SpecKey {
     let mut members: Vec<&CallSite> = group.to_vec();
     members.sort_by(|a, b| {
         a.top_level_param
             .cmp(&b.top_level_param)
             .then_with(|| a.field_path.cmp(&b.field_path))
     });
+    let mut position_counts: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
+    if preserve_repeated_occurrences {
+        for cs in &members {
+            *position_counts
+                .entry((cs.top_level_param, cs.field_path.clone()))
+                .or_default() += 1;
+        }
+    }
+    let mut occurrences: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
     let concrete_args = members
         .iter()
-        .map(|cs| concrete_callable_key(cs.call_pkg_id, &cs.callable_arg, cs.hof_item_id))
+        .map(|cs| {
+            let position = (cs.top_level_param, cs.field_path.clone());
+            let occurrence = (preserve_repeated_occurrences
+                && position_counts.get(&position).copied().unwrap_or_default() > 1)
+                .then(|| {
+                    let next = occurrences.entry(position).or_default();
+                    let value = *next;
+                    *next += 1;
+                    value
+                });
+            let mut key = concrete_callable_key(cs.call_pkg_id, &cs.callable_arg, cs.hof_item_id);
+            if let ConcreteCallableKey::Closure {
+                occurrence: slot, ..
+            } = &mut key
+            {
+                *slot = occurrence;
+            }
+            key
+        })
         .collect();
     SpecKey {
         hof_id: StoreItemId::from((hof_id.package, hof_id.item)),
         concrete_args,
     }
+}
+
+pub(crate) fn is_static_callable_array_combined_group(group: &[&CallSite]) -> bool {
+    let mut positions: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
+    for call_site in group {
+        *positions
+            .entry((call_site.top_level_param, call_site.field_path.clone()))
+            .or_default() += 1;
+    }
+    positions.values().any(|count| *count >= 2)
 }
 
 /// Builds the index path from a call's argument tuple to the position of
@@ -918,13 +979,17 @@ pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bo
     }
     // Distinct parameter positions mean a genuine multi-argument call rather
     // than a branch-split candidate set that resolves the same parameter many
-    // ways.
+    // ways. Static candidates for one array-of-arrow parameter are the one
+    // exception: the array index lives inside the HOF body, so one clone needs
+    // all candidates in order to synthesize the in-body dispatch.
+    let static_callable_array_group = is_static_callable_array_group(package, group)
+        || has_static_top_level_callable_array_position(package, group);
     let mut param_positions: Vec<(usize, &[usize])> = group
         .iter()
         .map(|s| (s.top_level_param, s.field_path.as_slice()))
         .collect();
     param_positions.sort_unstable();
-    if !param_positions.windows(2).all(|w| w[0] != w[1]) {
+    if !param_positions.windows(2).all(|w| w[0] != w[1]) && !static_callable_array_group {
         return false;
     }
     // An outer controlled functor nests the argument tuple one level per
@@ -937,6 +1002,9 @@ pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bo
     let (_, functor) = peel_body_functors(package, callee_id);
     if functor.controlled != 0 {
         return false;
+    }
+    if static_callable_array_group {
+        return true;
     }
     // A member selects either a top-level arrow parameter, identified by an
     // empty field path, or a single immediate arrow field of a tuple-valued
@@ -964,17 +1032,18 @@ pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bo
             _ => return false,
         }
     }
+    let arrow_input = resolve_udt_ty(package, &arrow.input);
     for (slot, mut fields) in nested_fields {
         // For a multi-parameter HOF the arrow input is a tuple of parameters
         // and the tuple-valued parameter sits at `slot`; for a single
         // tuple-valued parameter the arrow input is that tuple.
         let container = if uses_tuple_input {
-            match arrow.input.as_ref() {
+            match &arrow_input {
                 Ty::Tuple(tys) => tys.get(slot),
                 _ => None,
             }
         } else {
-            Some(arrow.input.as_ref())
+            Some(&arrow_input)
         };
         let Some(Ty::Tuple(slot_tys)) = container else {
             return false;
@@ -986,6 +1055,134 @@ pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bo
         }
     }
     true
+}
+
+fn is_static_callable_array_group(package: &Package, group: &[&CallSite]) -> bool {
+    let Some(first) = group.first() else {
+        return false;
+    };
+    if group.iter().any(|call_site| {
+        call_site.top_level_param != first.top_level_param
+            || call_site.field_path != first.field_path
+            || call_site.hof_input_is_tuple != first.hof_input_is_tuple
+            || !call_site.condition.is_empty()
+            || matches!(call_site.callable_arg, ConcreteCallable::Dynamic)
+    }) {
+        return false;
+    }
+
+    let call_expr = package.get_expr(first.call_expr_id);
+    let ExprKind::Call(callee_id, _) = call_expr.kind else {
+        return false;
+    };
+    let Ty::Arrow(ref arrow) = package.get_expr(callee_id).ty else {
+        return false;
+    };
+
+    let arrow_input = resolve_udt_ty(package, &arrow.input);
+    let container = if first.hof_input_is_tuple {
+        match &arrow_input {
+            Ty::Tuple(tys) => tys.get(first.top_level_param),
+            _ => None,
+        }
+    } else {
+        Some(&arrow_input)
+    };
+
+    let Some(container) = container else {
+        return false;
+    };
+    let selected_ty = first
+        .field_path
+        .iter()
+        .try_fold(container, |ty, index| match ty {
+            Ty::Tuple(tys) => tys.get(*index),
+            _ => None,
+        });
+    matches!(selected_ty, Some(Ty::Array(item_ty)) if matches!(item_ty.as_ref(), Ty::Arrow(_)))
+}
+
+fn has_static_top_level_callable_array_position(package: &Package, group: &[&CallSite]) -> bool {
+    let mut candidates_per_position: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
+    for call_site in group {
+        if !call_site.condition.is_empty()
+            || matches!(call_site.callable_arg, ConcreteCallable::Dynamic)
+        {
+            return false;
+        }
+        *candidates_per_position
+            .entry((call_site.top_level_param, call_site.field_path.clone()))
+            .or_default() += 1;
+    }
+
+    let repeated_positions = candidates_per_position
+        .iter()
+        .filter(|(_, count)| **count >= 2)
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    let [position] = repeated_positions.as_slice() else {
+        return false;
+    };
+    if !position.1.is_empty()
+        && group.iter().any(|call_site| {
+            call_site.top_level_param != position.0 || call_site.field_path.is_empty()
+        })
+    {
+        return false;
+    }
+
+    let call_expr = package.get_expr(group[0].call_expr_id);
+    let ExprKind::Call(callee_id, _) = call_expr.kind else {
+        return false;
+    };
+    let Ty::Arrow(ref arrow) = package.get_expr(callee_id).ty else {
+        return false;
+    };
+    let arrow_input = resolve_udt_ty(package, &arrow.input);
+    let container = if group[0].hof_input_is_tuple {
+        match &arrow_input {
+            Ty::Tuple(input_tys) => input_tys.get(position.0),
+            _ => None,
+        }
+    } else {
+        Some(&arrow_input)
+    };
+    let Some(container) = container else {
+        return false;
+    };
+    let selected_ty = position.1.iter().try_fold(container, |ty, index| match ty {
+        Ty::Tuple(tys) => tys.get(*index),
+        _ => None,
+    });
+    matches!(selected_ty, Some(Ty::Array(item_ty)) if matches!(item_ty.as_ref(), Ty::Arrow(_)))
+}
+
+fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
+    match ty {
+        Ty::Udt(Res::Item(item_id)) => {
+            let Some(item) = package.items.get(item_id.item) else {
+                return ty.clone();
+            };
+            let ItemKind::Ty(_, udt) = &item.kind else {
+                return ty.clone();
+            };
+            resolve_udt_ty(package, &udt.get_pure_ty())
+        }
+        Ty::Tuple(elems) => Ty::Tuple(
+            elems
+                .iter()
+                .map(|elem| resolve_udt_ty(package, elem))
+                .collect(),
+        ),
+        Ty::Array(elem) => Ty::Array(Box::new(resolve_udt_ty(package, elem))),
+        Ty::Arrow(arrow) => Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
+            kind: arrow.kind,
+            input: Box::new(resolve_udt_ty(package, &arrow.input)),
+            output: Box::new(resolve_udt_ty(package, &arrow.output)),
+            functors: arrow.functors,
+        })),
+        _ => ty.clone(),
+    }
 }
 
 /// Splits a per-row group that shares one call expression into the parameter

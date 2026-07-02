@@ -41,8 +41,8 @@ use super::types::{
     SpecKey, peel_body_functors,
 };
 use super::{
-    build_combined_spec_key, build_spec_key, is_combined_eligible, partition_mixed_branch_split,
-    ty_contains_arrow,
+    build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
+    is_combined_eligible, partition_mixed_branch_split, ty_contains_arrow,
 };
 use crate::EMPTY_EXEC_RANGE;
 use crate::walk_utils::{DirectChild, UseClass, classify_block_use, for_each_direct_child};
@@ -137,7 +137,7 @@ pub(super) fn rewrite(
         // same predicate so they agree on which call sites are combined.
         if is_combined_eligible(package, group) {
             let hof_item_id = group[0].hof_item_id;
-            let spec_key = build_combined_spec_key(hof_item_id, group);
+            let spec_key = build_combined_spec_key_for_group(hof_item_id, group);
             let Some(&spec_store_id) = spec_map.get(&spec_key) else {
                 continue;
             };
@@ -179,14 +179,27 @@ pub(super) fn rewrite(
                     &mut rewritten_callable_arg_locals,
                 );
             }
-            rewrite_multi(
-                package,
-                *call_expr_id,
-                &members,
-                spec_store_id,
-                &expr_owner_lookup,
-                assigner,
-            );
+            if callable_array_member_position(&members).is_some()
+                && callable_array_member_needs_nested_rewrite(&members)
+            {
+                rewrite_callable_array_multi(
+                    package,
+                    *call_expr_id,
+                    &members,
+                    spec_store_id,
+                    &expr_owner_lookup,
+                    assigner,
+                );
+            } else {
+                rewrite_multi(
+                    package,
+                    *call_expr_id,
+                    &members,
+                    spec_store_id,
+                    &expr_owner_lookup,
+                    assigner,
+                );
+            }
             continue;
         }
 
@@ -718,6 +731,13 @@ fn resolve_index_dispatch_source(
     owner_expr_id: ExprId,
     dispatch_expr_id: ExprId,
 ) -> Option<(ExprId, Vec<ConcreteCallable>)> {
+    let direct_callables = resolve_array_expr_to_callables(
+        package,
+        expr_owner_lookup,
+        owner_expr_id,
+        dispatch_expr_id,
+    );
+
     let source_expr_id =
         resolve_dispatch_source_expr(package, expr_owner_lookup, owner_expr_id, dispatch_expr_id)?;
     let ExprKind::Index(array_expr_id, index_expr_id) = package.get_expr(source_expr_id).kind
@@ -728,6 +748,12 @@ fn resolve_index_dispatch_source(
     // Try direct resolution: array elements are callables.
     if let Some(indexed_callables) =
         resolve_array_expr_to_callables(package, expr_owner_lookup, owner_expr_id, array_expr_id)
+        && indexed_callables.len() >= 2
+    {
+        return Some((index_expr_id, indexed_callables));
+    }
+
+    if let Some(indexed_callables) = direct_callables
         && indexed_callables.len() >= 2
     {
         return Some((index_expr_id, indexed_callables));
@@ -913,7 +939,168 @@ fn resolve_expr_to_concrete_callable(
     let expr = package.get_expr(base_id);
     match expr.kind {
         ExprKind::Var(Res::Item(item_id), _) => Some(ConcreteCallable::Global { item_id, functor }),
+        ExprKind::Closure(ref captured_vars, target) => Some(ConcreteCallable::Closure {
+            target,
+            captures: resolve_concrete_closure_captures(
+                package,
+                expr_owner_lookup,
+                owner_expr_id,
+                captured_vars,
+            )?,
+            functor,
+        }),
         _ => None,
+    }
+}
+
+fn resolve_concrete_closure_captures(
+    package: &Package,
+    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    owner_expr_id: ExprId,
+    captured_vars: &[LocalVarId],
+) -> Option<Vec<CapturedVar>> {
+    let owner_callable = *expr_owner_lookup.get(&owner_expr_id)?;
+    captured_vars
+        .iter()
+        .map(|&var| {
+            let expr = find_local_init_expr_in_callable(package, owner_callable, var);
+            let ty = expr
+                .map(|expr_id| package.get_expr(expr_id).ty.clone())
+                .or_else(|| find_var_type_in_callable(package, owner_callable, var))?;
+            Some(CapturedVar { var, ty, expr })
+        })
+        .collect()
+}
+
+fn find_var_type_in_callable(
+    package: &Package,
+    callable_id: LocalItemId,
+    local_var: LocalVarId,
+) -> Option<Ty> {
+    let Some(ItemKind::Callable(decl)) = package.items.get(callable_id).map(|item| &item.kind)
+    else {
+        return None;
+    };
+
+    find_var_type_in_pat(package, decl.input, local_var)
+        .or_else(|| find_var_type_in_callable_impl(package, &decl.implementation, local_var))
+}
+
+fn find_var_type_in_callable_impl(
+    package: &Package,
+    callable_impl: &qsc_fir::fir::CallableImpl,
+    local_var: LocalVarId,
+) -> Option<Ty> {
+    match callable_impl {
+        qsc_fir::fir::CallableImpl::Intrinsic => None,
+        qsc_fir::fir::CallableImpl::SimulatableIntrinsic(spec_decl) => {
+            find_var_type_in_block(package, spec_decl.block, local_var)
+        }
+        qsc_fir::fir::CallableImpl::Spec(spec_impl) => {
+            find_var_type_in_block(package, spec_impl.body.block, local_var).or_else(|| {
+                [
+                    spec_impl.adj.as_ref(),
+                    spec_impl.ctl.as_ref(),
+                    spec_impl.ctl_adj.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                .find_map(|spec| find_var_type_in_block(package, spec.block, local_var))
+            })
+        }
+    }
+}
+
+fn find_var_type_in_block(
+    package: &Package,
+    block_id: qsc_fir::fir::BlockId,
+    local_var: LocalVarId,
+) -> Option<Ty> {
+    let block = package.get_block(block_id);
+    for &stmt_id in &block.stmts {
+        let stmt = package.get_stmt(stmt_id);
+        if let StmtKind::Local(_, pat_id, _) = stmt.kind
+            && let Some(ty) = find_var_type_in_pat(package, pat_id, local_var)
+        {
+            return Some(ty);
+        }
+
+        let nested = match stmt.kind {
+            StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
+                find_var_type_in_expr(package, expr_id, local_var)
+            }
+            StmtKind::Item(_) => None,
+        };
+        if nested.is_some() {
+            return nested;
+        }
+    }
+
+    None
+}
+
+// TODO: Rewrite as visitor?
+fn find_var_type_in_expr(package: &Package, expr_id: ExprId, local_var: LocalVarId) -> Option<Ty> {
+    let expr = package.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => exprs
+            .iter()
+            .find_map(|&expr_id| find_var_type_in_expr(package, expr_id, local_var)),
+        ExprKind::ArrayRepeat(lhs, rhs)
+        | ExprKind::Assign(lhs, rhs)
+        | ExprKind::AssignOp(_, lhs, rhs)
+        | ExprKind::BinOp(_, lhs, rhs)
+        | ExprKind::Call(lhs, rhs)
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::AssignField(lhs, _, rhs)
+        | ExprKind::UpdateField(lhs, _, rhs) => find_var_type_in_expr(package, *lhs, local_var)
+            .or_else(|| find_var_type_in_expr(package, *rhs, local_var)),
+        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
+            find_var_type_in_expr(package, *a, local_var)
+                .or_else(|| find_var_type_in_expr(package, *b, local_var))
+                .or_else(|| find_var_type_in_expr(package, *c, local_var))
+        }
+        ExprKind::Block(block_id) => find_var_type_in_block(package, *block_id, local_var),
+        ExprKind::Fail(inner)
+        | ExprKind::Field(inner, _)
+        | ExprKind::Return(inner)
+        | ExprKind::UnOp(_, inner) => find_var_type_in_expr(package, *inner, local_var),
+        ExprKind::If(cond, body, otherwise) => find_var_type_in_expr(package, *cond, local_var)
+            .or_else(|| find_var_type_in_expr(package, *body, local_var))
+            .or_else(|| {
+                otherwise.and_then(|expr_id| find_var_type_in_expr(package, expr_id, local_var))
+            }),
+        ExprKind::Range(start, step, end) => start
+            .and_then(|expr_id| find_var_type_in_expr(package, expr_id, local_var))
+            .or_else(|| step.and_then(|expr_id| find_var_type_in_expr(package, expr_id, local_var)))
+            .or_else(|| end.and_then(|expr_id| find_var_type_in_expr(package, expr_id, local_var))),
+        ExprKind::String(components) => components.iter().find_map(|component| match component {
+            qsc_fir::fir::StringComponent::Expr(expr_id) => {
+                find_var_type_in_expr(package, *expr_id, local_var)
+            }
+            qsc_fir::fir::StringComponent::Lit(_) => None,
+        }),
+        ExprKind::Struct(_, copy, fields) => copy
+            .and_then(|expr_id| find_var_type_in_expr(package, expr_id, local_var))
+            .or_else(|| {
+                fields
+                    .iter()
+                    .find_map(|field| find_var_type_in_expr(package, field.value, local_var))
+            }),
+        ExprKind::While(cond, block_id) => find_var_type_in_expr(package, *cond, local_var)
+            .or_else(|| find_var_type_in_block(package, *block_id, local_var)),
+        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => None,
+    }
+}
+
+fn find_var_type_in_pat(package: &Package, pat_id: PatId, local_var: LocalVarId) -> Option<Ty> {
+    let pat = package.get_pat(pat_id);
+    match &pat.kind {
+        PatKind::Bind(ident) if ident.id == local_var => Some(pat.ty.clone()),
+        PatKind::Bind(_) | PatKind::Discard => None,
+        PatKind::Tuple(sub_pats) => sub_pats
+            .iter()
+            .find_map(|&pat_id| find_var_type_in_pat(package, pat_id, local_var)),
     }
 }
 
@@ -2232,18 +2419,37 @@ fn rewrite_one(
 
     // Build the new callee type: remove the callable param from the arrow input.
     let input_path = callable_param_input_path(package, callee_id, param);
-    let new_callee_ty =
-        build_specialized_callee_ty(package, callee_id, &input_path, &call_site.callable_arg);
-    rewrite_specialized_callee(package, callee_id, spec_item_id, new_callee_ty, assigner);
-
-    // Remove the callable argument from the args tuple
-    // Insert closure captures as extra arguments
     let captures = match &call_site.callable_arg {
         ConcreteCallable::Closure { captures, .. } => {
             resolve_rewrite_captures(package, call_site.arg_expr_id, captures)
         }
         _ => Vec::new(),
     };
+    let new_callee_ty = if !param.hof_input_is_tuple && !param.field_path.is_empty() {
+        build_specialized_nested_payload_callee_ty(package, callee_id, &input_path, &captures)
+    } else {
+        build_specialized_callee_ty(package, callee_id, &input_path, &call_site.callable_arg)
+    };
+    rewrite_specialized_callee(package, callee_id, spec_item_id, new_callee_ty, assigner);
+
+    // Remove the callable argument from the args tuple
+    // Insert closure captures as extra arguments
+    if !param.hof_input_is_tuple && !param.field_path.is_empty() {
+        let mut remove_indices = FxHashSet::default();
+        if let Some(&field_index) = param.field_path.first() {
+            remove_indices.insert(field_index);
+        }
+        if rewrite_nested_arg_expr_remove_fields_as_payload(
+            package,
+            expr_owner_lookup.get(&call_site.call_expr_id).copied(),
+            args_id,
+            &remove_indices,
+            &captures,
+            assigner,
+        ) {
+            return;
+        }
+    }
     rewrite_args(
         package,
         call_site.call_expr_id,
@@ -2314,11 +2520,14 @@ fn rewrite_multi(
             ..
         } = &call_site.callable_arg
         {
-            captures.extend(resolve_rewrite_captures(
-                package,
-                call_site.arg_expr_id,
-                member_captures,
-            ));
+            captures.extend(member_captures.iter().map(|capture| {
+                let mut resolved = capture.clone();
+                if resolved.expr.is_none() {
+                    resolved.expr =
+                        resolve_capture_expr_from_arg(package, call_site.arg_expr_id, capture.var);
+                }
+                resolved
+            }));
         }
     }
 
@@ -2337,6 +2546,114 @@ fn rewrite_multi(
         owner_callable,
         &remove_indices,
         &captures,
+        assigner,
+    );
+}
+
+fn callable_array_member_position(
+    members: &[(&CallSite, &CallableParam)],
+) -> Option<(usize, Vec<usize>)> {
+    let mut positions: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
+    for (_, param) in members {
+        *positions
+            .entry((param.top_level_param, param.field_path.clone()))
+            .or_default() += 1;
+    }
+    let repeated = positions
+        .into_iter()
+        .filter(|(_, count)| *count >= 2)
+        .map(|(position, _)| position)
+        .collect::<Vec<_>>();
+    let [position] = repeated.as_slice() else {
+        return None;
+    };
+    members
+        .iter()
+        .find(|(_, param)| (param.top_level_param, param.field_path.clone()) == *position)
+        .and_then(|(_, param)| matches!(param.param_ty, Ty::Array(_)).then(|| position.clone()))
+}
+
+fn callable_array_member_needs_nested_rewrite(members: &[(&CallSite, &CallableParam)]) -> bool {
+    let Some(position) = callable_array_member_position(members) else {
+        return false;
+    };
+    members
+        .iter()
+        .find(|(_, param)| (param.top_level_param, param.field_path.clone()) == position)
+        .is_some_and(|(call_site, param)| {
+            !call_site.hof_input_is_tuple || !param.field_path.is_empty()
+        })
+}
+
+fn rewrite_callable_array_multi(
+    package: &mut Package,
+    call_expr_id: ExprId,
+    members: &[(&CallSite, &CallableParam)],
+    spec_store_id: StoreItemId,
+    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    assigner: &mut Assigner,
+) {
+    let call_expr = package.get_expr(call_expr_id).clone();
+    let ExprKind::Call(callee_id, args_id) = call_expr.kind else {
+        return;
+    };
+
+    let spec_item_id = ItemId {
+        package: spec_store_id.package,
+        item: spec_store_id.item,
+    };
+
+    let Some(array_position) = callable_array_member_position(members) else {
+        return;
+    };
+    let Some((first_call_site, param)) = members
+        .iter()
+        .find(|(_, param)| (param.top_level_param, param.field_path.clone()) == array_position)
+        .copied()
+    else {
+        return;
+    };
+    let mut captures = Vec::new();
+    let mut remove_indices = FxHashSet::default();
+    let mut remove_expr_ids = FxHashSet::default();
+    for (call_site, _) in members {
+        if let Some(&field_index) = call_site.field_path.first() {
+            remove_indices.insert(field_index);
+        }
+        remove_expr_ids.insert(call_site.arg_expr_id);
+        if let ConcreteCallable::Closure {
+            captures: member_captures,
+            ..
+        } = &call_site.callable_arg
+        {
+            captures.extend(resolve_rewrite_captures(
+                package,
+                call_site.arg_expr_id,
+                member_captures,
+            ));
+        }
+    }
+
+    let new_callee_ty = build_nested_callable_array_callee_ty(
+        package,
+        callee_id,
+        first_call_site.hof_input_is_tuple,
+        param.top_level_param,
+        &remove_indices,
+        &captures,
+    );
+    rewrite_specialized_callee(package, callee_id, spec_item_id, new_callee_ty, assigner);
+
+    rewrite_args_remove_nested_callable_fields(
+        package,
+        call_expr_id,
+        args_id,
+        first_call_site.hof_input_is_tuple,
+        param.top_level_param,
+        &remove_indices,
+        &remove_expr_ids,
+        &captures,
+        expr_owner_lookup,
         assigner,
     );
 }
@@ -2361,6 +2678,71 @@ fn build_specialized_multi_callee_ty(
         output: arrow.output.clone(),
         functors: arrow.functors,
     })))
+}
+
+fn build_nested_callable_array_callee_ty(
+    package: &Package,
+    callee_id: ExprId,
+    uses_tuple_input: bool,
+    top_level_param: usize,
+    remove_indices: &FxHashSet<usize>,
+    captures: &[CapturedVar],
+) -> Option<Ty> {
+    let callee_expr = package.get_expr(callee_id);
+    let Ty::Arrow(ref arrow) = callee_expr.ty else {
+        return None;
+    };
+
+    let input_ty = resolve_udt_ty(package, &arrow.input);
+    let new_input = if uses_tuple_input {
+        let Ty::Tuple(mut top_level_tys) = input_ty else {
+            return None;
+        };
+        top_level_tys[top_level_param] = remove_nested_top_level_fields_from_ty(
+            package,
+            &top_level_tys[top_level_param],
+            remove_indices,
+        );
+        top_level_tys.extend(captures.iter().map(|capture| capture.ty.clone()));
+        Ty::Tuple(top_level_tys)
+    } else {
+        let mut ty = remove_nested_top_level_fields_from_ty(package, &input_ty, remove_indices);
+        if !captures.is_empty() {
+            let mut tys = vec![ty];
+            tys.extend(captures.iter().map(|capture| capture.ty.clone()));
+            ty = Ty::Tuple(tys);
+        }
+        ty
+    };
+
+    Some(Ty::Arrow(Box::new(Arrow {
+        kind: arrow.kind,
+        input: Box::new(new_input),
+        output: arrow.output.clone(),
+        functors: arrow.functors,
+    })))
+}
+
+fn remove_nested_top_level_fields_from_ty(
+    package: &Package,
+    ty: &Ty,
+    remove_indices: &FxHashSet<usize>,
+) -> Ty {
+    let ty = resolve_udt_ty(package, ty);
+    let Ty::Tuple(tys) = ty else {
+        return ty;
+    };
+    let remaining: Vec<Ty> = tys
+        .into_iter()
+        .enumerate()
+        .filter(|(idx, _)| !remove_indices.contains(idx))
+        .map(|(_, ty)| ty)
+        .collect();
+    match remaining.as_slice() {
+        [] => Ty::UNIT,
+        [single] => single.clone(),
+        _ => Ty::Tuple(remaining),
+    }
 }
 
 /// Removes the tuple element types at `remove_indices` and appends the capture
@@ -2728,6 +3110,16 @@ fn rewrite_single_arg_nested(
         // A top-level callable field can sit inside a struct or tuple literal.
         // Rebuild that aggregate so the remaining fields keep the same order as
         // the specialized callee's reduced input pattern.
+        if rewrite_nested_arg_expr_remove_fields_as_payload(
+            package,
+            expr_owner_lookup.get(&call_expr_id).copied(),
+            args_id,
+            &remove_indices,
+            captures,
+            assigner,
+        ) {
+            return;
+        }
         if let Some((kind, ty)) = remove_top_level_field_from_expr_data(
             package,
             args_id,
@@ -2764,6 +3156,161 @@ fn rewrite_single_arg_nested(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn rewrite_args_remove_nested_callable_fields(
+    package: &mut Package,
+    call_expr_id: ExprId,
+    args_id: ExprId,
+    uses_tuple_input: bool,
+    top_level_param: usize,
+    remove_indices: &FxHashSet<usize>,
+    remove_expr_ids: &FxHashSet<ExprId>,
+    captures: &[CapturedVar],
+    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
+    assigner: &mut Assigner,
+) {
+    let args_expr = package.get_expr(args_id).clone();
+    let owner_callable = expr_owner_lookup.get(&call_expr_id).copied();
+
+    if uses_tuple_input {
+        if let ExprKind::Tuple(elements) = args_expr.kind {
+            let inner_id = elements[top_level_param];
+            if rewrite_nested_arg_expr_remove_fields(
+                package,
+                owner_callable,
+                inner_id,
+                remove_indices,
+                remove_expr_ids,
+                &[],
+                assigner,
+            ) {
+                let inner_ty = package.get_expr(inner_id).ty.clone();
+                let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
+                if let Ty::Tuple(ref mut tys) = args_mut.ty {
+                    tys[top_level_param] = inner_ty;
+                }
+                if !captures.is_empty() {
+                    let capture_ids =
+                        allocate_capture_exprs(package, args_expr.span, captures, assigner);
+                    let capture_tys: Vec<Ty> =
+                        captures.iter().map(|capture| capture.ty.clone()).collect();
+                    let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
+                    if let ExprKind::Tuple(ref mut elems) = args_mut.kind {
+                        elems.extend(capture_ids);
+                    }
+                    if let Ty::Tuple(ref mut tys) = args_mut.ty {
+                        tys.extend(capture_tys);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    let _ = rewrite_nested_arg_expr_remove_fields(
+        package,
+        owner_callable,
+        args_id,
+        remove_indices,
+        remove_expr_ids,
+        captures,
+        assigner,
+    );
+}
+
+fn rewrite_nested_arg_expr_remove_fields_as_payload(
+    package: &mut Package,
+    owner_callable: Option<LocalItemId>,
+    args_id: ExprId,
+    remove_indices: &FxHashSet<usize>,
+    captures: &[CapturedVar],
+    assigner: &mut Assigner,
+) -> bool {
+    let args_expr = package.get_expr(args_id).clone();
+    let source_id = if let ExprKind::Var(Res::Local(local_var), _) = args_expr.kind
+        && let Some(owner_callable) = owner_callable
+        && let Some(init_expr_id) =
+            find_local_init_expr_in_callable(package, owner_callable, local_var)
+    {
+        init_expr_id
+    } else {
+        args_id
+    };
+
+    let Some((payload_kind, payload_ty)) =
+        remove_top_level_field_from_expr_data(package, source_id, remove_indices, &[], assigner)
+    else {
+        return false;
+    };
+
+    if captures.is_empty() {
+        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
+        args_mut.kind = payload_kind;
+        args_mut.ty = payload_ty;
+        return true;
+    }
+
+    let payload_id = assigner.next_expr();
+    package.exprs.insert(
+        payload_id,
+        Expr {
+            id: payload_id,
+            span: args_expr.span,
+            ty: payload_ty.clone(),
+            kind: payload_kind,
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+
+    let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
+    let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
+    let mut elements = vec![payload_id];
+    elements.extend(capture_ids);
+    let mut tys = vec![payload_ty];
+    tys.extend(capture_tys);
+
+    let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
+    args_mut.kind = ExprKind::Tuple(elements);
+    args_mut.ty = Ty::Tuple(tys);
+    true
+}
+
+fn rewrite_nested_arg_expr_remove_fields(
+    package: &mut Package,
+    owner_callable: Option<LocalItemId>,
+    args_id: ExprId,
+    remove_indices: &FxHashSet<usize>,
+    remove_expr_ids: &FxHashSet<ExprId>,
+    captures: &[CapturedVar],
+    assigner: &mut Assigner,
+) -> bool {
+    let source_id = if let ExprKind::Var(Res::Local(local_var), _) = package.get_expr(args_id).kind
+        && let Some(owner_callable) = owner_callable
+        && let Some(init_expr_id) =
+            find_local_init_expr_in_callable(package, owner_callable, local_var)
+    {
+        init_expr_id
+    } else {
+        args_id
+    };
+
+    let Some((kind, ty)) = remove_top_level_field_from_expr_data_with_exprs(
+        package,
+        source_id,
+        remove_indices,
+        remove_expr_ids,
+        captures,
+        assigner,
+    ) else {
+        return false;
+    };
+
+    let args_expr = package.exprs.get_mut(args_id).expect("args expr not found");
+    args_expr.kind = kind;
+    args_expr.ty = ty;
+    true
+}
+
 /// Rewrites a single local UDT/tuple argument by replacing the argument use with
 /// the local initializer after removing the specialized callable field.
 ///
@@ -2790,33 +3337,16 @@ fn rewrite_local_single_arg_nested(
     if field_path.len() != 1 {
         return false;
     }
-
-    let ExprKind::Var(Res::Local(local_var), _) = package.get_expr(args_id).kind else {
-        return false;
-    };
-    let Some(owner_callable) = owner_callable else {
-        return false;
-    };
-    let Some(init_expr_id) = find_local_init_expr_in_callable(package, owner_callable, local_var)
-    else {
-        return false;
-    };
     let mut remove_indices = FxHashSet::default();
     remove_indices.insert(field_path[0]);
-    let Some((kind, ty)) = remove_top_level_field_from_expr_data(
+    rewrite_nested_arg_expr_remove_fields_as_payload(
         package,
-        init_expr_id,
+        owner_callable,
+        args_id,
         &remove_indices,
         captures,
         assigner,
-    ) else {
-        return false;
-    };
-
-    let args_expr = package.exprs.get_mut(args_id).expect("args expr not found");
-    args_expr.kind = kind;
-    args_expr.ty = ty;
-    true
+    )
 }
 
 /// Builds replacement expression data for a call-argument aggregate after the
@@ -2834,13 +3364,32 @@ fn remove_top_level_field_from_expr_data(
     captures: &[CapturedVar],
     assigner: &mut Assigner,
 ) -> Option<(ExprKind, Ty)> {
+    remove_top_level_field_from_expr_data_with_exprs(
+        package,
+        expr_id,
+        remove_indices,
+        &FxHashSet::default(),
+        captures,
+        assigner,
+    )
+}
+
+fn remove_top_level_field_from_expr_data_with_exprs(
+    package: &mut Package,
+    expr_id: ExprId,
+    remove_indices: &FxHashSet<usize>,
+    remove_expr_ids: &FxHashSet<ExprId>,
+    captures: &[CapturedVar],
+    assigner: &mut Assigner,
+) -> Option<(ExprKind, Ty)> {
     let expr = package.get_expr(expr_id).clone();
     let mut remaining = match &expr.kind {
         ExprKind::Call(_, args_id) => {
-            return remove_top_level_field_from_expr_data(
+            return remove_top_level_field_from_expr_data_with_exprs(
                 package,
                 *args_id,
                 remove_indices,
+                remove_expr_ids,
                 captures,
                 assigner,
             );
@@ -2848,7 +3397,9 @@ fn remove_top_level_field_from_expr_data(
         ExprKind::Tuple(elements) => elements
             .iter()
             .enumerate()
-            .filter(|(idx, _)| !remove_indices.contains(idx))
+            .filter(|(idx, expr_id)| {
+                !remove_indices.contains(idx) && !remove_expr_ids.contains(expr_id)
+            })
             .map(|(_, &expr_id)| expr_id)
             .collect::<Vec<_>>(),
         ExprKind::Struct(_, _, fields) => fields
@@ -2858,7 +3409,8 @@ fn remove_top_level_field_from_expr_data(
                     if path
                         .indices
                         .first()
-                        .is_none_or(|idx| !remove_indices.contains(idx)) =>
+                        .is_none_or(|idx| !remove_indices.contains(idx))
+                        && !remove_expr_ids.contains(&field.value) =>
                 {
                     Some(field.value)
                 }
@@ -3062,6 +3614,34 @@ fn build_specialized_callee_ty(
     };
 
     let new_input = remove_ty_at_path(package, &arrow.input, input_path, captures);
+    Some(Ty::Arrow(Box::new(Arrow {
+        kind: arrow.kind,
+        input: Box::new(new_input),
+        output: arrow.output.clone(),
+        functors: arrow.functors,
+    })))
+}
+
+fn build_specialized_nested_payload_callee_ty(
+    package: &Package,
+    callee_id: ExprId,
+    input_path: &[usize],
+    captures: &[CapturedVar],
+) -> Option<Ty> {
+    let callee_expr = package.get_expr(callee_id);
+    let Ty::Arrow(ref arrow) = callee_expr.ty else {
+        return None;
+    };
+
+    let payload = remove_ty_at_path(package, &arrow.input, input_path, &[]);
+    let new_input = if captures.is_empty() {
+        payload
+    } else {
+        let mut tys = vec![payload];
+        tys.extend(captures.iter().map(|capture| capture.ty.clone()));
+        Ty::Tuple(tys)
+    };
+
     Some(Ty::Arrow(Box::new(Arrow {
         kind: arrow.kind,
         input: Box::new(new_input),
@@ -3696,14 +4276,25 @@ fn create_combined_branch_call(
     );
 
     // Build the leaf argument tuple: drop every member slot and append captures.
-    let (args_kind, args_ty) = build_combined_branch_args_data(
-        package,
-        orig_args,
-        &remove_indices,
-        &captures,
-        span,
-        assigner,
-    );
+    let (args_kind, args_ty) = if uses_tuple_input {
+        build_combined_branch_args_data(
+            package,
+            orig_args,
+            &remove_indices,
+            &captures,
+            span,
+            assigner,
+        )
+    } else {
+        build_combined_nested_branch_args_data(
+            package,
+            orig_args,
+            &remove_indices,
+            &captures,
+            span,
+            assigner,
+        )
+    };
     let args_id = assigner.next_expr();
     package.exprs.insert(
         args_id,
@@ -3768,6 +4359,60 @@ fn build_combined_branch_args_data(
         // A combined multi-argument HOF always has a tuple argument; fall back
         // to the original kind defensively.
         _ => (orig_args.kind.clone(), new_ty),
+    }
+}
+
+fn build_combined_nested_branch_args_data(
+    package: &mut Package,
+    orig_args: &Expr,
+    remove_indices: &[usize],
+    captures: &[CapturedVar],
+    span: Span,
+    assigner: &mut Assigner,
+) -> (ExprKind, Ty) {
+    let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
+    if let Some((payload_kind, payload_ty)) =
+        remove_top_level_field_from_expr_data(package, orig_args.id, &remove, &[], assigner)
+    {
+        if captures.is_empty() {
+            return (payload_kind, payload_ty);
+        }
+
+        let payload_id = assigner.next_expr();
+        package.exprs.insert(
+            payload_id,
+            Expr {
+                id: payload_id,
+                span,
+                ty: payload_ty.clone(),
+                kind: payload_kind,
+                exec_graph_range: EMPTY_EXEC_RANGE,
+            },
+        );
+
+        let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
+        let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
+        let mut elements = vec![payload_id];
+        elements.extend(capture_ids);
+        let mut tys = vec![payload_ty];
+        tys.extend(capture_tys);
+        return (ExprKind::Tuple(elements), Ty::Tuple(tys));
+    }
+
+    let new_ty = remove_nested_top_level_fields_from_ty(package, &orig_args.ty, &remove);
+    if captures.is_empty() {
+        (orig_args.kind.clone(), new_ty)
+    } else {
+        let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
+        let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
+        let mut elements = match &orig_args.kind {
+            ExprKind::Tuple(elements) => elements.clone(),
+            _ => vec![orig_args.id],
+        };
+        elements.extend(capture_ids);
+        let mut tys = vec![new_ty];
+        tys.extend(capture_tys);
+        (ExprKind::Tuple(elements), Ty::Tuple(tys))
     }
 }
 
