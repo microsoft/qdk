@@ -5,9 +5,30 @@
 // Implements a small statevector simulator that evaluates the circuit model and
 // produces an amplitude map. Intentionally avoids DOM/visualization concerns so
 // it can run on the main thread or in a Web Worker.
+//
+// The complex-number, 2x2 matrix, and gate-matrix definitions are shared with
+// the Bloch sphere widget via `../../../quantum-math.js`. That module is
+// deliberately three.js-free so it can be bundled into this worker without
+// pulling in three.js's ~600 KB. Do NOT switch this import to `cplx.js` --
+// that file additionally re-exports the quaternion-driven Rotations engine and
+// would drag three into the worker.
 
 import type { ComponentGrid, Operation, Qubit } from "../../circuit.js";
 import { evaluateAngleExpression } from "../../angleExpression.js";
+import {
+  Cplx,
+  M2x2,
+  PauliX,
+  PauliY,
+  PauliZ,
+  Hadamard,
+  SGate,
+  TGate,
+  SXGate,
+  rotationX,
+  rotationY,
+  rotationZ,
+} from "../../../quantum-math.js";
 
 // This holds the complex amplitudes of the different basis states.
 export type AmpMap = Record<string, { re: number; im: number }>;
@@ -19,107 +40,6 @@ export class UnsupportedStateComputeError extends Error {
   }
 }
 
-// Small complex helpers
-class Complex {
-  constructor(
-    public re: number,
-    public im: number,
-  ) {}
-  static add(a: Complex, b: Complex) {
-    return new Complex(a.re + b.re, a.im + b.im);
-  }
-  static mul(a: Complex, b: Complex) {
-    return new Complex(a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re);
-  }
-  static conj(a: Complex) {
-    return new Complex(a.re, -a.im);
-  }
-}
-
-function adjointMat2(mat: Complex[]): Complex[] {
-  // 2x2 matrix stored as [m00, m01, m10, m11].
-  // Adjoint is conjugate transpose: [[conj(m00), conj(m10)], [conj(m01), conj(m11)]].
-  return [
-    Complex.conj(mat[0]),
-    Complex.conj(mat[2]),
-    Complex.conj(mat[1]),
-    Complex.conj(mat[3]),
-  ];
-}
-
-// Matrices for single-qubit gates
-const GATE = {
-  X: [
-    new Complex(0, 0),
-    new Complex(1, 0),
-    new Complex(1, 0),
-    new Complex(0, 0),
-  ],
-  Y: [
-    new Complex(0, 0),
-    new Complex(0, -1),
-    new Complex(0, 1),
-    new Complex(0, 0),
-  ],
-  Z: [
-    new Complex(1, 0),
-    new Complex(0, 0),
-    new Complex(0, 0),
-    new Complex(-1, 0),
-  ],
-  H: [
-    new Complex(Math.SQRT1_2, 0),
-    new Complex(Math.SQRT1_2, 0),
-    new Complex(Math.SQRT1_2, 0),
-    new Complex(-Math.SQRT1_2, 0),
-  ],
-  S: [
-    new Complex(1, 0),
-    new Complex(0, 0),
-    new Complex(0, 0),
-    new Complex(0, 1),
-  ], // [[1,0],[0,i]]
-  T: [
-    new Complex(1, 0),
-    new Complex(0, 0),
-    new Complex(0, 0),
-    new Complex(Math.SQRT1_2, Math.SQRT1_2),
-  ],
-  SX: [
-    // sqrt(X)
-    new Complex(0.5, 0.5),
-    new Complex(0.5, -0.5),
-    new Complex(0.5, -0.5),
-    new Complex(0.5, 0.5),
-  ],
-};
-
-function rotationX(theta: number) {
-  const c = Math.cos(theta / 2);
-  const s = Math.sin(theta / 2);
-  return [
-    new Complex(c, 0),
-    new Complex(0, -s),
-    new Complex(0, -s),
-    new Complex(c, 0),
-  ];
-}
-function rotationY(theta: number) {
-  const c = Math.cos(theta / 2);
-  const s = Math.sin(theta / 2);
-  return [
-    new Complex(c, 0),
-    new Complex(-s, 0),
-    new Complex(s, 0),
-    new Complex(c, 0),
-  ];
-}
-function rotationZ(theta: number) {
-  const eNeg = new Complex(Math.cos(-theta / 2), Math.sin(-theta / 2));
-  const ePos = new Complex(Math.cos(theta / 2), Math.sin(theta / 2));
-  return [eNeg, new Complex(0, 0), new Complex(0, 0), ePos];
-}
-
 function parseTheta(op: Operation): number | undefined {
   const arg = op.args?.[0];
   if (!arg) return undefined;
@@ -128,13 +48,19 @@ function parseTheta(op: Operation): number | undefined {
 }
 
 function applySingleQubit(
-  state: Complex[],
+  state: Cplx[],
   target: number,
-  mat: Complex[],
+  mat: M2x2,
   controls: number[] = [],
 ): void {
   const N = state.length;
   const mask = 1 << target;
+  // Hoist the 4 matrix entries to locals so the hot inner loop is pure
+  // multiply/add on already-resolved Cplx instances.
+  const m00 = mat.a;
+  const m01 = mat.b;
+  const m10 = mat.c;
+  const m11 = mat.d;
   for (let i = 0; i < N; i += 2 * mask) {
     for (let j = 0; j < mask; j++) {
       const i0 = i + j;
@@ -143,10 +69,8 @@ function applySingleQubit(
       if (!okControls) continue;
       const a0 = state[i0];
       const a1 = state[i1];
-      const n0 = Complex.add(Complex.mul(mat[0], a0), Complex.mul(mat[1], a1));
-      const n1 = Complex.add(Complex.mul(mat[2], a0), Complex.mul(mat[3], a1));
-      state[i0] = n0;
-      state[i1] = n1;
+      state[i0] = m00.mul(a0).add(m01.mul(a1));
+      state[i1] = m10.mul(a0).add(m11.mul(a1));
     }
   }
 }
@@ -158,9 +82,9 @@ export function computeAmpMapForCircuit(
   const n = qubits.length;
   if (n === 0) return {};
   const dim = 1 << n;
-  const state: Complex[] = new Array(dim);
-  for (let i = 0; i < dim; i++) state[i] = new Complex(0, 0);
-  state[0] = new Complex(1, 0);
+  const state: Cplx[] = new Array(dim);
+  for (let i = 0; i < dim; i++) state[i] = Cplx.zero;
+  state[0] = Cplx.one;
 
   for (const col of componentGrid) {
     for (const op of col.components) {
@@ -174,28 +98,28 @@ export function computeAmpMapForCircuit(
             continue;
           }
           const t = targetQubits[0];
-          let mat: Complex[] | undefined;
+          let mat: M2x2 | undefined;
           switch (op.gate) {
             case "X":
-              mat = GATE.X;
+              mat = PauliX;
               break;
             case "Y":
-              mat = GATE.Y;
+              mat = PauliY;
               break;
             case "Z":
-              mat = GATE.Z;
+              mat = PauliZ;
               break;
             case "H":
-              mat = GATE.H;
+              mat = Hadamard;
               break;
             case "S":
-              mat = GATE.S;
+              mat = SGate;
               break;
             case "T":
-              mat = GATE.T;
+              mat = TGate;
               break;
             case "SX":
-              mat = GATE.SX;
+              mat = SXGate;
               break;
             case "Rx": {
               const th = parseTheta(op);
@@ -216,7 +140,7 @@ export function computeAmpMapForCircuit(
               break;
           }
           if (mat) {
-            mat = isAdjoint ? adjointMat2(mat) : mat;
+            mat = isAdjoint ? mat.adjoint() : mat;
             applySingleQubit(state, t, mat, controls);
           }
           break;

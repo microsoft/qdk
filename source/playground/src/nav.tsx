@@ -16,7 +16,6 @@ export function Nav(props: {
   return (
     <nav class="nav-column">
       <div class="nav-1">Samples (Q#)</div>
-
       {props.samples.map((name) => (
         <div
           class={
@@ -29,8 +28,18 @@ export function Nav(props: {
         </div>
       ))}
 
-      <div class="nav-1">Samples (OpenQASM)</div>
+      <div class="nav-1">Tools</div>
+      <div
+        class={
+          "nav-2 nav-selectable" +
+          (props.selected === "bloch" ? " nav-current" : "")
+        }
+        onClick={() => onSelected("bloch")}
+      >
+        Bloch sphere
+      </div>
 
+      <div class="nav-1">Samples (OpenQASM)</div>
       {props.openqasmSamples.map((name) => (
         <div
           class={

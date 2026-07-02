@@ -31,7 +31,7 @@ import { Nav } from "./nav.js";
 import { Editor } from "./editor.js";
 import { registerOpenQasmLanguage } from "./openqasm-language.js";
 import { OutputTabs } from "./tabs.js";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { Kata as Katas } from "./kata.js";
 import {
   DocumentationDisplay,
@@ -49,7 +49,7 @@ import {
 // Set up the Markdown renderer with KaTeX support
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
-import { setRenderer } from "qsharp-lang/ux";
+import { setRenderer, BlochSphere } from "qsharp-lang/ux";
 
 const md = markdownIt("commonmark");
 md.use((mk as any).default, {
@@ -107,8 +107,22 @@ function App(props: {
   });
 
   const [currentNavItem, setCurrentNavItem] = useState(
-    props.linkedCode ? "linked" : "sample-Minimal",
+    props.linkedCode
+      ? "linked"
+      : new URLSearchParams(window.location.search).get("view") === "bloch"
+        ? "bloch"
+        : "sample-Minimal",
   );
+  // Holds the latest applied-gate sequence reported by <BlochSphere>. We use
+  // a ref rather than state so we don't re-render the world on every gate
+  // press; the value is only read when the user clicks the share button.
+  const blochGatesRef = useRef<string>(
+    new URLSearchParams(window.location.search).get("gates") ?? "",
+  );
+  // The initial gate string we hand to <BlochSphere> on first mount, captured
+  // once so React/Preact's strict reconciliation rules don't try to replay
+  // gates after the user has already interacted with the sphere.
+  const [initialBlochGates] = useState(() => blochGatesRef.current);
   const [shotError, setShotError] = useState<VSDiagnostic | undefined>(
     undefined,
   );
@@ -170,14 +184,79 @@ function App(props: {
   function onNavItemSelected(name: string) {
     // If there was a ?code link on the URL before, clear it out
     const newURL = new URL(window.location.href);
+    let urlChanged = false;
     if (newURL.searchParams.get("code")) {
       newURL.searchParams.delete("code");
       newURL.searchParams.delete("profile");
       newURL.searchParams.delete("lang");
       window.history.pushState({}, "", newURL.toString());
       props.linkedCode = undefined;
+      urlChanged = true;
+    }
+    // Keep ?view=bloch in sync with the selected nav item. We also drop
+    // ?gates when navigating away from Bloch since it's only meaningful
+    // there, and reset the cached gate string so a subsequent return to
+    // Bloch starts from |0⟩ rather than replaying old gates.
+    if (name === "bloch") {
+      if (newURL.searchParams.get("view") !== "bloch") {
+        newURL.searchParams.set("view", "bloch");
+        urlChanged = true;
+      }
+    } else {
+      if (newURL.searchParams.get("view")) {
+        newURL.searchParams.delete("view");
+        urlChanged = true;
+      }
+      if (newURL.searchParams.get("gates")) {
+        newURL.searchParams.delete("gates");
+        urlChanged = true;
+      }
+      blochGatesRef.current = "";
+    }
+    if (urlChanged) {
+      window.history.pushState({}, "", newURL.toString());
     }
     setCurrentNavItem(name);
+  }
+
+  function onShareBlochLink(ev: MouseEvent) {
+    // Build a URL that captures the current sphere state so the recipient
+    // sees the same view. The applied-gate sequence is the canonical
+    // representation of state; <BlochSphere> reports it via onGatesChanged.
+    const popup = document.getElementById("popup") as HTMLDivElement;
+    function showPopup(text: string) {
+      popup.style.display = "block";
+      popup.innerText = text;
+      popup.style.left = `${ev.clientX - 120}px`;
+      popup.style.top = `${ev.clientY + 20}px`;
+      setTimeout(() => {
+        popup.style.display = "none";
+      }, 2000);
+    }
+
+    const newURL = new URL(window.location.href);
+    newURL.searchParams.set("view", "bloch");
+    const gates = blochGatesRef.current;
+    if (gates) {
+      newURL.searchParams.set("gates", gates);
+    } else {
+      newURL.searchParams.delete("gates");
+    }
+    const url = newURL.toString();
+    // Update the address bar so the user can also grab the link manually
+    // if the clipboard write is blocked by the embedding context.
+    window.history.pushState({}, "", url);
+    // navigator.clipboard.writeText returns a Promise that can reject in
+    // iframed/embedded browser contexts (e.g. VS Code's Simple Browser)
+    // when the clipboard-write permission is not delegated. We need to
+    // await the result before reporting success.
+    navigator.clipboard.writeText(url).then(
+      () => showPopup("Link was copied to the clipboard"),
+      (err) => {
+        console.warn("Clipboard write failed:", err);
+        showPopup("Unable to copy. Link: " + url);
+      },
+    );
   }
 
   return (
@@ -234,6 +313,34 @@ function App(props: {
           onRestartCompiler={onRestartCompiler}
           languageService={languageService}
         ></Katas>
+      ) : currentNavItem === "bloch" ? (
+        <div class="bloch-view">
+          <BlochSphere
+            initialGates={initialBlochGates}
+            onGatesChanged={(gates) => {
+              blochGatesRef.current = gates;
+            }}
+            actionSlot={
+              <svg
+                onClick={onShareBlochLink}
+                width="24px"
+                height="24px"
+                viewBox="0 0 24 24"
+                fill="none"
+                style="cursor: pointer; vertical-align: middle;"
+              >
+                <title>Get a link to the Bloch sphere view</title>
+                <path
+                  d="M14 12C14 14.2091 12.2091 16 10 16H6C3.79086 16 2 14.2091 2 12C2 9.79086 3.79086 8 6 8H8M10 12C10 9.79086 11.7909 8 14 8H18C20.2091 8 22 9.79086 22 12C22 14.2091 20.2091 16 18 16H16"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            }
+          />
+        </div>
       ) : (
         <DocumentationDisplay
           currentNamespace={currentNavItem}
