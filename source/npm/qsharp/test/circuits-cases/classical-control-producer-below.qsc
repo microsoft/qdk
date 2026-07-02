@@ -1,0 +1,56 @@
+{
+  "_comment": "Classically-controlled group whose producer (q2) is BELOW its body (q0, q1). Exercises bottom-border placement: when there is a producer below the body, the group's bottom dashed border lives BELOW the producer's classical sub-wires, not below the body's bottom quantum wire. The bottom border bump must therefore go onto the producer's `heightBelowWire`, not the body-bottom qubit's.",
+  "circuits": [
+    {
+      "qubits": [
+        { "id": 0, "numResults": 0 },
+        { "id": 1, "numResults": 0 },
+        { "id": 2, "numResults": 1 }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "measurement",
+              "gate": "Measure",
+              "qubits": [{ "qubit": 2 }],
+              "results": [{ "qubit": 2, "result": 0 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "if",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 0 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "X",
+                      "targets": [{ "qubit": 1 }]
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 0 }, { "qubit": 1 }],
+              "controls": [{ "qubit": 2, "result": 0 }],
+              "isConditional": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

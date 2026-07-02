@@ -1,0 +1,56 @@
+{
+  "_comment": "Classically-controlled group whose producer (q1) sits INSIDE the body's quantum wire range (body spans q0..q2). Regular-group geometry applies: the box top is above q0's wire (`heightAboveWire` on q0), the box bottom is below q2's wire (`heightBelowWire` on q2), and `heightAboveFirstClassical` should NOT be bumped on q1 — q1's classical sub-wire is internal to the body.",
+  "circuits": [
+    {
+      "qubits": [
+        { "id": 0, "numResults": 0 },
+        { "id": 1, "numResults": 1 },
+        { "id": 2, "numResults": 0 }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "measurement",
+              "gate": "Measure",
+              "qubits": [{ "qubit": 1 }],
+              "results": [{ "qubit": 1, "result": 0 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "if",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 0 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "X",
+                      "targets": [{ "qubit": 2 }]
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 0 }, { "qubit": 2 }],
+              "controls": [{ "qubit": 1, "result": 0 }],
+              "isConditional": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

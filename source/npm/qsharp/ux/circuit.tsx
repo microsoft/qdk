@@ -5,7 +5,7 @@ import * as qviz from "./circuit-vis/index.js";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { CircuitProps } from "./data.js";
 import { Spinner } from "./spinner.js";
-import { SourceLocation, toCircuitGroup } from "./circuit-vis/circuit.js";
+import { SourceLocation, toCircuitGroup } from "./circuit-vis/data/circuit.js";
 
 // For perf reasons we set a limit on how many gates/qubits
 // we attempt to render. This is still a lot higher than a human would
@@ -75,7 +75,16 @@ function ZoomableCircuit(props: {
   const isEditable = props.editor != null;
 
   useEffect(() => {
-    // Enable "rendering" text while the circuit is being drawn
+    if (qvizObj.current != null) {
+      // Subsequent prop change (e.g. VS Code undo/redo or any other
+      // external file edit pushing a new CircuitGroup down). Reuse
+      // the existing Sqore so its per-session view state survives,
+      // and avoid the innerHTML wipe + "Rendering..." flicker by
+      // letting `updateCircuit` swap the SVG body in place.
+      qvizObj.current.updateCircuit(props.circuitGroup);
+      return;
+    }
+    // First mount (or re-mount): kick the existing initial-draw path.
     setRendering(true);
     const container = circuitDiv.current!;
     container.innerHTML = "";

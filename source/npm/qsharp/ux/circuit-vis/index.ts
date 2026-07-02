@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 
 import { DrawOptions, Sqore } from "./sqore.js";
-import { CircuitGroup } from "./circuit.js";
+import { CircuitGroup } from "./data/circuit.js";
 
 /**
  * Render `circuit` into `container` at the specified layer depth.
@@ -26,6 +26,12 @@ export const draw = (
   options: DrawOptions = {},
 ): {
   userSetZoomLevel: (zoomLevel: number) => void;
+  /**
+   * Replace the rendered circuit in place, preserving per-session
+   * view state (e.g. user expand/collapse choices). See
+   * [`Sqore.updateCircuit`](sqore.ts).
+   */
+  updateCircuit: (circuitGroup: CircuitGroup) => void;
 } => {
   const sqore = new Sqore(circuitGroup, options);
   sqore.draw(container);
@@ -34,6 +40,7 @@ export const draw = (
       sqore.zoomOnResize = false;
       sqore.updateZoomLevel(zoomLevel);
     },
+    updateCircuit: (group: CircuitGroup) => sqore.updateCircuit(group),
   };
 };
 
@@ -47,4 +54,4 @@ export type {
   Column,
   Qubit,
   Operation,
-} from "./circuit.js";
+} from "./data/circuit.js";
