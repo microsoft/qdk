@@ -9,7 +9,7 @@ description = "Quantum Development Kit Python Package"
 readme = "README.md"
 authors = [ { name = "Microsoft" } ]
 requires-python = ">=3.10"
-dependencies = ["pyqir>=0.12.5,<0.13", "qsharp==0.0.0"]
+dependencies = ["pyqir>=0.11.1,<0.12", "qsharp==0.0.0"]
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Development Status :: 5 - Production/Stable",
