@@ -1,0 +1,141 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Stim",
+  "scopeName": "source.stim",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#control-flow"
+    },
+    {
+      "include": "#annotation"
+    },
+    {
+      "include": "#noise-channel"
+    },
+    {
+      "include": "#measurement"
+    },
+    {
+      "include": "#gate"
+    },
+    {
+      "include": "#tag"
+    },
+    {
+      "include": "#measurement-record"
+    },
+    {
+      "include": "#sweep-bit"
+    },
+    {
+      "include": "#pauli-target"
+    },
+    {
+      "include": "#combiner"
+    },
+    {
+      "include": "#number"
+    },
+    {
+      "include": "#bracket"
+    }
+  ],
+  "repository": {
+    "comment": {
+      "match": "#.*$",
+      "name": "comment.line.number-sign.stim"
+    },
+    "control-flow": {
+      "match": "\\b(REPEAT)\\b",
+      "name": "keyword.control.repeat.stim"
+    },
+    "annotation": {
+      "match": "\\b(DETECTOR|MPAD|OBSERVABLE_INCLUDE|QUBIT_COORDS|SHIFT_COORDS|TICK)\\b",
+      "name": "keyword.other.annotation.stim"
+    },
+    "noise-channel": {
+      "match": "\\b(CORRELATED_ERROR|ELSE_CORRELATED_ERROR|DEPOLARIZE1|DEPOLARIZE2|HERALDED_ERASE|HERALDED_PAULI_CHANNEL_1|II_ERROR|I_ERROR|PAULI_CHANNEL_1|PAULI_CHANNEL_2|X_ERROR|Y_ERROR|Z_ERROR|LOSS_ERROR|E)\\b",
+      "name": "keyword.other.noise.stim"
+    },
+    "measurement": {
+      "match": "\\b(MRX|MRY|MRZ|MR|MXX|MYY|MZZ|MX|MY|MZ|M|RX|RY|RZ|R)\\b",
+      "name": "keyword.other.measurement.stim"
+    },
+    "gate": {
+      "match": "\\b(C_NXYZ|C_NZYX|C_XNYZ|C_XYNZ|C_XYZ|C_ZNYX|C_ZYNX|C_ZYX|CXSWAP|CX|CNOT|ZCX|CY|ZCY|CZSWAP|CZ|ZCZ|SWAPCZ|SWAPCX|SWAP|H_XZ|H_NXY|H_NXZ|H_NYZ|H_XY|H_YZ|H|SQRT_X_DAG|SQRT_X|SQRT_Y_DAG|SQRT_Y|SQRT_Z_DAG|SQRT_Z|SQRT_XX_DAG|SQRT_XX|SQRT_YY_DAG|SQRT_YY|SQRT_ZZ_DAG|SQRT_ZZ|S_DAG|S|ISWAP_DAG|ISWAP|II|XCX|XCY|XCZ|YCX|YCY|YCZ|MPP|SPP_DAG|SPP|I|X|Y|Z)\\b",
+      "name": "keyword.other.gate.stim"
+    },
+    "tag": {
+      "match": "\\[[^\\]]*\\]",
+      "name": "string.other.tag.stim"
+    },
+    "measurement-record": {
+      "match": "\\b(rec)(\\[)(-?\\d+)(\\])",
+      "captures": {
+        "1": {
+          "name": "support.function.record.stim"
+        },
+        "2": {
+          "name": "punctuation.section.brackets.stim"
+        },
+        "3": {
+          "name": "constant.numeric.stim"
+        },
+        "4": {
+          "name": "punctuation.section.brackets.stim"
+        }
+      }
+    },
+    "sweep-bit": {
+      "match": "\\b(sweep)(\\[)(\\d+)(\\])",
+      "captures": {
+        "1": {
+          "name": "support.function.sweep.stim"
+        },
+        "2": {
+          "name": "punctuation.section.brackets.stim"
+        },
+        "3": {
+          "name": "constant.numeric.stim"
+        },
+        "4": {
+          "name": "punctuation.section.brackets.stim"
+        }
+      }
+    },
+    "pauli-target": {
+      "match": "(!?)([XYZL])(\\d+)",
+      "captures": {
+        "1": {
+          "name": "keyword.operator.negation.stim"
+        },
+        "2": {
+          "name": "support.class.pauli.stim"
+        },
+        "3": {
+          "name": "constant.numeric.stim"
+        }
+      }
+    },
+    "combiner": {
+      "match": "\\*",
+      "name": "keyword.operator.combiner.stim"
+    },
+    "number": {
+      "match": "(!)?[+-]?\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b",
+      "captures": {
+        "1": {
+          "name": "keyword.operator.negation.stim"
+        }
+      },
+      "name": "constant.numeric.stim"
+    },
+    "bracket": {
+      "match": "[(){}]",
+      "name": "punctuation.section.brackets.stim"
+    }
+  }
+}

@@ -762,6 +762,17 @@
           ".deq"
         ],
         "configuration": "./language-configuration-deq.json"
+      },
+      {
+        "id": "stim",
+        "aliases": [
+          "Stim",
+          "stim"
+        ],
+        "extensions": [
+          ".stim"
+        ],
+        "configuration": "./language-configuration-stim.json"
       }
     ],
     "grammars": [
@@ -784,6 +795,11 @@
           "meta.embedded.line.python.mako": "python",
           "meta.embedded.expression.mako": "python"
         }
+      },
+      {
+        "language": "stim",
+        "scopeName": "source.stim",
+        "path": "./syntaxes/stim.tmLanguage.json"
       }
     ],
     "jsonValidation": [
