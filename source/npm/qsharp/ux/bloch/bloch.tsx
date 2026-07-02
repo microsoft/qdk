@@ -797,39 +797,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setRzAngle(angleFromPointer(e.clientX, e.clientY));
   }
 
-  // Keyboard support for the dial (focusable, role="slider"). Arrows nudge
-  // one step, PageUp/Down by ten, Home/End to 0 / just under a full turn.
-  function dialKeyDown(e: KeyboardEvent) {
-    if (isPlaying) return;
-    let next: number;
-    switch (e.key) {
-      case "ArrowRight":
-      case "ArrowUp":
-        next = rzAngle + RZ_STEP;
-        break;
-      case "ArrowLeft":
-      case "ArrowDown":
-        next = rzAngle - RZ_STEP;
-        break;
-      case "PageUp":
-        next = rzAngle + RZ_STEP * 10;
-        break;
-      case "PageDown":
-        next = rzAngle - RZ_STEP * 10;
-        break;
-      case "Home":
-        next = 0;
-        break;
-      case "End":
-        next = (RZ_STEPS - 1) * RZ_STEP;
-        break;
-      default:
-        return;
-    }
-    e.preventDefault();
-    setRzAngle(snapAngle(next));
-  }
-
   // The Rz readout doubles as a text field: users can type an angle in
   // radians and the dial + decomposition snap to the nearest grid value
   // the lookup table can produce. Parse, snap, and drop the draft so the
@@ -982,7 +949,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                       }
                       viewBox="0 0 120 120"
                       role="slider"
-                      tabIndex={isPlaying ? -1 : 0}
                       aria-label="Rz angle in radians"
                       aria-valuemin={0}
                       aria-valuemax={(RZ_STEPS - 1) * RZ_STEP}
@@ -991,7 +957,6 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                       onPointerDown={dialPointerDown}
                       onPointerMove={dialPointerMove}
                       onPointerUp={dialPointerUp}
-                      onKeyDown={dialKeyDown}
                     >
                       <circle
                         class="qs-bloch-rz-dial-track"
