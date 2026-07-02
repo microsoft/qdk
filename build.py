@@ -169,14 +169,19 @@ raw_wheels_dir = os.path.join(root_dir, "target", "raw_wheels")
 vscode_src = os.path.join(qdk_src_dir, "vscode")
 jupyterlab_src = os.path.join(qdk_src_dir, "jupyterlab")
 
+# Qiskit stopped providing binary wheels for Mac on Intel starting with version 2.4.2. Remove this bifurcation when we drop Intel Mac support
+is_intel_mac = platform.system() == "Darwin" and platform.machine() == "x86_64"
+
 QISKIT_VERSION_MATRIX = [
     {
         "label": "qiskit>=1.3.0,<2.0.0",
         "requirements": ["qiskit>=1.3.0,<2.0.0"],
     },
     {
-        "label": "qiskit>=2.0.0,<3.0.0",
-        "requirements": ["qiskit>=2.0.0,<3.0.0"],
+        "label": "qiskit>=2.0.0,<3.0.0" if not is_intel_mac else "qiskit==2.4.1",
+        "requirements": (
+            ["qiskit>=2.0.0,<3.0.0"] if not is_intel_mac else ["qiskit==2.4.1"]
+        ),
     },
 ]
 

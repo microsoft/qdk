@@ -1,5 +1,7 @@
 pytest
 expecttest==0.3.0
 pyqir>=0.12.5,<0.13
+# cryptography 49 and later dropped intel mac support. Unfix the version when we drop Intel mac support.
+cryptography==48.0.1; platform_system != 'Windows' or platform_machine == 'AMD64'
 cirq==1.6.1; platform_system != 'Windows' or platform_machine == 'AMD64'
 pandas>=2.1
