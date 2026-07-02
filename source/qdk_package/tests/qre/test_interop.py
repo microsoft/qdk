@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-cirq = pytest.importorskip("cirq")
 
 from qdk import qsharp
 import qdk.code

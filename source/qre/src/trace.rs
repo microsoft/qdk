@@ -27,7 +27,10 @@ use instruction_ids::instruction_name;
 mod tests;
 
 mod transforms;
-pub use transforms::{LatticeSurgery, PSSPC, TraceTransform};
+pub use transforms::{
+    ComputeCapacity, DynamicMemoryCompute, EvictionStrategy, LatticeSurgery, PSSPC, TraceTransform,
+    Unmemory,
+};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Trace {
@@ -159,6 +162,11 @@ impl Trace {
         TraceIterator::new(&self.block)
     }
 
+    #[must_use]
+    pub fn walk_iter(&self) -> WalkIterator<'_> {
+        WalkIterator::new(&self.block)
+    }
+
     /// Returns the set of instruction IDs required by this trace, along with
     /// their arity constraints if available.  We take the actual arity from the
     /// instruction, and if we see instructions with the same ID but different
@@ -225,6 +233,15 @@ impl Trace {
     #[must_use]
     pub fn num_gates(&self) -> u64 {
         self.deep_iter().map(|(_, m)| m).sum()
+    }
+
+    #[must_use]
+    pub fn gate_counts(&self) -> FxHashMap<u64, u64> {
+        let mut counts = FxHashMap::default();
+        for (gate, mult) in self.deep_iter() {
+            *counts.entry(gate.id).or_default() += mult;
+        }
+        counts
     }
 
     pub fn runtime(&self, locked: &LockedISA) -> Result<u64, Error> {
@@ -441,6 +458,23 @@ pub struct Gate {
     params: Vec<f64>,
 }
 
+impl Gate {
+    #[must_use]
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    #[must_use]
+    pub fn qubits(&self) -> &[u64] {
+        &self.qubits
+    }
+
+    #[must_use]
+    pub fn params(&self) -> &[f64] {
+        &self.params
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block {
     operations: Vec<Operation>,
@@ -623,6 +657,46 @@ impl<'a> Iterator for TraceIterator<'a> {
                     }
                 },
                 _ => {
+                    self.stack.pop();
+                }
+            }
+        }
+    }
+}
+
+pub struct WalkIterator<'a> {
+    // Each frame: (operations slice, current index, remaining repetitions)
+    stack: Vec<(&'a [Operation], usize, u64)>,
+}
+
+impl<'a> WalkIterator<'a> {
+    fn new(block: &'a Block) -> Self {
+        Self {
+            stack: vec![(&block.operations, 0, block.repetitions)],
+        }
+    }
+}
+
+impl<'a> Iterator for WalkIterator<'a> {
+    type Item = &'a Gate;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (ops, idx, remaining) = self.stack.last_mut()?;
+            if *idx < ops.len() {
+                let op = &ops[*idx];
+                *idx += 1;
+                match op {
+                    Operation::GateOperation(g) => return Some(g),
+                    Operation::BlockOperation(block) => {
+                        self.stack.push((&block.operations, 0, block.repetitions));
+                    }
+                }
+            } else {
+                *remaining -= 1;
+                if *remaining > 0 {
+                    *idx = 0;
+                } else {
                     self.stack.pop();
                 }
             }

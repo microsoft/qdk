@@ -61,7 +61,7 @@ class ISAQuery(ABC):
             pass
         return start
 
-    def __add__(self, other: ISAQuery) -> _SumNode:
+    def __add__(self, other: ISAQuery) -> ISAQuery:
         """
         Perform a union of two enumeration nodes.
 
@@ -73,7 +73,7 @@ class ISAQuery(ABC):
             other (Node): The other enumeration node.
 
         Returns:
-            SumNode: A node representing the union of both enumerations.
+            ISAQuery: A node representing the union of both enumerations.
 
         Example:
 
@@ -95,7 +95,7 @@ class ISAQuery(ABC):
         else:
             return _SumNode([self, other])
 
-    def __mul__(self, other: ISAQuery) -> _ProductNode:
+    def __mul__(self, other: ISAQuery) -> ISAQuery:
         """
         Perform the cross product of two enumeration nodes.
 
@@ -109,7 +109,7 @@ class ISAQuery(ABC):
             other (Node): The other enumeration node.
 
         Returns:
-            ProductNode: A node representing the product of both enumerations.
+            ISAQuery: A node representing the product of both enumerations.
 
         Example:
 
@@ -133,7 +133,7 @@ class ISAQuery(ABC):
         else:
             return _ProductNode([self, other])
 
-    def bind(self, name: str, node: ISAQuery) -> "_BindingNode":
+    def bind(self, name: str, node: ISAQuery) -> ISAQuery:
         """Create a BindingNode with this node as the component.
 
         Args:
@@ -141,7 +141,7 @@ class ISAQuery(ABC):
             node: The child enumeration node that may contain ISARefNodes.
 
         Returns:
-            A BindingNode with self as the component.
+            ISAQuery: A binding node with self as the component.
 
         Example:
 

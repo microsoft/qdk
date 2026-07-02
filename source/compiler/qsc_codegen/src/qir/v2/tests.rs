@@ -159,7 +159,7 @@ fn bell_program() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -169,6 +169,7 @@ fn bell_program() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
     "#]].assert_eq(&program.to_qir(&program));
 }
 
@@ -223,7 +224,7 @@ fn teleport_program() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -233,5 +234,387 @@ fn teleport_program() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&program.to_qir(&program));
+}
+
+#[test]
+fn ir_function_program() {
+    let mut program = rir::Program::default();
+    program
+        .callables
+        .insert(rir::CallableId(0), builder::x_decl());
+    program.callables.insert(
+        rir::CallableId(1),
+        rir::Callable {
+            name: "ApplyX".to_string(),
+            input_type: vec![rir::Ty::Prim(rir::Prim::Qubit)],
+            input_vars: vec![rir::VariableId(0)],
+            output_type: None,
+            body: Some(rir::BlockId(0)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.callables.insert(
+        rir::CallableId(2),
+        rir::Callable {
+            name: "main".to_string(),
+            input_type: vec![],
+            input_vars: vec![],
+            output_type: Some(rir::Ty::Prim(rir::Prim::Integer)),
+            body: Some(rir::BlockId(1)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.entry = rir::CallableId(2);
+    program.blocks.insert(
+        rir::BlockId(0),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(0),
+                vec![rir::Operand::Variable(rir::Variable {
+                    variable_id: rir::VariableId(0),
+                    ty: rir::Ty::Prim(rir::Prim::Qubit),
+                })],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(None),
+        ]),
+    );
+    program.blocks.insert(
+        rir::BlockId(1),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(1),
+                vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(Some(rir::Operand::Literal(rir::Literal::Integer(0)))),
+        ]),
+    );
+    program.num_qubits = 1;
+    program.num_results = 0;
+    expect![[r#"
+
+        declare void @__quantum__qis__x__body(ptr)
+
+        define void @ApplyX(ptr %var_0) {
+        block_0:
+          call void @__quantum__qis__x__body(ptr %var_0)
+          ret void
+        }
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_1:
+          call void @ApplyX(ptr inttoptr (i64 0 to ptr))
+          ret i64 0
+        }
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&program.to_qir(&program));
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn distinct_ir_function_names_render_as_distinct_globals() {
+    // Two IR functions whose names already differ only by a package
+    // discriminator suffix (`Foo` and `Foo__p1`) must render as two distinct,
+    // valid global symbols with no duplicate `define`. This mirrors the
+    // partial-evaluator name registry that keeps a bare name for the
+    // first-emitted callable and discriminates a colliding one.
+    let mut program = rir::Program::default();
+    program
+        .callables
+        .insert(rir::CallableId(0), builder::x_decl());
+    program.callables.insert(
+        rir::CallableId(1),
+        rir::Callable {
+            name: "Foo".to_string(),
+            input_type: vec![rir::Ty::Prim(rir::Prim::Qubit)],
+            input_vars: vec![rir::VariableId(0)],
+            output_type: None,
+            body: Some(rir::BlockId(0)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.callables.insert(
+        rir::CallableId(2),
+        rir::Callable {
+            name: "Foo__p1".to_string(),
+            input_type: vec![rir::Ty::Prim(rir::Prim::Qubit)],
+            input_vars: vec![rir::VariableId(0)],
+            output_type: None,
+            body: Some(rir::BlockId(1)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.callables.insert(
+        rir::CallableId(3),
+        rir::Callable {
+            name: "main".to_string(),
+            input_type: vec![],
+            input_vars: vec![],
+            output_type: Some(rir::Ty::Prim(rir::Prim::Integer)),
+            body: Some(rir::BlockId(2)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.entry = rir::CallableId(3);
+    program.blocks.insert(
+        rir::BlockId(0),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(0),
+                vec![rir::Operand::Variable(rir::Variable {
+                    variable_id: rir::VariableId(0),
+                    ty: rir::Ty::Prim(rir::Prim::Qubit),
+                })],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(None),
+        ]),
+    );
+    program.blocks.insert(
+        rir::BlockId(1),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(0),
+                vec![rir::Operand::Variable(rir::Variable {
+                    variable_id: rir::VariableId(0),
+                    ty: rir::Ty::Prim(rir::Prim::Qubit),
+                })],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(None),
+        ]),
+    );
+    program.blocks.insert(
+        rir::BlockId(2),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(1),
+                vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
+                None,
+                None,
+            ),
+            rir::Instruction::Call(
+                rir::CallableId(2),
+                vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(Some(rir::Operand::Literal(rir::Literal::Integer(0)))),
+        ]),
+    );
+    program.num_qubits = 1;
+    program.num_results = 0;
+
+    let qir = program.to_qir(&program);
+    // Each callable renders exactly once under its own distinct global symbol.
+    assert_eq!(
+        qir.matches("define void @Foo(").count(),
+        1,
+        "expected exactly one bare `@Foo` definition; got:\n{qir}"
+    );
+    assert_eq!(
+        qir.matches("define void @Foo__p1(").count(),
+        1,
+        "expected exactly one discriminated `@Foo__p1` definition; got:\n{qir}"
+    );
+    // Both distinct functions are reached through calls.
+    assert!(
+        qir.contains("call void @Foo(ptr inttoptr (i64 0 to ptr))"),
+        "expected a call to the bare `@Foo`; got:\n{qir}"
+    );
+    assert!(
+        qir.contains("call void @Foo__p1(ptr inttoptr (i64 0 to ptr))"),
+        "expected a call to the discriminated `@Foo__p1`; got:\n{qir}"
+    );
+}
+
+#[test]
+fn ir_function_name_with_special_characters_is_quoted() {
+    let mut program = rir::Program::default();
+    program
+        .callables
+        .insert(rir::CallableId(0), builder::x_decl());
+    program.callables.insert(
+        rir::CallableId(1),
+        rir::Callable {
+            name: "ApplyGeneric<Qubit, AdjCtl>{X}".to_string(),
+            input_type: vec![rir::Ty::Prim(rir::Prim::Qubit)],
+            input_vars: vec![rir::VariableId(0)],
+            output_type: None,
+            body: Some(rir::BlockId(0)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.callables.insert(
+        rir::CallableId(2),
+        rir::Callable {
+            name: "main".to_string(),
+            input_type: vec![],
+            input_vars: vec![],
+            output_type: Some(rir::Ty::Prim(rir::Prim::Integer)),
+            body: Some(rir::BlockId(1)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.entry = rir::CallableId(2);
+    program.blocks.insert(
+        rir::BlockId(0),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(0),
+                vec![rir::Operand::Variable(rir::Variable {
+                    variable_id: rir::VariableId(0),
+                    ty: rir::Ty::Prim(rir::Prim::Qubit),
+                })],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(None),
+        ]),
+    );
+    program.blocks.insert(
+        rir::BlockId(1),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(1),
+                vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
+                None,
+                None,
+            ),
+            rir::Instruction::Return(Some(rir::Operand::Literal(rir::Literal::Integer(0)))),
+        ]),
+    );
+    program.num_qubits = 1;
+    program.num_results = 0;
+
+    let qir = program.to_qir(&program);
+    assert!(
+        qir.contains("define void @\"ApplyGeneric<Qubit, AdjCtl>{X}\"(ptr %var_0)"),
+        "expected quoted IR-function definition for special-character name; got:\n{qir}"
+    );
+    assert!(
+        qir.contains("call void @\"ApplyGeneric<Qubit, AdjCtl>{X}\"(ptr inttoptr (i64 0 to ptr))"),
+        "expected quoted call target for special-character name; got:\n{qir}"
+    );
+}
+
+#[test]
+fn scalar_ir_function_program() {
+    // A non-entry, scalar-returning IR function renders as a real `define i64 @<name>(...)` with a
+    // typed `ret i64 <op>` terminator, and its call site binds a typed output variable.
+    let mut program = rir::Program::default();
+    program.callables.insert(
+        rir::CallableId(0),
+        rir::Callable {
+            name: "Increment".to_string(),
+            input_type: vec![rir::Ty::Prim(rir::Prim::Integer)],
+            input_vars: vec![rir::VariableId(0)],
+            output_type: Some(rir::Ty::Prim(rir::Prim::Integer)),
+            body: Some(rir::BlockId(0)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.callables.insert(
+        rir::CallableId(1),
+        rir::Callable {
+            name: "main".to_string(),
+            input_type: vec![],
+            input_vars: vec![],
+            output_type: Some(rir::Ty::Prim(rir::Prim::Integer)),
+            body: Some(rir::BlockId(1)),
+            call_type: rir::CallableType::Regular,
+        },
+    );
+    program.entry = rir::CallableId(1);
+    program.blocks.insert(
+        rir::BlockId(0),
+        rir::Block(vec![
+            rir::Instruction::Add(
+                rir::Operand::Variable(rir::Variable {
+                    variable_id: rir::VariableId(0),
+                    ty: rir::Ty::Prim(rir::Prim::Integer),
+                }),
+                rir::Operand::Literal(rir::Literal::Integer(1)),
+                rir::Variable {
+                    variable_id: rir::VariableId(1),
+                    ty: rir::Ty::Prim(rir::Prim::Integer),
+                },
+            ),
+            rir::Instruction::Return(Some(rir::Operand::Variable(rir::Variable {
+                variable_id: rir::VariableId(1),
+                ty: rir::Ty::Prim(rir::Prim::Integer),
+            }))),
+        ]),
+    );
+    program.blocks.insert(
+        rir::BlockId(1),
+        rir::Block(vec![
+            rir::Instruction::Call(
+                rir::CallableId(0),
+                vec![rir::Operand::Literal(rir::Literal::Integer(5))],
+                Some(rir::Variable {
+                    variable_id: rir::VariableId(2),
+                    ty: rir::Ty::Prim(rir::Prim::Integer),
+                }),
+                None,
+            ),
+            rir::Instruction::Return(Some(rir::Operand::Literal(rir::Literal::Integer(0)))),
+        ]),
+    );
+    program.num_qubits = 0;
+    program.num_results = 0;
+    expect![[r#"
+
+        define i64 @Increment(i64 %var_0) {
+        block_0:
+          %var_1 = add i64 %var_0, 1
+          ret i64 %var_1
+        }
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_1:
+          %var_2 = call i64 @Increment(i64 5)
+          ret i64 0
+        }
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
     "#]].assert_eq(&program.to_qir(&program));
 }

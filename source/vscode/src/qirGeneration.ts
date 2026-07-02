@@ -62,6 +62,7 @@ function checkCompatibility(
     "base",
     "adaptive_ri",
     "adaptive_rif",
+    "adaptive",
     "unrestricted",
   ];
 
@@ -191,7 +192,7 @@ export async function getQirForProgram(
 
 async function getQirForActiveWindowCommand() {
   try {
-    const qir = await getQirForActiveWindow("adaptive_rif", true);
+    const qir = await getQirForActiveWindow("adaptive", true);
     const qirDoc = await vscode.workspace.openTextDocument({
       language: "llvm",
       content: qir,

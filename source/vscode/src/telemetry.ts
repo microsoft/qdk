@@ -350,6 +350,7 @@ type EventTypes = {
   [EventType.LearningExerciseCompleted]: {
     properties: Empty;
     measurements: {
+      unitNumber: number;
       exerciseNumber: number;
       totalExercises: number;
     };

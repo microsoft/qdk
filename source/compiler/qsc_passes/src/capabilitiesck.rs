@@ -24,28 +24,34 @@ use qsc_fir::{
         Item, ItemKind, LocalItemId, LocalVarId, Package, PackageLookup, Pat, PatId, PatKind, Res,
         SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
     },
-    ty::FunctorSetValue,
+    ty::{Prim, Ty},
     visit::{Visitor, walk_callable_decl},
 };
 
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_rca::{
-    Analyzer, ComputeKind, ItemComputeProperties, PackageComputeProperties,
-    PackageStoreComputeProperties, RuntimeFeatureFlags,
+    Analyzer, ComputeKind, PackageComputeProperties, PackageStoreComputeProperties,
+    RuntimeFeatureFlags,
     errors::{Error, generate_errors_from_runtime_features, get_missing_runtime_features},
 };
 use rustc_hash::FxHashMap;
 
 /// Lower a package store from `qsc_frontend` HIR store to a `qsc_fir` FIR store.
+///
+/// Returns the FIR store and the `Assigner` from the final (user) package
+/// lowering. The Assigner watermarks are past all IDs produced during lowering.
 pub fn lower_store(
     package_store: &qsc_frontend::compile::PackageStore,
-) -> qsc_fir::fir::PackageStore {
+) -> (qsc_fir::fir::PackageStore, qsc_fir::assigner::Assigner) {
     let mut fir_store = qsc_fir::fir::PackageStore::new();
+    let mut last_assigner = qsc_fir::assigner::Assigner::new();
     for (id, unit) in package_store {
-        let package = qsc_lowerer::Lowerer::new().lower_package(&unit.package, &fir_store);
+        let mut lowerer = qsc_lowerer::Lowerer::new();
+        let package = lowerer.lower_package(&unit.package, &fir_store);
         fir_store.insert(map_hir_package_to_fir(id), package);
+        last_assigner = lowerer.into_assigner();
     }
-    fir_store
+    (fir_store, last_assigner)
 }
 
 pub fn run_rca_pass(
@@ -95,6 +101,31 @@ pub fn check_supported_capabilities(
     checker.check_all()
 }
 
+/// Checks whether a single callable's runtime features are supported by the target capabilities.
+///
+/// Returns capability-check errors for any expressions within the callable that require
+/// runtime features exceeding `capabilities`. Returns an empty vector if the callable
+/// was removed by DCE, is not a callable item, or uses no unsupported features.
+#[must_use]
+pub fn check_supported_capabilities_for_callable(
+    package: &Package,
+    compute_properties: &PackageComputeProperties,
+    callable: LocalItemId,
+    capabilities: TargetCapabilityFlags,
+    store: &qsc_fir::fir::PackageStore,
+) -> Vec<Error> {
+    let checker = Checker {
+        package,
+        compute_properties,
+        target_capabilities: capabilities,
+        current_callable: None,
+        missing_features_map: FxHashMap::<Span, RuntimeFeatureFlags>::default(),
+        store,
+    };
+
+    checker.check_callable(callable)
+}
+
 struct Checker<'a> {
     package: &'a Package,
     compute_properties: &'a PackageComputeProperties,
@@ -140,18 +171,18 @@ impl<'a> Visitor<'a> for Checker<'a> {
     fn visit_callable_impl(&mut self, callable_impl: &'a CallableImpl) {
         match callable_impl {
             CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
-                self.check_spec_decl(FunctorSetValue::Empty, None);
+                self.check_spec_decl(None);
             }
             CallableImpl::Spec(spec_impl) => {
-                self.check_spec_decl(FunctorSetValue::Empty, Some(&spec_impl.body));
+                self.check_spec_decl(Some(&spec_impl.body));
                 spec_impl.adj.iter().for_each(|spec_decl| {
-                    self.check_spec_decl(FunctorSetValue::Adj, Some(spec_decl));
+                    self.check_spec_decl(Some(spec_decl));
                 });
                 spec_impl.ctl.iter().for_each(|spec_decl| {
-                    self.check_spec_decl(FunctorSetValue::Ctl, Some(spec_decl));
+                    self.check_spec_decl(Some(spec_decl));
                 });
                 spec_impl.ctl_adj.iter().for_each(|spec_decl| {
-                    self.check_spec_decl(FunctorSetValue::CtlAdj, Some(spec_decl));
+                    self.check_spec_decl(Some(spec_decl));
                 });
             }
         }
@@ -209,6 +240,24 @@ impl<'a> Visitor<'a> for Checker<'a> {
 impl<'a> Checker<'a> {
     pub fn check_all(mut self) -> Vec<Error> {
         self.visit_package(self.package, self.store);
+        self.generate_errors()
+    }
+
+    pub fn check_callable(mut self, callable: LocalItemId) -> Vec<Error> {
+        let Some(current_callable) = self.package.get_global(callable) else {
+            // Item was removed by DCE (e.g., original generic after monomorphization).
+            return self.generate_errors();
+        };
+        let Global::Callable(callable_decl) = current_callable else {
+            // Non-callable item — nothing to check.
+            return self.generate_errors();
+        };
+
+        self.set_current_callable(callable);
+        self.visit_callable_decl(callable_decl);
+        let callable_id = self.clear_current_callable();
+        assert!(callable == callable_id);
+        self.check_callable_output(callable_decl);
         self.generate_errors()
     }
 
@@ -292,63 +341,7 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_spec_decl(
-        &mut self,
-        functor_set_value: FunctorSetValue,
-        spec_decl: Option<&'a SpecDecl>,
-    ) {
-        let current_callable_id = self.get_current_callable();
-        let ItemComputeProperties::Callable(callable_compute_properties) =
-            self.compute_properties.get_item(current_callable_id)
-        else {
-            panic!("expected callable variant of item compute properties");
-        };
-
-        let spec_compute_properties = match functor_set_value {
-            FunctorSetValue::Empty => &callable_compute_properties.body,
-            FunctorSetValue::Adj => callable_compute_properties
-                .adj
-                .as_ref()
-                .expect("adj specialization is none"),
-            FunctorSetValue::Ctl => callable_compute_properties
-                .ctl
-                .as_ref()
-                .expect("ctl specialization is none"),
-            FunctorSetValue::CtlAdj => callable_compute_properties
-                .ctl_adj
-                .as_ref()
-                .expect("ctl_adj specialization is none"),
-        };
-
-        if let ComputeKind::Dynamic {
-            runtime_features, ..
-        } = spec_compute_properties.inherent
-        {
-            let missing_features =
-                get_missing_runtime_features(runtime_features, self.target_capabilities);
-            let missing_spec_level_runtime_features =
-                get_spec_level_runtime_features(missing_features);
-
-            // If there are any missing specialization-level runtime features, runtime features that affect the whole
-            // specialization, just generate errors for the missing specialization-level runtime features and do not
-            // generate statement-level or expression-level errors for these specializations.
-            if !missing_spec_level_runtime_features.is_empty() {
-                let current_callable = self
-                    .package
-                    .get_global(current_callable_id)
-                    .expect("callable not present in package");
-                let Global::Callable(callable_decl) = current_callable else {
-                    panic!("");
-                };
-
-                self.missing_features_map
-                    .entry(callable_decl.name.span)
-                    .and_modify(|f| *f |= missing_spec_level_runtime_features)
-                    .or_insert(missing_spec_level_runtime_features);
-                return;
-            }
-        }
-
+    fn check_spec_decl(&mut self, spec_decl: Option<&'a SpecDecl>) {
         // Visit the specialization block.
         if let Some(spec_decl) = spec_decl {
             self.visit_block(spec_decl.block);
@@ -379,6 +372,19 @@ impl<'a> Checker<'a> {
         if !missing_features.is_empty() {
             self.missing_features_map
                 .entry(output_reporting_span)
+                .and_modify(|f| *f |= missing_features)
+                .or_insert(missing_features);
+        }
+    }
+
+    fn check_callable_output(&mut self, callable_decl: &CallableDecl) {
+        let missing_features = get_missing_runtime_features(
+            output_recording_runtime_features_for_ty(&callable_decl.output),
+            self.target_capabilities,
+        ) & RuntimeFeatureFlags::output_recording_flags();
+        if !missing_features.is_empty() {
+            self.missing_features_map
+                .entry(callable_decl.name.span)
                 .and_modify(|f| *f |= missing_features)
                 .or_insert(missing_features);
         }
@@ -419,10 +425,6 @@ impl<'a> Checker<'a> {
         errors
     }
 
-    fn get_current_callable(&self) -> LocalItemId {
-        self.current_callable.expect("current callable is not set")
-    }
-
     fn is_expr_auto_generated(&self, expr: &Expr) -> bool {
         if expr.span.hi == 0 && expr.span.lo == 0 {
             return true;
@@ -444,8 +446,35 @@ impl<'a> Checker<'a> {
     }
 }
 
-fn get_spec_level_runtime_features(runtime_features: RuntimeFeatureFlags) -> RuntimeFeatureFlags {
-    const SPEC_LEVEL_RUNTIME_FEATURES: RuntimeFeatureFlags =
-        RuntimeFeatureFlags::CyclicOperationSpec;
-    runtime_features & SPEC_LEVEL_RUNTIME_FEATURES
+fn output_recording_runtime_features_for_ty(ty: &Ty) -> RuntimeFeatureFlags {
+    match ty {
+        Ty::Array(item) => output_recording_runtime_features_for_ty(item),
+        Ty::Prim(prim) => output_recording_runtime_features_for_prim(*prim),
+        Ty::Tuple(items) => items
+            .iter()
+            .fold(RuntimeFeatureFlags::empty(), |features, item| {
+                features | output_recording_runtime_features_for_ty(item)
+            }),
+        Ty::Arrow(_) | Ty::Udt(_) => RuntimeFeatureFlags::UseOfAdvancedOutput,
+        Ty::Infer(_) => panic!("cannot derive runtime features for `Infer` type"),
+        Ty::Param(_) => panic!("cannot derive runtime features for `Param` type"),
+        Ty::Err => panic!("cannot derive runtime features for `Err` type"),
+    }
+}
+
+fn output_recording_runtime_features_for_prim(prim: Prim) -> RuntimeFeatureFlags {
+    match prim {
+        Prim::Bool => RuntimeFeatureFlags::UseOfBoolOutput,
+        Prim::Double => RuntimeFeatureFlags::UseOfDoubleOutput,
+        Prim::Int => RuntimeFeatureFlags::UseOfIntOutput,
+        Prim::Result => RuntimeFeatureFlags::empty(),
+        Prim::BigInt
+        | Prim::Pauli
+        | Prim::Qubit
+        | Prim::Range
+        | Prim::RangeFrom
+        | Prim::RangeTo
+        | Prim::RangeFull
+        | Prim::String => RuntimeFeatureFlags::UseOfAdvancedOutput,
+    }
 }

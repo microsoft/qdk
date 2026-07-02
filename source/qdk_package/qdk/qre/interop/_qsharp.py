@@ -61,12 +61,12 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts, *args) -> 
     a trace containing the corresponding quantum operations.
 
     Args:
-        entry_expr (str | Callable | LogicalCounts): A Q# entry expression
+        entry_expr (str or :class:`~typing.Callable` or :class:`~qdk.estimator.LogicalCounts`): A Q# entry expression
             string, a callable, or pre-computed logical counts.
         *args: The arguments to pass to the callable, if one is provided.
 
     Returns:
-        Trace: A trace representing the resource profile of the program.
+        :class:`~qdk.qre.Trace`: A trace representing the resource profile of the program.
     """
 
     start = time.time_ns()
@@ -135,13 +135,13 @@ def trace_from_entry_expr_cached(
     optionally written to *cache_path*.
 
     Args:
-        entry_expr (str | Callable | LogicalCounts): A Q# entry expression
+        entry_expr (str or :class:`~typing.Callable` or :class:`~qdk.estimator.LogicalCounts`): A Q# entry expression
             string, a callable, or pre-computed logical counts.
         cache_path (Optional[Path]): Path for reading/writing the cached
             trace. If None, caching is disabled.
 
     Returns:
-        Trace: A trace representing the resource profile of the program.
+        :class:`~qdk.qre.Trace`: A trace representing the resource profile of the program.
     """
     if cache_path and cache_path.exists():
         return Trace.from_json(cache_path.read_text(encoding="utf-8"))

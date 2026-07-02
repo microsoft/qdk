@@ -39,10 +39,10 @@ pub fn defer_measurements(program: &mut Program) {
     for (_, block) in program.blocks.iter_mut() {
         block.0.sort_by(|a, b| match (a, b) {
             // Return, branch, and jump instructions are terminators and should come last.
-            (Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..), _) => {
+            (Instruction::Return(..) | Instruction::Branch(..) | Instruction::Jump(..), _) => {
                 std::cmp::Ordering::Greater
             }
-            (_, Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..)) => {
+            (_, Instruction::Return(..) | Instruction::Branch(..) | Instruction::Jump(..)) => {
                 std::cmp::Ordering::Less
             }
 

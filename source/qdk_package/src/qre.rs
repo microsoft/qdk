@@ -25,9 +25,12 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConstraintBound>()?;
     m.add_class::<ProvenanceGraph>()?;
     m.add_class::<Trace>()?;
+    m.add_class::<Gate>()?;
     m.add_class::<Block>()?;
     m.add_class::<PSSPC>()?;
     m.add_class::<LatticeSurgery>()?;
+    m.add_class::<DynamicMemoryCompute>()?;
+    m.add_class::<Unmemory>()?;
     m.add_class::<EstimationResult>()?;
     m.add_class::<EstimationCollection>()?;
     m.add_class::<FactoryResult>()?;
@@ -445,6 +448,15 @@ fn convert_encoding(encoding: u64) -> PyResult<qre::Encoding> {
     }
 }
 
+fn convert_eviction_strategy(strategy: u64) -> PyResult<qre::EvictionStrategy> {
+    match strategy {
+        0 => Ok(qre::EvictionStrategy::FirstAvailable),
+        1 => Ok(qre::EvictionStrategy::LeastRecentlyUsed),
+        2 => Ok(qre::EvictionStrategy::LeastFrequentlyUsed),
+        _ => Err(EstimationError::new_err("Invalid eviction strategy value")),
+    }
+}
+
 /// Build a `qre::Instruction` from either an existing `Instruction` Python
 /// object or from keyword arguments (id + encoding + arity + …).
 #[allow(clippy::too_many_arguments)]
@@ -694,6 +706,18 @@ impl ProvenanceGraph {
     /// Returns the raw node count (including the sentinel at index 0).
     pub fn raw_node_count(&self) -> PyResult<usize> {
         Ok(self.0.read().map_err(poisoned_lock_err)?.raw_node_count())
+    }
+
+    /// Returns the Pareto-optimal node indices for a given instruction ID.
+    ///
+    /// Must be called after `build_pareto_index`.
+    pub fn pareto_nodes(&self, instruction_id: u64) -> PyResult<Option<Vec<usize>>> {
+        Ok(self
+            .0
+            .read()
+            .map_err(poisoned_lock_err)?
+            .pareto_nodes(instruction_id)
+            .map(<[usize]>::to_vec))
     }
 
     /// Computes an upper bound on the possible ISAs that can be formed from
@@ -1178,6 +1202,16 @@ impl Trace {
         self.0.num_gates()
     }
 
+    #[expect(clippy::needless_pass_by_value)]
+    #[getter]
+    pub fn gate_counts(self_: PyRef<'_, Self>) -> PyResult<Bound<'_, PyDict>> {
+        let dict = PyDict::new(self_.py());
+        for (id, count) in self_.0.gate_counts() {
+            dict.set_item(id, count)?;
+        }
+        Ok(dict)
+    }
+
     #[pyo3(signature = (isa, max_error = None))]
     pub fn estimate(&self, isa: &ISA, max_error: Option<f64>) -> Option<EstimationResult> {
         self.0
@@ -1239,9 +1273,74 @@ impl Trace {
         format!("{}", self.0)
     }
 
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn flatten(slf: PyRef<'_, Self>) -> PyResult<Py<TraceWalkIterator>> {
+        let walk_iter = slf.0.walk_iter();
+        // SAFETY: The `WalkIterator` borrows from the `Trace` stored inside
+        // the `Py<Trace>` we keep alive in `parent`.  Because `Py<Trace>` is
+        // reference-counted and stored alongside the iterator, the underlying
+        // `Trace` (and its blocks/operations) will not be dropped while this
+        // `TraceWalkIterator` exists.  The struct is marked `unsendable` so it
+        // stays on the thread that created it.
+        let walk_iter: qre::WalkIterator<'static> = unsafe { std::mem::transmute(walk_iter) };
+        Py::new(
+            slf.py(),
+            TraceWalkIterator {
+                iter: walk_iter,
+                parent: slf.into(),
+            },
+        )
+    }
+
     #[getter]
     pub fn required_isa(&self) -> ISARequirements {
         ISARequirements(self.0.required_instruction_ids(None))
+    }
+}
+
+#[pyclass]
+pub struct Gate {
+    #[pyo3(get)]
+    id: u64,
+    #[pyo3(get)]
+    qubits: Vec<u64>,
+    #[pyo3(get)]
+    params: Vec<f64>,
+}
+
+#[pymethods]
+impl Gate {
+    fn __str__(&self) -> String {
+        format!(
+            "Gate(id={}, qubits={:?}, params={:?})",
+            self.id, self.qubits, self.params
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(unsendable)]
+pub struct TraceWalkIterator {
+    iter: qre::WalkIterator<'static>,
+    #[allow(dead_code)]
+    parent: Py<Trace>,
+}
+
+#[pymethods]
+impl TraceWalkIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Gate> {
+        slf.iter.next().map(|g| Gate {
+            id: g.id(),
+            qubits: g.qubits().to_vec(),
+            params: g.params().to_vec(),
+        })
     }
 }
 
@@ -1302,6 +1401,46 @@ impl LatticeSurgery {
     #[new]
     pub fn new(slow_down_factor: f64) -> Self {
         Self(qre::LatticeSurgery::new(slow_down_factor))
+    }
+
+    pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {
+        self.0
+            .transform(&trace.0)
+            .map(Trace)
+            .map_err(|e| EstimationError::new_err(format!("{e}")))
+    }
+}
+
+#[pyclass]
+pub struct DynamicMemoryCompute(qre::DynamicMemoryCompute);
+
+#[pymethods]
+impl DynamicMemoryCompute {
+    #[new]
+    pub fn new(compute_capacity_percentage: f64, eviction_strategy: u64) -> PyResult<Self> {
+        Ok(Self(
+            qre::DynamicMemoryCompute::with_percentage(compute_capacity_percentage)
+                .with_strategy(convert_eviction_strategy(eviction_strategy)?),
+        ))
+    }
+
+    pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {
+        self.0
+            .transform(&trace.0)
+            .map(Trace)
+            .map_err(|e| EstimationError::new_err(format!("{e}")))
+    }
+}
+
+#[derive(Default)]
+#[pyclass]
+pub struct Unmemory(qre::Unmemory);
+
+#[pymethods]
+impl Unmemory {
+    #[new]
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {
@@ -1649,6 +1788,11 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         FEASIBILITY,
         TARGET_YEAR,
         BLOCK_SIZE,
+        BASE_SYSTEM_COST,
+        SHOT_COST,
+        COST_PER_QUBIT,
+        COST_PER_HOUR,
+        COST_PER_QUBIT_PER_HOUR,
     );
 
     m.add_submodule(&property_keys)?;

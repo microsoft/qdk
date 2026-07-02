@@ -22,6 +22,7 @@ fn remap_block_ids_no_changes() {
             input_type: Vec::new(),
             output_type: None,
             body: Some(BlockId(0)),
+            input_vars: Vec::new(),
             call_type: CallableType::Regular,
         },
     );
@@ -33,7 +34,7 @@ fn remap_block_ids_no_changes() {
         .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(2))]));
     program
         .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Return]));
+        .insert(BlockId(2), Block(vec![Instruction::Return(None)]));
 
     // Before
     expect![[r#"
@@ -98,6 +99,7 @@ fn remap_block_ids_out_of_order_no_branches() {
             input_type: Vec::new(),
             output_type: None,
             body: Some(BlockId(5)),
+            input_vars: Vec::new(),
             call_type: CallableType::Regular,
         },
     );
@@ -109,7 +111,7 @@ fn remap_block_ids_out_of_order_no_branches() {
         .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(7))]));
     program
         .blocks
-        .insert(BlockId(7), Block(vec![Instruction::Return]));
+        .insert(BlockId(7), Block(vec![Instruction::Return(None)]));
 
     // Before
     expect![[r#"
@@ -174,6 +176,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             input_type: Vec::new(),
             output_type: None,
             body: Some(BlockId(2)),
+            input_vars: Vec::new(),
             call_type: CallableType::Regular,
         },
     );
@@ -197,7 +200,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
         .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(1))]));
     program
         .blocks
-        .insert(BlockId(0), Block(vec![Instruction::Return]));
+        .insert(BlockId(0), Block(vec![Instruction::Return(None)]));
 
     // Before
     expect![[r#"
@@ -267,6 +270,7 @@ fn remap_block_ids_simple_loop() {
             input_type: Vec::new(),
             output_type: None,
             body: Some(BlockId(4)),
+            input_vars: Vec::new(),
             call_type: CallableType::Regular,
         },
     );
@@ -287,7 +291,7 @@ fn remap_block_ids_simple_loop() {
         .insert(BlockId(6), Block(vec![Instruction::Jump(BlockId(4))]));
     program
         .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Return]));
+        .insert(BlockId(2), Block(vec![Instruction::Return(None)]));
 
     // Before
     expect![[r#"
@@ -353,6 +357,7 @@ fn remap_block_ids_infinite_loop() {
             input_type: Vec::new(),
             output_type: None,
             body: Some(BlockId(4)),
+            input_vars: Vec::new(),
             call_type: CallableType::Regular,
         },
     );
@@ -423,6 +428,7 @@ fn remap_block_ids_nested_branching_loops() {
             input_type: Vec::new(),
             output_type: None,
             body: Some(BlockId(4)),
+            input_vars: Vec::new(),
             call_type: CallableType::Regular,
         },
     );
@@ -452,7 +458,7 @@ fn remap_block_ids_nested_branching_loops() {
     );
     program
         .blocks
-        .insert(BlockId(2), Block(vec![Instruction::Return]));
+        .insert(BlockId(2), Block(vec![Instruction::Return(None)]));
 
     // Before
     expect![[r#"
@@ -518,6 +524,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             input_type: Vec::new(),
             output_type: None,
             body: Some(BlockId(4)),
+            input_vars: Vec::new(),
             call_type: CallableType::Regular,
         },
     );
@@ -575,7 +582,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
         .insert(BlockId(8), Block(vec![Instruction::Jump(BlockId(7))]));
     program
         .blocks
-        .insert(BlockId(7), Block(vec![Instruction::Return]));
+        .insert(BlockId(7), Block(vec![Instruction::Return(None)]));
 
     // Before
     expect![[r#"
@@ -645,6 +652,142 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
                 Block 7: Block:
                     Jump(8)
                 Block 8: Block:
+                    Return
+            config: Config:
+                capabilities: Base
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]]
+    .assert_eq(&program.to_string());
+}
+
+#[test]
+fn remap_block_ids_multiple_bodies() {
+    let mut program = Program::new();
+    // Entry callable with an out-of-order body.
+    program.callables.insert(
+        CallableId(0),
+        Callable {
+            name: "main".to_string(),
+            input_type: Vec::new(),
+            output_type: None,
+            body: Some(BlockId(5)),
+            input_vars: Vec::new(),
+            call_type: CallableType::Regular,
+        },
+    );
+    // A second bodied callable (an IR function) with its own out-of-order body.
+    program.callables.insert(
+        CallableId(1),
+        Callable {
+            name: "helper".to_string(),
+            input_type: Vec::new(),
+            output_type: None,
+            body: Some(BlockId(2)),
+            input_vars: Vec::new(),
+            call_type: CallableType::Regular,
+        },
+    );
+    // An intrinsic (bodyless) callable that must be ignored by the pass.
+    program.callables.insert(
+        CallableId(2),
+        Callable {
+            name: "intrinsic".to_string(),
+            input_type: Vec::new(),
+            output_type: None,
+            body: None,
+            input_vars: Vec::new(),
+            call_type: CallableType::Regular,
+        },
+    );
+    // Entry callable body blocks.
+    program
+        .blocks
+        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(4))]));
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Return(None)]));
+    // Helper callable body blocks.
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Jump(BlockId(1))]));
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Return(None)]));
+
+    // Before
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: <VOID>
+                    body: 5
+                Callable 1: Callable:
+                    name: helper
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: <VOID>
+                    body: 2
+                Callable 2: Callable:
+                    name: intrinsic
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 1: Block:
+                    Return
+                Block 2: Block:
+                    Jump(1)
+                Block 4: Block:
+                    Return
+                Block 5: Block:
+                    Jump(4)
+            config: Config:
+                capabilities: Base
+            num_qubits: 0
+            num_results: 0
+            tags:
+    "#]]
+    .assert_eq(&program.to_string());
+
+    // After: each callable body is remapped to a contiguous segment of new ids in callable order.
+    remap_block_ids(&mut program);
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: <VOID>
+                    body: 0
+                Callable 1: Callable:
+                    name: helper
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: <VOID>
+                    body: 2
+                Callable 2: Callable:
+                    name: intrinsic
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Jump(1)
+                Block 1: Block:
+                    Return
+                Block 2: Block:
+                    Jump(3)
+                Block 3: Block:
                     Return
             config: Config:
                 capabilities: Base

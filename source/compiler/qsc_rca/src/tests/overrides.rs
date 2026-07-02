@@ -31,7 +31,9 @@ fn check_rca_for_length_of_statically_sized_array_with_dynamic_content() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Static
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -52,7 +54,7 @@ fn check_rca_for_length_of_dynamically_sized_array_with_static_content() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -75,7 +77,7 @@ fn check_rca_for_length_of_dynamically_sized_array_with_dynamic_content() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

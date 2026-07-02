@@ -12,7 +12,7 @@ use std::{
 
 use crate::{AsIndex, Error, Range as EvalRange, error::PackageSpan};
 
-pub(super) const DEFAULT_RANGE_STEP: i64 = 1;
+pub const DEFAULT_RANGE_STEP: i64 = 1;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
