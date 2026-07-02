@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
+import builtins
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union, Literal
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
@@ -99,7 +100,7 @@ def run(
     )
     start_time = monotonic()
 
-    results: List[ShotResult] = []
+    results: List[Any] = []
 
     def on_save_events(output: Output) -> None:
         # Append the output to the last shot's output list
@@ -114,8 +115,7 @@ def run(
 
     callable = None
     source_str: Optional[str] = None
-    if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
+    if builtins.callable(source) and hasattr(source, "__global_callable"):
         callable = source.__global_callable
     elif isinstance(source, str):
         source_str = source
@@ -149,7 +149,7 @@ def run(
                 noise,
                 qubit_loss=qubit_loss,
                 callable=callable,
-                args=args,
+                args=python_args_to_interpreter_args(args),
                 seed=kwargs.get("seed"),
                 sim_type=type,
                 num_qubits=num_qubits,
@@ -211,6 +211,7 @@ def run(
     if as_bitstring:
         from ._utils import as_bitstring as convert_to_bitstring
 
-        results = convert_to_bitstring(results)
+        converted_results: Any = convert_to_bitstring(results)
+        return converted_results
 
     return results

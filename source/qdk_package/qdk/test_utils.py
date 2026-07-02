@@ -2,9 +2,8 @@
 
 from typing import Any
 
-from qdk._interpreter import _get_context_or_default
-
 from ._context import Context
+from ._interpreter import _get_context_or_default
 
 
 def dump_operation_on_state(
@@ -63,8 +62,8 @@ def dump_operation_on_state(
         initial_state,
         save_events=True,
     )[0]
-    state = result["events"][-1].state_dump().get_dict()
-    statevector = [0.0] * (2**num_qubits)
+    state: dict[int, complex] = result["events"][-1].state_dump().get_dict()
+    statevector = [0.0j] * (2**num_qubits)
     for index, amplitude in state.items():
         statevector[index] = amplitude
     return statevector

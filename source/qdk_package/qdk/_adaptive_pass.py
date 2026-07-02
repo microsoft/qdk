@@ -478,12 +478,12 @@ class AdaptiveProfilePass:
             return self._value_to_reg[value]
 
         if isinstance(value, pyqir.IntConstant):
-            val = value.value
-            return IntOperand(val, self._int_bits)
+            int_val = value.value
+            return IntOperand(int_val, self._int_bits)
 
         if isinstance(value, pyqir.FloatConstant):
-            val = value.value
-            return FloatOperand(val, self._bytecode_kind)
+            float_val = value.value
+            return FloatOperand(float_val, self._bytecode_kind)
 
         # Global variable reference (e.g., @array0)
         if hasattr(value, "name") and value.name in self._global_to_address:
@@ -895,7 +895,7 @@ class AdaptiveProfilePass:
                 self._emit_quantum_call(call)
             case _ if callee in self._func_to_id:
                 self._emit_ir_function_call(call)
-            case _ if "qdk_noise" in call.callee.attributes.func:
+            case _ if "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func:
                 # Check if this is a noise intrinsic (custom gate with qdk_noise attribute)
                 self._emit_noise_intrinsic_call(call)
             case _:
@@ -964,11 +964,13 @@ class AdaptiveProfilePass:
             # the runtime invokes ``Simulator::mov`` (which applies the
             # configured ``noise.mov`` faults to that qubit).
             q1, q2, q3 = self._resolve_qubit_operands([call.args[0]])
-            angle = FloatOperand(0.0, self._bytecode_kind)
-            qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
+            move_angle = FloatOperand(0.0, self._bytecode_kind)
+            qop_idx = self._emit_quantum_op(
+                op_id, q1.val, q2.val, q3.val, move_angle.val
+            )
             self._emit(
                 OP_QUANTUM_GATE,
-                src0=angle,
+                src0=move_angle,
                 aux0=qop_idx,
                 aux1=q1,
                 aux2=q2,
@@ -977,11 +979,10 @@ class AdaptiveProfilePass:
             return
         if gate_name in ROTATION_GATES:
             qubit_arg_offset = 1
-            angle = self._resolve_angle_operand(call.args[0])
+            angle: FloatOperand | Reg = self._resolve_angle_operand(call.args[0])
         else:
             qubit_arg_offset = 0
             angle = FloatOperand(0.0, self._bytecode_kind)
-        qubit_arg_offset = 1 if gate_name in ROTATION_GATES else 0
         q1, q2, q3 = self._resolve_qubit_operands(call.args[qubit_arg_offset:])
         qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
         self._emit(

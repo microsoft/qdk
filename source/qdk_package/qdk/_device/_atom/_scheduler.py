@@ -1,27 +1,31 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._utils import as_qis_gate, get_used_values, uses_any_value
-from pyqir import (
-    Call,
-    Instruction,
-    Function,
-    QirModuleVisitor,
-    FunctionType,
-    PointerType,
-    Type,
-    Linkage,
-    ptr_id,
-    IntType,
-    Value,
-)
-from .._device import Device, Zone, ZoneType
 from collections import defaultdict
 from dataclasses import dataclass
-from itertools import chain
-from typing import Iterable, TypeAlias, Optional
 from fractions import Fraction
 from functools import lru_cache
+from itertools import chain
+from typing import Any, Iterable, Optional, TypeAlias
+
+from pyqir import (
+    BasicBlock,
+    Call,
+    Function,
+    FunctionType,
+    Instruction,
+    IntType,
+    Linkage,
+    Module,
+    PointerType,
+    QirModuleVisitor,
+    Type,
+    Value,
+    ptr_id,
+)
+
+from .._device import Device, Zone, ZoneType
+from ._utils import as_qis_gate, get_used_values, uses_any_value
 
 QubitId: TypeAlias = Value
 Location: TypeAlias = tuple[int, int]
@@ -37,13 +41,13 @@ class Move:
     src_loc: Location
     dst_loc: Location
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.qubit_id_ptr)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"Move Qubit({self.qubit_id}): {self.src_loc} -> {self.dst_loc}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.__str__()
 
     @property
@@ -52,10 +56,10 @@ class Move:
         assert q_id is not None, "Qubit id should be known"
         return q_id
 
-    def parity(self):
+    def parity(self) -> tuple[int, int]:
         return move_parity(self.src_loc, self.dst_loc)
 
-    def direction(self):
+    def direction(self) -> tuple[int, int]:
         return move_direction(self.src_loc, self.dst_loc)
 
 
@@ -116,11 +120,14 @@ def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
 
 
 @lru_cache(maxsize=1 << 14)
-def scale_factor_helper(source_diff, destination_diff):
+def scale_factor_helper(
+    source_diff: int, destination_diff: int
+) -> Optional[bool | Fraction]:
     if destination_diff == 0:
         return True
     if (s := Fraction(source_diff, destination_diff)) >= 0:
         return s
+    return None
 
 
 def scale_factor(move1: Move, move2: Move) -> Optional[MoveGroupScaleFactor]:
@@ -142,6 +149,8 @@ def scale_factor(move1: Move, move2: Move) -> Optional[MoveGroupScaleFactor]:
     if row_scale_factor is not None and col_scale_factor is not None:
         return row_scale_factor, col_scale_factor
 
+    return None
+
 
 class MoveGroup:
     """
@@ -156,7 +165,7 @@ class MoveGroup:
 
     __slots__ = ("moves", "scale_factor", "ref_move")
 
-    def __init__(self, moves: Iterable[Move]):
+    def __init__(self, moves: Iterable[Move]) -> None:
         self.moves = set(moves)
         self.scale_factor = scale_factor(*moves) if len(self.moves) > 1 else None
         self.ref_move = next(iter(moves))
@@ -164,7 +173,7 @@ class MoveGroup:
     def __len__(self) -> int:
         return len(self.moves)
 
-    def add(self, move: Move):
+    def add(self, move: Move) -> None:
         """
         Adds a move to this move group.
 
@@ -174,15 +183,15 @@ class MoveGroup:
         # A move group with a single move doesn't have an associated scale factor.
         # Therefore, we cannot test if a move is compatible with it, which means
         # we cannot add moves to it.
-        assert (
-            self.scale_factor
-        ), "cannot add to move group candidate with a single move"
+        assert self.scale_factor, (
+            "cannot add to move group candidate with a single move"
+        )
         self.moves.add(move)
 
-    def remove(self, move: Move):
+    def remove(self, move: Move) -> None:
         self.moves.remove(move)
 
-    def discard(self, move: Move):
+    def discard(self, move: Move) -> None:
         self.moves.discard(move)
 
 
@@ -196,7 +205,7 @@ class MoveGroupPool:
     up/down and left/right direction of all moves in the pool.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initializes a move-group pool for moves of the given ``parity`` and ``direction``.
 
         :param parity: The parity of source and destination columns of all the moves in this pool.
@@ -224,7 +233,7 @@ class MoveGroupPool:
         except ValueError:
             return None
 
-    def add(self, move: Move):
+    def add(self, move: Move) -> None:
         """Adds a move to the move-group pool.
 
         :param move: The move to add. It must be of the same parity and direction as
@@ -354,7 +363,7 @@ class MoveScheduler:
         device: Device,
         zone: Zone,
         qubits_to_move: list[QubitId | tuple[QubitId, QubitId]],
-    ):
+    ) -> None:
         """Initializes the move scheduler from a device, a target zone,
         and a list of qubits to move to that target zone.
 
@@ -391,7 +400,7 @@ class MoveScheduler:
     def qubits_to_partial_moves(
         self, qubits_to_move: list[QubitId | tuple[QubitId, QubitId]]
     ) -> list[PartialMove | PartialMovePair]:
-        partial_moves = []
+        partial_moves: list[PartialMove | PartialMovePair] = []
         for elt in qubits_to_move:
             if isinstance(elt, tuple):
                 q_id1 = ptr_id(elt[0])
@@ -407,7 +416,7 @@ class MoveScheduler:
                 mov = PartialMove(elt, self.device.get_home_loc(q_id))
                 partial_moves.append(mov)
 
-        def sort_key(partial_move: PartialMove | PartialMovePair):
+        def sort_key(partial_move: PartialMove | PartialMovePair) -> int:
             if isinstance(partial_move, PartialMove):
                 return self.device.get_ordering(partial_move.qubit_id)
             else:
@@ -415,7 +424,7 @@ class MoveScheduler:
 
         return sorted(partial_moves, key=sort_key)
 
-    def is_empty(self):
+    def is_empty(self) -> bool:
         """
         Returns `True` if all moves were scheduled.
         That is, there are no partial moves and all disjoint pools are empty.
@@ -440,9 +449,10 @@ class MoveScheduler:
                 del self.available_dst_locations[move.dst_loc]
                 return pool
 
-        if move := self.get_compatible_move(self.move_group_pool, partial_move):
-            self.move_group_pool.add(move)
-            del self.available_dst_locations[move.dst_loc]
+        compatible_move = self.get_compatible_move(self.move_group_pool, partial_move)
+        if compatible_move is not None:
+            self.move_group_pool.add(compatible_move)
+            del self.available_dst_locations[compatible_move.dst_loc]
             return self.move_group_pool
 
         raise Exception("not enough IZ space to schedule all moves")
@@ -472,17 +482,18 @@ class MoveScheduler:
                     del self.available_dst_locations[dst_loc2]
                     return pool1
 
-        if move1 := self.get_compatible_move(
+        compatible_move = self.get_compatible_move(
             self.move_group_pool, partial_move, is_pair=True
-        ):
+        )
+        if compatible_move is not None:
             # Push the move corresponding to the first qubit of the CZ pair.
-            self.move_group_pool.add(move1)
+            self.move_group_pool.add(compatible_move)
 
             # Build the move corresponding to the second qubit of the CZ pair.
-            dest2 = (move1.dst_loc[0], move1.dst_loc[1] + 1)
+            dest2 = (compatible_move.dst_loc[0], compatible_move.dst_loc[1] + 1)
             move2 = partial_move_pair[1].into_move(dest2)
             self.move_group_pool.add(move2)
-            del self.available_dst_locations[move1.dst_loc]
+            del self.available_dst_locations[compatible_move.dst_loc]
             del self.available_dst_locations[move2.dst_loc]
             return self.move_group_pool
         raise Exception("not enough IZ space to schedule all moves")
@@ -505,10 +516,12 @@ class MoveScheduler:
             # We compute the destination row by solving this equation for `dst_row`:
             # src_row_diff / (group.ref_move.dst_loc[0] - dst_row) == row_scale_factor
             src_row_diff = group.ref_move.src_loc[0] - partial_move.src_loc[0]
-            dst_row = group.ref_move.dst_loc[0] - src_row_diff / row_scale_factor
-            assert isinstance(dst_row, Fraction)
-            if dst_row.denominator == 1:
-                dst_row = dst_row.numerator
+            dst_row_fraction = (
+                group.ref_move.dst_loc[0] - src_row_diff / row_scale_factor
+            )
+            assert isinstance(dst_row_fraction, Fraction)
+            if dst_row_fraction.denominator == 1:
+                dst_row = dst_row_fraction.numerator
             else:
                 return None
 
@@ -518,10 +531,12 @@ class MoveScheduler:
             # We compute the destination col by solving this equation for `dst_col`:
             # src_col_diff / (group.ref_move.dst_loc[1] - dst_col) == col_scale_factor
             src_col_diff = group.ref_move.src_loc[1] - partial_move.src_loc[1]
-            dst_col = group.ref_move.dst_loc[1] - src_col_diff / col_scale_factor
-            assert isinstance(dst_col, Fraction)
-            if dst_col.denominator == 1:
-                dst_col = dst_col.numerator
+            dst_col_fraction = (
+                group.ref_move.dst_loc[1] - src_col_diff / col_scale_factor
+            )
+            assert isinstance(dst_col_fraction, Fraction)
+            if dst_col_fraction.denominator == 1:
+                dst_col = dst_col_fraction.numerator
             else:
                 return None
 
@@ -529,11 +544,13 @@ class MoveScheduler:
         if loc in self.available_dst_locations:
             return loc
 
+        return None
+
     def get_compatible_move(
         self,
         pool: MoveGroupPool,
         partial_move: PartialMove,
-        is_pair=False,
+        is_pair: bool = False,
     ) -> Optional[Move]:
         # First, try finding a large enough group to place the partial move in.
         if self.zone.type != ZoneType.MEAS:
@@ -561,7 +578,9 @@ class MoveScheduler:
             if (not is_pair) or destination[1] % 2 == 0:
                 return partial_move.into_move(destination)
 
-    def __iter__(self):
+        return None
+
+    def __iter__(self) -> "MoveScheduler":
         return self
 
     def __next__(self) -> list[Move]:
@@ -582,13 +601,13 @@ class Schedule(QirModuleVisitor):
     end_func: Function
     move_funcs: list[Function]
 
-    def __init__(self, device: Device):
+    def __init__(self, device: Device) -> None:
         super().__init__()
         self.device = device
         self.num_qubits = len(self.device.home_locs)
         self.pending_moves: list[list[Move]] = []
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         i64_ty = IntType(module.context, 64)
         # Find or create the necessary runtime functions.
         for func in module.functions:
@@ -628,7 +647,7 @@ class Schedule(QirModuleVisitor):
 
         super()._on_module(module)
 
-    def _on_block(self, block):
+    def _on_block(self, block: BasicBlock) -> None:
         # Use only the first interaction and measurement zone; more could be supported in future.
         interaction_zone = self.device.get_interaction_zones()[0]
         measurement_zone = self.device.get_measurement_zones()[0]
@@ -636,21 +655,23 @@ class Schedule(QirModuleVisitor):
         max_measurements = self.device.column_count * measurement_zone.row_count
 
         # Track pending/queued single qubit operations by qubit id.
-        self.single_qubit_ops = [[] for _ in range(self.num_qubits)]
+        self.single_qubit_ops: list[list[tuple[Call, dict[str, Any]]]] = [
+            [] for _ in range(self.num_qubits)
+        ]
 
         # Track pending CZ operations.
-        self.curr_cz_ops = []
+        self.curr_cz_ops: list[Call] = []
 
         # Track pending measurements.
-        self.measurements = []
+        self.measurements: list[tuple[Call, dict[str, Any]]] = []
 
         # Track pending qubits to move to an interaction or measurement zone.
         self.pending_qubits_to_move: list[QubitId | tuple[QubitId, QubitId]] = []
 
         # Track values used in CZ ops and measurements to avoid putting operations on the
         # same qubit in the same batch.
-        self.vals_used_in_cz_ops = set()
-        self.vals_used_in_measurements = set()
+        self.vals_used_in_cz_ops: set[Value] = set()
+        self.vals_used_in_measurements: set[Value] = set()
 
         instructions = [instr for instr in block.instructions]
         for instr in instructions:
@@ -743,23 +764,23 @@ class Schedule(QirModuleVisitor):
                 while self.any_pending_ops():
                     self.flush_pending(instr)
 
-    def any_pending_single_qubit_ops(self):
+    def any_pending_single_qubit_ops(self) -> bool:
         return any(ops for ops in self.single_qubit_ops)
 
-    def any_pending_czs(self):
+    def any_pending_czs(self) -> bool:
         return bool(self.curr_cz_ops)
 
-    def any_pending_measurements(self):
+    def any_pending_measurements(self) -> bool:
         return bool(self.measurements)
 
-    def any_pending_ops(self):
+    def any_pending_ops(self) -> bool:
         return (
             self.any_pending_czs()
             or self.any_pending_single_qubit_ops()
             or self.any_pending_measurements()
         )
 
-    def flush_pending(self, insert_before: Instruction):
+    def flush_pending(self, insert_before: Instruction) -> None:
         interaction_zone = self.device.get_interaction_zones()[0]
         self.builder.insert_before(insert_before)
         # If cz ops pending, insert accumulated moves, single qubits ops matching cz rows, then the cz ops, then move back.
@@ -793,7 +814,9 @@ class Schedule(QirModuleVisitor):
         # insert those moves, then the ops, then move back.
         else:
             while self.any_pending_single_qubit_ops():
-                target_qubits_by_row = [[] for _ in range(interaction_zone.row_count)]
+                target_qubits_by_row: list[list[int]] = [
+                    [] for _ in range(interaction_zone.row_count)
+                ]
                 curr_row = 0
                 for q in range(self.num_qubits):
                     if len(self.single_qubit_ops[q]) > 0:
@@ -832,23 +855,23 @@ class Schedule(QirModuleVisitor):
             row.sort()
         return qubits_by_row
 
-    def schedule_pending_moves(self, zone: Zone):
+    def schedule_pending_moves(self, zone: Zone) -> None:
         move_scheduler = MoveScheduler(self.device, zone, self.pending_qubits_to_move)
         for move_group in move_scheduler:
             self.pending_moves.append(move_group)
         # self.verify_that_all_moves_were_scheduled()
         self.pending_qubits_to_move = []
 
-    def verify_that_all_moves_were_scheduled(self):
+    def verify_that_all_moves_were_scheduled(self) -> None:
         moves_to_schedule = sum(
             len(x) if isinstance(x, tuple) else 1 for x in self.pending_qubits_to_move
         )
         scheduled_moves = sum(len(group) for group in self.pending_moves)
-        assert (
-            moves_to_schedule == scheduled_moves
-        ), f"{moves_to_schedule} != {scheduled_moves}"
+        assert moves_to_schedule == scheduled_moves, (
+            f"{moves_to_schedule} != {scheduled_moves}"
+        )
 
-    def insert_moves(self):
+    def insert_moves(self) -> None:
         """
         For each pending move, insert a call to the move function that moves the
         given qubit to the given (row, col) location.
@@ -877,7 +900,7 @@ class Schedule(QirModuleVisitor):
         if move_group_id != 0:
             self.builder.call(self.end_func, [])
 
-    def insert_moves_back(self):
+    def insert_moves_back(self) -> None:
         move_group_id = 0
         for move_group in self.pending_moves:
             # We can execute `MOVE_GROUPS_PER_PARALLEL_SECTION`, if
@@ -905,7 +928,7 @@ class Schedule(QirModuleVisitor):
         # Clear pending moves.
         self.pending_moves = []
 
-    def flush_single_qubit_ops(self, target_qubits):
+    def flush_single_qubit_ops(self, target_qubits: list[int]) -> None:
         # Flush all pending single qubit ops for the given target qubits, combining
         # consecutive ops of the same type into a single parallel region by row in
         # the interaction zone.

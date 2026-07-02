@@ -25,7 +25,7 @@ class OutputSemantics(Enum):
     and the semantic checks that are performed.
     """
 
-    Qiskit: OutputSemantics
+    Qiskit = 0
     """
     The output is in Qiskit format meaning that the output
     is all of the classical registers, in reverse order
@@ -33,7 +33,7 @@ class OutputSemantics(Enum):
     bit within each register in reverse order.
     """
 
-    OpenQasm: OutputSemantics
+    OpenQasm = 1
     """
     [OpenQASM 3 has two output modes](https://openqasm.com/language/directives.html#input-output)
     - If the programmer provides one or more `output` declarations, then
@@ -42,7 +42,7 @@ class OutputSemantics(Enum):
     - Otherwise, assume all of the declared variables are returned as output.
     """
 
-    ResourceEstimation: OutputSemantics
+    ResourceEstimation = 2
     """
     No output semantics are applied. The entry point returns `Unit`.
     """
@@ -52,7 +52,7 @@ class ProgramType(Enum):
     Represents the type of compilation output to create
     """
 
-    File: ProgramType
+    File = 0
     """
     Creates an operation in a namespace as if the program is a standalone
     file. Inputs are lifted to the operation params. Output are lifted to
@@ -60,13 +60,13 @@ class ProgramType(Enum):
     as long as there are no input parameters.
     """
 
-    Operation: ProgramType
+    Operation = 1
     """
     Programs are compiled to a standalone function. Inputs are lifted to
     the operation params. Output are lifted to the operation return type.
     """
 
-    Fragments: ProgramType
+    Fragments = 2
     """
     Creates a list of statements from the program. This is useful for
     interactive environments where the program is a list of statements
@@ -90,7 +90,7 @@ class TargetProfile(Enum):
     :raises ValueError: If the string does not match any target profile.
     """
 
-    Base: TargetProfile
+    Base = 0
     """
     Target supports the minimal set of capabilities required to run a quantum
     program.
@@ -98,7 +98,7 @@ class TargetProfile(Enum):
     This option maps to the Base Profile as defined by the QIR specification.
     """
 
-    Adaptive_RI: TargetProfile
+    Adaptive_RI = 1
     """
     Target supports the Adaptive profile with the integer computation extension.
 
@@ -107,7 +107,7 @@ class TargetProfile(Enum):
     extension defined by the QIR specification.
     """
 
-    Adaptive_RIF: TargetProfile
+    Adaptive_RIF = 2
     """
     Target supports the Adaptive profile with integer & floating-point
     computation extensions.
@@ -117,7 +117,7 @@ class TargetProfile(Enum):
     extension defined by the QIR specification.
     """
 
-    Adaptive: TargetProfile
+    Adaptive = 3
     """
     Target supports the Adaptive profile with all supported extensions.
 
@@ -125,7 +125,7 @@ class TargetProfile(Enum):
     all the optional extensions defined by the QIR specification.
     """
 
-    Unrestricted: TargetProfile
+    Unrestricted = 4
     """
     Describes the unrestricted set of capabilities required to run any Q# program.
     """
@@ -368,7 +368,7 @@ class Interpreter:
         list_directory: Callable[[str], List[Dict[str, str]]],
         resolve_path: Callable[[str, str], str],
         fetch_github: Callable[[str, str, str, str], str],
-        **kwargs,
+        **kwargs: Any,
     ) -> Any:
         """
         Imports OpenQASM source code into the active Q# interpreter.
@@ -396,19 +396,19 @@ class Result(Enum):
     A Q# measurement result.
     """
 
-    Zero: int
-    One: int
-    Loss: int
+    Zero = 0
+    One = 1
+    Loss = 2
 
 class Pauli(Enum):
     """
     A Q# Pauli operator.
     """
 
-    I: int
-    X: int
-    Y: int
-    Z: int
+    I = 0
+    X = 1
+    Y = 2
+    Z = 3
 
 class Output:
     """
@@ -479,17 +479,17 @@ class CircuitGenerationMethod(Enum):
     The method to use for circuit generation.
     """
 
-    ClassicalEval: CircuitGenerationMethod
+    ClassicalEval = 0
     """
     Use classical evaluation to generate the circuit.
     """
 
-    Simulate: CircuitGenerationMethod
+    Simulate = 1
     """
     Use simulation to generate the circuit.
     """
 
-    Static: CircuitGenerationMethod
+    Static = 2
     """
     Compile the program and transform to a circuit using partial evaluation.
     Only works for AdaptiveRIF-compliant programs.
@@ -567,11 +567,12 @@ def compile_visual_circuit_to_qsharp(
 
 def circuit_qasm_program(
     source: str,
+    config: CircuitConfig,
     read_file: Callable[[str], Tuple[str, str]],
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> Circuit:
     """
     Synthesizes a circuit for an OpenQASM program.
@@ -603,7 +604,7 @@ def compile_qasm_program_to_qir(
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> str:
     """
     Compiles the OpenQASM source code into a program that can be submitted to a
@@ -638,7 +639,7 @@ def compile_qasm_to_qsharp(
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> str:
     """
     Converts a OpenQASM program to Q#.
@@ -685,7 +686,7 @@ def resource_estimate_qasm_program(
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> str:
     """
     Estimates the resource requirements for executing OpenQASM source code.
@@ -720,7 +721,7 @@ def run_qasm_program(
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> Any:
     """
     Runs the given OpenQASM program for the given number of shots.
@@ -756,9 +757,9 @@ def run_qasm_program(
     ...
 
 def estimate_custom(
-    algorithm,
-    qubit,
-    qec,
+    algorithm: Any,
+    qubit: dict,
+    qec: Any,
     factories: List = [],
     *,
     error_budget: float = 0.01,
@@ -824,23 +825,23 @@ class TypeKind(Enum):
     A Q# type kind.
     """
 
-    Primitive: int
-    Tuple: int
-    Array: int
-    Udt: int
+    Primitive = 0
+    Tuple = 1
+    Array = 2
+    Udt = 3
 
 class PrimitiveKind(Enum):
     """
     A Q# primitive.
     """
 
-    Bool: int
-    Int: int
-    Double: int
-    Complex: int
-    String: int
-    Pauli: int
-    Result: int
+    Bool = 0
+    Int = 1
+    Double = 2
+    Complex = 3
+    String = 4
+    Pauli = 5
+    Result = 6
 
 class UdtIR:
     """
@@ -851,42 +852,42 @@ class UdtIR:
     fields: List[Tuple[str, TypeIR]]
 
 class QirInstructionId(Enum):
-    I: QirInstructionId
-    H: QirInstructionId
-    X: QirInstructionId
-    Y: QirInstructionId
-    Z: QirInstructionId
-    S: QirInstructionId
-    SAdj: QirInstructionId
-    SX: QirInstructionId
-    SXAdj: QirInstructionId
-    T: QirInstructionId
-    TAdj: QirInstructionId
-    CNOT: QirInstructionId
-    CX: QirInstructionId
-    CY: QirInstructionId
-    CZ: QirInstructionId
-    CCX: QirInstructionId
-    SWAP: QirInstructionId
-    RX: QirInstructionId
-    RY: QirInstructionId
-    RZ: QirInstructionId
-    RXX: QirInstructionId
-    RYY: QirInstructionId
-    RZZ: QirInstructionId
-    RESET: QirInstructionId
-    M: QirInstructionId
-    MResetZ: QirInstructionId
-    MZ: QirInstructionId
-    Move: QirInstructionId
-    ReadResult: QirInstructionId
-    ResultRecordOutput: QirInstructionId
-    BoolRecordOutput: QirInstructionId
-    IntRecordOutput: QirInstructionId
-    DoubleRecordOutput: QirInstructionId
-    TupleRecordOutput: QirInstructionId
-    ArrayRecordOutput: QirInstructionId
-    CorrelatedNoise: QirInstructionId
+    I = 0
+    H = 1
+    X = 2
+    Y = 3
+    Z = 4
+    S = 5
+    SAdj = 6
+    SX = 7
+    SXAdj = 8
+    T = 9
+    TAdj = 10
+    CNOT = 11
+    CX = 12
+    CY = 13
+    CZ = 14
+    CCX = 15
+    SWAP = 16
+    RX = 17
+    RY = 18
+    RZ = 19
+    RXX = 20
+    RYY = 21
+    RZZ = 22
+    RESET = 23
+    M = 24
+    MResetZ = 25
+    MZ = 26
+    Move = 27
+    ReadResult = 28
+    ResultRecordOutput = 29
+    BoolRecordOutput = 30
+    IntRecordOutput = 31
+    DoubleRecordOutput = 32
+    TupleRecordOutput = 33
+    ArrayRecordOutput = 34
+    CorrelatedNoise = 35
 
 class QirInstruction: ...
 
@@ -916,7 +917,7 @@ class NoiseTable:
         for arbitrary pauli fields.
         """
 
-    def __setattr__(self, name: str, value: float):
+    def __setattr__(self, name: str, value: float) -> None:
         """
         Defining __setattr__ allows setting noise like this
 
@@ -935,7 +936,7 @@ class NoiseTable:
         """
 
     @overload
-    def set_pauli_noise(self, lst: list[tuple[str, float]]):
+    def set_pauli_noise(self, lst: list[tuple[str, float]]) -> None:
         """
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
@@ -954,7 +955,7 @@ class NoiseTable:
         """
 
     @overload
-    def set_pauli_noise(self, pauli_strings: list[str], values: list[float]):
+    def set_pauli_noise(self, pauli_strings: list[str], values: list[float]) -> None:
         """
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
@@ -966,7 +967,7 @@ class NoiseTable:
         """
 
     @overload
-    def set_pauli_noise(self, pauli_string: str, value: float):
+    def set_pauli_noise(self, pauli_string: str, value: float) -> None:
         """
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
@@ -977,17 +978,17 @@ class NoiseTable:
             noise_table.set_pauli_noise("XZ", 1e-10)
         """
 
-    def set_depolarizing(self, value: float):
+    def set_depolarizing(self, value: float) -> None:
         """
         The depolarizing noise to use in simulation.
         """
 
-    def set_bitflip(self, value: float):
+    def set_bitflip(self, value: float) -> None:
         """
         The bit flip noise to use in simulation.
         """
 
-    def set_phaseflip(self, value: float):
+    def set_phaseflip(self, value: float) -> None:
         """
         The phase flip noise to use in simulation.
         """
@@ -1010,7 +1011,7 @@ class NoiseIntrinsicsTable:
             my_intrinsic_noise_table = noise_config.intrinsics["my_intrinsic"]
         """
 
-    def __setitem__(self, name: str, value: float):
+    def __setitem__(self, name: str, value: float) -> None:
         """
         Defining __setitem__ allows setting intrinsic noise tables like this:
             noise_config = NoiseConfig()
@@ -1056,7 +1057,7 @@ class NoiseConfig:
         The noise table for a custom intrinsic.
         """
 
-    def load_csv_dir(self, dir_path: str):
+    def load_csv_dir(self, dir_path: str) -> None:
         """
         Loads noise tables from the specified directory path. For each .csv file found in the directory,
         the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
