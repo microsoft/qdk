@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+INSTRUCTION_ID_MAP: dict[str, int]
+
 # Paulis
 PAULI_I: int
 PAULI_X: int
