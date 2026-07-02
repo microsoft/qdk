@@ -268,6 +268,29 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("measurement record target in an unsupported position in instruction: {instruction}")]
+    #[diagnostic(code("Stim.MisplacedMeasurementRecord"))]
+    MisplacedMeasurementRecord {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("measurement record control cannot be negated in instruction: {instruction}")]
+    #[diagnostic(code("Stim.NegatedMeasurementRecord"))]
+    NegatedMeasurementRecord {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error(
+        "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
+    )]
+    #[diagnostic(code("Stim.MeasurementRecordWithoutQubit"))]
+    MeasurementRecordWithoutQubit {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error("missing probability argument in instruction: {instruction}")]
     #[diagnostic(code("Stim.MissingProbability"))]
     MissingProbability {
@@ -928,6 +951,28 @@ impl<'noise> Compiler<'noise> {
                 {
                     self.classical_control(instruction, &pair[1], &pair[0], &mut classical);
                 }
+                (TargetKind::MeasurementRecord { .. }, TargetKind::MeasurementRecord { .. }) => {
+                    self.push_error(Error::MeasurementRecordWithoutQubit {
+                        instruction: instruction.name.clone(),
+                        span: Span {
+                            lo: pair[0].span.lo,
+                            hi: pair[1].span.hi,
+                        },
+                    });
+                }
+                // A `rec` that reached here sits on a side this gate doesn't allow
+                (TargetKind::MeasurementRecord { .. }, _) => {
+                    self.push_error(Error::MisplacedMeasurementRecord {
+                        instruction: instruction.name.clone(),
+                        span: pair[0].span,
+                    });
+                }
+                (_, TargetKind::MeasurementRecord { .. }) => {
+                    self.push_error(Error::MisplacedMeasurementRecord {
+                        instruction: instruction.name.clone(),
+                        span: pair[1].span,
+                    });
+                }
                 _ => self.push_error(Error::UnsupportedTarget {
                     instruction: instruction.name.clone(),
                     span: pair[0].span,
@@ -948,7 +993,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         if negated {
-            self.push_error(Error::UnsupportedTarget {
+            self.push_error(Error::NegatedMeasurementRecord {
                 instruction: instruction.name.clone(),
                 span: rec_target.span,
             });
