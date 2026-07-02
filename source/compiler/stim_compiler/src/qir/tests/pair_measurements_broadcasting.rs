@@ -266,7 +266,9 @@ fn mzz_with_parens_arg_yields_unsupported_argument_error() {
 #[test]
 fn mzz_with_odd_number_of_targets_yields_error() {
     let source = "MZZ 0 1 2";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Stim.OddTargetCount
 
           x instruction MZZ requires an even number of targets
@@ -274,5 +276,6 @@ fn mzz_with_odd_number_of_targets_yields_error() {
          1 | MZZ 0 1 2
            : ^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
