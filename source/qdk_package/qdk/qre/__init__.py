@@ -2,7 +2,13 @@
 # Licensed under the MIT License.
 
 from ._application import Application, TraceParameters
-from ._architecture import Architecture, ISAContext
+from ._architecture import (
+    Architecture,
+    ISAContext,
+    TechnologyFamily,
+    qubit,
+    QUBIT_MODELS,
+)
 from ._estimation import estimate
 from ._instruction import (
     LOGICAL,
@@ -38,6 +44,7 @@ from ._results import (
     EstimationTableEntry,
     plot_estimates,
 )
+from ._target import QECStrategy, Target
 from ._trace import (
     LatticeSurgery,
     PSSPC,
@@ -90,6 +97,10 @@ __all__ = [
     "PSSPC",
     "property_name",
     "property_name_to_key",
+    "QECStrategy",
+    "qubit",
+    "Target",
+    "TechnologyFamily",
     "Trace",
     "TraceParameters",
     "TraceQuery",
@@ -97,4 +108,5 @@ __all__ = [
     "Unmemory",
     "LOGICAL",
     "PHYSICAL",
+    "QUBIT_MODELS",
 ]
