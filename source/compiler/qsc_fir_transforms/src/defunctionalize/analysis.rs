@@ -1820,6 +1820,24 @@ fn collect_compound_capture_substitutions(
     substitutions
 }
 
+/// Recursive worker for [`collect_compound_capture_substitutions`] that walks
+/// `expr_id` and appends resolved `(var, caller_expr)` pairs into
+/// `substitutions`.
+///
+/// Descends only through the safe, referentially-transparent, value-producing
+/// expression kinds (compound containers — struct/tuple/array constructors —
+/// plus pure `function` calls, binary/unary operators, field and index
+/// accessors, index/field updates, and ranges). For each inner
+/// `Var(Res::Local(var))` leaf it resolves `var` to its caller-scope argument
+/// expression via [`resolve_capture_to_caller`] and records
+/// `(var, caller_expr)` when the leaf resolves to a distinct caller-scope
+/// expression not already recorded for that producer-parameter `LocalVarId`.
+/// A `Call` is recursed only when its callee is a pure `function`
+/// (via [`call_callee_is_pure_function`]); an `operation` callee is left in
+/// place because relocating or duplicating it into caller-scope argument
+/// construction would be unsound. Any other kind terminates the descent, so a
+/// producer leaf reachable only through it is left for
+/// [`compound_literal_has_residual_leak`] to detect.
 #[allow(clippy::too_many_lines)]
 fn collect_compound_capture_substitutions_into(
     pkg: &Package,
@@ -2007,7 +2025,21 @@ fn collect_compound_capture_substitutions_into(
                 );
             }
         }
-        _ => {}
+        ExprKind::Assign(..)
+        | ExprKind::AssignOp(..)
+        | ExprKind::AssignField(..)
+        | ExprKind::AssignIndex(..)
+        | ExprKind::Block(..)
+        | ExprKind::Call(..)
+        | ExprKind::Closure(..)
+        | ExprKind::Fail(..)
+        | ExprKind::Hole
+        | ExprKind::If(..)
+        | ExprKind::Lit(..)
+        | ExprKind::Return(..)
+        | ExprKind::String(..)
+        | ExprKind::Var(..)
+        | ExprKind::While(..) => {}
     }
 }
 
@@ -2096,7 +2128,21 @@ fn compound_literal_has_residual_leak(
         // A non-pure `Call` (operation callee) and every other un-remappable
         // kind is kept verbatim by the clone, so it leaks if it references any
         // producer local.
-        _ => expr_references_local(pkg, expr_id),
+        ExprKind::Assign(..)
+        | ExprKind::AssignOp(..)
+        | ExprKind::AssignField(..)
+        | ExprKind::AssignIndex(..)
+        | ExprKind::Block(..)
+        | ExprKind::Call(..)
+        | ExprKind::Closure(..)
+        | ExprKind::Fail(..)
+        | ExprKind::Hole
+        | ExprKind::If(..)
+        | ExprKind::Lit(..)
+        | ExprKind::Return(..)
+        | ExprKind::String(..)
+        | ExprKind::Var(..)
+        | ExprKind::While(..) => expr_references_local(pkg, expr_id),
     }
 }
 

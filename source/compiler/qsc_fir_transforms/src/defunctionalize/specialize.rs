@@ -132,14 +132,23 @@ pub(super) fn specialize(
 
     let groups = group_call_sites_by_expression(analysis);
 
+    // Each group is one call expression's rows. The four branches below are
+    // tried in priority order: the earliest one that claims a group wins, and
+    // the order matters because the later paths would silently mishandle shapes
+    // the earlier paths are meant to catch.
     for group in &groups {
+        // 1. Hard-decline the unsupported shape first (two or more callable
+        //    arrays forwarded through one call). Doing this before anything else
+        //    keeps such a group off the per-row path, which would otherwise
+        //    quietly collapse each array down to a single member.
         if try_decline_multiple_callable_arrays(store, group, &mut errors) {
             continue;
         }
 
-        // Specialize and rewrite consult the same eligibility predicate so they
-        // agree on which call sites are combined. The borrow is scoped here so
-        // the combined branch can re-borrow the store mutably below.
+        // 2. Combined multi-argument specialization. Specialize and rewrite
+        //    consult the same eligibility predicate so they agree on which call
+        //    sites are combined. The borrow is scoped here so the combined
+        //    branch can re-borrow the store mutably below.
         let combined = {
             let package = store.get(group[0].call_pkg_id);
             is_combined_eligible(package, group)
@@ -157,6 +166,13 @@ pub(super) fn specialize(
             continue;
         }
 
+        // 3. Mixed branch-split: one parameter dispatched over several
+        //    candidates alongside single-valued sibling parameters (at least one
+        //    a producer closure). This must be tried before the per-row path so
+        //    each dispatch leaf inlines the sibling producer closure in the same
+        //    pass; the per-row path would instead emit a lone producer spec that
+        //    the closure-consistency check later rejects. Returns `true` only
+        //    when the group actually had this shape.
         if specialize_mixed_branch_split_group(
             store,
             group,
@@ -169,6 +185,10 @@ pub(super) fn specialize(
             continue;
         }
 
+        // 4. Fallback: specialize each row independently under its own
+        //    single-argument key. This covers single-arrow-param HOFs and
+        //    branch-split candidate sets, and is the path every group reaches
+        //    when none of the more specific shapes above applied.
         specialize_per_row_group(
             store,
             group,

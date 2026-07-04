@@ -263,7 +263,10 @@ attributes #1 = { "irreversible" }
     )
 
 
-def test_qir_from_multiple_qsharp_closures_with_distinct_captures() -> None:
+def test_same_target_multi_closure_args_generate_qir() -> None:
+    # Python mirror of the Rust
+    # `same_target_multi_closure_args_route_to_synthetic_entry_and_generate_qir`
+    # test in source/compiler/qsc/src/codegen/tests.rs.
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""
         operation InvokeThree(
@@ -298,7 +301,10 @@ def test_qir_from_multiple_qsharp_closures_with_distinct_captures() -> None:
     assert positions == sorted(positions)
 
 
-def test_qir_from_nested_qsharp_closure_capture() -> None:
+def test_nested_closure_arg_generates_inner_effect() -> None:
+    # Python mirror of the Rust
+    # `nested_closure_arg_routes_to_synthetic_entry_and_generates_inner_effect`
+    # test in source/compiler/qsc/src/codegen/tests.rs.
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""
         operation InvokeOne(op : Qubit => Unit) : Unit {
@@ -411,7 +417,9 @@ def test_qir_from_callable_returning_closure_passed_to_qsharp_callable() -> None
     assert "__quantum__qis__h__body" in str(qir)
 
 
-def test_qir_from_qdk_chemistry_like_controlled_prep_sel_prep_factory() -> None:
+def test_chemistry_like_controlled_factory_generates_qir() -> None:
+    # Python mirror of the Rust `chemistry_like_controlled_factory_generates_qir`
+    # test in source/compiler/qsc/src/codegen/tests.rs.
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""
         operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
@@ -473,7 +481,12 @@ def test_qir_from_qdk_chemistry_like_controlled_prep_sel_prep_factory() -> None:
     assert "define i64 @ENTRYPOINT__main()" in qir
 
 
-def test_qir_from_qdk_chemistry_like_state_preparation_factory_with_empty_expansion_ops() -> None:
+def test_chemistry_like_state_preparation_closure_with_empty_expansion_ops_generates_qir() -> (
+    None
+):
+    # Python mirror of the Rust
+    # `chemistry_like_state_preparation_closure_with_empty_expansion_ops_generates_qir`
+    # test in source/compiler/qsc/src/codegen/tests.rs.
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""
         struct StatePreparationParams {
@@ -587,7 +600,9 @@ def test_qir_from_qdk_chemistry_like_state_preparation_factory_with_empty_expans
     assert "define i64 @ENTRYPOINT__main()" in nested_qir
 
 
-def test_qir_from_qdk_chemistry_like_iqpe_params_struct() -> None:
+def test_chemistry_like_iqpe_params_struct_generates_qir() -> None:
+    # Python mirror of the Rust `chemistry_like_iqpe_params_struct_generates_qir`
+    # test in source/compiler/qsc/src/codegen/tests.rs.
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""
         import Std.Arrays.Subarray;
@@ -662,7 +677,10 @@ def test_qir_from_qdk_chemistry_like_iqpe_params_struct() -> None:
     assert "define i64 @ENTRYPOINT__main()" in qir
 
 
-def test_qir_from_qdk_chemistry_like_sequential_op_partial_application() -> None:
+def test_chemistry_like_sequential_partial_application_generates_qir() -> None:
+    # Python mirror of the Rust
+    # `chemistry_like_sequential_partial_application_generates_qir`
+    # test in source/compiler/qsc/src/codegen/tests.rs.
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""
         import Std.Arrays.Subarray;

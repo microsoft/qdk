@@ -669,22 +669,44 @@ fn collect_closure_targets(
     targets
 }
 
+/// Records `expr`'s callee as a closure-ABI dispatch target when `expr` is a
+/// same-package direct call that still passes the grouped closure-call payload
+/// `(captures..., original_args)`.
+///
+/// This is the post-defunctionalization case flagged by
+/// [`collect_closure_targets`]: an indexed closure-array branch lowers to a
+/// direct `Call(Var(Res::Item(id)), args)`, but the argument tuple keeps the
+/// closure-call ABI shape rather than the callable's own parameter shape. Such
+/// a target's signature must stay stable, so it is excluded from promotion.
+///
+/// Only in-package callees are recorded (a foreign item's arity is fixed by its
+/// own package's passes, so it is never a promotion candidate here). Non-calls,
+/// calls through non-item callees, and calls that use the plain direct-call
+/// argument shape are ignored via [`call_uses_grouped_closure_payload`].
 fn collect_closure_abi_direct_call_target(
     package: &Package,
     package_id: PackageId,
     expr: &Expr,
     targets: &mut FxHashSet<StoreItemId>,
 ) {
+    // Only interested in call expressions...
     let ExprKind::Call(callee_id, arg_id) = expr.kind else {
         return;
     };
+    // ...whose callee is a direct reference to a named item (not a first-class
+    // value or a functor-applied callee).
     let callee_expr = package.get_expr(callee_id);
     let ExprKind::Var(Res::Item(item_id), _) = callee_expr.kind else {
         return;
     };
+    // A foreign callee's arity is governed by its own package, so it is never a
+    // promotion candidate we need to protect here.
     if item_id.package != package_id {
         return;
     }
+    // Only record it if the call still passes the grouped closure payload; a
+    // plain direct call with the callable's own argument shape is safe to
+    // promote and must not be excluded.
     if !call_uses_grouped_closure_payload(package, item_id.item, arg_id, Some(&callee_expr.ty)) {
         return;
     }
@@ -694,12 +716,33 @@ fn collect_closure_abi_direct_call_target(
     });
 }
 
+/// Reports whether a call's argument tuple is shaped like the closure-call ABI
+/// `(captures..., original_args)` rather than the callee's own parameter tuple.
+///
+/// The closure-call ABI passes each captured variable as a leading scalar and
+/// bundles the callable's original arguments into a single trailing tuple, so
+/// for a target whose flattened input is `(c0, c1, a0, a1)` the call site looks
+/// like:
+///
+/// ```text
+/// // target signature (flattened): (c0, c1, a0, a1)
+/// f(cap0, cap1, (arg0, arg1))     // grouped closure payload  -> true
+/// f(cap0, cap1, arg0, arg1)       // plain direct-call shape   -> false
+/// ```
+///
+/// The shape is confirmed by matching arities: after replacing the trailing
+/// tuple with its own elements, the total argument count must equal the
+/// target's parameter count. The target's parameter tuple is read from
+/// `callee_ty` when it is an `Arrow` (the call-site view), falling back to the
+/// item's declared input pattern otherwise.
 fn call_uses_grouped_closure_payload(
     package: &Package,
     item_id: LocalItemId,
     arg_id: ExprId,
     callee_ty: Option<&Ty>,
 ) -> bool {
+    // The argument must be a tuple with at least a capture and the trailing
+    // grouped-args tuple.
     let ExprKind::Tuple(args) = &package.get_expr(arg_id).kind else {
         return false;
     };
@@ -707,6 +750,8 @@ fn call_uses_grouped_closure_payload(
         return false;
     }
 
+    // Determine the target's parameter tuple: prefer the call site's arrow view
+    // of the callee, falling back to the item's declared input pattern type.
     let item_input = || {
         let Some(ItemKind::Callable(decl)) = package.items.get(item_id).map(|item| &item.kind)
         else {
@@ -721,16 +766,21 @@ fn call_uses_grouped_closure_payload(
     let Ty::Tuple(target_items) = target_input else {
         return false;
     };
+    // Under the grouped ABI the target has strictly more parameters than the
+    // call has arguments (the trailing tuple stands in for several of them).
     if target_items.len() <= args.len() {
         return false;
     }
 
+    // The trailing argument must itself be a tuple (the bundled original args).
     let trailing_arg_ty = &package
         .get_expr(*args.last().expect("args is non-empty"))
         .ty;
     let Ty::Tuple(trailing_items) = trailing_arg_ty else {
         return false;
     };
+    // Confirm the shape by arity: leading captures plus the unbundled trailing
+    // args must exactly account for every target parameter.
     args.len() - 1 + trailing_items.len() == target_items.len()
 }
 

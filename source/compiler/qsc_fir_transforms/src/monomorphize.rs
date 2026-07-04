@@ -166,11 +166,32 @@ fn rewrite_all_packages(
 
     let empty: Vec<LocalItemId> = Vec::new();
     for &pkg_id in &packages {
+        // This package's own fresh specializations (empty for packages that
+        // received none). They must be threaded through explicitly because they
+        // are not yet reachable from entry — nothing points at them until the
+        // call sites below are redirected.
         let new_specs = new_specs_by_pkg.get(&pkg_id).unwrap_or(&empty);
+
+        // Gather the set of expressions to rewrite while the store is still
+        // borrowed immutably. This has to happen before `get_mut` below, because
+        // computing the scope reads across packages (reachable callables, the
+        // entry expression, and the transitive closure items), which cannot
+        // coexist with the mutable borrow the rewrites require.
         let expr_ids =
             collect_rewrite_scope_for_package(store, entry_pkg_id, pkg_id, &reachable, new_specs);
+
+        // Now take the mutable borrow of just this package and apply both
+        // rewrites to it.
         let package = store.get_mut(pkg_id);
+
+        // Redirect direct call sites first: this is what actually makes the new
+        // specializations reachable from entry.
         rewrite_call_sites(package, pkg_id, &lookup, &expr_ids);
+
+        // Then repoint generic closure targets. This runs after the call-site
+        // rewrite (and drives its own worklist over the now-reachable
+        // specializations) so closures nested in freshly reachable bodies are
+        // not missed.
         rewrite_closure_targets_in_package(
             package,
             pkg_id,
@@ -182,6 +203,28 @@ fn rewrite_all_packages(
     }
 }
 
+/// Redirects every generic `ExprKind::Closure` target in a package to its
+/// concrete specialization, following closures nested inside other closures.
+///
+/// A closure whose target callable is generic (e.g. a lambda over `Identity<'T>`)
+/// must be repointed at the monomorphized clone, just like a direct call site.
+/// Because a specialized body can itself contain fresh closures that are not yet
+/// reachable from entry, this drives a worklist that discovers newly referenced
+/// closure targets as it rewrites, so no nested generic closure is missed.
+///
+/// # Transformation
+///
+/// ```text
+/// // before: closure targets the generic item
+/// Closure([...captures], Identity)          // Identity is generic <'T>
+/// // after: repointed at the concrete clone for the inferred args
+/// Closure([...captures], Identity<Int>)
+/// ```
+///
+/// The seed worklist is every reachable callable in the package plus the newly
+/// created specializations owned by it (which are not reachable from entry until
+/// call sites are redirected). For the entry package the entry expression is
+/// rewritten directly and its closure targets are added as extra seeds.
 fn rewrite_closure_targets_in_package(
     package: &mut Package,
     pkg_id: PackageId,
@@ -190,11 +233,16 @@ fn rewrite_closure_targets_in_package(
     new_spec_items: &[LocalItemId],
     lookup: &FxHashMap<String, ItemId>,
 ) {
+    // Seed the worklist with every callable reachable in this package, plus the
+    // specializations just created for it (still unreachable from entry until
+    // call sites are redirected, so they must be added explicitly).
     let mut worklist: Vec<LocalItemId> = reachable_local_callables(package, pkg_id, reachable)
         .map(|(id, _)| id)
         .collect();
     worklist.extend_from_slice(new_spec_items);
 
+    // The entry expression lives outside any callable item, so rewrite it here
+    // and feed the closure items it references back into the worklist.
     if pkg_id == entry_pkg_id
         && let Some(entry_id) = package.entry
     {
@@ -202,6 +250,9 @@ fn rewrite_closure_targets_in_package(
         rewrite_closure_targets_in_expr_root(package, pkg_id, entry_id, lookup);
     }
 
+    // Process each callable once. Rewriting a body can surface further closure
+    // items (closures nested in closures), which are appended to the worklist
+    // and picked up on a later iteration until the set closes.
     let mut seen = FxHashSet::default();
     while let Some(item_id) = worklist.pop() {
         if !seen.insert(item_id) {
@@ -213,6 +264,8 @@ fn rewrite_closure_targets_in_package(
         let ItemKind::Callable(decl) = &item.kind else {
             continue;
         };
+        // Discover any closure targets this body references, then repoint the
+        // generic ones at their concrete specializations.
         worklist.extend(collect_closure_targets_in_callable(package, decl));
         rewrite_closure_targets_in_callable(package, pkg_id, item_id, lookup);
     }
@@ -384,6 +437,14 @@ fn collect_generic_refs_in_expr(
     collect_generic_refs_in_expr_ids(pkg_id, pkg, &expr_ids, &local_tys, found, seen);
 }
 
+/// Scans a flat list of expression ids for the two kinds of generic reference
+/// this pass must specialize, recording each unique `(callable, args)` pair.
+///
+/// A `Var(Res::Item(id), args)` with a non-empty `args` list is a direct
+/// generic reference (a call or a first-class use). A `Closure(captures, item)`
+/// may target a generic lambda whose concrete type arguments are not written
+/// out anywhere, so they are reconstructed from the capture and arrow types via
+/// [`infer_closure_generic_args`]. Both kinds are deduplicated through `seen`.
 fn collect_generic_refs_in_expr_ids(
     pkg_id: PackageId,
     pkg: &Package,
@@ -395,10 +456,15 @@ fn collect_generic_refs_in_expr_ids(
     for &expr_id in expr_ids {
         let expr = pkg.get_expr(expr_id);
         match &expr.kind {
+            // A named reference that carries generic args (e.g. `Identity<Int>`):
+            // record it directly.
             ExprKind::Var(Res::Item(item_id), generic_args) if !generic_args.is_empty() => {
                 let store_id = StoreItemId::from((item_id.package, item_id.item));
                 record_generic_ref(store_id, generic_args.clone(), found, seen);
             }
+            // A closure may point at a generic lambda without spelling out its
+            // args; recover them from the closure's concrete type before
+            // recording. A non-generic (or un-inferable) closure is skipped.
             ExprKind::Closure(captures, local_item_id) => {
                 let store_id = StoreItemId::from((pkg_id, *local_item_id));
                 if let Some(generic_args) =
@@ -412,6 +478,9 @@ fn collect_generic_refs_in_expr_ids(
     }
 }
 
+/// Records a `(callable, args)` pair into `found`, keyed and deduplicated by its
+/// [`mono_key`] so the same instantiation is never queued for specialization
+/// twice.
 fn record_generic_ref(
     store_id: StoreItemId,
     generic_args: Vec<GenericArg>,
@@ -424,6 +493,12 @@ fn record_generic_ref(
     }
 }
 
+/// Walks a callable's body once, returning every expression id it contains and
+/// a map from each binding's `LocalVarId` to its type.
+///
+/// The local-type map lets [`infer_closure_generic_args`] resolve a closure's
+/// capture types, since captures are referenced by `LocalVarId` rather than by
+/// carrying their own type.
 fn collect_expr_ids_and_local_tys_in_callable(
     pkg: &Package,
     decl: &CallableDecl,
@@ -438,6 +513,8 @@ fn collect_expr_ids_and_local_tys_in_callable(
     (expr_ids, local_tys)
 }
 
+/// Same as [`collect_expr_ids_and_local_tys_in_callable`] but walks a single
+/// root expression subtree, used for the package entry expression.
 fn collect_expr_ids_and_local_tys_in_expr_root(
     pkg: &Package,
     expr_id: ExprId,
@@ -452,6 +529,9 @@ fn collect_expr_ids_and_local_tys_in_expr_root(
     (expr_ids, local_tys)
 }
 
+/// Records a single `LocalVarId -> Ty` entry when `pat_id` is a `Bind` pattern.
+/// Tuple and discard patterns bind no single local directly, so they add
+/// nothing (their leaf `Bind`s are visited separately by the walker).
 fn collect_pat_bind_ty(pkg: &Package, pat_id: PatId, local_tys: &mut FxHashMap<LocalVarId, Ty>) {
     let pat = pkg.get_pat(pat_id);
     if let PatKind::Bind(ident) = &pat.kind {
@@ -459,16 +539,22 @@ fn collect_pat_bind_ty(pkg: &Package, pat_id: PatId, local_tys: &mut FxHashMap<L
     }
 }
 
+/// Returns the target item id of every `Closure` reachable from a root
+/// expression (the entry expression), used to seed the rewrite worklist.
 fn collect_closure_targets_in_expr_root(pkg: &Package, expr_id: ExprId) -> Vec<LocalItemId> {
     let (expr_ids, _) = collect_expr_ids_and_local_tys_in_expr_root(pkg, expr_id);
     collect_closure_targets_in_expr_ids(pkg, &expr_ids)
 }
 
+/// Returns the target item id of every `Closure` in a callable body, used to
+/// discover lambdas nested inside a body so the worklist can visit them too.
 fn collect_closure_targets_in_callable(pkg: &Package, decl: &CallableDecl) -> Vec<LocalItemId> {
     let (expr_ids, _) = collect_expr_ids_and_local_tys_in_callable(pkg, decl);
     collect_closure_targets_in_expr_ids(pkg, &expr_ids)
 }
 
+/// Filters a flat expression list down to the target item ids of its `Closure`
+/// nodes.
 fn collect_closure_targets_in_expr_ids(pkg: &Package, expr_ids: &[ExprId]) -> Vec<LocalItemId> {
     expr_ids
         .iter()
@@ -479,6 +565,8 @@ fn collect_closure_targets_in_expr_ids(pkg: &Package, expr_ids: &[ExprId]) -> Ve
         .collect()
 }
 
+/// Repoints the generic `Closure` targets in a single callable body at their
+/// concrete specializations (per [`rewrite_closure_targets_in_expr_ids`]).
 fn rewrite_closure_targets_in_callable(
     pkg: &mut Package,
     pkg_id: PackageId,
@@ -495,6 +583,8 @@ fn rewrite_closure_targets_in_callable(
     rewrite_closure_targets_in_expr_ids(pkg, pkg_id, &expr_ids, &local_tys, lookup);
 }
 
+/// Repoints the generic `Closure` targets in a root expression (the entry
+/// expression) at their concrete specializations.
 fn rewrite_closure_targets_in_expr_root(
     pkg: &mut Package,
     pkg_id: PackageId,
@@ -505,6 +595,15 @@ fn rewrite_closure_targets_in_expr_root(
     rewrite_closure_targets_in_expr_ids(pkg, pkg_id, &expr_ids, &local_tys, lookup);
 }
 
+/// Repoints each generic `Closure` target in `expr_ids` at the matching
+/// concrete specialization found in `lookup`.
+///
+/// A closure carries no explicit generic-argument list, so the target's
+/// concrete args are inferred from the closure's capture and arrow types,
+/// keyed with [`mono_key`], and looked up. A closure is left unchanged when its
+/// target is not generic, no matching specialization exists, or the
+/// specialization lives in another package (a `Closure` target id is only
+/// meaningful inside its own package's arena).
 fn rewrite_closure_targets_in_expr_ids(
     pkg: &mut Package,
     pkg_id: PackageId,
@@ -513,21 +612,28 @@ fn rewrite_closure_targets_in_expr_ids(
     lookup: &FxHashMap<String, ItemId>,
 ) {
     for &expr_id in expr_ids {
+        // Only closures are candidates; skip everything else.
         let Some((captures, local_item_id, expr_ty)) = closure_parts(pkg, expr_id) else {
             continue;
         };
+        // Recover the concrete generic args from the closure's type; a
+        // non-generic or un-inferable closure has none and is left alone.
         let Some(generic_args) =
             infer_closure_generic_args(pkg, local_item_id, &captures, &expr_ty, local_tys)
         else {
             continue;
         };
+        // Find the specialization created for this exact instantiation.
         let key = mono_key(StoreItemId::from((pkg_id, local_item_id)), &generic_args);
         let Some(new_item_id) = lookup.get(&key).copied() else {
             continue;
         };
+        // A closure target id is package-local, so a foreign specialization
+        // cannot be named here; leave it for that package's own rewrite pass.
         if new_item_id.package != pkg_id {
             continue;
         }
+        // Redirect the closure to the concrete clone.
         let expr = pkg.exprs.get_mut(expr_id).expect("expr should exist");
         if let ExprKind::Closure(_, target) = &mut expr.kind {
             *target = new_item_id.item;
@@ -535,6 +641,9 @@ fn rewrite_closure_targets_in_expr_ids(
     }
 }
 
+/// Extracts the `(captures, target item, closure type)` of a `Closure`
+/// expression, or `None` for any other kind. The parts are cloned out so the
+/// shared borrow ends before the package is mutated in place by the caller.
 fn closure_parts(pkg: &Package, expr_id: ExprId) -> Option<(Vec<LocalVarId>, LocalItemId, Ty)> {
     let expr = pkg.get_expr(expr_id);
     if let ExprKind::Closure(captures, local_item_id) = &expr.kind {
@@ -544,6 +653,27 @@ fn closure_parts(pkg: &Package, expr_id: ExprId) -> Option<(Vec<LocalVarId>, Loc
     }
 }
 
+/// Reconstructs the concrete generic arguments of a closure whose target is a
+/// generic lambda, by unifying the lambda's declared (generic) signature
+/// against the closure's actual capture and arrow types.
+///
+/// A closure expression carries no explicit generic-argument list, but its FIR
+/// type is fully concrete and its captures thread in the outer values. The
+/// lambda item's input pattern is `(captures..., original_input)`, so the
+/// actual input is rebuilt as a tuple of the capture types followed by the
+/// closure arrow's input, then unified position-by-position against the
+/// lambda's formal input, output, and functor set to solve each parameter.
+///
+/// # Example
+/// ```text
+/// // generic lambda item:  <'T>(cap : 'T, x : 'T) -> 'T
+/// // closure expr type:    (Int) -> Int, capturing `cap : Int`
+/// // rebuilt actual input: (Int, Int)   =>  unify 'T := Int
+/// // inferred args:        ['T = Int]
+/// ```
+///
+/// Returns `None` when the target is non-generic, its type is not an arrow, a
+/// capture type is unknown, or unification fails or leaves a parameter unsolved.
 fn infer_closure_generic_args(
     pkg: &Package,
     local_item_id: LocalItemId,
@@ -551,16 +681,21 @@ fn infer_closure_generic_args(
     closure_ty: &Ty,
     local_tys: &FxHashMap<LocalVarId, Ty>,
 ) -> Option<Vec<GenericArg>> {
+    // Only a generic callable target has args to infer.
     let ItemKind::Callable(decl) = &pkg.get_item(local_item_id).kind else {
         return None;
     };
     if decl.generics.is_empty() {
         return None;
     }
+    // The closure's own type must be an arrow to unify against.
     let Ty::Arrow(closure_arrow) = closure_ty else {
         return None;
     };
 
+    // Rebuild the lambda's actual input as `(capture_tys..., closure_input)` to
+    // match the lambda item's `(captures..., original_input)` parameter shape.
+    // Bail if any capture's type is unknown.
     let mut arg_map = FxHashMap::default();
     let capture_tys: Vec<_> = captures
         .iter()
@@ -573,6 +708,8 @@ fn infer_closure_generic_args(
             .collect(),
     );
 
+    // Unify formal-vs-actual input, output, and functors; each step solves more
+    // parameters into `arg_map`. Any shape mismatch aborts the inference.
     if !infer_generic_ty_args(&pkg.get_pat(decl.input).ty, &actual_input, &mut arg_map) {
         return None;
     }
@@ -587,6 +724,8 @@ fn infer_closure_generic_args(
         return None;
     }
 
+    // Emit one arg per declared parameter in order; if any went unsolved (or
+    // resolved to the wrong kind), the whole inference fails.
     decl.generics
         .iter()
         .enumerate()
@@ -604,6 +743,13 @@ fn infer_closure_generic_args(
         .collect()
 }
 
+/// Structurally unifies a `formal` (possibly generic) type against a concrete
+/// `actual` type, recording every solved type/functor parameter in `arg_map`.
+///
+/// A bare `Ty::Param` binds directly to whatever `actual` is; compound types
+/// (array, arrow, tuple) recurse into their matching components; leaf types
+/// must be equal. Returns `false` on any shape mismatch or a conflicting
+/// re-binding of an already-solved parameter.
 fn infer_generic_ty_args(
     formal: &Ty,
     actual: &Ty,
@@ -632,6 +778,8 @@ fn infer_generic_ty_args(
     }
 }
 
+/// Unifies a `formal` functor set against a concrete `actual` one: a
+/// `FunctorSet::Param` binds to `actual`, otherwise the two must be equal.
 fn infer_generic_functor_args(
     formal: FunctorSet,
     actual: FunctorSet,
@@ -645,6 +793,8 @@ fn infer_generic_functor_args(
     }
 }
 
+/// Records a solved parameter binding, returning `false` if the parameter was
+/// already bound to a different argument (an inconsistent unification).
 fn record_inferred_arg(
     param: ParamId,
     arg: GenericArg,

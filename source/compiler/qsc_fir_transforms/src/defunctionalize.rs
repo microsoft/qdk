@@ -877,6 +877,16 @@ pub(crate) fn build_combined_spec_key(hof_id: ItemId, group: &[&CallSite]) -> Sp
     build_combined_spec_key_with_occurrences(hof_id, group, false)
 }
 
+/// Builds the combined dedup key for a group, picking the right occurrence
+/// policy for the group's shape.
+///
+/// A normal multi-argument group has one member per distinct parameter
+/// position, so occurrences never repeat. A *static callable-array* group is
+/// the exception: several members fill the same array parameter position, and
+/// those repeats must stay distinct in the key (see
+/// [`build_static_callable_array_combined_spec_key`]). This dispatches to the
+/// occurrence-preserving builder for array groups and the plain builder
+/// otherwise.
 pub(crate) fn build_combined_spec_key_for_group(hof_id: ItemId, group: &[&CallSite]) -> SpecKey {
     if is_static_callable_array_combined_group(group) {
         build_static_callable_array_combined_spec_key(hof_id, group)
@@ -885,6 +895,13 @@ pub(crate) fn build_combined_spec_key_for_group(hof_id: ItemId, group: &[&CallSi
     }
 }
 
+/// Builds the combined dedup key for a static callable-array group, keeping
+/// each repeated array slot distinct.
+///
+/// When several closures fill the same array-of-callable parameter, keying them
+/// all identically (their captures are not part of the key) would collapse
+/// distinct elements into one and lose the array's element ordering. Preserving
+/// the per-position occurrence index keeps `[f, g, f]` distinct from `[f, f, g]`.
 pub(crate) fn build_static_callable_array_combined_spec_key(
     hof_id: ItemId,
     group: &[&CallSite],
@@ -892,17 +909,42 @@ pub(crate) fn build_static_callable_array_combined_spec_key(
     build_combined_spec_key_with_occurrences(hof_id, group, true)
 }
 
+/// Shared implementation behind the combined-spec-key builders: turns a group
+/// of call sites into one deterministic [`SpecKey`].
+///
+/// The members are sorted by parameter position so the key's argument order is
+/// stable and aligns with what the specialize/rewrite phases consume. Each
+/// member is then reduced to its concrete-callable key.
+///
+/// `preserve_repeated_occurrences` controls how repeats at the same position
+/// are keyed. Same-target closures normally key identically (their captures are
+/// not part of the dispatch identity), so a plain multi-arg call
+/// deduplicates them. For a static callable-array group that is wrong — the
+/// array needs every element kept apart — so when the flag is set, positions
+/// used more than once get an occurrence index stamped into their closure key.
+///
+/// # Transformation
+///
+/// ```text
+/// // array position filled by three closures over the same target `f`:
+/// //   preserve_repeated_occurrences = false =>  [f, f, f]   (collapses)
+/// //   preserve_repeated_occurrences = true  =>  [f#0, f#1, f#2]  (distinct)
+/// ```
 fn build_combined_spec_key_with_occurrences(
     hof_id: ItemId,
     group: &[&CallSite],
     preserve_repeated_occurrences: bool,
 ) -> SpecKey {
+    // Sort by parameter slot (and field path within it) so the resulting key is
+    // order-independent of how the call sites were discovered.
     let mut members: Vec<&CallSite> = group.to_vec();
     members.sort_by(|a, b| {
         a.top_level_param
             .cmp(&b.top_level_param)
             .then_with(|| a.field_path.cmp(&b.field_path))
     });
+    // For array groups, first tally how many members land on each position so we
+    // only bother stamping occurrence indices where a position actually repeats.
     let mut position_counts: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
     if preserve_repeated_occurrences {
         for cs in &members {
@@ -911,11 +953,15 @@ fn build_combined_spec_key_with_occurrences(
                 .or_default() += 1;
         }
     }
+    // Running per-position counter used to hand out 0, 1, 2, ... to repeats.
     let mut occurrences: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
     let concrete_args = members
         .iter()
         .map(|cs| {
             let position = (cs.top_level_param, cs.field_path.clone());
+            // Only assign an occurrence index when this is an array group and
+            // this position is used more than once; otherwise leave it `None`
+            // so ordinary calls keep their original (dedup-friendly) keys.
             let occurrence = (preserve_repeated_occurrences
                 && position_counts.get(&position).copied().unwrap_or_default() > 1)
                 .then(|| {
@@ -924,6 +970,8 @@ fn build_combined_spec_key_with_occurrences(
                     *next += 1;
                     value
                 });
+            // Reduce the argument to its dedup key, then stamp the occurrence
+            // index into it when the value is a closure.
             let mut key = concrete_callable_key(cs.call_pkg_id, &cs.callable_arg, cs.hof_item_id);
             if let ConcreteCallableKey::Closure {
                 occurrence: slot, ..
@@ -940,7 +988,16 @@ fn build_combined_spec_key_with_occurrences(
     }
 }
 
+/// Reports whether a group is a *static callable-array* group: two or more
+/// members filling the exact same parameter position.
+///
+/// Under normal combined specialization each member occupies a distinct
+/// position, so a repeat signals the callable-array case — several static
+/// elements supplied for one array-of-callable parameter — which needs the
+/// occurrence-preserving key so its elements are not collapsed.
 pub(crate) fn is_static_callable_array_combined_group(group: &[&CallSite]) -> bool {
+    // Count members per position; any position hit twice or more means the same
+    // slot is being filled repeatedly, i.e. a static callable array.
     let mut positions: FxHashMap<(usize, Vec<usize>), usize> = FxHashMap::default();
     for call_site in group {
         *positions
@@ -1085,10 +1142,29 @@ pub(super) fn is_combined_eligible(package: &Package, group: &[&CallSite]) -> bo
     true
 }
 
+/// Reports whether `group` is a set of static candidates for a single
+/// array-of-callable parameter (`(Qubit => Unit)[]` and the like).
+///
+/// Unlike [`is_static_callable_array_combined_group`], which only counts
+/// repeated positions, this also confirms two things: that every member truly
+/// sits at the *same* parameter position (and is a clean static candidate — no
+/// branch condition, not `Dynamic`), and that the type at that position
+/// resolves to an `Array` whose element is an `Arrow`. Those extra checks are
+/// why this is used for combined-eligibility, where the actual element type
+/// matters, rather than the cheap positional pre-check.
+///
+/// The members describe the elements of one forwarded callable array, so the
+/// group specializes to a single clone that dispatches on the array index
+/// inside the HOF body.
 fn is_static_callable_array_group(package: &Package, group: &[&CallSite]) -> bool {
+    // Take the first member as the reference position; an empty group is not an
+    // array group.
     let Some(first) = group.first() else {
         return false;
     };
+    // Every member must fill the exact same parameter slot with a clean static
+    // candidate. Any position mismatch, branch condition, or `Dynamic` value
+    // means this is not a single-array candidate set.
     if group.iter().any(|call_site| {
         call_site.top_level_param != first.top_level_param
             || call_site.field_path != first.field_path
@@ -1099,6 +1175,8 @@ fn is_static_callable_array_group(package: &Package, group: &[&CallSite]) -> boo
         return false;
     }
 
+    // Recover the HOF's arrow type so we can inspect the type sitting at the
+    // shared parameter position.
     let call_expr = package.get_expr(first.call_expr_id);
     let ExprKind::Call(callee_id, _) = call_expr.kind else {
         return false;
@@ -1107,6 +1185,9 @@ fn is_static_callable_array_group(package: &Package, group: &[&CallSite]) -> boo
         return false;
     };
 
+    // Descend to the container type at the top-level slot: for a tuple-input HOF
+    // that is the element at `top_level_param`; otherwise the whole input is the
+    // single parameter.
     let arrow_input = resolve_udt_ty(package, &arrow.input);
     let container = if first.hof_input_is_tuple {
         match &arrow_input {
@@ -1120,6 +1201,8 @@ fn is_static_callable_array_group(package: &Package, group: &[&CallSite]) -> boo
     let Some(container) = container else {
         return false;
     };
+    // Follow the field path into any nested tuple to reach the exact selected
+    // type; a non-tuple hop along the way disqualifies the group.
     let selected_ty = first
         .field_path
         .iter()
@@ -1127,6 +1210,8 @@ fn is_static_callable_array_group(package: &Package, group: &[&CallSite]) -> boo
             Ty::Tuple(tys) => tys.get(*index),
             _ => None,
         });
+    // The group is a static callable array only if that type is an array of
+    // arrows.
     matches!(selected_ty, Some(Ty::Array(item_ty)) if matches!(item_ty.as_ref(), Ty::Arrow(_)))
 }
 

@@ -234,6 +234,10 @@ fn rewrite_combined_group(
     hof_consumed_source_arrays: &mut FxHashSet<(LocalItemId, LocalVarId)>,
     assigner: &mut Assigner,
 ) {
+    // Every row in this group came from the same higher-order call, so they all
+    // point at the same HOF. Grab it and look up the one specialization that was
+    // generated for this exact combination of callable arguments. If we never
+    // built that specialization, there is nothing to rewrite to, so bail out.
     let hof_item_id = group[0].hof_item_id;
     let spec_key = build_combined_spec_key_for_group(hof_item_id, group);
     let Some(&spec_store_id) = spec_map.get(&spec_key) else {
@@ -244,6 +248,11 @@ fn rewrite_combined_group(
     // Recover the exact parameter per row, then order the members
     // ascending by parameter position so the rewritten argument tuple
     // lines up with the specialize-side combined input pattern.
+    //
+    // Each row knows which slot of the call it filled (its top-level position
+    // plus the path into any nested tuple/struct). Use that to find the exact
+    // parameter it corresponds to on the HOF. If any row's parameter can't be
+    // matched, we can't safely rewrite the whole call, so give up entirely.
     let mut members: Vec<(&CallSite, &CallableParam)> = Vec::with_capacity(group.len());
     for call_site in group {
         let position_key = (
@@ -257,12 +266,19 @@ fn rewrite_combined_group(
             return;
         }
     }
+    // Put the rows back in the order the parameters appear in the HOF signature,
+    // so the new argument list we build matches the specialization's expected
+    // input shape one-for-one.
     members.sort_by(|a, b| {
         a.1.top_level_param
             .cmp(&b.1.top_level_param)
             .then_with(|| a.1.field_path.cmp(&b.1.field_path))
     });
 
+    // Before we change the call, note the callable arguments that are about to
+    // be baked into the specialization. Recording them (and any backing arrays
+    // that get fully consumed) lets a later cleanup pass delete the now-unused
+    // local variables that used to hold those callables.
     for (call_site, _) in &members {
         collect_rewritten_callable_arg_local(
             package,
@@ -279,6 +295,10 @@ fn rewrite_combined_group(
             hof_consumed_source_arrays,
         );
     }
+    // Finally, actually rewrite the call. If one of the arguments is an array of
+    // callables that itself needs to be rebuilt element-by-element, take the
+    // specialized array path; otherwise do the plain multi-argument rewrite that
+    // just drops the callable args and calls the specialization directly.
     if callable_array_member_position(&members).is_some()
         && callable_array_member_needs_nested_rewrite(&members)
     {
@@ -5224,6 +5244,18 @@ fn create_branch_call(
 /// inlined into the leaf in this pass, consumed before any later-iteration body
 /// clearing.
 ///
+/// # Before
+/// ```text
+/// // one branch's slice of the original HOF call, dispatched candidate `H` at
+/// // slot 0 plus a producer-closure sibling at slot 1:
+/// Call(Var(hof), (H, makeOp(), other_args)) : result_ty
+/// ```
+/// # After
+/// ```text
+/// // both callable slots removed, the closure's captures appended:
+/// Call(Var(combined_spec), (other_args, captures...)) : result_ty
+/// ```
+///
 /// # Mutations
 /// - Allocates callee, args, and call `Expr` nodes through `assigner`.
 #[allow(clippy::too_many_arguments)]
@@ -5244,8 +5276,10 @@ fn create_combined_branch_call(
         item: spec_store_id.item,
     };
 
-    // Order members ascending by parameter position so the removed slots and
-    // the appended captures line up with the combined spec's input pattern.
+    // Gather this leaf's members: the dispatched candidate plus every
+    // single-valued sibling. Order them ascending by parameter position so the
+    // removed slots and the appended captures line up with the combined spec's
+    // input pattern.
     let mut members: Vec<(&CallSite, &CallableParam)> = Vec::with_capacity(constants.len() + 1);
     members.push((candidate, candidate_param));
     members.extend(constants.iter().copied());
@@ -5255,12 +5289,15 @@ fn create_combined_branch_call(
             .then_with(|| a.1.field_path.cmp(&b.1.field_path))
     });
 
-    // Collect the slots to remove and resolve every closure's captures in
-    // ascending parameter order, mirroring `rewrite_multi`.
+    // Walk the members to record which argument-tuple slots to drop and, for
+    // each closure member, resolve the capture expressions to append (in the
+    // same ascending order), mirroring `rewrite_multi`.
     let uses_tuple_input = members.first().is_none_or(|(cs, _)| cs.hof_input_is_tuple);
     let mut remove_indices: Vec<usize> = Vec::with_capacity(members.len());
     let mut captures: Vec<CapturedVar> = Vec::new();
     for (cs, _param) in &members {
+        // A tuple-input HOF removes the whole top-level slot; a single
+        // tuple-valued parameter removes the immediate field instead.
         let remove_idx = if uses_tuple_input {
             cs.top_level_param
         } else {
@@ -5280,7 +5317,10 @@ fn create_combined_branch_call(
         }
     }
 
-    // Combined specialized callee type and expression.
+    // Build the specialized callee: its arrow type drops the removed slots and
+    // appends the capture types, and the callee expression names the combined
+    // spec item. Fall back to the original callee type if the new one cannot be
+    // computed.
     let new_callee_ty =
         build_specialized_multi_callee_ty(package, orig_callee.id, &remove_indices, &captures);
     let callee_id = alloc_specialized_callee_expr(
@@ -5292,6 +5332,7 @@ fn create_combined_branch_call(
     );
 
     // Build the leaf argument tuple: drop every member slot and append captures.
+    // The tuple-input and single-tuple-parameter shapes are handled separately.
     let (args_kind, args_ty) = if uses_tuple_input {
         build_combined_branch_args_data(
             package,
@@ -5311,6 +5352,7 @@ fn create_combined_branch_call(
             assigner,
         )
     };
+    // Allocate the new args expression node.
     let args_id = assigner.next_expr();
     package.exprs.insert(
         args_id,
@@ -5323,6 +5365,8 @@ fn create_combined_branch_call(
         },
     );
 
+    // Allocate the call expression that invokes the combined spec with the
+    // rewritten args, and hand back its id as this dispatch leaf.
     let call_id = assigner.next_expr();
     package.exprs.insert(
         call_id,
