@@ -12,14 +12,15 @@
 //! # What to know before diving in
 //!
 //! - **Establishes [`crate::invariants::InvariantLevel::PostMono`]:** no
-//!   `Ty::Param` and no non-empty `ExprKind::Var` generic-argument lists
-//!   remain in reachable code.
+//!   `Ty::Param`, no `FunctorSet::Param`, no non-empty `ExprKind::Var`
+//!   generic-argument lists, and no reachable generic callable items remain
+//!   in reachable code.
 //! - **Three phases:** *Discovery* collects concrete generic references;
 //!   *Specialization* drives a worklist that clones each body, substitutes
 //!   type params, and feeds back transitive generic references it finds;
-//!   *Rewrite* redirects call sites across every reachable package and (via
-//!   `collect_rewrite_scope_for_package`) walks closure items so generic call
-//!   sites in lifted lambdas are not missed.
+//!   *Rewrite* redirects call sites and closure targets across every reachable
+//!   package and (via `collect_rewrite_scope_for_package`) walks closure items
+//!   so generic sites in lifted lambdas are not missed.
 //! - **Special cases:** identity instantiations (`[Param(0), ...]`) are
 //!   skipped (they would duplicate the original); intrinsics get their
 //!   argument lists cleared in place with no new callable; generic references
@@ -38,15 +39,16 @@ use crate::fir_builder::{functored_specs, reachable_local_callables};
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
 use crate::walk_utils::{
-    collect_expr_ids_in_entry_and_local_callables, collect_expr_ids_in_local_callables,
-    extend_expr_ids_in_local_callables,
+    CallableNode, collect_expr_ids_in_entry_and_local_callables,
+    collect_expr_ids_in_local_callables, extend_expr_ids_in_local_callables,
+    for_each_node_from_expr_root, for_each_node_in_callable,
 };
 use qsc_fir::fir::{
     BlockId, CallableDecl, CallableImpl, ExprId, ExprKind, Ident, Item, ItemId, ItemKind,
     LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res,
     StmtId, StmtKind, StoreItemId, Visibility,
 };
-use qsc_fir::ty::{Arrow, FunctorSet, GenericArg, ParamId, Ty};
+use qsc_fir::ty::{Arrow, FunctorSet, GenericArg, ParamId, Ty, TypeParameter};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -128,13 +130,13 @@ fn assert_no_reachable_generic(store: &PackageStore, entry_pkg_id: PackageId) {
     }
 }
 
-/// Rewrites generic call sites in every reachable package.
+/// Rewrites generic call sites and generic closure targets in every reachable package.
 ///
 /// For each package in the entry-reachable closure, collects the rewrite
 /// scope (reachable callables, the entry expression for the entry package,
 /// the new specializations owned by that package, and their transitive
 /// closures) and redirects `ExprKind::Var(Item(generic), [concrete])` sites
-/// to the matching specialization.
+/// plus `ExprKind::Closure` targets to the matching specialization.
 fn rewrite_all_packages(
     store: &mut PackageStore,
     entry_pkg_id: PackageId,
@@ -167,7 +169,52 @@ fn rewrite_all_packages(
         let new_specs = new_specs_by_pkg.get(&pkg_id).unwrap_or(&empty);
         let expr_ids =
             collect_rewrite_scope_for_package(store, entry_pkg_id, pkg_id, &reachable, new_specs);
-        rewrite_call_sites(store.get_mut(pkg_id), pkg_id, &lookup, &expr_ids);
+        let package = store.get_mut(pkg_id);
+        rewrite_call_sites(package, pkg_id, &lookup, &expr_ids);
+        rewrite_closure_targets_in_package(
+            package,
+            pkg_id,
+            entry_pkg_id,
+            &reachable,
+            new_specs,
+            &lookup,
+        );
+    }
+}
+
+fn rewrite_closure_targets_in_package(
+    package: &mut Package,
+    pkg_id: PackageId,
+    entry_pkg_id: PackageId,
+    reachable: &FxHashSet<StoreItemId>,
+    new_spec_items: &[LocalItemId],
+    lookup: &FxHashMap<String, ItemId>,
+) {
+    let mut worklist: Vec<LocalItemId> = reachable_local_callables(package, pkg_id, reachable)
+        .map(|(id, _)| id)
+        .collect();
+    worklist.extend_from_slice(new_spec_items);
+
+    if pkg_id == entry_pkg_id
+        && let Some(entry_id) = package.entry
+    {
+        worklist.extend(collect_closure_targets_in_expr_root(package, entry_id));
+        rewrite_closure_targets_in_expr_root(package, pkg_id, entry_id, lookup);
+    }
+
+    let mut seen = FxHashSet::default();
+    while let Some(item_id) = worklist.pop() {
+        if !seen.insert(item_id) {
+            continue;
+        }
+        let Some(item) = package.items.get(item_id) else {
+            continue;
+        };
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        worklist.extend(collect_closure_targets_in_callable(package, decl));
+        rewrite_closure_targets_in_callable(package, pkg_id, item_id, lookup);
     }
 }
 
@@ -240,7 +287,7 @@ fn discover_instantiations(
 
     // Walk the entry expression.
     if let Some(entry_id) = package.entry {
-        collect_generic_refs_in_expr(package, entry_id, &mut found, &mut seen_keys);
+        collect_generic_refs_in_expr(package_id, package, entry_id, &mut found, &mut seen_keys);
     }
 
     // Walk every reachable callable body.
@@ -253,7 +300,13 @@ fn discover_instantiations(
             continue;
         };
         if let ItemKind::Callable(decl) = &item.kind {
-            collect_generic_refs_in_callable(pkg, decl, &mut found, &mut seen_keys);
+            collect_generic_refs_in_callable(
+                item_id.package,
+                pkg,
+                decl,
+                &mut found,
+                &mut seen_keys,
+            );
         }
     }
 
@@ -303,52 +356,306 @@ fn mono_name(decl: &CallableDecl, args: &[GenericArg]) -> Rc<str> {
     Rc::from(name.as_str())
 }
 
-/// Walks a callable's body collecting every `(StoreItemId, Vec<GenericArg>)`
-/// pair referenced by `ExprKind::Var(Res::Item(..), args)` with non-empty
-/// generic arguments, deduplicated via `mono_key` in `seen`.
+/// Walks a callable's body collecting every concrete generic reference from
+/// `ExprKind::Var(Res::Item(..), args)` sites and `ExprKind::Closure` targets,
+/// deduplicated via `mono_key` in `seen`.
 fn collect_generic_refs_in_callable(
+    pkg_id: PackageId,
     pkg: &Package,
     decl: &CallableDecl,
     found: &mut Vec<(StoreItemId, Vec<GenericArg>)>,
     seen: &mut FxHashSet<String>,
 ) {
-    crate::walk_utils::for_each_expr_in_callable_impl(
-        pkg,
-        &decl.implementation,
-        &mut |_eid, expr| {
-            if let ExprKind::Var(Res::Item(item_id), generic_args) = &expr.kind
-                && !generic_args.is_empty()
-            {
-                let store_id = StoreItemId::from((item_id.package, item_id.item));
-                let key = mono_key(store_id, generic_args);
-                if seen.insert(key) {
-                    found.push((store_id, generic_args.clone()));
-                }
-            }
-        },
-    );
+    let (expr_ids, local_tys) = collect_expr_ids_and_local_tys_in_callable(pkg, decl);
+    collect_generic_refs_in_expr_ids(pkg_id, pkg, &expr_ids, &local_tys, found, seen);
 }
 
 /// Walks a single expression subtree collecting `(StoreItemId, Vec<GenericArg>)`
 /// pairs the same way as [`collect_generic_refs_in_callable`], used for the
 /// package entry expression.
 fn collect_generic_refs_in_expr(
+    pkg_id: PackageId,
     pkg: &Package,
     expr_id: ExprId,
     found: &mut Vec<(StoreItemId, Vec<GenericArg>)>,
     seen: &mut FxHashSet<String>,
 ) {
-    crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_eid, expr| {
-        if let ExprKind::Var(Res::Item(item_id), generic_args) = &expr.kind
-            && !generic_args.is_empty()
-        {
-            let store_id = StoreItemId::from((item_id.package, item_id.item));
-            let key = mono_key(store_id, generic_args);
-            if seen.insert(key) {
-                found.push((store_id, generic_args.clone()));
+    let (expr_ids, local_tys) = collect_expr_ids_and_local_tys_in_expr_root(pkg, expr_id);
+    collect_generic_refs_in_expr_ids(pkg_id, pkg, &expr_ids, &local_tys, found, seen);
+}
+
+fn collect_generic_refs_in_expr_ids(
+    pkg_id: PackageId,
+    pkg: &Package,
+    expr_ids: &[ExprId],
+    local_tys: &FxHashMap<LocalVarId, Ty>,
+    found: &mut Vec<(StoreItemId, Vec<GenericArg>)>,
+    seen: &mut FxHashSet<String>,
+) {
+    for &expr_id in expr_ids {
+        let expr = pkg.get_expr(expr_id);
+        match &expr.kind {
+            ExprKind::Var(Res::Item(item_id), generic_args) if !generic_args.is_empty() => {
+                let store_id = StoreItemId::from((item_id.package, item_id.item));
+                record_generic_ref(store_id, generic_args.clone(), found, seen);
             }
+            ExprKind::Closure(captures, local_item_id) => {
+                let store_id = StoreItemId::from((pkg_id, *local_item_id));
+                if let Some(generic_args) =
+                    infer_closure_generic_args(pkg, *local_item_id, captures, &expr.ty, local_tys)
+                {
+                    record_generic_ref(store_id, generic_args, found, seen);
+                }
+            }
+            _ => {}
         }
+    }
+}
+
+fn record_generic_ref(
+    store_id: StoreItemId,
+    generic_args: Vec<GenericArg>,
+    found: &mut Vec<(StoreItemId, Vec<GenericArg>)>,
+    seen: &mut FxHashSet<String>,
+) {
+    let key = mono_key(store_id, &generic_args);
+    if seen.insert(key) {
+        found.push((store_id, generic_args));
+    }
+}
+
+fn collect_expr_ids_and_local_tys_in_callable(
+    pkg: &Package,
+    decl: &CallableDecl,
+) -> (Vec<ExprId>, FxHashMap<LocalVarId, Ty>) {
+    let mut expr_ids = Vec::new();
+    let mut local_tys = FxHashMap::default();
+    for_each_node_in_callable(pkg, decl, &mut |node| match node {
+        CallableNode::Expr(expr_id) => expr_ids.push(expr_id),
+        CallableNode::Pat(pat_id) => collect_pat_bind_ty(pkg, pat_id, &mut local_tys),
+        CallableNode::Block(_) | CallableNode::Stmt(_) => {}
     });
+    (expr_ids, local_tys)
+}
+
+fn collect_expr_ids_and_local_tys_in_expr_root(
+    pkg: &Package,
+    expr_id: ExprId,
+) -> (Vec<ExprId>, FxHashMap<LocalVarId, Ty>) {
+    let mut expr_ids = Vec::new();
+    let mut local_tys = FxHashMap::default();
+    for_each_node_from_expr_root(pkg, expr_id, &mut |node| match node {
+        CallableNode::Expr(expr_id) => expr_ids.push(expr_id),
+        CallableNode::Pat(pat_id) => collect_pat_bind_ty(pkg, pat_id, &mut local_tys),
+        CallableNode::Block(_) | CallableNode::Stmt(_) => {}
+    });
+    (expr_ids, local_tys)
+}
+
+fn collect_pat_bind_ty(pkg: &Package, pat_id: PatId, local_tys: &mut FxHashMap<LocalVarId, Ty>) {
+    let pat = pkg.get_pat(pat_id);
+    if let PatKind::Bind(ident) = &pat.kind {
+        local_tys.insert(ident.id, pat.ty.clone());
+    }
+}
+
+fn collect_closure_targets_in_expr_root(pkg: &Package, expr_id: ExprId) -> Vec<LocalItemId> {
+    let (expr_ids, _) = collect_expr_ids_and_local_tys_in_expr_root(pkg, expr_id);
+    collect_closure_targets_in_expr_ids(pkg, &expr_ids)
+}
+
+fn collect_closure_targets_in_callable(pkg: &Package, decl: &CallableDecl) -> Vec<LocalItemId> {
+    let (expr_ids, _) = collect_expr_ids_and_local_tys_in_callable(pkg, decl);
+    collect_closure_targets_in_expr_ids(pkg, &expr_ids)
+}
+
+fn collect_closure_targets_in_expr_ids(pkg: &Package, expr_ids: &[ExprId]) -> Vec<LocalItemId> {
+    expr_ids
+        .iter()
+        .filter_map(|&expr_id| match pkg.get_expr(expr_id).kind {
+            ExprKind::Closure(_, local_item_id) => Some(local_item_id),
+            _ => None,
+        })
+        .collect()
+}
+
+fn rewrite_closure_targets_in_callable(
+    pkg: &mut Package,
+    pkg_id: PackageId,
+    item_id: LocalItemId,
+    lookup: &FxHashMap<String, ItemId>,
+) {
+    let Some(item) = pkg.items.get(item_id) else {
+        return;
+    };
+    let ItemKind::Callable(decl) = &item.kind else {
+        return;
+    };
+    let (expr_ids, local_tys) = collect_expr_ids_and_local_tys_in_callable(pkg, decl);
+    rewrite_closure_targets_in_expr_ids(pkg, pkg_id, &expr_ids, &local_tys, lookup);
+}
+
+fn rewrite_closure_targets_in_expr_root(
+    pkg: &mut Package,
+    pkg_id: PackageId,
+    expr_id: ExprId,
+    lookup: &FxHashMap<String, ItemId>,
+) {
+    let (expr_ids, local_tys) = collect_expr_ids_and_local_tys_in_expr_root(pkg, expr_id);
+    rewrite_closure_targets_in_expr_ids(pkg, pkg_id, &expr_ids, &local_tys, lookup);
+}
+
+fn rewrite_closure_targets_in_expr_ids(
+    pkg: &mut Package,
+    pkg_id: PackageId,
+    expr_ids: &[ExprId],
+    local_tys: &FxHashMap<LocalVarId, Ty>,
+    lookup: &FxHashMap<String, ItemId>,
+) {
+    for &expr_id in expr_ids {
+        let Some((captures, local_item_id, expr_ty)) = closure_parts(pkg, expr_id) else {
+            continue;
+        };
+        let Some(generic_args) =
+            infer_closure_generic_args(pkg, local_item_id, &captures, &expr_ty, local_tys)
+        else {
+            continue;
+        };
+        let key = mono_key(StoreItemId::from((pkg_id, local_item_id)), &generic_args);
+        let Some(new_item_id) = lookup.get(&key).copied() else {
+            continue;
+        };
+        if new_item_id.package != pkg_id {
+            continue;
+        }
+        let expr = pkg.exprs.get_mut(expr_id).expect("expr should exist");
+        if let ExprKind::Closure(_, target) = &mut expr.kind {
+            *target = new_item_id.item;
+        }
+    }
+}
+
+fn closure_parts(pkg: &Package, expr_id: ExprId) -> Option<(Vec<LocalVarId>, LocalItemId, Ty)> {
+    let expr = pkg.get_expr(expr_id);
+    if let ExprKind::Closure(captures, local_item_id) = &expr.kind {
+        Some((captures.clone(), *local_item_id, expr.ty.clone()))
+    } else {
+        None
+    }
+}
+
+fn infer_closure_generic_args(
+    pkg: &Package,
+    local_item_id: LocalItemId,
+    captures: &[LocalVarId],
+    closure_ty: &Ty,
+    local_tys: &FxHashMap<LocalVarId, Ty>,
+) -> Option<Vec<GenericArg>> {
+    let ItemKind::Callable(decl) = &pkg.get_item(local_item_id).kind else {
+        return None;
+    };
+    if decl.generics.is_empty() {
+        return None;
+    }
+    let Ty::Arrow(closure_arrow) = closure_ty else {
+        return None;
+    };
+
+    let mut arg_map = FxHashMap::default();
+    let capture_tys: Vec<_> = captures
+        .iter()
+        .map(|local| local_tys.get(local).cloned())
+        .collect::<Option<_>>()?;
+    let actual_input = Ty::Tuple(
+        capture_tys
+            .into_iter()
+            .chain(std::iter::once((*closure_arrow.input).clone()))
+            .collect(),
+    );
+
+    if !infer_generic_ty_args(&pkg.get_pat(decl.input).ty, &actual_input, &mut arg_map) {
+        return None;
+    }
+    if !infer_generic_ty_args(&decl.output, &closure_arrow.output, &mut arg_map) {
+        return None;
+    }
+    if !infer_generic_functor_args(
+        FunctorSet::Value(decl.functors),
+        closure_arrow.functors,
+        &mut arg_map,
+    ) {
+        return None;
+    }
+
+    decl.generics
+        .iter()
+        .enumerate()
+        .map(
+            |(idx, param)| match (param, arg_map.get(&ParamId::from(idx))) {
+                (TypeParameter::Ty { .. }, Some(GenericArg::Ty(ty))) => {
+                    Some(GenericArg::Ty(ty.clone()))
+                }
+                (TypeParameter::Functor(_), Some(GenericArg::Functor(functors))) => {
+                    Some(GenericArg::Functor(*functors))
+                }
+                _ => None,
+            },
+        )
+        .collect()
+}
+
+fn infer_generic_ty_args(
+    formal: &Ty,
+    actual: &Ty,
+    arg_map: &mut FxHashMap<ParamId, GenericArg>,
+) -> bool {
+    match (formal, actual) {
+        (Ty::Param(param), _) => {
+            record_inferred_arg(*param, GenericArg::Ty(actual.clone()), arg_map)
+        }
+        (Ty::Array(formal), Ty::Array(actual)) => infer_generic_ty_args(formal, actual, arg_map),
+        (Ty::Arrow(formal), Ty::Arrow(actual)) => {
+            formal.kind == actual.kind
+                && infer_generic_ty_args(&formal.input, &actual.input, arg_map)
+                && infer_generic_ty_args(&formal.output, &actual.output, arg_map)
+                && infer_generic_functor_args(formal.functors, actual.functors, arg_map)
+        }
+        (Ty::Tuple(formal), Ty::Tuple(actual)) if formal.len() == actual.len() => formal
+            .iter()
+            .zip(actual)
+            .all(|(formal, actual)| infer_generic_ty_args(formal, actual, arg_map)),
+        (Ty::Prim(formal), Ty::Prim(actual)) => formal == actual,
+        (Ty::Udt(formal), Ty::Udt(actual)) => formal == actual,
+        (Ty::Infer(formal), Ty::Infer(actual)) => formal == actual,
+        (Ty::Err, Ty::Err) => true,
+        _ => false,
+    }
+}
+
+fn infer_generic_functor_args(
+    formal: FunctorSet,
+    actual: FunctorSet,
+    arg_map: &mut FxHashMap<ParamId, GenericArg>,
+) -> bool {
+    match formal {
+        FunctorSet::Param(param) => {
+            record_inferred_arg(param, GenericArg::Functor(actual), arg_map)
+        }
+        _ => formal == actual,
+    }
+}
+
+fn record_inferred_arg(
+    param: ParamId,
+    arg: GenericArg,
+    arg_map: &mut FxHashMap<ParamId, GenericArg>,
+) -> bool {
+    if let Some(existing) = arg_map.get(&param) {
+        existing == &arg
+    } else {
+        arg_map.insert(param, arg);
+        true
+    }
 }
 
 /// Returns `true` when all generic args map to their own parameter position —
@@ -389,16 +696,17 @@ fn ty_contains_param(ty: &Ty) -> bool {
     }
 }
 
-/// Walks a cloned callable body and collects every
-/// `ExprKind::Var(Res::Item(id), args)` where `args` is non-empty and fully
-/// concrete (no remaining `Ty::Param` or `FunctorSet::Param`).
+/// Walks a cloned callable body and collects every fully concrete generic
+/// reference from `ExprKind::Var(Res::Item(id), args)` sites and
+/// `ExprKind::Closure` targets.
 fn scan_for_concrete_generic_refs(
+    pkg_id: PackageId,
     pkg: &Package,
     decl: &CallableDecl,
 ) -> Vec<(StoreItemId, Vec<GenericArg>)> {
     let mut found = Vec::new();
     let mut seen = FxHashSet::default();
-    collect_generic_refs_in_callable(pkg, decl, &mut found, &mut seen);
+    collect_generic_refs_in_callable(pkg_id, pkg, decl, &mut found, &mut seen);
     found.retain(|(_, args)| is_fully_concrete(args));
     found
 }
@@ -478,7 +786,6 @@ fn create_specializations(
     specializations
 }
 
-#[allow(clippy::too_many_lines)]
 /// Clones a single `(callable, args)` pair into its owning package, substitutes
 /// type parameters, and returns the new item id plus any concrete generic
 /// references discovered in the cloned body that require their own
@@ -558,6 +865,23 @@ fn specialize_one(
     };
     owning_pkg.items.insert(new_local_id, new_item);
 
+    let refs_out = collect_new_generic_refs(owning_pkg, owning_pkg_id, new_local_id);
+
+    (new_item_id, refs_out)
+}
+
+/// Scans a freshly created monomorphized callable for concrete generic
+/// references that require their own specializations.
+///
+/// References to items already non-generic in the owning package (for example
+/// self-references from a recursive callable remapped by `set_self_item_remap`)
+/// are dropped; every other concrete reference is returned for the caller to
+/// enqueue.
+fn collect_new_generic_refs(
+    owning_pkg: &Package,
+    owning_pkg_id: PackageId,
+    new_local_id: LocalItemId,
+) -> Vec<(StoreItemId, Vec<GenericArg>)> {
     // Scan the newly created callable for additional concrete generic
     // references that need their own specializations. Skip references to
     // items in the owning package that are already non-generic (e.g.,
@@ -566,7 +890,7 @@ fn specialize_one(
     let mut refs_out = Vec::new();
     let created_item = owning_pkg.items.get(new_local_id).expect("just inserted");
     if let ItemKind::Callable(created_decl) = &created_item.kind {
-        let new_refs = scan_for_concrete_generic_refs(owning_pkg, created_decl);
+        let new_refs = scan_for_concrete_generic_refs(owning_pkg_id, owning_pkg, created_decl);
         for (ref_id, ref_args) in new_refs {
             if ref_id.package == owning_pkg_id
                 && let Some(ref_item) = owning_pkg.items.get(ref_id.item)
@@ -578,8 +902,7 @@ fn specialize_one(
             refs_out.push((ref_id, ref_args));
         }
     }
-
-    (new_item_id, refs_out)
+    refs_out
 }
 
 /// Builds a standalone `Package` holding all nodes transitively referenced

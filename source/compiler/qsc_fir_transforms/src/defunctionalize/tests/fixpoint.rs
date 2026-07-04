@@ -811,14 +811,6 @@ fn nested_hof_requires_multi_iteration_convergence() {
                 op(q);
                 op(q);
             }
-            operation ApplyAndMeasure_Empty__AdjCtl__ApplyTwice_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Result {
-                ApplyTwice_Empty_(op, q);
-                M(q)
-            }
-            operation ApplyAndMeasure_Empty__AdjCtl__H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Result {
-                H(op, q);
-                M(q)
-            }
             operation ApplyAndMeasure_Empty__AdjCtl__ApplyTwice_Empty___H_(q : Qubit) : Result {
                 ApplyTwice_Empty__H_(q);
                 M(q)
@@ -1039,12 +1031,6 @@ fn transient_dynamic_resolves_after_outer_hof_specialization() {
             operation ApplyMiddle_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 ApplyInner_Empty_(op, q);
             }
-            operation ApplyOuter_Empty__AdjCtl__ApplyMiddle_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                ApplyMiddle_Empty_(op, q);
-            }
-            operation ApplyOuter_Empty__AdjCtl__H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(op, q);
-            }
             operation ApplyOuter_Empty__AdjCtl__ApplyMiddle_Empty___H_(q : Qubit) : Unit {
                 ApplyMiddle_Empty__H_(q);
             }
@@ -1058,6 +1044,273 @@ fn transient_dynamic_resolves_after_outer_hof_specialization() {
             Main()
         "#]],
     );
+}
+
+/// Two-level cross-HOF regression for callable-array forwarding. An outer HOF
+/// receives a closure array as a flat parameter and forwards it to an inner HOF
+/// that indexes the array under a loop. The closures capture DISTINCT integer
+/// values, so a collapse to a single element would be observable.
+///
+/// The correct post-fix behavior threads ALL array elements across both HOF
+/// levels: the inner HOF specializes into an `if idx == p` dispatch chain with a
+/// DISTINCT `__capture_i` per branch, and the outer forwards every capture (not
+/// just `__capture_0`). A pre-fix cross-HOF array collapse would have produced a
+/// single `__capture_0` and no dispatch chain.
+#[test]
+fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
+    let source = r#"
+        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+            if value == 1 {
+                Controlled X([control], register[0]);
+            }
+        }
+
+        operation ApplyInner(
+            ops : ((Qubit, Qubit[]) => Unit)[],
+            count : Int,
+            controls : Qubit[],
+            targets : Qubit[]
+        ) : Unit {
+            for idx in 0..count - 1 {
+                ops[idx](controls[idx], targets);
+            }
+        }
+
+        operation ApplyOuter(
+            ops : ((Qubit, Qubit[]) => Unit)[],
+            count : Int,
+            controls : Qubit[],
+            targets : Qubit[]
+        ) : Unit {
+            ApplyInner(ops, count, controls, targets);
+        }
+
+        operation Main() : Unit {
+            use qs = Qubit[3];
+            let controls = qs[0..1];
+            let targets = qs[2...];
+            let ops = [ApplyParityOperation(1, _, _), ApplyParityOperation(2, _, _)];
+            ApplyOuter(ops, 2, controls, targets);
+            ResetAll(qs);
+        }
+        "#;
+    check_errors(source, &expect!["(no error)"]);
+    check_analysis(
+        source,
+        &expect![[r#"
+        callable_params: 2
+          param: callable_id=<item 8 in package 2>, path=[0], ty=(((Qubit, (Qubit)[]) => Unit))[]
+          param: callable_id=<item 7 in package 2>, path=[0], ty=(((Qubit, (Qubit)[]) => Unit))[]
+        call_sites: 3
+          site: hof=ApplyInner<Empty>, arg=Dynamic
+          site: hof=ApplyOuter<Empty>, arg=Closure(target=5, Body)
+          site: hof=ApplyOuter<Empty>, arg=Closure(target=6, Body)
+        direct_call_sites: 1
+          site: callee=X:Ctl, default"#]],
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+            if value == 1 {
+                Controlled X([control], register[0]);
+            }
+
+        }
+        operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+            {
+                let _range_id_183 : Range = 0..count - 1;
+                mutable _index_id_186 : Int = _range_id_183::Start;
+                let _step_id_191 : Int = _range_id_183::Step;
+                let _end_id_196 : Int = _range_id_183::End;
+                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                    let idx : Int = _index_id_186;
+                    ops[idx](controls[idx], targets);
+                    _index_id_186 += _step_id_191;
+                }
+
+            }
+
+        }
+        operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+            ApplyInner_Empty_(ops, count, controls, targets);
+        }
+        operation Main() : Unit {
+            let qs : Qubit[] = AllocateQubitArray(3);
+            let controls : Qubit[] = qs[0..1];
+            let targets : Qubit[] = qs[2...];
+            let ops : ((Qubit, Qubit[]) => Unit)[] = [{
+                let arg : Int = 1;
+                / * closure item = 5 captures = [arg] * / _lambda_5
+            }, {
+                let arg : Int = 2;
+                / * closure item = 6 captures = [arg] * / _lambda_6
+            }];
+            ApplyOuter_Empty_(ops, 2, controls, targets);
+            ResetAll(qs);
+            ReleaseQubitArray(qs);
+        }
+        operation _lambda_5(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
+            ApplyParityOperation(arg, hole, hole)
+        }
+        operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
+            ApplyParityOperation(arg, hole, hole)
+        }
+        operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+            {
+                let _range_id_183 : Range = 0..count - 1;
+                mutable _index_id_186 : Int = _range_id_183::Start;
+                let _step_id_191 : Int = _range_id_183::Step;
+                let _end_id_196 : Int = _range_id_183::End;
+                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                    let idx : Int = _index_id_186;
+                    ops[idx](controls[idx], targets);
+                    _index_id_186 += _step_id_191;
+                }
+
+            }
+
+        }
+        operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+            ApplyInner_Empty_(ops, count, controls, targets);
+        }
+        // entry
+        Main()
+
+        AFTER:
+        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+            if value == 1 {
+                Controlled X([control], register[0]);
+            }
+
+        }
+        operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+            {
+                let _range_id_183 : Range = 0..count - 1;
+                mutable _index_id_186 : Int = _range_id_183::Start;
+                let _step_id_191 : Int = _range_id_183::Step;
+                let _end_id_196 : Int = _range_id_183::End;
+                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                    let idx : Int = _index_id_186;
+                    ops[idx](controls[idx], targets);
+                    _index_id_186 += _step_id_191;
+                }
+
+            }
+
+        }
+        operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+            ApplyInner_Empty_(ops, count, controls, targets);
+        }
+        operation Main() : Unit {
+            let qs : Qubit[] = AllocateQubitArray(3);
+            let controls : Qubit[] = qs[0..1];
+            let targets : Qubit[] = qs[2...];
+            ApplyOuter_Empty__closure__closure_(2, controls, targets, 1, 2);
+            ResetAll(qs);
+            ReleaseQubitArray(qs);
+        }
+        operation _lambda_5(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
+            ApplyParityOperation(arg, hole, hole)
+        }
+        operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
+            ApplyParityOperation(arg, hole, hole)
+        }
+        operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+            {
+                let _range_id_183 : Range = 0..count - 1;
+                mutable _index_id_186 : Int = _range_id_183::Start;
+                let _step_id_191 : Int = _range_id_183::Step;
+                let _end_id_196 : Int = _range_id_183::End;
+                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                    let idx : Int = _index_id_186;
+                    ops[idx](controls[idx], targets);
+                    _index_id_186 += _step_id_191;
+                }
+
+            }
+
+        }
+        operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+            ApplyInner_Empty_(ops, count, controls, targets);
+        }
+        operation ApplyOuter_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
+            ApplyInner_Empty__closure__closure_(count, controls, targets, __capture_0, __capture_1);
+        }
+        operation ApplyInner_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
+            {
+                let _range_id_183 : Range = 0..count - 1;
+                mutable _index_id_186 : Int = _range_id_183::Start;
+                let _step_id_191 : Int = _range_id_183::Step;
+                let _end_id_196 : Int = _range_id_183::End;
+                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                    let idx : Int = _index_id_186;
+                    if idx == 0 {
+                        _lambda_5(__capture_0, (controls[idx], targets))
+                    } else {
+                        _lambda_6(__capture_1, (controls[idx], targets))
+                    };
+                    _index_id_186 += _step_id_191;
+                }
+
+            }
+
+        }
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+/// A closure callable-array forwarded across two higher-order levels and fully
+/// consumed by the innermost indexed dispatch leaves the source-array local
+/// dead in the reachable caller. Because closure cleanup blanks each element to
+/// unit, the surviving array binding would be an arrow-typed block with a unit
+/// tail that trips the `PostDefunc` non-unit block-tail invariant. The dead
+/// binding must be removed; this runs the invariant walk and full pipeline over
+/// the same shape as
+/// `two_level_cross_hof_closure_array_forwarding_threads_all_captures`.
+#[test]
+fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
+    let source = r#"
+        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+            if value == 1 {
+                Controlled X([control], register[0]);
+            }
+        }
+
+        operation ApplyInner(
+            ops : ((Qubit, Qubit[]) => Unit)[],
+            count : Int,
+            controls : Qubit[],
+            targets : Qubit[]
+        ) : Unit {
+            for idx in 0..count - 1 {
+                ops[idx](controls[idx], targets);
+            }
+        }
+
+        operation ApplyOuter(
+            ops : ((Qubit, Qubit[]) => Unit)[],
+            count : Int,
+            controls : Qubit[],
+            targets : Qubit[]
+        ) : Unit {
+            ApplyInner(ops, count, controls, targets);
+        }
+
+        operation Main() : Unit {
+            use qs = Qubit[3];
+            let controls = qs[0..1];
+            let targets = qs[2...];
+            let ops = [ApplyParityOperation(1, _, _), ApplyParityOperation(2, _, _)];
+            ApplyOuter(ops, 2, controls, targets);
+            ResetAll(qs);
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
 }
 
 /// Regression test for producer-body closure cleanup: a producer function
@@ -1148,6 +1401,62 @@ fn producer_body_closure_cleanup_converges() {
     );
 }
 
+#[test]
+fn callable_returning_closure_with_controlled_callable_captures() {
+    let source = r#"
+        operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + numAncillaQubits];
+            let op = MakeControlledPrepSelPrepOp(
+                prepareOp,
+                selectOp,
+                numSystemQubits,
+                numAncillaQubits,
+                power
+            );
+            op(control, systems);
+        }
+
+        operation Main() : Unit {
+            MakeControlledPrepSelPrepCircuit(
+                PrepareIdentity,
+                SelectIdentity,
+                1,
+                1,
+                1
+            );
+        }
+        "#;
+    check_invariants(source);
+}
+
 /// Two callable arguments passed to a multi-parameter HOF: one partial
 /// application closure and one global callable. Both must survive cleanup
 /// because they are still live as call arguments.
@@ -1218,14 +1527,6 @@ fn closure_in_active_call_arg_survives_cleanup() {
                 f(q);
                 g(q);
             }
-            operation Apply2_Empty__AdjCtl__closure_(g : (Qubit => Unit is Adj + Ctl), q : Qubit, __capture_0 : Bool) : Unit {
-                _lambda_4(__capture_0, q);
-                g(q);
-            }
-            operation Apply2_Empty__AdjCtl__X_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                X(q);
-                g(q);
-            }
             operation Apply2_Empty__AdjCtl__closure__X_(q : Qubit, __capture_0 : Bool) : Unit {
                 _lambda_4(__capture_0, q);
                 X(q);
@@ -1233,6 +1534,52 @@ fn closure_in_active_call_arg_survives_cleanup() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn captured_closure_forwarded_to_nested_hof_converges() {
+    let source = r#"
+        operation ApplySequential(first : Qubit[] => Unit, second : Qubit[] => Unit, systems : Qubit[]) : Unit {
+            first(systems);
+            second(systems);
+        }
+
+        operation ApplyFirstStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                H(q);
+            }
+        }
+
+        operation ApplySecondStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                X(q);
+            }
+        }
+
+        operation ApplyThirdStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                Z(q);
+            }
+        }
+
+        operation Main() : Unit {
+            use systems = Qubit[2];
+            let sequential = ApplySequential(ApplyFirstStep, ApplySecondStep, _);
+            ApplySequential(sequential, ApplyThirdStep, systems);
+        }
+        "#;
+    check_invariants(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_6{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplyFirstStep: input_ty=(Qubit)[]
+            ApplySecondStep: input_ty=(Qubit)[]
+            ApplySequential<Empty, Empty>{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplySequential<Empty, Empty>{closure}{ApplyThirdStep}{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplyThirdStep: input_ty=(Qubit)[]
+            Main: input_ty=Unit"#]],
     );
 }
 
@@ -1417,32 +1764,8 @@ fn progress_tracking_allows_multi_iteration_convergence() {
             operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty__(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty_(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L1_Empty__(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L1_Empty_(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__H_(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___L1_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty__L1_Empty__(op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty_(H, op, q);
-            }
-            operation L2_Empty__Empty__L1_Empty__(op : (Qubit => Unit), q : Qubit) : Unit {
-                L1_Empty_(op, q);
-            }
             operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___L1_Empty___H_(q : Qubit) : Unit {
                 L2_Empty__Empty__L1_Empty___H_(q);
-            }
-            operation L2_Empty__Empty__L1_Empty__(op : (Qubit => Unit), q : Qubit) : Unit {
-                L1_Empty_(op, q);
-            }
-            operation L2_Empty__Empty__H_(op : (Qubit => Unit), q : Qubit) : Unit {
-                H(op, q);
             }
             operation L2_Empty__Empty__L1_Empty___H_(q : Qubit) : Unit {
                 L1_Empty__H_(q);
@@ -2404,5 +2727,90 @@ fn defunc_21_level_hof_returns_static_resolution_error() {
         matches!(errors.as_slice(), [super::super::Error::DynamicCallable(_)]),
         "Expected DynamicCallable error, got: {:?}",
         errors.iter().map(ToString::to_string).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn multiple_forwarded_callable_arrays_return_unsupported_error() {
+    // Forwarding two or more distinct callable arrays through a single HOF call
+    // is a shape the transform does not support. This test pins the diagnostic
+    // so a future change cannot silently start generating incorrect code for
+    // it.
+    //
+    // A two-level HOF forwards two distinct arrays of callables through one
+    // call. The transform must report exactly one
+    // `UnsupportedMultipleCallableArrays` diagnostic. It must not fall through
+    // to the per-row path, which would collapse each array to a single member,
+    // nor report a spurious `FixpointNotReached`.
+    let source = r#"
+        operation ApplyTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            for op in firstOps {
+                op(q);
+            }
+            for op in secondOps {
+                op(q);
+            }
+        }
+        operation ForwardTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            ApplyTwoArrays(firstOps, secondOps, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            ForwardTwoArrays([X, Y], [Z, H], q);
+        }
+        "#;
+
+    let (mut store, package_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+
+    assert!(
+        matches!(
+            errors.as_slice(),
+            [super::super::Error::UnsupportedMultipleCallableArrays(_)]
+        ),
+        "expected exactly one UnsupportedMultipleCallableArrays error, got: {}",
+        format_defunctionalization_errors(&errors)
+    );
+}
+
+#[test]
+fn operation_computed_captured_field_declines_to_dynamic_callable() {
+    // A captured struct field whose value is computed by an operation call
+    // cannot be specialized. Rebuilding the captured literal in the caller would
+    // duplicate and reorder that operation call, which is unsound for a call
+    // with quantum side effects because it cannot be run twice or moved. The
+    // transform therefore declines the closure to a dynamic call site and
+    // reports a recoverable `DynamicCallable` diagnostic. On the base profile
+    // this surfaces as a hard error rather than silently incorrect code.
+    check_errors(
+        r#"
+        struct Wrapper { Op : Qubit => Unit }
+        operation Choose(flag : Result) : (Qubit => Unit) {
+            return flag == One ? X | H;
+        }
+        operation ApplyWrapped(w : Wrapper, q : Qubit) : Unit {
+            w.Op(q);
+        }
+        operation MakeWrapper(q : Qubit) : Wrapper {
+            new Wrapper { Op = Choose(MResetZ(q)) }
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let w = MakeWrapper(q);
+            ApplyWrapped(w, q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
     );
 }

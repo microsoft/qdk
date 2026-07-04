@@ -132,7 +132,6 @@ pub(super) struct SynthSlots {
 /// trailing expression. Returns the [`SynthSlots`] handles so the simplify
 /// phase can fold the canonical flag/slot shapes back into structured control
 /// flow.
-#[allow(clippy::too_many_lines)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn transform_block_with_flags(
     package: &mut Package,
@@ -240,7 +239,6 @@ pub(super) struct FlagContext<'a> {
     pub(super) udt_pure_tys: &'a UdtPureTyCache,
 }
 
-#[allow(clippy::too_many_lines)]
 fn transform_block_stmts_with_flags(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -319,57 +317,92 @@ fn transform_block_stmts_with_flags(
             }
         }
 
-        if has_return_in_while {
-            transform_while_stmt(
-                package,
-                assigner,
-                stmt_id,
-                flag_context,
-                arrow_default_cache,
-            );
-            new_stmts.push(stmt_id);
-            seen_return_bearing_stmt = true;
-        } else if has_return && !seen_return_bearing_stmt {
-            replace_returns_with_flags(
-                package,
-                assigner,
-                stmt_id,
-                flag_context,
-                arrow_default_cache,
-            );
-            new_stmts.push(stmt_id);
-            seen_return_bearing_stmt = true;
-        } else if has_return {
-            replace_returns_with_flags(
-                package,
-                assigner,
-                stmt_id,
-                flag_context,
-                arrow_default_cache,
-            );
-            let guarded = guard_stmt_with_flag(
-                package,
-                assigner,
-                flag_context,
-                stmt_id,
-                arrow_default_cache,
-            );
-            new_stmts.push(guarded);
-        } else if seen_return_bearing_stmt {
-            let guarded = guard_stmt_with_flag(
-                package,
-                assigner,
-                flag_context,
-                stmt_id,
-                arrow_default_cache,
-            );
-            new_stmts.push(guarded);
-        } else {
-            new_stmts.push(stmt_id);
-        }
+        seen_return_bearing_stmt = transform_and_push_flag_stmt(
+            package,
+            assigner,
+            stmt_id,
+            flag_context,
+            arrow_default_cache,
+            &mut new_stmts,
+            has_return_in_while,
+            has_return,
+            seen_return_bearing_stmt,
+        );
     }
 
     new_stmts
+}
+
+/// Rewrites a single statement for the flag-threaded block and appends it to
+/// `new_stmts`, returning the updated `seen_return_bearing_stmt` state.
+///
+/// A `while` bearing a return is rewritten in place; the first return-bearing
+/// statement has its returns replaced with flag writes; later statements are
+/// guarded by the flag (standing in for LLVM's PHI merge). A statement that is
+/// neither return-bearing nor after a return is passed through unchanged.
+#[allow(clippy::too_many_arguments)]
+fn transform_and_push_flag_stmt(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    stmt_id: StmtId,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    new_stmts: &mut Vec<StmtId>,
+    has_return_in_while: bool,
+    has_return: bool,
+    seen_return_bearing_stmt: bool,
+) -> bool {
+    if has_return_in_while {
+        transform_while_stmt(
+            package,
+            assigner,
+            stmt_id,
+            flag_context,
+            arrow_default_cache,
+        );
+        new_stmts.push(stmt_id);
+        true
+    } else if has_return && !seen_return_bearing_stmt {
+        replace_returns_with_flags(
+            package,
+            assigner,
+            stmt_id,
+            flag_context,
+            arrow_default_cache,
+        );
+        new_stmts.push(stmt_id);
+        true
+    } else if has_return {
+        replace_returns_with_flags(
+            package,
+            assigner,
+            stmt_id,
+            flag_context,
+            arrow_default_cache,
+        );
+        let guarded = guard_stmt_with_flag(
+            package,
+            assigner,
+            flag_context,
+            stmt_id,
+            arrow_default_cache,
+        );
+        new_stmts.push(guarded);
+        seen_return_bearing_stmt
+    } else if seen_return_bearing_stmt {
+        let guarded = guard_stmt_with_flag(
+            package,
+            assigner,
+            flag_context,
+            stmt_id,
+            arrow_default_cache,
+        );
+        new_stmts.push(guarded);
+        seen_return_bearing_stmt
+    } else {
+        new_stmts.push(stmt_id);
+        seen_return_bearing_stmt
+    }
 }
 
 fn create_lazy_flag_continuation_stmt(

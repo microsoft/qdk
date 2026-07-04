@@ -28,11 +28,11 @@
 //!   signature/body rewrite ([`promote_callable`]) → call-site rewrite
 //!   ([`rewrite_call_sites`]). Peels one tuple nesting level per round, like
 //!   tuple-decompose.
-//! - **Post-convergence normalization.** [`normalize_call_arg_types`] runs once
-//!   after the fixed point to make argument expression types exactly match
-//!   callable input types (e.g. `T` → `(T,)` wrapping for single-element tuple
-//!   inputs). Run once, not per round, to avoid `(T,)` churn polluting change
-//!   detection.
+//! - **Post-convergence normalization.** [`normalize_reachable_call_arg_types`]
+//!   runs once after the fixed point to make argument expression types exactly
+//!   match callable input types (e.g. `T` → `(T,)` wrapping for single-element
+//!   tuple inputs). Run once, not per round, to avoid `(T,)` churn polluting
+//!   change detection.
 //! - **Functor-applied callees** (`Adjoint`/`Controlled`) are handled directly:
 //!   [`resolve_direct_item_callee`] unwraps the `UnOp` functor wrappers and
 //!   [`rewrite_controlled_call_site`] preserves the control-tuple layers and
@@ -121,7 +121,7 @@ type ParamLeafRemap = (LocalVarId, Ty, LeafRemap);
 /// - Rewrites only entry-reachable callables.
 /// - Leaves first-class and closure-target callables unchanged.
 /// - Normalizes call argument shapes to match callable input types via
-///   [`normalize_call_arg_types`].
+///   [`normalize_reachable_call_arg_types`].
 ///
 /// # Mutations
 /// - Rewrites callable input patterns and specialization bodies.
@@ -609,10 +609,12 @@ fn collect_first_class_callables(
     first_class
 }
 
-/// Collects the `StoreItemId`s of callables that are targets of
-/// `Closure(_, local_item_id)` in the reachable package closure. A closure
-/// target resolves in the package that contains the `Closure` expression, so
-/// the recorded `StoreItemId` uses that containing package.
+/// Collects the `StoreItemId`s of callables that are targets of closure-like
+/// dispatch in the reachable package closure. Before defunctionalization this
+/// is a direct `Closure(_, local_item_id)` expression. After defunctionalization
+/// an indexed closure-array dispatch branch calls the target item directly but
+/// still uses the closure-call ABI `(captures..., original_args)`, so the target
+/// signature must remain stable for those call sites.
 fn collect_closure_targets(
     store: &PackageStore,
     package_id: PackageId,
@@ -640,6 +642,7 @@ fn collect_closure_targets(
                         item: *local_item_id,
                     });
                 }
+                collect_closure_abi_direct_call_target(package, pkg, expr, &mut targets);
             });
         }
 
@@ -656,6 +659,7 @@ fn collect_closure_targets(
                                 item: *local_item_id,
                             });
                         }
+                        collect_closure_abi_direct_call_target(package, pkg, expr, &mut targets);
                     },
                 );
             }
@@ -663,6 +667,71 @@ fn collect_closure_targets(
     }
 
     targets
+}
+
+fn collect_closure_abi_direct_call_target(
+    package: &Package,
+    package_id: PackageId,
+    expr: &Expr,
+    targets: &mut FxHashSet<StoreItemId>,
+) {
+    let ExprKind::Call(callee_id, arg_id) = expr.kind else {
+        return;
+    };
+    let callee_expr = package.get_expr(callee_id);
+    let ExprKind::Var(Res::Item(item_id), _) = callee_expr.kind else {
+        return;
+    };
+    if item_id.package != package_id {
+        return;
+    }
+    if !call_uses_grouped_closure_payload(package, item_id.item, arg_id, Some(&callee_expr.ty)) {
+        return;
+    }
+    targets.insert(StoreItemId {
+        package: item_id.package,
+        item: item_id.item,
+    });
+}
+
+fn call_uses_grouped_closure_payload(
+    package: &Package,
+    item_id: LocalItemId,
+    arg_id: ExprId,
+    callee_ty: Option<&Ty>,
+) -> bool {
+    let ExprKind::Tuple(args) = &package.get_expr(arg_id).kind else {
+        return false;
+    };
+    if args.len() < 2 {
+        return false;
+    }
+
+    let item_input = || {
+        let Some(ItemKind::Callable(decl)) = package.items.get(item_id).map(|item| &item.kind)
+        else {
+            return None;
+        };
+        Some(package.get_pat(decl.input).ty.clone())
+    };
+    let target_input = match callee_ty {
+        Some(Ty::Arrow(arrow)) => arrow.input.as_ref().clone(),
+        _ => item_input().unwrap_or(Ty::Err),
+    };
+    let Ty::Tuple(target_items) = target_input else {
+        return false;
+    };
+    if target_items.len() <= args.len() {
+        return false;
+    }
+
+    let trailing_arg_ty = &package
+        .get_expr(*args.last().expect("args is non-empty"))
+        .ty;
+    let Ty::Tuple(trailing_items) = trailing_arg_ty else {
+        return false;
+    };
+    args.len() - 1 + trailing_items.len() == target_items.len()
 }
 
 /// Flattens an entire callable input into one flat tuple of scalar leaves,
