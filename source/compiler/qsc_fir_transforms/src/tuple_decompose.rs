@@ -42,7 +42,8 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::{
-    alloc_local_var_expr, decompose_binding, functored_specs, reachable_local_callables,
+    alloc_assign_expr, alloc_field_path_expr, alloc_local_var_expr, alloc_semi_stmt,
+    decompose_binding, functored_specs, reachable_local_callables,
 };
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::{
@@ -53,7 +54,7 @@ use crate::walk_utils::{UseClass, classify_block_use, collect_expr_ids_in_local_
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, ItemKind,
+    Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, ItemKind,
     LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind,
     Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId,
 };
@@ -61,8 +62,6 @@ use qsc_fir::ty::Ty;
 use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::rc::Rc;
-
-use crate::EMPTY_EXEC_RANGE;
 
 /// Runs the tuple-decompose pass across the entry-reachable package closure.
 ///
@@ -464,19 +463,13 @@ fn rewrite_single_expr(
                         let ty = elem_types[idx].clone();
                         alloc_local_var_expr(package, assigner, new_local, ty, span)
                     };
-                    let replacement_id = assigner.next_expr();
-                    package.exprs.insert(
-                        replacement_id,
-                        Expr {
-                            id: replacement_id,
-                            span,
-                            ty: expr_ty,
-                            kind: ExprKind::Field(
-                                new_inner_id,
-                                Field::Path(FieldPath { indices: remaining }),
-                            ),
-                            exec_graph_range: EMPTY_EXEC_RANGE,
-                        },
+                    let replacement_id = alloc_field_path_expr(
+                        package,
+                        assigner,
+                        new_inner_id,
+                        remaining,
+                        expr_ty,
+                        span,
                     );
                     replace_expr_references(package, owner_item, expr_id, replacement_id);
                 }
@@ -743,15 +736,13 @@ fn rewrite_assign_tuples(
         // Rewrite the original Assign in-place to target the first element.
         {
             // Create a new Var expr for the first element's LHS.
-            let new_lhs_id = assigner.next_expr();
-            let new_lhs = Expr {
-                id: new_lhs_id,
-                span: Span::default(),
-                ty: elem_types[0].clone(),
-                kind: ExprKind::Var(Res::Local(new_locals[0]), vec![]),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            };
-            package.exprs.insert(new_lhs_id, new_lhs);
+            let new_lhs_id = alloc_local_var_expr(
+                package,
+                assigner,
+                new_locals[0],
+                elem_types[0].clone(),
+                Span::default(),
+            );
 
             let assign = package
                 .exprs
@@ -764,34 +755,16 @@ fn rewrite_assign_tuples(
         // For elements 1..n, create new Assign exprs and Semi stmts.
         let mut new_stmt_ids: Vec<StmtId> = Vec::with_capacity(n - 1);
         for i in 1..n {
-            let lhs_id = assigner.next_expr();
-            let lhs_expr = Expr {
-                id: lhs_id,
-                span: Span::default(),
-                ty: elem_types[i].clone(),
-                kind: ExprKind::Var(Res::Local(new_locals[i]), vec![]),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            };
-            package.exprs.insert(lhs_id, lhs_expr);
-
-            let assign_id = assigner.next_expr();
-            let assign_expr = Expr {
-                id: assign_id,
-                span: Span::default(),
-                ty: Ty::UNIT,
-                kind: ExprKind::Assign(lhs_id, elements[i]),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            };
-            package.exprs.insert(assign_id, assign_expr);
-
-            let new_stmt_id = assigner.next_stmt();
-            let new_stmt = Stmt {
-                id: new_stmt_id,
-                span: Span::default(),
-                kind: StmtKind::Semi(assign_id),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            };
-            package.stmts.insert(new_stmt_id, new_stmt);
+            let lhs_id = alloc_local_var_expr(
+                package,
+                assigner,
+                new_locals[i],
+                elem_types[i].clone(),
+                Span::default(),
+            );
+            let assign_id =
+                alloc_assign_expr(package, assigner, lhs_id, elements[i], Span::default());
+            let new_stmt_id = alloc_semi_stmt(package, assigner, assign_id, Span::default());
             new_stmt_ids.push(new_stmt_id);
         }
 

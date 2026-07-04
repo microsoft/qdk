@@ -26,12 +26,13 @@
 //! below.
 
 use crate::EMPTY_EXEC_RANGE;
+use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Ident, ItemKind,
-    LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, Pat, PatId, PatKind,
-    Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
+    BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident,
+    ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
 };
 use rustc_hash::FxHashSet;
 
@@ -98,6 +99,128 @@ pub(crate) fn alloc_field_expr(
         ),
         span,
     )
+}
+
+/// Allocates a `Field(record, Path(indices))` expression whose projection
+/// path may descend multiple tuple levels in one node.
+///
+/// Companion to [`alloc_field_expr`], which projects a single level.
+pub(crate) fn alloc_field_path_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    record_id: ExprId,
+    indices: Vec<usize>,
+    ty: Ty,
+    span: Span,
+) -> ExprId {
+    alloc_expr(
+        package,
+        assigner,
+        ty,
+        ExprKind::Field(record_id, Field::Path(FieldPath { indices })),
+        span,
+    )
+}
+
+/// Allocates a `Var(Res::Item(item_id))` expression referencing a global item.
+pub(crate) fn alloc_item_var_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    item_id: ItemId,
+    ty: Ty,
+    span: Span,
+) -> ExprId {
+    alloc_expr(
+        package,
+        assigner,
+        ty,
+        ExprKind::Var(Res::Item(item_id), Vec::new()),
+        span,
+    )
+}
+
+/// Allocates a `Call(callee, args)` expression.
+pub(crate) fn alloc_call_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    callee_id: ExprId,
+    args_id: ExprId,
+    ty: Ty,
+    span: Span,
+) -> ExprId {
+    alloc_expr(
+        package,
+        assigner,
+        ty,
+        ExprKind::Call(callee_id, args_id),
+        span,
+    )
+}
+
+/// Allocates an integer literal expression with `Int` type.
+pub(crate) fn alloc_int_lit(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    value: i64,
+    span: Span,
+) -> ExprId {
+    alloc_expr(
+        package,
+        assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Lit(Lit::Int(value)),
+        span,
+    )
+}
+
+/// Wraps `base_id` in a chain of functor applications (`Adj` then `controlled`
+/// layers of `Ctl`) as described by `functor`, allocating one `UnOp` `Expr`
+/// per layer. Returns the id of the outermost expression, which equals
+/// `base_id` when `functor` requests no functors. Every allocated node carries
+/// `ty` and `span`.
+pub(crate) fn wrap_in_functors(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    base_id: ExprId,
+    functor: FunctorApp,
+    ty: &Ty,
+    span: Span,
+) -> ExprId {
+    let mut current_id = base_id;
+    if functor.adjoint {
+        current_id = alloc_expr(
+            package,
+            assigner,
+            ty.clone(),
+            ExprKind::UnOp(UnOp::Functor(Functor::Adj), current_id),
+            span,
+        );
+    }
+    for _ in 0..functor.controlled {
+        current_id = alloc_expr(
+            package,
+            assigner,
+            ty.clone(),
+            ExprKind::UnOp(UnOp::Functor(Functor::Ctl), current_id),
+            span,
+        );
+    }
+    current_id
+}
+
+/// Allocates a base expression of `base_kind` and wraps it in the functor
+/// chain described by `functor` (see [`wrap_in_functors`]). Returns the id of
+/// the outermost expression. Every allocated node carries `ty` and `span`.
+pub(crate) fn alloc_functor_wrapped_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    base_kind: ExprKind,
+    functor: FunctorApp,
+    ty: &Ty,
+    span: Span,
+) -> ExprId {
+    let base_id = alloc_expr(package, assigner, ty.clone(), base_kind, span);
+    wrap_in_functors(package, assigner, base_id, functor, ty, span)
 }
 
 /// Allocates a `BinOp(op, lhs, rhs)` expression.
@@ -208,7 +331,6 @@ pub(crate) fn alloc_unit_expr(
 }
 
 /// Allocates a `Tuple(exprs)` expression.
-#[allow(dead_code)]
 pub(crate) fn alloc_tuple_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -321,6 +443,26 @@ pub(crate) fn alloc_bind_pat(
         },
     );
     (local_id, pat_id)
+}
+
+/// Allocates a `Pat` with `PatKind::Discard` and inserts it into the package.
+pub(crate) fn alloc_discard_pat(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    ty: Ty,
+    span: Span,
+) -> PatId {
+    let pat_id = assigner.next_pat();
+    package.pats.insert(
+        pat_id,
+        Pat {
+            id: pat_id,
+            span,
+            ty,
+            kind: PatKind::Discard,
+        },
+    );
+    pat_id
 }
 
 /// Creates a local variable declaration and returns its `(LocalVarId, StmtId)`.

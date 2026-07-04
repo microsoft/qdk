@@ -49,8 +49,11 @@ mod cross_package_tests;
 #[cfg(test)]
 mod semantic_equivalence_tests;
 
-use crate::EMPTY_EXEC_RANGE;
-use crate::fir_builder::{alloc_local_var_expr, decompose_binding_to_leaves, functored_specs};
+use crate::fir_builder::{
+    alloc_block, alloc_block_expr, alloc_call_expr, alloc_expr_stmt, alloc_field_path_expr,
+    alloc_local_var, alloc_local_var_expr, alloc_tuple_expr, decompose_binding_to_leaves,
+    functored_specs,
+};
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::collect_reachable_from_entry;
 use crate::walk_utils::{
@@ -60,13 +63,12 @@ use crate::walk_utils::{
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident,
-    ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore,
-    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
+    CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, Functor, ItemKind, LocalItemId,
+    LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res,
+    SpecDecl, SpecImpl, StmtId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::rc::Rc;
 
 /// Base name for the synthesized local that holds a materialized call
 /// argument before it is projected into a promoted callable's scalar inputs
@@ -1171,18 +1173,7 @@ fn build_leaf_tuple(
         // (handled by the early return above), so this fallback is unreachable for
         // well-formed flattened inputs. Fall back to a unit tuple to keep the
         // rewrite total.
-        let expr_id = assigner.next_expr();
-        package.exprs.insert(
-            expr_id,
-            Expr {
-                id: expr_id,
-                span: Span::default(),
-                ty: sub_ty.clone(),
-                kind: ExprKind::Tuple(vec![]),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
-        );
-        return expr_id;
+        return alloc_tuple_expr(package, assigner, vec![], sub_ty.clone(), Span::default());
     };
 
     let mut child_ids = Vec::with_capacity(elems.len());
@@ -1199,18 +1190,13 @@ fn build_leaf_tuple(
         child_path.pop();
     }
 
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: sub_ty.clone(),
-            kind: ExprKind::Tuple(child_ids),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
+    alloc_tuple_expr(
+        package,
+        assigner,
+        child_ids,
+        sub_ty.clone(),
+        Span::default(),
+    )
 }
 
 /// Navigates a (possibly nested) tuple type by a positional `path`, returning
@@ -1397,35 +1383,15 @@ fn create_projection_temp_binding(
     arg_ty: &Ty,
     tmp_counter: &mut u32,
 ) -> (LocalVarId, StmtId) {
-    let local_id = assigner.next_local();
-    let pat_id = assigner.next_pat();
     let temp_name = next_arg_promote_tmp_name(tmp_counter);
-    package.pats.insert(
-        pat_id,
-        Pat {
-            id: pat_id,
-            span: Span::default(),
-            ty: arg_ty.clone(),
-            kind: PatKind::Bind(Ident {
-                id: local_id,
-                span: Span::default(),
-                name: Rc::from(temp_name.as_str()),
-            }),
-        },
-    );
-
-    let stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        stmt_id,
-        Stmt {
-            id: stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Local(Mutability::Immutable, pat_id, arg_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    (local_id, stmt_id)
+    alloc_local_var(
+        package,
+        assigner,
+        &temp_name,
+        arg_ty,
+        arg_id,
+        Mutability::Immutable,
+    )
 }
 
 /// Returns `true` when the promotion leaf at `path` can be projected out of the
@@ -1485,23 +1451,14 @@ fn project_leaf_through_tuple_literal(
         return current;
     }
 
-    let field_expr_id = assigner.next_expr();
-    package.exprs.insert(
-        field_expr_id,
-        Expr {
-            id: field_expr_id,
-            span: Span::default(),
-            ty: leaf_ty.clone(),
-            kind: ExprKind::Field(
-                current,
-                Field::Path(FieldPath {
-                    indices: rest.to_vec(),
-                }),
-            ),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    field_expr_id
+    alloc_field_path_expr(
+        package,
+        assigner,
+        current,
+        rest.to_vec(),
+        leaf_ty.clone(),
+        Span::default(),
+    )
 }
 
 /// Attempts to build the flat projected tuple argument directly from a
@@ -1560,17 +1517,7 @@ fn try_inline_tuple_literal_projection(
             .map(|(_, leaf_ty)| leaf_ty.clone())
             .collect(),
     );
-    let new_arg_id = assigner.next_expr();
-    package.exprs.insert(
-        new_arg_id,
-        Expr {
-            id: new_arg_id,
-            span: Span::default(),
-            ty: tuple_ty,
-            kind: ExprKind::Tuple(field_expr_ids),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let new_arg_id = alloc_tuple_expr(package, assigner, field_expr_ids, tuple_ty, Span::default());
     Some(new_arg_id)
 }
 
@@ -1614,24 +1561,17 @@ fn create_projected_tuple_arg(
         } else {
             arg_id
         };
-        let field_expr_id = assigner.next_expr();
-        let field_expr = qsc_fir::fir::Expr {
-            id: field_expr_id,
-            span: Span::default(),
-            ty: leaf_ty.clone(),
-            kind: ExprKind::Field(
-                field_base_id,
-                Field::Path(FieldPath {
-                    indices: path.clone(),
-                }),
-            ),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        };
-        package.exprs.insert(field_expr_id, field_expr);
+        let field_expr_id = alloc_field_path_expr(
+            package,
+            assigner,
+            field_base_id,
+            path.clone(),
+            leaf_ty.clone(),
+            Span::default(),
+        );
         field_expr_ids.push(field_expr_id);
     }
 
-    let new_arg_id = assigner.next_expr();
     let tuple_ty = Ty::Tuple(
         promotion
             .leaves
@@ -1639,15 +1579,7 @@ fn create_projected_tuple_arg(
             .map(|(_, leaf_ty)| leaf_ty.clone())
             .collect(),
     );
-    let new_arg = qsc_fir::fir::Expr {
-        id: new_arg_id,
-        span: Span::default(),
-        ty: tuple_ty,
-        kind: ExprKind::Tuple(field_expr_ids),
-        exec_graph_range: EMPTY_EXEC_RANGE,
-    };
-    package.exprs.insert(new_arg_id, new_arg);
-    new_arg_id
+    alloc_tuple_expr(package, assigner, field_expr_ids, tuple_ty, Span::default())
 }
 
 /// Wraps a single promoted payload expression in a one-element tuple argument.
@@ -1657,16 +1589,13 @@ fn create_single_tuple_arg(
     arg_id: ExprId,
     elem_types: &[Ty],
 ) -> ExprId {
-    let new_arg_id = assigner.next_expr();
-    let new_arg = qsc_fir::fir::Expr {
-        id: new_arg_id,
-        span: Span::default(),
-        ty: Ty::Tuple(elem_types.to_vec()),
-        kind: ExprKind::Tuple(vec![arg_id]),
-        exec_graph_range: EMPTY_EXEC_RANGE,
-    };
-    package.exprs.insert(new_arg_id, new_arg);
-    new_arg_id
+    alloc_tuple_expr(
+        package,
+        assigner,
+        vec![arg_id],
+        Ty::Tuple(elem_types.to_vec()),
+        Span::default(),
+    )
 }
 
 /// Builds a block expression that evaluates a leading statement before
@@ -1679,40 +1608,17 @@ fn create_payload_block(
 ) -> ExprId {
     let result_ty = package.get_expr(result_expr_id).ty.clone();
 
-    let result_stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        result_stmt_id,
-        Stmt {
-            id: result_stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Expr(result_expr_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
+    let result_stmt_id = alloc_expr_stmt(package, assigner, result_expr_id, Span::default());
+
+    let block_id = alloc_block(
+        package,
+        assigner,
+        vec![leading_stmt_id, result_stmt_id],
+        result_ty.clone(),
+        Span::default(),
     );
 
-    let block_id = assigner.next_block();
-    package.blocks.insert(
-        block_id,
-        Block {
-            id: block_id,
-            span: Span::default(),
-            ty: result_ty.clone(),
-            stmts: vec![leading_stmt_id, result_stmt_id],
-        },
-    );
-
-    let block_expr_id = assigner.next_expr();
-    package.exprs.insert(
-        block_expr_id,
-        Expr {
-            id: block_expr_id,
-            span: Span::default(),
-            ty: result_ty,
-            kind: ExprKind::Block(block_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    block_expr_id
+    alloc_block_expr(package, assigner, block_id, result_ty, Span::default())
 }
 
 /// Returns `true` when `elems` is already the fully-flattened argument list:
@@ -1829,38 +1735,23 @@ fn wrap_call_in_block(
     call_ty: &Ty,
     leading_stmt_id: StmtId,
 ) {
-    let inner_call_id = assigner.next_expr();
-    package.exprs.insert(
-        inner_call_id,
-        Expr {
-            id: inner_call_id,
-            span: Span::default(),
-            ty: call_ty.clone(),
-            kind: ExprKind::Call(callee_id, new_arg_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
+    let inner_call_id = alloc_call_expr(
+        package,
+        assigner,
+        callee_id,
+        new_arg_id,
+        call_ty.clone(),
+        Span::default(),
     );
 
-    let call_stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        call_stmt_id,
-        Stmt {
-            id: call_stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Expr(inner_call_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let call_stmt_id = alloc_expr_stmt(package, assigner, inner_call_id, Span::default());
 
-    let block_id = assigner.next_block();
-    package.blocks.insert(
-        block_id,
-        Block {
-            id: block_id,
-            span: Span::default(),
-            ty: call_ty.clone(),
-            stmts: vec![leading_stmt_id, call_stmt_id],
-        },
+    let block_id = alloc_block(
+        package,
+        assigner,
+        vec![leading_stmt_id, call_stmt_id],
+        call_ty.clone(),
+        Span::default(),
     );
 
     let call_mut = package
@@ -2053,16 +1944,12 @@ fn rebuild_controlled_arg_layers(
             package.get_expr(controls).ty.clone(),
             package.get_expr(current).ty.clone(),
         ]);
-        let tuple_id = assigner.next_expr();
-        package.exprs.insert(
-            tuple_id,
-            Expr {
-                id: tuple_id,
-                span: Span::default(),
-                ty: tuple_ty,
-                kind: ExprKind::Tuple(vec![controls, current]),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
+        let tuple_id = alloc_tuple_expr(
+            package,
+            assigner,
+            vec![controls, current],
+            tuple_ty,
+            Span::default(),
         );
         current = tuple_id;
     }

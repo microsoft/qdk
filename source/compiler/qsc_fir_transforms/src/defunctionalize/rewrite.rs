@@ -44,15 +44,18 @@ use super::{
     build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
     is_combined_eligible, partition_mixed_branch_split, ty_contains_arrow,
 };
-use crate::EMPTY_EXEC_RANGE;
+use crate::fir_builder::{
+    alloc_bin_op_expr, alloc_call_expr, alloc_expr, alloc_functor_wrapped_expr, alloc_int_lit,
+    alloc_local_var_expr,
+};
 use crate::walk_utils::{DirectChild, UseClass, classify_block_use, for_each_direct_child};
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableImpl, CallableKind, Expr, ExprId, ExprKind, Field, FieldAssign,
-    Functor, ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package, PackageId,
-    PackageLookup, Pat, PatId, PatKind, Res, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
+    ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, Pat,
+    PatId, PatKind, Res, Stmt, StmtId, StmtKind, StoreItemId,
 };
 use qsc_fir::ty::{Arrow, Prim, Ty};
 use qsc_fir::visit::{self, Visitor};
@@ -1331,31 +1334,17 @@ fn alloc_index_eq_expr(
     span: Span,
     assigner: &mut Assigner,
 ) -> ExprId {
-    let lit_id = assigner.next_expr();
     let index_value = i64::try_from(index_value).expect("dispatch index should fit in i64");
-    package.exprs.insert(
+    let lit_id = alloc_int_lit(package, assigner, index_value, span);
+    alloc_bin_op_expr(
+        package,
+        assigner,
+        BinOp::Eq,
+        index_expr_id,
         lit_id,
-        Expr {
-            id: lit_id,
-            span,
-            ty: Ty::Prim(Prim::Int),
-            kind: ExprKind::Lit(Lit::Int(index_value)),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    let cond_id = assigner.next_expr();
-    package.exprs.insert(
-        cond_id,
-        Expr {
-            id: cond_id,
-            span,
-            ty: Ty::Prim(Prim::Bool),
-            kind: ExprKind::BinOp(BinOp::Eq, index_expr_id, lit_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    cond_id
+        Ty::Prim(Prim::Bool),
+        span,
+    )
 }
 
 /// FIR [`Visitor`] that records the initializer expression of the `Local`
@@ -2475,16 +2464,12 @@ fn rewrite_direct_closure_args(
     let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
     let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
 
-    let preserved_args_id = assigner.next_expr();
-    package.exprs.insert(
-        preserved_args_id,
-        Expr {
-            id: preserved_args_id,
-            span: args_expr.span,
-            ty: args_expr.ty.clone(),
-            kind: args_expr.kind,
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
+    let preserved_args_id = alloc_expr(
+        package,
+        assigner,
+        args_expr.ty.clone(),
+        args_expr.kind,
+        args_expr.span,
     );
 
     let mut new_elements = capture_ids;
@@ -2661,31 +2646,16 @@ fn create_direct_branch_call(
         package_direct_lambda,
         assigner,
     );
-    let args_id = assigner.next_expr();
-    package.exprs.insert(
+    let args_id = alloc_expr(package, assigner, args_ty, args_kind, span);
+
+    alloc_call_expr(
+        package,
+        assigner,
+        callee_id,
         args_id,
-        Expr {
-            id: args_id,
-            span,
-            ty: args_ty,
-            kind: args_kind,
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    let call_id = assigner.next_expr();
-    package.exprs.insert(
-        call_id,
-        Expr {
-            id: call_id,
-            span,
-            ty: result_ty.clone(),
-            kind: ExprKind::Call(callee_id, args_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    call_id
+        result_ty.clone(),
+        span,
+    )
 }
 
 /// Assembles the argument-tuple expressions for a direct-call branch,
@@ -2740,16 +2710,12 @@ fn build_direct_branch_args_data(
             assigner,
         );
 
-        let inner_id = assigner.next_expr();
-        package.exprs.insert(
-            inner_id,
-            Expr {
-                id: inner_id,
-                span: inner_orig.span,
-                ty: inner_ty.clone(),
-                kind: inner_kind,
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
+        let inner_id = alloc_expr(
+            package,
+            assigner,
+            inner_ty.clone(),
+            inner_kind,
+            inner_orig.span,
         );
 
         return (
@@ -2765,16 +2731,12 @@ fn build_direct_branch_args_data(
     let capture_ids = allocate_capture_exprs(package, orig_args.span, captures, assigner);
     let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
 
-    let preserved_args_id = assigner.next_expr();
-    package.exprs.insert(
-        preserved_args_id,
-        Expr {
-            id: preserved_args_id,
-            span: orig_args.span,
-            ty: orig_args.ty.clone(),
-            kind: orig_args.kind.clone(),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
+    let preserved_args_id = alloc_expr(
+        package,
+        assigner,
+        orig_args.ty.clone(),
+        orig_args.kind.clone(),
+        orig_args.span,
     );
 
     let mut tuple_items = capture_ids;
@@ -3693,16 +3655,12 @@ fn rewrite_single_arg_nested(
             // `Tuple([args_id, ...])` contain itself, producing a
             // self-referential expr cycle that overflows any later
             // expression-tree walk.
-            let payload_id = assigner.next_expr();
-            package.exprs.insert(
-                payload_id,
-                Expr {
-                    id: payload_id,
-                    span,
-                    ty: modified_expr.ty.clone(),
-                    kind: modified_expr.kind.clone(),
-                    exec_graph_range: EMPTY_EXEC_RANGE,
-                },
+            let payload_id = alloc_expr(
+                package,
+                assigner,
+                modified_expr.ty.clone(),
+                modified_expr.kind.clone(),
+                span,
             );
             vec![payload_id]
         };
@@ -3834,16 +3792,12 @@ fn rewrite_nested_arg_expr_remove_fields_as_payload(
     let (mut elements, mut tys) = if payload_is_empty {
         (Vec::new(), Vec::new())
     } else {
-        let payload_id = assigner.next_expr();
-        package.exprs.insert(
-            payload_id,
-            Expr {
-                id: payload_id,
-                span: args_expr.span,
-                ty: payload_ty.clone(),
-                kind: payload_kind,
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
+        let payload_id = alloc_expr(
+            package,
+            assigner,
+            payload_ty.clone(),
+            payload_kind,
+            args_expr.span,
         );
         (vec![payload_id], vec![payload_ty])
     };
@@ -3971,17 +3925,7 @@ fn rewrite_local_single_arg_nested(
     // self-referential `Tuple([args_id, ...])` cycle the plain fallback in
     // `rewrite_single_arg_nested` would otherwise build for a non-`Tuple` `Var`
     // arg carrying captures.
-    let payload_id = assigner.next_expr();
-    package.exprs.insert(
-        payload_id,
-        Expr {
-            id: payload_id,
-            span: args_expr.span,
-            ty: ty.clone(),
-            kind,
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let payload_id = alloc_expr(package, assigner, ty.clone(), kind, args_expr.span);
     let capture_ids = allocate_capture_exprs(package, args_expr.span, captures, assigner);
     let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
     let mut elements = vec![payload_id];
@@ -4168,17 +4112,7 @@ fn build_removed_nested_expr_data(
     let (child_kind, child_ty) =
         build_removed_nested_expr_data(package, elements[index], rest, assigner)?;
     let child_span = package.get_expr(elements[index]).span;
-    let child_id = assigner.next_expr();
-    package.exprs.insert(
-        child_id,
-        Expr {
-            id: child_id,
-            span: child_span,
-            ty: child_ty,
-            kind: child_kind,
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let child_id = alloc_expr(package, assigner, child_ty, child_kind, child_span);
     let mut new_elements = elements;
     new_elements[index] = child_id;
     let new_tys: Vec<Ty> = new_elements
@@ -4337,15 +4271,7 @@ fn allocate_capture_exprs(
             continue;
         }
 
-        let new_id = assigner.next_expr();
-        let new_expr = Expr {
-            id: new_id,
-            span,
-            ty: capture.ty.clone(),
-            kind: ExprKind::Var(Res::Local(capture.var), Vec::new()),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        };
-        package.exprs.insert(new_id, new_expr);
+        let new_id = alloc_local_var_expr(package, assigner, capture.var, capture.ty.clone(), span);
         ids.push(new_id);
     }
 
@@ -4525,16 +4451,7 @@ fn clone_capture_literal_with_substitutions(
         _ => expr.kind.clone(),
     };
 
-    let new_id = assigner.next_expr();
-    let new_expr = Expr {
-        id: new_id,
-        span: expr.span,
-        ty: expr.ty.clone(),
-        kind: new_kind,
-        exec_graph_range: EMPTY_EXEC_RANGE,
-    };
-    package.exprs.insert(new_id, new_expr);
-    new_id
+    alloc_expr(package, assigner, expr.ty.clone(), new_kind, expr.span)
 }
 
 /// Reports whether a `Call`'s callee resolves to a pure `function`.
@@ -4798,65 +4715,26 @@ fn rewrite_item_callee_with_functor(
     functor: FunctorApp,
     assigner: &mut Assigner,
 ) {
-    let callee_expr = package.get_expr(callee_id).clone();
+    let span = package.get_expr(callee_id).span;
+    let base_kind = ExprKind::Var(Res::Item(item_id), Vec::new());
 
     if !functor.adjoint && functor.controlled == 0 {
         let expr = package
             .exprs
             .get_mut(callee_id)
             .expect("callee expr not found");
-        expr.kind = ExprKind::Var(Res::Item(item_id), Vec::new());
+        expr.kind = base_kind;
         expr.ty = callee_ty;
         return;
     }
 
     // Rebuild the functor wrapper chain from the inside out, then copy the
     // outermost node back into the original callee slot.
-    let mut current_id = assigner.next_expr();
-    package.exprs.insert(
-        current_id,
-        Expr {
-            id: current_id,
-            span: callee_expr.span,
-            ty: callee_ty.clone(),
-            kind: ExprKind::Var(Res::Item(item_id), Vec::new()),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    if functor.adjoint {
-        let adj_id = assigner.next_expr();
-        package.exprs.insert(
-            adj_id,
-            Expr {
-                id: adj_id,
-                span: callee_expr.span,
-                ty: callee_ty.clone(),
-                kind: ExprKind::UnOp(UnOp::Functor(Functor::Adj), current_id),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
-        );
-        current_id = adj_id;
-    }
-
-    for _ in 0..functor.controlled {
-        let ctl_id = assigner.next_expr();
-        package.exprs.insert(
-            ctl_id,
-            Expr {
-                id: ctl_id,
-                span: callee_expr.span,
-                ty: callee_ty.clone(),
-                kind: ExprKind::UnOp(UnOp::Functor(Functor::Ctl), current_id),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
-        );
-        current_id = ctl_id;
-    }
-
+    let outer_id =
+        alloc_functor_wrapped_expr(package, assigner, base_kind, functor, &callee_ty, span);
     let outermost_kind = package
         .exprs
-        .get(current_id)
+        .get(outer_id)
         .expect("specialized callee wrapper should exist")
         .kind
         .clone();
@@ -5206,32 +5084,17 @@ fn create_branch_call(
     let (args_kind, args_ty) =
         build_branch_args_data(package, orig_args, &input_path, &captures, span, assigner);
 
-    let args_id = assigner.next_expr();
-    package.exprs.insert(
-        args_id,
-        Expr {
-            id: args_id,
-            span,
-            ty: args_ty,
-            kind: args_kind,
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let args_id = alloc_expr(package, assigner, args_ty, args_kind, span);
 
     // Call expression.
-    let call_id = assigner.next_expr();
-    package.exprs.insert(
-        call_id,
-        Expr {
-            id: call_id,
-            span,
-            ty: result_ty.clone(),
-            kind: ExprKind::Call(callee_id, args_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    call_id
+    alloc_call_expr(
+        package,
+        assigner,
+        callee_id,
+        args_id,
+        result_ty.clone(),
+        span,
+    )
 }
 
 /// Creates a single dispatch leaf for the combined branch-split path, returning
@@ -5353,32 +5216,18 @@ fn create_combined_branch_call(
         )
     };
     // Allocate the new args expression node.
-    let args_id = assigner.next_expr();
-    package.exprs.insert(
-        args_id,
-        Expr {
-            id: args_id,
-            span,
-            ty: args_ty,
-            kind: args_kind,
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let args_id = alloc_expr(package, assigner, args_ty, args_kind, span);
 
     // Allocate the call expression that invokes the combined spec with the
     // rewritten args, and hand back its id as this dispatch leaf.
-    let call_id = assigner.next_expr();
-    package.exprs.insert(
-        call_id,
-        Expr {
-            id: call_id,
-            span,
-            ty: result_ty.clone(),
-            kind: ExprKind::Call(callee_id, args_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    call_id
+    alloc_call_expr(
+        package,
+        assigner,
+        callee_id,
+        args_id,
+        result_ty.clone(),
+        span,
+    )
 }
 
 /// Builds the `(ExprKind, Ty)` for a combined dispatch leaf's argument tuple:
@@ -5441,17 +5290,7 @@ fn build_combined_nested_branch_args_data(
             return (payload_kind, payload_ty);
         }
 
-        let payload_id = assigner.next_expr();
-        package.exprs.insert(
-            payload_id,
-            Expr {
-                id: payload_id,
-                span,
-                ty: payload_ty.clone(),
-                kind: payload_kind,
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
-        );
+        let payload_id = alloc_expr(package, assigner, payload_ty.clone(), payload_kind, span);
 
         let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
         let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
@@ -5728,49 +5567,14 @@ fn alloc_item_callee_expr_with_functor(
     functor: FunctorApp,
     assigner: &mut Assigner,
 ) -> ExprId {
-    let mut current_id = assigner.next_expr();
-    package.exprs.insert(
-        current_id,
-        Expr {
-            id: current_id,
-            span,
-            ty: callee_ty.clone(),
-            kind: ExprKind::Var(Res::Item(item_id), Vec::new()),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    if functor.adjoint {
-        let adj_id = assigner.next_expr();
-        package.exprs.insert(
-            adj_id,
-            Expr {
-                id: adj_id,
-                span,
-                ty: callee_ty.clone(),
-                kind: ExprKind::UnOp(UnOp::Functor(Functor::Adj), current_id),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
-        );
-        current_id = adj_id;
-    }
-
-    for _ in 0..functor.controlled {
-        let ctl_id = assigner.next_expr();
-        package.exprs.insert(
-            ctl_id,
-            Expr {
-                id: ctl_id,
-                span,
-                ty: callee_ty.clone(),
-                kind: ExprKind::UnOp(UnOp::Functor(Functor::Ctl), current_id),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
-        );
-        current_id = ctl_id;
-    }
-
-    current_id
+    alloc_functor_wrapped_expr(
+        package,
+        assigner,
+        ExprKind::Var(Res::Item(item_id), Vec::new()),
+        functor,
+        callee_ty,
+        span,
+    )
 }
 
 /// Allocates a new `ExprKind::If` expression and inserts it into the package
@@ -5784,18 +5588,15 @@ fn alloc_if_expr(
     false_id: ExprId,
     assigner: &mut Assigner,
 ) -> ExprId {
-    let if_id = assigner.next_expr();
-    package.exprs.insert(
-        if_id,
-        Expr {
-            id: if_id,
-            span,
-            ty: result_ty.clone(),
-            kind: ExprKind::If(cond_id, true_id, Some(false_id)),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    if_id
+    crate::fir_builder::alloc_if_expr(
+        package,
+        assigner,
+        cond_id,
+        true_id,
+        Some(false_id),
+        result_ty.clone(),
+        span,
+    )
 }
 
 /// Builds a nested `if`/`else` tree selecting one of several specialized calls,
