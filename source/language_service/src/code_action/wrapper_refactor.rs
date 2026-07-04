@@ -178,7 +178,7 @@ fn build_binding_expr(name: &str, ty: &Ty, decls: &mut Vec<String>) -> String {
                 SizeKind::Known(n) => {
                     decls.push(format!("use {name} = Qubit[{n}];"));
                 }
-                _ => {
+                SizeKind::Unknown => {
                     decls.push(format!("use {name} = Qubit[1];"));
                 }
             }
@@ -242,7 +242,7 @@ fn build_tuple_literal(
                     SizeKind::Known(n) => {
                         decls.push(format!("use {v} = Qubit[{n}];"));
                     }
-                    _ => {
+                    SizeKind::Unknown => {
                         decls.push(format!("use {v} = Qubit[1];"));
                     }
                 }
