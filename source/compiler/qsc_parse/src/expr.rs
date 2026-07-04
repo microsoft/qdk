@@ -468,7 +468,7 @@ fn expr_interpolate(s: &mut ParserContext) -> Result<Vec<StringComponent>> {
     Ok(components)
 }
 
-fn lit(s: &mut ParserContext) -> Result<Option<Lit>> {
+pub(crate) fn lit(s: &mut ParserContext) -> Result<Option<Lit>> {
     let lexeme = s.read();
 
     s.expect(

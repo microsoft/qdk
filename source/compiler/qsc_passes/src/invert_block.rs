@@ -10,7 +10,7 @@ use qsc_hir::{
         PrimField, Res, Stmt, StmtKind, UnOp,
     },
     mut_visit::{MutVisitor, walk_expr},
-    ty::{GenericArg, Prim, Ty},
+    ty::{GenericArg, Prim, SizeKind, Ty},
 };
 use rustc_hash::FxHashSet;
 
@@ -91,10 +91,11 @@ impl BlockInverter<'_> {
         match &iterable.ty {
             Ty::Prim(Prim::Range) => self.reverse_range_loop(&mut wrapper, iterable, pat, block),
 
-            Ty::Array(arr_ty) => {
+            Ty::Array(arr_ty, size_kind) => {
                 self.reverse_array_loop(
                     &mut wrapper,
                     arr_ty,
+                    size_kind,
                     iterable.clone(),
                     pat.clone(),
                     block.clone(),
@@ -116,6 +117,7 @@ impl BlockInverter<'_> {
         &mut self,
         wrapper: &mut Block,
         arr_ty: &Ty,
+        size_kind: &SizeKind,
         iterable: Expr,
         pat: Pat,
         mut block: Block,
@@ -130,7 +132,7 @@ impl BlockInverter<'_> {
                 Pat {
                     id: NodeId::default(),
                     span: Span::default(),
-                    ty: Ty::Array(Box::new(arr_ty.clone())),
+                    ty: Ty::Array(Box::new(arr_ty.clone()), *size_kind),
                     kind: PatKind::Bind(Ident {
                         id: new_arr_id,
                         span: Span::default(),
@@ -169,7 +171,7 @@ impl BlockInverter<'_> {
                         Box::new(Expr {
                             id: NodeId::default(),
                             span: Span::default(),
-                            ty: Ty::Array(Box::new(arr_ty.clone())),
+                            ty: Ty::Array(Box::new(arr_ty.clone()), *size_kind),
                             kind: ExprKind::Var(Res::Local(new_arr_id), Vec::new()),
                         }),
                         Box::new(Expr {
@@ -199,7 +201,7 @@ impl BlockInverter<'_> {
                 kind: ExprKind::For(
                     index_pat,
                     Box::new(make_array_index_range_reverse(
-                        self.core, new_arr_id, arr_ty,
+                        self.core, new_arr_id, arr_ty, size_kind,
                     )),
                     block,
                 ),
@@ -329,29 +331,43 @@ fn make_range_field(range_id: NodeId, field: PrimField) -> Expr {
     }
 }
 
-fn make_array_index_range_reverse(core: &Table, arr_id: NodeId, arr_ty: &Ty) -> Expr {
+fn make_array_index_range_reverse(
+    core: &Table,
+    arr_id: NodeId,
+    arr_ty: &Ty,
+    size_kind: &SizeKind,
+) -> Expr {
     let ns = core
         .find_namespace(CORE_NAMESPACE.iter().copied())
         .expect("prelude namespaces should exist");
+    let len_expr_kind = match size_kind {
+        SizeKind::Known(n) => ExprKind::Lit(Lit::Int(
+            (*n).try_into().expect("array size should fit in i64"),
+        )),
+        SizeKind::Unknown => {
+            // For unknown or inferred sizes, we can't create a literal, so we'll use a call to the Length function
+            ExprKind::Call(
+                Box::new(create_gen_core_ref(
+                    core,
+                    ns,
+                    "Length",
+                    vec![GenericArg::Ty(arr_ty.clone())],
+                    Span::default(),
+                )),
+                Box::new(Expr {
+                    id: NodeId::default(),
+                    span: Span::default(),
+                    ty: Ty::Array(Box::new(arr_ty.clone()), *size_kind),
+                    kind: ExprKind::Var(Res::Local(arr_id), Vec::new()),
+                }),
+            )
+        }
+    };
     let len = Box::new(Expr {
         id: NodeId::default(),
         span: Span::default(),
         ty: Ty::Prim(Prim::Int),
-        kind: ExprKind::Call(
-            Box::new(create_gen_core_ref(
-                core,
-                ns,
-                "Length",
-                vec![GenericArg::Ty(arr_ty.clone())],
-                Span::default(),
-            )),
-            Box::new(Expr {
-                id: NodeId::default(),
-                span: Span::default(),
-                ty: Ty::Array(Box::new(arr_ty.clone())),
-                kind: ExprKind::Var(Res::Local(arr_id), Vec::new()),
-            }),
-        ),
+        kind: len_expr_kind,
     });
     let start = Box::new(Expr {
         id: NodeId::default(),

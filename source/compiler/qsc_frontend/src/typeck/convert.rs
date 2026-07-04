@@ -15,8 +15,8 @@ use qsc_data_structures::span::Span;
 use qsc_hir::{
     hir::{self},
     ty::{
-        Arrow, FunctorSet, FunctorSetValue, ParamId, Scheme, Ty, TypeParameter as HirTypeParameter,
-        UdtDef, UdtDefKind, UdtField,
+        Arrow, FunctorSet, FunctorSetValue, ParamId, Scheme, SizeKind, Ty,
+        TypeParameter as HirTypeParameter, UdtDef, UdtDefKind, UdtField,
     },
 };
 use rustc_hash::FxHashSet;
@@ -48,9 +48,15 @@ pub(crate) fn ty_from_ast(
     stack: &mut FxHashSet<qsc_ast::ast::ClassConstraint>,
 ) -> (Ty, Vec<TyConversionError>) {
     match &*ty.kind {
-        TyKind::Array(item) => {
+        TyKind::Array(item, size) => {
             let (item, errors) = ty_from_ast(names, item, stack);
-            (Ty::Array(Box::new(item)), errors)
+            (
+                Ty::Array(
+                    Box::new(item),
+                    size.map_or(SizeKind::Unknown, SizeKind::Known),
+                ),
+                errors,
+            )
         }
         TyKind::Arrow(kind, input, output, functors) => {
             // shadow the stack as a new empty one, since we are in a new arrow type
@@ -294,7 +300,7 @@ pub(crate) fn synthesize_functor_params(
     ty: &mut Ty,
 ) -> Vec<HirTypeParameter> {
     match ty {
-        Ty::Array(item) => synthesize_functor_params(next_param, item),
+        Ty::Array(item, _) => synthesize_functor_params(next_param, item),
         Ty::Arrow(arrow) => {
             let functors = *arrow.functors.borrow();
             match functors {

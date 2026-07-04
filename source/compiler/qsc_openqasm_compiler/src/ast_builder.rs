@@ -1245,7 +1245,7 @@ fn build_array_type_name<S: AsRef<str>>(name: S, dims: ArrayDimensions) -> Ty {
 }
 
 fn wrap_ty_in_array(ty: Ty) -> Ty {
-    let kind = TyKind::Array(Box::new(ty));
+    let kind = TyKind::Array(Box::new(ty), None);
     Ty {
         kind: Box::new(kind),
         ..Default::default()

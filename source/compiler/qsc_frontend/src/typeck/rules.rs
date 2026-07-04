@@ -17,7 +17,7 @@ use qsc_ast::ast::{
 use qsc_data_structures::span::Span;
 use qsc_hir::{
     hir::{self, ItemId},
-    ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Prim, Scheme, Ty, Udt},
+    ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Prim, Scheme, SizeKind, Ty, Udt},
 };
 use rustc_hash::FxHashMap;
 use std::{cell::RefCell, rc::Rc};
@@ -84,7 +84,7 @@ impl<'a> Context<'a> {
             let expected = match spec.spec {
                 Spec::Body | Spec::Adj => callable_input,
                 Spec::Ctl | Spec::CtlAdj => Ty::Tuple(vec![
-                    Ty::Array(Box::new(Ty::Prim(Prim::Qubit))),
+                    Ty::Array(Box::new(Ty::Prim(Prim::Qubit)), SizeKind::Unknown),
                     callable_input,
                 ]),
             };
@@ -110,7 +110,13 @@ impl<'a> Context<'a> {
 
     fn infer_ty(&mut self, ty: &ast::Ty) -> Ty {
         match &*ty.kind {
-            TyKind::Array(item) => Ty::Array(Box::new(self.infer_ty(item))),
+            TyKind::Array(item, size) => Ty::Array(
+                Box::new(self.infer_ty(item)),
+                match size {
+                    Some(s) => SizeKind::Known(*s),
+                    None => SizeKind::Unknown,
+                },
+            ),
             TyKind::Arrow(kind, input, output, functors) => Ty::Arrow(Rc::new(Arrow {
                 kind: convert::callable_kind_from_ast(*kind),
                 input: RefCell::new(self.infer_ty(input)),
@@ -234,18 +240,28 @@ impl<'a> Context<'a> {
                         diverges = diverges || item.diverges;
                         self.inferrer.eq(span, first.ty.clone(), item.ty);
                     }
-                    converge(Ty::Array(Box::new(first.ty))).diverge_if(diverges)
+                    converge(Ty::Array(Box::new(first.ty), SizeKind::Known(items.len())))
+                        .diverge_if(diverges)
                 }
-                None => converge(Ty::Array(Box::new(
-                    self.inferrer.fresh_ty(TySource::not_divergent(expr.span)),
-                ))),
+                None => converge(Ty::Array(
+                    Box::new(self.inferrer.fresh_ty(TySource::not_divergent(expr.span))),
+                    SizeKind::Known(0),
+                )),
             },
             ExprKind::ArrayRepeat(item, size) => {
                 let item = self.infer_expr(item);
                 let size_span = size.span;
+                let size_kind = if let ExprKind::Lit(lit) = size.kind.as_ref()
+                    && let Lit::Int(size_val) = lit.as_ref()
+                {
+                    SizeKind::Known((*size_val).try_into().unwrap_or(0))
+                } else {
+                    SizeKind::Unknown
+                };
                 let size = self.infer_expr(size);
                 self.inferrer.eq(size_span, Ty::Prim(Prim::Int), size.ty);
-                converge(Ty::Array(Box::new(item.ty))).diverge_if(item.diverges || size.diverges)
+                converge(Ty::Array(Box::new(item.ty), size_kind))
+                    .diverge_if(item.diverges || size.diverges)
             }
             ExprKind::Assign(lhs, rhs) => {
                 let lhs_span = lhs.span;
@@ -410,7 +426,7 @@ impl<'a> Context<'a> {
                 self.inferrer.eq(
                     container_span,
                     container.ty.clone(),
-                    Ty::Array(Box::new(container_item_ty)),
+                    Ty::Array(Box::new(container_item_ty), SizeKind::Unknown),
                 );
                 self.inferrer.class(
                     expr.span,
@@ -999,10 +1015,18 @@ impl<'a> Context<'a> {
         let ty = match &*init.kind {
             QubitInitKind::Array(length) => {
                 let length_span = length.span;
+                let size_kind = if let ExprKind::Lit(lit) = length.kind.as_ref()
+                    && let Lit::Int(size_val) = lit.as_ref()
+                {
+                    SizeKind::Known((*size_val).try_into().unwrap_or(0))
+                } else {
+                    SizeKind::Unknown
+                };
                 let length = self.infer_expr(length);
                 self.inferrer
                     .eq(length_span, Ty::Prim(Prim::Int), length.ty);
-                converge(Ty::Array(Box::new(Ty::Prim(Prim::Qubit)))).diverge_if(length.diverges)
+                converge(Ty::Array(Box::new(Ty::Prim(Prim::Qubit)), size_kind))
+                    .diverge_if(length.diverges)
             }
             QubitInitKind::Paren(inner) => self.infer_qubit_init(inner),
             QubitInitKind::Single => converge(Ty::Prim(Prim::Qubit)),

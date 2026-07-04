@@ -266,14 +266,14 @@ impl MutVisitor for ConvertToWSlash<'_> {
 /// The resulting type after applying the index. Returns `Ty::Err` if the `index_type` is
 /// not an array type or `target_index` is not an integer or range type.
 fn calculate_indexed_type(index_type: Ty, target_index: &IdentTemplate) -> Ty {
-    if matches!(index_type, Ty::Array(_)) {
+    if matches!(index_type, Ty::Array(_, _)) {
         // Check the target_index's type
         match &target_index.ty {
             // If indexing with Range, preserve the array type
             Ty::Prim(Prim::Range) => index_type,
             // For Int, extract the element type
             Ty::Prim(Prim::Int) => {
-                if let Ty::Array(element_ty) = index_type {
+                if let Ty::Array(element_ty, _) = index_type {
                     *element_ty
                 } else {
                     // If the type is not an array, return an error

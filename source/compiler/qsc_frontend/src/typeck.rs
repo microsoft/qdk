@@ -22,7 +22,7 @@ use qsc_ast::ast::NodeId;
 use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     hir::{CallableKind, ItemId},
-    ty::{FunctorSet, GenericArg, InferTyId, Prim, Ty, Udt},
+    ty::{FunctorSet, GenericArg, InferTyId, Prim, SizeKind, Ty, Udt},
 };
 use rustc_hash::FxHashMap;
 use std::fmt::Debug;
@@ -51,7 +51,7 @@ pub(super) struct Error(ErrorKind);
 /// so it can be included in `ErrorKind` (which must be `Send + Sync`).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub enum TyInfoKind {
-    Array(Box<TyInfoKind>),
+    Array(Box<TyInfoKind>, Option<usize>),
     Arrow,
     Infer(InferTyId),
     Param,
@@ -78,7 +78,13 @@ impl std::fmt::Display for TyInfo {
 impl From<&Ty> for TyInfoKind {
     fn from(ty: &Ty) -> Self {
         match ty {
-            Ty::Array(item) => TyInfoKind::Array(Box::new(TyInfoKind::from(item.as_ref()))),
+            Ty::Array(item, size) => TyInfoKind::Array(
+                Box::new(TyInfoKind::from(item.as_ref())),
+                match size {
+                    SizeKind::Known(s) => Some(*s),
+                    SizeKind::Unknown => None,
+                },
+            ),
             Ty::Arrow(_) => TyInfoKind::Arrow,
             Ty::Infer(id) => TyInfoKind::Infer(*id),
             Ty::Param { .. } => TyInfoKind::Param,

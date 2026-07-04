@@ -13,13 +13,14 @@ use super::{
 use crate::{
     ErrorKind,
     completion::WordKinds,
+    expr::lit,
     item::throw_away_doc,
     lex::{ClosedBinOp, Delim, TokenKind},
     prim::{ident, parse_or_else, recovering_path},
 };
 use qsc_ast::ast::{
     CallableKind, ClassConstraint, ClassConstraints, ConstraintParameter, Functor, FunctorExpr,
-    FunctorExprKind, NodeId, SetOp, Ty, TyKind, TypeParameter,
+    FunctorExprKind, Lit, NodeId, SetOp, Ty, TyKind, TypeParameter,
 };
 
 pub(super) fn ty(s: &mut ParserContext) -> Result<Ty> {
@@ -43,11 +44,11 @@ pub(super) fn recovering_ty(s: &mut ParserContext) -> Result<Ty> {
 
 pub(super) fn array_or_arrow(s: &mut ParserContext<'_>, mut lhs: Ty, lo: u32) -> Result<Ty> {
     loop {
-        if let Some(()) = opt(s, array)? {
+        if let Some(size) = opt(s, array)? {
             lhs = Ty {
                 id: NodeId::default(),
                 span: s.span(lo),
-                kind: Box::new(TyKind::Array(Box::new(lhs))),
+                kind: Box::new(TyKind::Array(Box::new(lhs), size)),
             }
         } else if let Some(kind) = opt(s, arrow)? {
             let output = recovering_ty(s)?;
@@ -122,10 +123,19 @@ fn class_constraints(s: &mut ParserContext) -> Result<ClassConstraints> {
     Ok(ClassConstraints(bounds.into_boxed_slice()))
 }
 
-fn array(s: &mut ParserContext) -> Result<()> {
+fn array(s: &mut ParserContext) -> Result<Option<usize>> {
     token(s, TokenKind::Open(Delim::Bracket))?;
+    let size_span = s.peek().span;
+    let size = match lit(s)? {
+        None => None,
+        Some(Lit::Int(s)) => Some(s.try_into().unwrap_or(0)),
+        _ => {
+            s.push_error(Error::new(ErrorKind::Lit("integer array size", size_span)));
+            None
+        }
+    };
     token(s, TokenKind::Close(Delim::Bracket))?;
-    Ok(())
+    Ok(size)
 }
 
 fn arrow(s: &mut ParserContext) -> Result<CallableKind> {

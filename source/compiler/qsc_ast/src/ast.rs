@@ -679,7 +679,7 @@ impl WithSpan for Ty {
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Default)]
 pub enum TyKind {
     /// An array type.
-    Array(Box<Ty>),
+    Array(Box<Ty>, Option<usize>),
     /// An arrow type: `->` for a function or `=>` for an operation.
     Arrow(CallableKind, Box<Ty>, Box<Ty>, Option<Box<FunctorExpr>>),
     /// An unspecified type, `_`, which may be inferred.
@@ -701,7 +701,13 @@ impl Display for TyKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
         match self {
-            TyKind::Array(item) => write!(indent, "Array: {item}")?,
+            TyKind::Array(item, size) => {
+                if let Some(s) = size {
+                    write!(indent, "Array[{s}]: {item}")?;
+                } else {
+                    write!(indent, "Array: {item}")?;
+                }
+            }
             TyKind::Arrow(ck, param, rtrn, functors) => {
                 write!(indent, "Arrow ({ck:?}):")?;
                 indent = set_indentation(indent, 1);

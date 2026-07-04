@@ -7,7 +7,7 @@ use qsc_hir::{
     hir::{ItemId, PrimField, Res},
     ty::{
         Arrow, ClassConstraint, FunctorSet, FunctorSetValue, GenericArg, InferFunctorId, InferTyId,
-        Prim, Scheme, Ty, TypeParameter, Udt,
+        Prim, Scheme, SizeKind, Ty, TypeParameter, Udt,
     },
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -707,7 +707,7 @@ impl Solver {
             | (_, Ty::Err)
             | (Ty::Udt(_, Res::Err), Ty::Udt(_, _))
             | (Ty::Udt(_, _), Ty::Udt(_, Res::Err)) => Vec::new(),
-            (Ty::Array(item1), Ty::Array(item2)) => self.unify(item1, item2, span),
+            (Ty::Array(item1, _), Ty::Array(item2, _)) => self.unify(item1, item2, span),
             (Ty::Arrow(arrow1), Ty::Arrow(arrow2)) => {
                 if arrow1.kind != arrow2.kind {
                     self.errors.push(Error(ErrorKind::CallableMismatch(
@@ -811,7 +811,15 @@ impl Solver {
                 .push(Error(ErrorKind::RecursiveTypeConstraint(span)));
             return Vec::new();
         }
-        self.solution.tys.insert(infer, ty.clone());
+        let new_ty = if let Ty::Array(inner, _) = &ty {
+            // Do not propagate the size of the array when binding an inference type to it,
+            // because the size may be influenced by other expressions. We solve for size
+            // constraints at a later stage.
+            Ty::Array(inner.clone(), SizeKind::Unknown)
+        } else {
+            ty.clone()
+        };
+        self.solution.tys.insert(infer, new_ty);
         let mut constraint = vec![Constraint::Eq {
             expected: ty,
             actual: Ty::Infer(infer),
@@ -877,7 +885,7 @@ fn substitute_ty(solution: &Solution, ty: &mut Ty) -> bool {
         }
         match ty {
             Ty::Err | Ty::Param { .. } | Ty::Prim(_) | Ty::Udt(_, _) => true,
-            Ty::Array(item) => substitute_ty_recursive(solution, item, limit - 1),
+            Ty::Array(item, _) => substitute_ty_recursive(solution, item, limit - 1),
             Ty::Arrow(arrow) => {
                 // These updates require borrowing the values inside the RefCells mutably.
                 // This should be safe because no other code should be borrowing these values at the same time,
@@ -963,7 +971,7 @@ fn unknown_ty(solved_types: &IndexMap<InferTyId, Ty>, given_type: &Ty) -> Option
 fn links_to_infer_ty(solution_tys: &IndexMap<InferTyId, Ty>, id: InferTyId, ty: &Ty) -> bool {
     match ty {
         Ty::Err | Ty::Param { .. } | Ty::Prim(_) | Ty::Udt(_, _) => false,
-        Ty::Array(item) => links_to_infer_ty(solution_tys, id, item),
+        Ty::Array(item, _) => links_to_infer_ty(solution_tys, id, item),
         Ty::Arrow(arrow) => {
             links_to_infer_ty(solution_tys, id, &arrow.input.borrow())
                 || links_to_infer_ty(solution_tys, id, &arrow.output.borrow())
@@ -985,7 +993,7 @@ fn links_to_infer_ty(solution_tys: &IndexMap<InferTyId, Ty>, id: InferTyId, ty: 
 
 fn check_add(ty: &Ty) -> bool {
     match ty {
-        Ty::Prim(Prim::BigInt | Prim::Double | Prim::Int | Prim::String) | Ty::Array(_) => true,
+        Ty::Prim(Prim::BigInt | Prim::Double | Prim::Int | Prim::String) | Ty::Array(_, _) => true,
         Ty::Param { bounds, .. } => bounds
             .0
             .iter()
@@ -1058,7 +1066,7 @@ fn check_ctl(op: Ty, with_ctls: Ty, span: Span) -> (Vec<Constraint>, Vec<Error>)
         );
     };
 
-    let qubit_array = Ty::Array(Box::new(Ty::Prim(Prim::Qubit)));
+    let qubit_array = Ty::Array(Box::new(Ty::Prim(Prim::Qubit)), SizeKind::Unknown);
     let ctl_input = RefCell::new(Ty::Tuple(vec![qubit_array, arrow.input.borrow().clone()]));
     let actual = *arrow.functors.borrow();
     (
@@ -1097,7 +1105,7 @@ fn check_eq(ty: Ty, span: Span) -> (Vec<Constraint>, Vec<Error>) {
             | Prim::String
             | Prim::Pauli,
         ) => (Vec::new(), Vec::new()),
-        Ty::Array(item) => (vec![Constraint::Class(Class::Eq(*item), span)], Vec::new()),
+        Ty::Array(item, _) => (vec![Constraint::Class(Class::Eq(*item), span)], Vec::new()),
         Ty::Tuple(items) => (
             items
                 .into_iter()
@@ -1317,7 +1325,7 @@ fn check_has_index(
     span: Span,
 ) -> (Vec<Constraint>, Vec<Error>) {
     match (container, index) {
-        (Ty::Array(container_item), Ty::Prim(Prim::Int)) => (
+        (Ty::Array(container_item, _), Ty::Prim(Prim::Int)) => (
             vec![Constraint::Eq {
                 expected: *container_item,
                 actual: item,
@@ -1326,7 +1334,7 @@ fn check_has_index(
             Vec::new(),
         ),
         (
-            container @ Ty::Array(_),
+            container @ Ty::Array(_, _),
             Ty::Prim(Prim::Range | Prim::RangeFrom | Prim::RangeTo | Prim::RangeFull),
         ) => (
             vec![Constraint::Eq {
@@ -1368,7 +1376,7 @@ fn check_iterable(container: Ty, item: Ty, span: Span) -> (Vec<Constraint>, Vec<
             }],
             Vec::new(),
         ),
-        Ty::Array(container_item) => (
+        Ty::Array(container_item, _) => (
             vec![Constraint::Eq {
                 expected: *container_item,
                 actual: item,
@@ -1414,7 +1422,7 @@ fn check_num_constraint(constraint: &ClassConstraint, ty: &Ty) -> bool {
 
 fn check_show(ty: Ty, span: Span) -> (Vec<Constraint>, Vec<Error>) {
     match ty {
-        Ty::Array(item) => (
+        Ty::Array(item, _) => (
             vec![Constraint::Class(Class::Show(*item), span)],
             Vec::new(),
         ),

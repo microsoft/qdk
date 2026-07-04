@@ -48,7 +48,7 @@ pub(crate) fn wrap_in_array_fixes(
     for (expected, actual, error_span) in ty_mismatches {
         // Check if expected is Array(T) and actual is a matching primitive T.
         // Scoped to primitives to include Qubit, exclude tuples, and provide an intelligible stopping point.
-        if let TyInfoKind::Array(item_ty) = &expected.kind
+        if let TyInfoKind::Array(item_ty, _) = &expected.kind
             && item_ty.as_ref() == &actual.kind
             && matches!(actual.kind, TyInfoKind::Prim(_))
         {

@@ -9,7 +9,7 @@ mod tests;
 
 use qsc::hir::{
     CallableKind, ItemKind, PatKind,
-    ty::{Prim, Ty},
+    ty::{Prim, SizeKind, Ty},
 };
 use qsc::{
     Span,
@@ -173,8 +173,15 @@ fn build_binding_expr(name: &str, ty: &Ty, decls: &mut Vec<String>) -> String {
             decls.push(format!("use {name} = Qubit();"));
             name.to_string()
         }
-        Ty::Array(inner) if matches!(**inner, Ty::Prim(Prim::Qubit)) => {
-            decls.push(format!("use {name} = Qubit[1];"));
+        Ty::Array(inner, size_kind) if matches!(**inner, Ty::Prim(Prim::Qubit)) => {
+            match size_kind {
+                SizeKind::Known(n) => {
+                    decls.push(format!("use {name} = Qubit[{n}];"));
+                }
+                _ => {
+                    decls.push(format!("use {name} = Qubit[1];"));
+                }
+            }
             name.to_string()
         }
         Ty::Tuple(items) => {
@@ -228,10 +235,17 @@ fn build_tuple_literal(
                 decls.push(format!("use {v} = Qubit();"));
                 parts.push(v);
             }
-            Ty::Array(inner) if matches!(**inner, Ty::Prim(Prim::Qubit)) => {
+            Ty::Array(inner, size_kind) if matches!(**inner, Ty::Prim(Prim::Qubit)) => {
                 let v = format!("{base}_qs{qubit_reg_counter}");
                 *qubit_reg_counter += 1;
-                decls.push(format!("use {v} = Qubit[1];"));
+                match size_kind {
+                    SizeKind::Known(n) => {
+                        decls.push(format!("use {v} = Qubit[{n}];"));
+                    }
+                    _ => {
+                        decls.push(format!("use {v} = Qubit[1];"));
+                    }
+                }
                 parts.push(v);
             }
             Ty::Tuple(sub) => {
@@ -280,7 +294,8 @@ fn default_value_for_type(ty: &Ty) -> (Option<String>, String) {
                 (Some("0..1".to_string()), "Range".to_string())
             }
         },
-        Ty::Array(_) => (Some("[]".to_string()), "Array".to_string()),
+        Ty::Array(_, SizeKind::Known(s)) => (Some(format!("[{s}]")), "Array".to_string()),
+        Ty::Array(_, _) => (Some("[]".to_string()), "Array".to_string()),
         Ty::Tuple(_) => (None, "Tuple".to_string()),
         Ty::Param { name, .. } => (None, format!("Generic parameter {name}")),
         Ty::Udt(name, _) => (None, format!("UDT {name}")),

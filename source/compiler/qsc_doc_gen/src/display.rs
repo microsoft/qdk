@@ -534,7 +534,13 @@ struct AstTy<'a> {
 impl Display for AstTy<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.ty.kind.as_ref() {
-            ast::TyKind::Array(ty) => write!(f, "{}[]", AstTy { ty }),
+            ast::TyKind::Array(ty, size) => {
+                if let Some(s) = size {
+                    write!(f, "{}[{s}]", AstTy { ty })
+                } else {
+                    write!(f, "{}[]", AstTy { ty })
+                }
+            }
             ast::TyKind::Arrow(kind, input, output, functors) => {
                 let arrow = match kind {
                     ast::CallableKind::Function => "->",
