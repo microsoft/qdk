@@ -176,7 +176,7 @@ fn missing_return_in_non_void_function_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |         }
@@ -230,7 +230,7 @@ fn missing_return_in_else_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |             if (a == 0) {
@@ -257,7 +257,7 @@ fn missing_return_in_if_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |             if (a == 0) {
@@ -283,7 +283,7 @@ fn missing_return_in_omitted_else_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |             if (a == 0) {
@@ -330,7 +330,7 @@ fn missing_return_in_for_loop_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |             for int i in {1, 2} {}
@@ -377,7 +377,7 @@ fn missing_return_in_while_loop_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |             while (true) {}
@@ -433,7 +433,7 @@ fn missing_return_in_switch_case_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |             switch (a) {
@@ -460,7 +460,7 @@ fn missing_return_in_switch_default_case_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |             switch (a) {
@@ -507,7 +507,7 @@ fn missing_return_in_block_fails() {
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
-             1 |
+             1 | 
              2 |         def square(int a) -> bit {
                :                              ^^^
              3 |             {}
@@ -583,7 +583,7 @@ fn capturing_non_const_evaluatable_external_variable_fails() {
           x uint expression must evaluate to a non-negative value, but it evaluated to
           | -3
            ,-[Test.qasm:2:28]
-         1 |
+         1 | 
          2 |         const int a = 2 << (-3);
            :                            ^^^^
          3 |         def f() -> int {
@@ -626,7 +626,7 @@ fn cannot_redefine_builtin_function() {
 
               x redefined builtin function: mod
                ,-[Test.qasm:2:13]
-             1 |
+             1 | 
              2 |         def mod(int a) -> bit {
                :             ^^^
              3 |             return 1;
