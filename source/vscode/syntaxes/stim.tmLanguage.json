@@ -52,8 +52,8 @@
       "name": "comment.line.number-sign.stim"
     },
     "control-flow": {
-      "match": "\\b(REPEAT)\\b",
-      "name": "keyword.control.repeat.stim"
+      "match": "\\b(REPEAT|PREPARE|REQUIRE)\\b",
+      "name": "keyword.control.stim"
     },
     "annotation": {
       "match": "\\b(DETECTOR|MPAD|OBSERVABLE_INCLUDE|QUBIT_COORDS|SHIFT_COORDS|TICK)\\b",
