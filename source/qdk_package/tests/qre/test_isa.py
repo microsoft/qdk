@@ -348,10 +348,58 @@ def test_generic_function():
     space_fn = generic_function(lambda x: 12)
     assert isinstance(space_fn, _FloatFunction)
 
+    # I can provide an optional second argument for an int-valued function
+    def time2(x: int, params: list[float]) -> int:
+        return x + int(sum(params))
+
+    time_fn2 = generic_function(time2)
+    assert isinstance(time_fn2, _IntFunction)
+    assert time_fn2(5, [1.0, 2.0]) == 8
+
+    # I can provide an optional second argument for a float-valued function
+    def error_rate2(x: int, params: list[float]) -> float:
+        return x + sum(params)
+
+    error_rate_fn2 = generic_function(error_rate2)
+    assert isinstance(error_rate_fn2, _FloatFunction)
+    assert error_rate_fn2(5, [1.0, 2.0]) == 8.0
+
     i = _make_instruction(42, 0, None, time_fn, 12, None, error_rate_fn, {})
     assert i.space(5) == 12
     assert i.time(5) == 25
     assert i.error_rate(5) == 2.5
+
+
+def test_generic_function_stringized_annotations():
+    """Test that string return annotations (PEP 563) select int vs float."""
+    from qdk.qre._qre import _IntFunction, _FloatFunction
+
+    # Simulate `from __future__ import annotations`, where annotations are
+    # stored as strings rather than the actual type objects.
+    def int_fn(arity):
+        return arity * 2
+
+    int_fn.__annotations__ = {"arity": "int", "return": "int"}
+    assert isinstance(generic_function(int_fn), _IntFunction)
+
+    def float_fn(arity):
+        return arity / 2.0
+
+    float_fn.__annotations__ = {"arity": "int", "return": "float"}
+    assert isinstance(generic_function(float_fn), _FloatFunction)
+
+    # Stringized int annotation combined with a params argument.
+    def int_params_fn(arity, params):
+        return arity + int(sum(params))
+
+    int_params_fn.__annotations__ = {
+        "arity": "int",
+        "params": "list[float]",
+        "return": "int",
+    }
+    fn = generic_function(int_params_fn)
+    assert isinstance(fn, _IntFunction)
+    assert fn(5, [1.0, 2.0]) == 8
 
 
 def test_isa_from_architecture():
