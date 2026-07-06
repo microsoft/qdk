@@ -419,7 +419,7 @@ fn rx_gate_with_too_many_angles_generates_error() {
          3 |         qubit q;
          4 |         rx(2.0, 3.0) q;
            :         ^^^^^^^^^^^^^^^
-         5 |
+         5 |     
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
