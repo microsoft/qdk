@@ -311,9 +311,8 @@ pub enum Error {
 
 struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
-    record_map: Vec<u32>,  // index = result id, value = owning scope;
-    scope_stack: Vec<u32>, // active nested scopes; last() = current
-    next_scope_id: u32,    // 0 represents the top-level scope
+    record_map: Vec<Option<u32>>, // index = result id, value = owning scope (if none then the result is not in a block)
+    scope_stack: Vec<u32>,        // active nested scopes; last() = current
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
 }
 
@@ -323,7 +322,6 @@ impl IdMap {
             qubit_map: FxHashMap::default(),
             record_map: Vec::new(),
             scope_stack: Vec::new(),
-            next_scope_id: 1,
             name_counters: FxHashMap::default(),
         }
     }
@@ -336,24 +334,25 @@ impl IdMap {
     }
 
     fn enter_scope(&mut self) {
-        let id = self.next_scope_id;
+        let counter = self.name_counters.entry("scope").or_insert(0);
+        let id = *counter;
+        *counter += 1;
         self.scope_stack.push(id);
-        self.next_scope_id += 1;
     }
 
     fn exit_scope(&mut self) {
         self.scope_stack.pop();
     }
 
-    fn current_scope(&self) -> u32 {
-        self.scope_stack.last().copied().unwrap_or(0)
+    fn current_scope(&self) -> Option<u32> {
+        self.scope_stack.last().copied()
     }
 
     fn in_prepare_block(&self) -> bool {
         !self.scope_stack.is_empty()
     }
 
-    fn scope_of(&self, id: u32) -> u32 {
+    fn scope_of(&self, id: u32) -> Option<u32> {
         match self.record_map.get(id as usize) {
             Some(&scope) => scope,
             None => unreachable!("record id not found"), // this is a compiler invariant
@@ -426,8 +425,8 @@ impl<'noise> Compiler<'noise> {
             ..
         } = block;
 
-        self.compile_instruction(block_instruction);
         self.id_map.enter_scope();
+        self.compile_instruction(block_instruction);
         for item in items {
             self.compile_item(item);
         }
@@ -876,7 +875,11 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        let label = prepare_label(self.id_map.next_scope_id);
+        let Some(scope) = self.id_map.current_scope() else {
+            return;
+        };
+
+        let label = prepare_label(scope);
         self.writer.write_jump(&label); // terminate the previous block
         self.writer.write_label(&label); // start the new block
     }
@@ -930,7 +933,10 @@ impl<'noise> Compiler<'noise> {
             parity = temp;
         }
 
-        let restart_label = prepare_label(self.id_map.current_scope());
+        let Some(scope) = self.id_map.current_scope() else {
+            unreachable!("REQUIRE runs inside a prepare block");
+        };
+        let restart_label = prepare_label(scope);
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
             .write_branch(&parity, &restart_label, &continue_label);
