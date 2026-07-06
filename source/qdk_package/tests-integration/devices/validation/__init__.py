@@ -119,8 +119,6 @@ def check_phis_precede_other_instructions(module) -> None:
     preserve this invariant for programs with classical control flow.
     """
     for function in module.functions:
-        if not is_entry_point(function):
-            continue
         for block in function.basic_blocks:
             seen_non_phi = False
             for instr in block.instructions:
