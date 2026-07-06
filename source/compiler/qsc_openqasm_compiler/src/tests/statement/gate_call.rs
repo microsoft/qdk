@@ -313,7 +313,7 @@ fn cx_called_with_one_qubit_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfQubitArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
           x gate expects 2 qubit arguments, but 1 were provided
            ,-[Test.qasm:4:9]
@@ -339,7 +339,7 @@ fn cx_called_with_too_many_qubits_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfQubitArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
           x gate expects 2 qubit arguments, but 3 were provided
            ,-[Test.qasm:4:9]
@@ -365,7 +365,7 @@ fn rx_gate_with_no_angles_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfClassicalArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
           x gate expects 1 classical arguments, but 0 were provided
            ,-[Test.qasm:4:9]
@@ -412,7 +412,7 @@ fn rx_gate_with_too_many_angles_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfClassicalArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
           x gate expects 1 classical arguments, but 2 were provided
            ,-[Test.qasm:4:9]
@@ -1605,7 +1605,7 @@ fn broadcast_with_different_register_sizes_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
+        [Qdk.Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
 
           x first quantum register is of type qubit[3] but found an argument of type
           | qubit[2]
@@ -1868,7 +1868,7 @@ fn qasm2_cx_called_with_one_qubit_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfQubitArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
           x gate expects 2 qubit arguments, but 1 were provided
            ,-[Test.qasm:5:9]
@@ -1895,7 +1895,7 @@ fn qasm2_cx_called_with_too_many_qubits_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfQubitArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
           x gate expects 2 qubit arguments, but 3 were provided
            ,-[Test.qasm:5:9]
@@ -1922,7 +1922,7 @@ fn qasm2_rx_gate_with_no_angles_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfClassicalArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
           x gate expects 1 classical arguments, but 0 were provided
            ,-[Test.qasm:5:9]
@@ -1971,7 +1971,7 @@ fn qasm2_rx_gate_with_too_many_angles_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfClassicalArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
           x gate expects 1 classical arguments, but 2 were provided
            ,-[Test.qasm:5:9]
@@ -2340,7 +2340,7 @@ fn qasm2_broadcast_with_different_register_sizes_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
+        [Qdk.Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
 
           x first quantum register is of type qubit[3] but found an argument of type
           | qubit[2]

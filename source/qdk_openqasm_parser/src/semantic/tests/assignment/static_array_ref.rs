@@ -113,7 +113,7 @@ fn assign_literal_with_wrong_type_to_mutable_static_array_ref_errors() {
                                             ty: unknown
                                             kind: Err
 
-            [Qasm.Lowerer.CannotCastLiteral
+            [Qdk.Qasm.Lowerer.CannotCastLiteral
 
               x cannot cast literal expression of type const complex[float] to type int
                ,-[test:3:13]
@@ -192,7 +192,7 @@ fn assign_variable_with_wrong_type_to_mutable_static_array_ref_errors() {
                                             ty: complex[float]
                                             kind: SymbolId(10)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type int
                ,-[test:4:23]
@@ -261,7 +261,7 @@ fn assign_indexed_mutable_static_array_ref_to_variable_with_wrong_type_errors() 
                                                     ty: const int
                                                     kind: Lit: Int(0)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int to type angle
                ,-[test:3:23]
@@ -424,7 +424,7 @@ fn assign_to_readonly_static_array_ref_errors() {
                                             ty: unknown
                                             kind: Err
 
-            [Qasm.Lowerer.CannotUpdateReadonlyArrayRef
+            [Qdk.Qasm.Lowerer.CannotUpdateReadonlyArrayRef
 
               x cannot update readonly array reference a
                ,-[test:3:13]
@@ -557,7 +557,7 @@ fn classical_indexing_assign_to_readonly_static_array_ref_errors() {
                                             ty: unknown
                                             kind: Err
 
-            [Qasm.Lowerer.CannotUpdateReadonlyArrayRef
+            [Qdk.Qasm.Lowerer.CannotUpdateReadonlyArrayRef
 
               x cannot update readonly array reference a
                ,-[test:3:13]

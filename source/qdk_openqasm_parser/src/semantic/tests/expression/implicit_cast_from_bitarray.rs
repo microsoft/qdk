@@ -252,7 +252,7 @@ fn to_int_with_higher_width_implicitly_fails() {
                                 ty: bit[5]
                                 kind: SymbolId(9)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[5] to type int[6]
                ,-[test:4:13]
@@ -305,7 +305,7 @@ fn to_int_with_higher_width_decl_implicitly_fails() {
                                 ty: bit[5]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[5] to type int[6]
                ,-[test:3:20]
@@ -365,7 +365,7 @@ fn to_int_with_lower_width_implicitly_fails() {
                                 ty: bit[5]
                                 kind: SymbolId(9)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[5] to type int[4]
                ,-[test:4:13]
@@ -419,7 +419,7 @@ fn to_int_with_lower_width_decl_implicitly_fails() {
                                 ty: bit[5]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[5] to type int[4]
                ,-[test:3:20]

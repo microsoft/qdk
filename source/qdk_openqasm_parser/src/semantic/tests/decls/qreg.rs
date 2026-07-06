@@ -32,7 +32,7 @@ fn with_no_init_expr_in_non_global_scope() {
                                 kind: QubitDeclaration [1-8]:
                                     symbol_id: 8
 
-            [Qasm.Lowerer.QubitDeclarationInNonGlobalScope
+            [Qdk.Qasm.Lowerer.QubitDeclarationInNonGlobalScope
 
               x qubit declarations must be done in global scope
                ,-[test:1:2]
@@ -80,7 +80,7 @@ fn array_with_no_init_expr_in_non_global_scope() {
                                         kind: Lit: Int(3)
                                     size_span: [8-9]
 
-            [Qasm.Lowerer.QubitDeclarationInNonGlobalScope
+            [Qdk.Qasm.Lowerer.QubitDeclarationInNonGlobalScope
 
               x qubit declarations must be done in global scope
                ,-[test:1:2]

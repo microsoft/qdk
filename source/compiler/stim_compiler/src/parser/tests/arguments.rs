@@ -65,14 +65,14 @@ fn trailing_comma_is_error() {
     check(
         "X_ERROR(0.1,) 0",
         &expect![[r#"
-        Stim.Parser.Expected
+            Qdk.Stim.Parser.Expected
 
-          x expected number, found close(paren)
-           ,----
-         1 | X_ERROR(0.1,) 0
-           :             ^
-           `----
-    "#]],
+              x expected number, found close(paren)
+               ,----
+             1 | X_ERROR(0.1,) 0
+               :             ^
+               `----
+        "#]],
     );
 }
 
@@ -81,14 +81,14 @@ fn missing_comma_between_args_is_error() {
     check(
         "X_ERROR(0.1 0.2) 0",
         &expect![[r#"
-        Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected comma, found double
-           ,----
-         1 | X_ERROR(0.1 0.2) 0
-           :             ^^^
-           `----
-    "#]],
+              x expected comma, found double
+               ,----
+             1 | X_ERROR(0.1 0.2) 0
+               :             ^^^
+               `----
+        "#]],
     );
 }
 
@@ -97,7 +97,7 @@ fn unclosed_paren_is_error() {
     check(
         "X_ERROR(0.1 \n",
         &expect![[r#"
-            Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
               x expected comma, found newline
                ,----
@@ -113,13 +113,13 @@ fn non_number_arg_is_error() {
     check(
         "X_ERROR(H) 0",
         &expect![[r#"
-        Stim.Parser.Expected
+            Qdk.Stim.Parser.Expected
 
-          x expected number, found instruction_name
-           ,----
-         1 | X_ERROR(H) 0
-           :         ^
-           `----
-    "#]],
+              x expected number, found instruction_name
+               ,----
+             1 | X_ERROR(H) 0
+               :         ^
+               `----
+        "#]],
     );
 }

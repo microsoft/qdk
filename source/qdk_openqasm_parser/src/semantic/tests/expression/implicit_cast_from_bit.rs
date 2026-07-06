@@ -38,7 +38,7 @@ fn to_angle_implicitly_fails() {
                                 ty: bit
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit to type angle
                ,-[test:3:20]
@@ -88,7 +88,7 @@ fn to_explicit_angle_implicitly_fails() {
                                 ty: bit
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit to type angle[4]
                ,-[test:3:23]

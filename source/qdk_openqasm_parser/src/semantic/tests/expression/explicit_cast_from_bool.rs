@@ -75,7 +75,7 @@ fn bool_to_duration_fails() {
                                 ty: bool
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type duration
                ,-[test:3:9]
@@ -325,7 +325,7 @@ fn bool_to_angle_fails() {
                                 ty: bool
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type angle
                ,-[test:3:9]
@@ -367,7 +367,7 @@ fn bool_to_sized_angle_fails() {
                                 ty: bool
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type angle[32]
                ,-[test:3:9]
@@ -413,7 +413,7 @@ fn bool_to_complex_fails() {
                                 ty: bool
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type complex[float]
                ,-[test:3:9]
@@ -455,7 +455,7 @@ fn bool_to_sized_complex_fails() {
                                 ty: bool
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type complex[float[32]]
                ,-[test:3:9]

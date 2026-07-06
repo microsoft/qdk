@@ -16,7 +16,7 @@ fn too_many_indices_in_indexed_assignment() {
         multiDim[1, 1, 3] = 2.3;
         "#,
         &expect![[r#"
-            [Qasm.Lowerer.CannotIndexType
+            [Qdk.Qasm.Lowerer.CannotIndexType
 
               x cannot index variables of type float[32]
                ,-[test:3:24]

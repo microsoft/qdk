@@ -47,7 +47,7 @@ fn duration_to_bool_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type bool
                ,-[test:3:9]
@@ -149,7 +149,7 @@ fn duration_to_int_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type int
                ,-[test:3:9]
@@ -191,7 +191,7 @@ fn duration_to_sized_int_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type int[32]
                ,-[test:3:9]
@@ -237,7 +237,7 @@ fn duration_to_uint_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type uint
                ,-[test:3:9]
@@ -279,7 +279,7 @@ fn duration_to_sized_uint_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type uint[32]
                ,-[test:3:9]
@@ -325,7 +325,7 @@ fn duration_to_float_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type float
                ,-[test:3:9]
@@ -367,7 +367,7 @@ fn duration_to_sized_float_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type float[32]
                ,-[test:3:9]
@@ -413,7 +413,7 @@ fn duration_to_angle_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type angle
                ,-[test:3:9]
@@ -455,7 +455,7 @@ fn duration_to_sized_angle_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type angle[32]
                ,-[test:3:9]
@@ -501,7 +501,7 @@ fn duration_to_complex_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type complex[float]
                ,-[test:3:9]
@@ -543,7 +543,7 @@ fn duration_to_sized_complex_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type complex[float[32]]
                ,-[test:3:9]
@@ -589,7 +589,7 @@ fn duration_to_bit_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type bit
                ,-[test:3:9]
@@ -631,7 +631,7 @@ fn duration_to_bitarray_fails() {
                                 ty: duration
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type bit[32]
                ,-[test:3:9]

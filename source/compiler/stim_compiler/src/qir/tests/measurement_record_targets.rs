@@ -329,15 +329,15 @@ fn cx_with_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MisplacedMeasurementRecord
+            Qdk.Stim.MisplacedMeasurementRecord
 
-          x measurement record target in an unsupported position in instruction: CX
-           ,-[2:6]
-         1 | M 0
-         2 | CX 0 rec[-1]
-           :      ^^^^^^^
-           `----
-    "#]],
+              x measurement record target in an unsupported position in instruction: CX
+               ,-[2:6]
+             1 | M 0
+             2 | CX 0 rec[-1]
+               :      ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -347,15 +347,15 @@ fn cx_with_negated_rec_control_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.NegatedMeasurementRecord
+            Qdk.Stim.NegatedMeasurementRecord
 
-          x measurement record control cannot be negated in instruction: CX
-           ,-[2:4]
-         1 | M 0
-         2 | CX !rec[-1] 1
-           :    ^^^^^^^^
-           `----
-    "#]],
+              x measurement record control cannot be negated in instruction: CX
+               ,-[2:4]
+             1 | M 0
+             2 | CX !rec[-1] 1
+               :    ^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -365,14 +365,14 @@ fn cx_with_rec_control_out_of_bounds_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfBounds
+            Qdk.Stim.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,----
-         1 | CX rec[-1] 1
-           :    ^^^^^^^
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,----
+             1 | CX rec[-1] 1
+               :    ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -382,16 +382,16 @@ fn cx_with_two_rec_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordWithoutQubit
+            Qdk.Stim.MeasurementRecordWithoutQubit
 
-          x controlled instruction CX requires a qubit target, but both targets are
-          | measurement records
-           ,-[3:4]
-         2 | M 1
-         3 | CX rec[-1] rec[-2]
-           :    ^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x controlled instruction CX requires a qubit target, but both targets are
+              | measurement records
+               ,-[3:4]
+             2 | M 1
+             3 | CX rec[-1] rec[-2]
+               :    ^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -401,15 +401,15 @@ fn cx_with_odd_targets_including_rec_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.OddTargetCount
+            Qdk.Stim.OddTargetCount
 
-          x instruction CX requires an even number of targets
-           ,-[2:1]
-         1 | M 0
-         2 | CX rec[-1]
-           : ^^^^^^^^^^
-           `----
-    "#]],
+              x instruction CX requires an even number of targets
+               ,-[2:1]
+             1 | M 0
+             2 | CX rec[-1]
+               : ^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -523,15 +523,15 @@ fn cy_with_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MisplacedMeasurementRecord
+            Qdk.Stim.MisplacedMeasurementRecord
 
-          x measurement record target in an unsupported position in instruction: CY
-           ,-[2:6]
-         1 | M 0
-         2 | CY 0 rec[-1]
-           :      ^^^^^^^
-           `----
-    "#]],
+              x measurement record target in an unsupported position in instruction: CY
+               ,-[2:6]
+             1 | M 0
+             2 | CY 0 rec[-1]
+               :      ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -541,15 +541,15 @@ fn cy_with_negated_rec_control_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.NegatedMeasurementRecord
+            Qdk.Stim.NegatedMeasurementRecord
 
-          x measurement record control cannot be negated in instruction: CY
-           ,-[2:4]
-         1 | M 0
-         2 | CY !rec[-1] 1
-           :    ^^^^^^^^
-           `----
-    "#]],
+              x measurement record control cannot be negated in instruction: CY
+               ,-[2:4]
+             1 | M 0
+             2 | CY !rec[-1] 1
+               :    ^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -767,16 +767,16 @@ fn cz_with_two_rec_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordWithoutQubit
+            Qdk.Stim.MeasurementRecordWithoutQubit
 
-          x controlled instruction CZ requires a qubit target, but both targets are
-          | measurement records
-           ,-[3:4]
-         2 | M 1
-         3 | CZ rec[-1] rec[-2]
-           :    ^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x controlled instruction CZ requires a qubit target, but both targets are
+              | measurement records
+               ,-[3:4]
+             2 | M 1
+             3 | CZ rec[-1] rec[-2]
+               :    ^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -786,15 +786,15 @@ fn cz_with_negated_rec_on_first_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.NegatedMeasurementRecord
+            Qdk.Stim.NegatedMeasurementRecord
 
-          x measurement record control cannot be negated in instruction: CZ
-           ,-[2:4]
-         1 | M 0
-         2 | CZ !rec[-1] 1
-           :    ^^^^^^^^
-           `----
-    "#]],
+              x measurement record control cannot be negated in instruction: CZ
+               ,-[2:4]
+             1 | M 0
+             2 | CZ !rec[-1] 1
+               :    ^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -804,15 +804,15 @@ fn cz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.NegatedMeasurementRecord
+            Qdk.Stim.NegatedMeasurementRecord
 
-          x measurement record control cannot be negated in instruction: CZ
-           ,-[2:6]
-         1 | M 0
-         2 | CZ 0 !rec[-1]
-           :      ^^^^^^^^
-           `----
-    "#]],
+              x measurement record control cannot be negated in instruction: CZ
+               ,-[2:6]
+             1 | M 0
+             2 | CZ 0 !rec[-1]
+               :      ^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -874,15 +874,15 @@ fn xcz_with_rec_on_first_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MisplacedMeasurementRecord
+            Qdk.Stim.MisplacedMeasurementRecord
 
-          x measurement record target in an unsupported position in instruction: XCZ
-           ,-[2:5]
-         1 | M 0
-         2 | XCZ rec[-1] 1
-           :     ^^^^^^^
-           `----
-    "#]],
+              x measurement record target in an unsupported position in instruction: XCZ
+               ,-[2:5]
+             1 | M 0
+             2 | XCZ rec[-1] 1
+               :     ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -892,15 +892,15 @@ fn xcz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.NegatedMeasurementRecord
+            Qdk.Stim.NegatedMeasurementRecord
 
-          x measurement record control cannot be negated in instruction: XCZ
-           ,-[2:7]
-         1 | M 0
-         2 | XCZ 1 !rec[-1]
-           :       ^^^^^^^^
-           `----
-    "#]],
+              x measurement record control cannot be negated in instruction: XCZ
+               ,-[2:7]
+             1 | M 0
+             2 | XCZ 1 !rec[-1]
+               :       ^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -962,15 +962,15 @@ fn ycz_with_rec_on_first_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MisplacedMeasurementRecord
+            Qdk.Stim.MisplacedMeasurementRecord
 
-          x measurement record target in an unsupported position in instruction: YCZ
-           ,-[2:5]
-         1 | M 0
-         2 | YCZ rec[-1] 1
-           :     ^^^^^^^
-           `----
-    "#]],
+              x measurement record target in an unsupported position in instruction: YCZ
+               ,-[2:5]
+             1 | M 0
+             2 | YCZ rec[-1] 1
+               :     ^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -980,15 +980,15 @@ fn ycz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.NegatedMeasurementRecord
+            Qdk.Stim.NegatedMeasurementRecord
 
-          x measurement record control cannot be negated in instruction: YCZ
-           ,-[2:7]
-         1 | M 0
-         2 | YCZ 1 !rec[-1]
-           :       ^^^^^^^^
-           `----
-    "#]],
+              x measurement record control cannot be negated in instruction: YCZ
+               ,-[2:7]
+             1 | M 0
+             2 | YCZ 1 !rec[-1]
+               :       ^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -998,16 +998,16 @@ fn cx_with_rec_control_crossing_prepare_boundary_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Qdk.Stim.MeasurementRecordOutOfScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[3:8]
-         2 | PREPARE {
-         3 |     CX rec[-1] 1
-           :        ^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[3:8]
+             2 | PREPARE {
+             3 |     CX rec[-1] 1
+               :        ^^^^^^^
+             4 | }
+               `----
+        "#]],
     );
 }

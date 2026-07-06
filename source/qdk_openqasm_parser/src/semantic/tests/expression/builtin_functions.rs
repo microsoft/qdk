@@ -39,7 +39,7 @@ fn builtin_call_with_invalid_input_types_fails() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `mod` for inputs: (const int, const bool)
               | Overloads available are:
@@ -72,7 +72,7 @@ fn builtin_call_with_zero_arguments_fails() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `mod` for inputs: ()
               | Overloads available are:
@@ -105,7 +105,7 @@ fn builtin_call_with_lower_arity_fails() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `mod` for inputs: (const int)
               | Overloads available are:
@@ -138,7 +138,7 @@ fn builtin_call_with_higher_arity_fails() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `mod` for inputs: (const int, const int,
               | const int)

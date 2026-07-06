@@ -71,7 +71,7 @@ fn cannot_have_a_negative_duration() {
                                         ty: qubit
                                         kind: SymbolId(8)
 
-            [Qasm.Lowerer.DesignatorMustBePositiveDuration
+            [Qdk.Qasm.Lowerer.DesignatorMustBePositiveDuration
 
               x designator must be a positive duration
                ,-[test:3:16]

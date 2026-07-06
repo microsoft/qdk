@@ -87,7 +87,7 @@ fn continue_in_non_loop_scope_fails() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.InvalidScope
+            [Qdk.Qasm.Lowerer.InvalidScope
 
               x continue can only appear in loop scopes
                ,-[test:1:1]
@@ -133,7 +133,7 @@ fn intermediate_def_scope_fails() {
                                                     annotations: <empty>
                                                     kind: Err
 
-            [Qasm.Lowerer.DefDeclarationInNonGlobalScope
+            [Qdk.Qasm.Lowerer.DefDeclarationInNonGlobalScope
 
               x def declarations must be done in global scope
                ,-[test:3:13]
@@ -142,7 +142,7 @@ fn intermediate_def_scope_fails() {
                :             ^^^^^^^^^^^^^^^^^^^^^
              4 |         }
                `----
-            , Qasm.Lowerer.InvalidScope
+            , Qdk.Qasm.Lowerer.InvalidScope
 
               x continue can only appear in loop scopes
                ,-[test:3:23]

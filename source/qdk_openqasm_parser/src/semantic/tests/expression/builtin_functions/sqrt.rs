@@ -47,7 +47,7 @@ fn sqrt_float_domain_error() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.DomainError
+            [Qdk.Qasm.Lowerer.DomainError
 
               x cannot compute square root of negative floats
                ,-[test:2:9]
@@ -107,7 +107,7 @@ fn casting_large_int_to_float_errors() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.InvalidCastValueRange
+            [Qdk.Qasm.Lowerer.InvalidCastValueRange
 
               x assigning const int values to const float must be in a range that can be
               | converted to const float

@@ -109,7 +109,7 @@ fn on_a_zero_len_qubit_register() {
                                     ty: unknown
                                     kind: SymbolId(8)
 
-            [Qasm.Lowerer.ExprMustBePositiveInt
+            [Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
               x quantum register size must be a positive integer
                ,-[test:1:7]

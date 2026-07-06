@@ -48,7 +48,7 @@ fn stretch_to_bool_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const bool
                ,-[test:3:9]
@@ -153,7 +153,7 @@ fn stretch_to_int_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const int
                ,-[test:3:9]
@@ -196,7 +196,7 @@ fn stretch_to_sized_int_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const int[32]
                ,-[test:3:9]
@@ -243,7 +243,7 @@ fn stretch_to_uint_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const uint
                ,-[test:3:9]
@@ -286,7 +286,7 @@ fn stretch_to_sized_uint_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const uint[32]
                ,-[test:3:9]
@@ -333,7 +333,7 @@ fn stretch_to_float_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const float
                ,-[test:3:9]
@@ -376,7 +376,7 @@ fn stretch_to_sized_float_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const float[32]
                ,-[test:3:9]
@@ -423,7 +423,7 @@ fn stretch_to_angle_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const angle
                ,-[test:3:9]
@@ -466,7 +466,7 @@ fn stretch_to_sized_angle_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const angle[32]
                ,-[test:3:9]
@@ -513,7 +513,7 @@ fn stretch_to_complex_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const complex[float]
                ,-[test:3:9]
@@ -556,7 +556,7 @@ fn stretch_to_sized_complex_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const complex[float[32]]
                ,-[test:3:9]
@@ -603,7 +603,7 @@ fn stretch_to_bit_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const bit
                ,-[test:3:9]
@@ -646,7 +646,7 @@ fn stretch_to_bitarray_fails() {
                                 ty: stretch
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type stretch to type const bit[32]
                ,-[test:3:9]

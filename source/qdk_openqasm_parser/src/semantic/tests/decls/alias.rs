@@ -150,7 +150,7 @@ fn inconsistent_types_raise_error() {
                                     ty: bit[5]
                                     kind: SymbolId(9)
 
-            [Qasm.Lowerer.InconsistentTypesInAlias
+            [Qdk.Qasm.Lowerer.InconsistentTypesInAlias
 
               x inconsistent types in alias expression: qubit[2], bit[5]
                ,-[test:5:23]
@@ -211,7 +211,7 @@ fn invalid_types_raise_error() {
                                     ty: int
                                     kind: SymbolId(9)
 
-            [Qasm.Lowerer.InvalidTypeInAlias
+            [Qdk.Qasm.Lowerer.InvalidTypeInAlias
 
               x invalid type in alias expression: int
                ,-[test:5:44]
@@ -304,7 +304,7 @@ fn invalid_types_raise_error_for_each() {
                                     ty: int
                                     kind: SymbolId(10)
 
-            [Qasm.Lowerer.InvalidTypeInAlias
+            [Qdk.Qasm.Lowerer.InvalidTypeInAlias
 
               x invalid type in alias expression: array[int, 5]
                ,-[test:5:21]
@@ -314,7 +314,7 @@ fn invalid_types_raise_error_for_each() {
              6 |         
                `----
               help: aliases can only be applied to quantum bits and registers
-            , Qasm.Lowerer.InvalidTypeInAlias
+            , Qdk.Qasm.Lowerer.InvalidTypeInAlias
 
               x invalid type in alias expression: int
                ,-[test:5:63]
@@ -359,7 +359,7 @@ fn bit_alias_errors() {
                                     ty: bit
                                     kind: SymbolId(8)
 
-            [Qasm.Lowerer.InvalidTypeInAlias
+            [Qdk.Qasm.Lowerer.InvalidTypeInAlias
 
               x invalid type in alias expression: bit
                ,-[test:4:23]

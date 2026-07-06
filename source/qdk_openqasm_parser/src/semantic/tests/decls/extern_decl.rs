@@ -80,7 +80,7 @@ fn return_type_cannot_be_stretch() {
                             ty_exprs: <empty>
                             return_ty_exprs: <empty>
 
-            [Qasm.Lowerer.ExternDeclarationCannotReturnStretch
+            [Qdk.Qasm.Lowerer.ExternDeclarationCannotReturnStretch
 
               x extern declarations cannot return stretches
                ,-[test:1:15]
@@ -110,7 +110,7 @@ fn not_allowed_in_non_global_scope() {
                                     ty_exprs: <empty>
                                     return_ty_exprs: <empty>
 
-            [Qasm.Lowerer.ExternDeclarationInNonGlobalScope
+            [Qdk.Qasm.Lowerer.ExternDeclarationInNonGlobalScope
 
               x extern declarations must be done in global scope
                ,-[test:1:3]
