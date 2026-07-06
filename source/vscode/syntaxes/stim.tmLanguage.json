@@ -31,6 +31,9 @@
       "include": "#sweep-bit"
     },
     {
+      "include": "#negation"
+    },
+    {
       "include": "#pauli-target"
     },
     {
@@ -106,16 +109,17 @@
         }
       }
     },
+    "negation": {
+      "match": "!",
+      "name": "keyword.operator.negation.stim"
+    },
     "pauli-target": {
-      "match": "(!?)([XYZL])(\\d+)",
+      "match": "([XYZL])(\\d+)",
       "captures": {
         "1": {
-          "name": "keyword.operator.negation.stim"
-        },
-        "2": {
           "name": "support.class.pauli.stim"
         },
-        "3": {
+        "2": {
           "name": "constant.numeric.stim"
         }
       }
@@ -125,12 +129,7 @@
       "name": "keyword.operator.combiner.stim"
     },
     "number": {
-      "match": "(!)?[+-]?\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b",
-      "captures": {
-        "1": {
-          "name": "keyword.operator.negation.stim"
-        }
-      },
+      "match": "[+-]?\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b",
       "name": "constant.numeric.stim"
     },
     "bracket": {
