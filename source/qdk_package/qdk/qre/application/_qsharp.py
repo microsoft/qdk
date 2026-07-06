@@ -30,6 +30,8 @@ class QSharpApplication(Application[None]):
             provided. Default is an empty tuple.
         cache_dir (Path): Directory for caching compiled traces.
         use_cache (bool): Whether to use the trace cache. Default is False.
+        use_trace_backend (bool): Whether to build traces directly from a Q# backend
+            instead of via logical counts. Default is False.
     """
 
     entry_expr: str | Callable | LogicalCounts
@@ -38,6 +40,7 @@ class QSharpApplication(Application[None]):
         default=Path.home() / ".cache" / "re3" / "qsharp", repr=False
     )
     use_cache: bool = field(default=False, repr=False)
+    use_trace_backend: bool = field(default=False, repr=False)
 
     def __post_init__(self):
         """Log telemetry for QSharpApplication creation."""
@@ -57,4 +60,9 @@ class QSharpApplication(Application[None]):
         else:
             cache_path = None
 
-        return trace_from_entry_expr_cached(self.entry_expr, cache_path, *self.args)
+        return trace_from_entry_expr_cached(
+            self.entry_expr,
+            cache_path=None if self.use_trace_backend else cache_path,
+            use_trace_backend=self.use_trace_backend,
+            args=self.args,
+        )

@@ -1150,6 +1150,12 @@ impl FactoryResult {
 #[pyclass]
 pub struct Trace(qre::Trace);
 
+impl Trace {
+    pub(crate) fn from_qre_trace(trace: qre::Trace) -> Self {
+        Self(trace)
+    }
+}
+
 #[pymethods]
 impl Trace {
     #[new]
