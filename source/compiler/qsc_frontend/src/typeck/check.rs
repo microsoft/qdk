@@ -8,7 +8,10 @@ use super::{
 };
 use crate::{
     resolve::{Names, Res},
-    typeck::convert::{self},
+    typeck::{
+        convert::{self},
+        propagate_sizes::propagate_array_sizes,
+    },
 };
 use qsc_ast::{
     ast::{self, NodeId, TopLevelNode},
@@ -159,6 +162,9 @@ impl Checker {
                 ));
             }
         }
+
+        let size_errors = propagate_array_sizes(package, names, &mut self.table.terms);
+        self.errors.extend(size_errors);
     }
 
     fn check_callable_decl(&mut self, names: &Names, decl: &ast::CallableDecl) {

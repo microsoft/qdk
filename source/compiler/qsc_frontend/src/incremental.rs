@@ -278,6 +278,8 @@ impl Compiler {
         self.checker.check_package(self.resolver.names(), ast);
         self.checker.solve(self.resolver.names());
 
+        // TODO: propagate array sizes before lowering.
+
         let package = self.lower(&mut unit.assigner, &*ast);
 
         let errors = self

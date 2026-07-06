@@ -12,6 +12,7 @@
 mod check;
 pub(super) mod convert;
 mod infer;
+mod propagate_sizes;
 mod rules;
 #[cfg(test)]
 mod tests;
