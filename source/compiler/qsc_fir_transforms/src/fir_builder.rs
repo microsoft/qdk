@@ -25,6 +25,9 @@
 //! passes should route every `Expr`/`Stmt` allocation through the helpers
 //! below.
 
+#[cfg(test)]
+mod tests;
+
 use crate::EMPTY_EXEC_RANGE;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
@@ -36,7 +39,7 @@ use qsc_fir::fir::{
 };
 use rustc_hash::FxHashSet;
 
-use qsc_fir::ty::{Prim, Ty};
+use qsc_fir::ty::{Arrow, Prim, Ty};
 use std::rc::Rc;
 
 /// Allocates an `Expr` with the given kind and inserts it into the package.
@@ -173,11 +176,72 @@ pub(crate) fn alloc_int_lit(
     )
 }
 
+/// Strips a single controlled-functor input layer from an arrow type,
+/// returning the inner, less-controlled arrow type.
+///
+/// `Controlled` turns an operation `I => O` into `(Qubit[], I) => O`, wrapping
+/// the input in a `(Qubit[], _)` tuple. This peels one such layer by replacing
+/// the arrow input with the second element of that tuple.
+///
+/// # Panics
+///
+/// Panics if `ty` is not a controlled arrow — a `Ty::Arrow` whose input is a
+/// tuple of at least two elements `(Qubit[], _)`. This helper is only ever
+/// asked to peel a control layer that the caller's `FunctorApp` already claims
+/// exists, so any other shape is an internal compiler bug (a
+/// `functor.controlled` count that disagrees with the wrapped type) rather than
+/// recoverable input.
+fn strip_controlled_input_layer(ty: &Ty) -> Ty {
+    let Ty::Arrow(arrow) = ty else {
+        panic!("expected a controlled arrow type to strip a control layer from, found {ty:?}");
+    };
+    let Ty::Tuple(items) = arrow.input.as_ref() else {
+        panic!(
+            "expected a controlled arrow input tuple `(Qubit[], _)`, found input {:?}",
+            arrow.input
+        );
+    };
+    assert!(
+        items.len() >= 2,
+        "expected a controlled arrow input tuple `(Qubit[], _)` with at least two elements, found {items:?}"
+    );
+    Ty::Arrow(Box::new(Arrow {
+        kind: arrow.kind,
+        input: Box::new(items[1].clone()),
+        output: arrow.output.clone(),
+        functors: arrow.functors,
+    }))
+}
+
+/// Computes the arrow type at each controlled depth of a functor-wrapper
+/// chain, from the outermost node down to the base.
+///
+/// The returned vector has `controlled + 1` entries: index `0` is `outer_ty`
+/// (the fully controlled, outermost node), and each subsequent entry strips one
+/// `(Qubit[], _)` input layer, so the last entry is the un-controlled base
+/// type. Adjoint is intentionally not modeled here because it preserves the
+/// arrow type.
+fn controlled_layer_types(outer_ty: &Ty, controlled: u8) -> Vec<Ty> {
+    let mut layer_tys = Vec::with_capacity(usize::from(controlled) + 1);
+    layer_tys.push(outer_ty.clone());
+    for _ in 0..controlled {
+        let inner = strip_controlled_input_layer(layer_tys.last().expect("seeded with outer_ty"));
+        layer_tys.push(inner);
+    }
+    layer_tys
+}
+
 /// Wraps `base_id` in a chain of functor applications (`Adj` then `controlled`
 /// layers of `Ctl`) as described by `functor`, allocating one `UnOp` `Expr`
 /// per layer. Returns the id of the outermost expression, which equals
-/// `base_id` when `functor` requests no functors. Every allocated node carries
-/// `ty` and `span`.
+/// `base_id` when `functor` requests no functors.
+///
+/// `ty` is the arrow type of the outermost (fully functor-wrapped) expression.
+/// Each `Controlled` layer wraps the callable's input in another `(Qubit[], _)`
+/// tuple, so the layers do not share one type: the outermost `Ctl` node carries
+/// `ty`, every inner node strips one control layer, and the base node plus any
+/// `Adj` node carry the un-controlled base type `base_id` is assumed to already
+/// carry that base type.
 pub(crate) fn wrap_in_functors(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -186,21 +250,28 @@ pub(crate) fn wrap_in_functors(
     ty: &Ty,
     span: Span,
 ) -> ExprId {
+    // `layer_tys[0]` is the outermost type; `layer_tys[controlled]` is the base.
+    let layer_tys = controlled_layer_types(ty, functor.controlled);
+    let controlled = usize::from(functor.controlled);
+
     let mut current_id = base_id;
     if functor.adjoint {
+        // Adjoint preserves the arrow type, so this node shares the base type.
         current_id = alloc_expr(
             package,
             assigner,
-            ty.clone(),
+            layer_tys[controlled].clone(),
             ExprKind::UnOp(UnOp::Functor(Functor::Adj), current_id),
             span,
         );
     }
-    for _ in 0..functor.controlled {
+    for depth in 1..=controlled {
+        // The node at control depth `depth` (counted up from the base) carries
+        // the type with `depth` control layers applied.
         current_id = alloc_expr(
             package,
             assigner,
-            ty.clone(),
+            layer_tys[controlled - depth].clone(),
             ExprKind::UnOp(UnOp::Functor(Functor::Ctl), current_id),
             span,
         );
@@ -210,7 +281,12 @@ pub(crate) fn wrap_in_functors(
 
 /// Allocates a base expression of `base_kind` and wraps it in the functor
 /// chain described by `functor` (see [`wrap_in_functors`]). Returns the id of
-/// the outermost expression. Every allocated node carries `ty` and `span`.
+/// the outermost expression.
+///
+/// `ty` is the arrow type of the outermost (fully functor-wrapped) expression.
+/// The base node is allocated with the un-controlled base type derived by
+/// stripping `functor.controlled` control layers from `ty`; `wrap_in_functors`
+/// then re-adds one `(Qubit[], _)` input layer per `Ctl` node back up to `ty`.
 pub(crate) fn alloc_functor_wrapped_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -219,7 +295,11 @@ pub(crate) fn alloc_functor_wrapped_expr(
     ty: &Ty,
     span: Span,
 ) -> ExprId {
-    let base_id = alloc_expr(package, assigner, ty.clone(), base_kind, span);
+    let mut base_ty = ty.clone();
+    for _ in 0..functor.controlled {
+        base_ty = strip_controlled_input_layer(&base_ty);
+    }
+    let base_id = alloc_expr(package, assigner, base_ty, base_kind, span);
     wrap_in_functors(package, assigner, base_id, functor, ty, span)
 }
 
