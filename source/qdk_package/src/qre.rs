@@ -864,8 +864,7 @@ pub fn generic_function<'py>(
             return_type.eq(&int_type).unwrap_or(false)
                 || return_type
                     .extract::<String>()
-                    .map(|s| s.trim() == "int")
-                    .unwrap_or(false)
+                    .is_ok_and(|s| s.trim() == "int")
         } else {
             false
         }
@@ -882,8 +881,7 @@ pub fn generic_function<'py>(
         func.getattr(py, "__code__")
             .and_then(|code| code.getattr(py, "co_argcount"))
             .and_then(|count| count.extract::<usize>(py))
-            .map(|count| count >= 2)
-            .unwrap_or(false)
+            .is_ok_and(|count| count >= 2)
     });
 
     match (is_int, has_params) {
