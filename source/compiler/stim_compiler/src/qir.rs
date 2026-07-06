@@ -13,20 +13,8 @@ use rustc_hash::FxHashMap;
 use std::fmt::Write;
 use thiserror::Error;
 
-#[derive(Clone, Copy)]
-enum Operand {
-    /// A qubit operand, carrying the raw Stim qubit index.
-    Qubit(u32),
-    /// A result operand — the writer allocates the next result ID.
-    Result,
-    /// A reference to an already-allocated result, carrying its QIR result ID.
-    ExistingResult(u32),
-}
-
 struct QirWriter {
     output: String,
-    qubit_map: FxHashMap<u32, u32>,
-    num_results: u32,
     used_intrinsics: FxHashMap<String, String>,
     has_noise_intrinsic: bool,
 }
@@ -35,8 +23,6 @@ impl QirWriter {
     fn new() -> Self {
         Self {
             output: String::new(),
-            qubit_map: FxHashMap::default(),
-            num_results: 0,
             used_intrinsics: FxHashMap::default(),
             has_noise_intrinsic: false,
         }
@@ -49,64 +35,49 @@ impl QirWriter {
     }
 
     /// `__quantum__qis__{intrinsic}__body`
-    fn write_qis_call(&mut self, intrinsic: &str, operands: &[Operand]) {
-        self.write_raw_call(&format!("__quantum__qis__{intrinsic}__body"), operands);
+    fn write_qis_call(&mut self, intrinsic: &str, ids: &[u32]) {
+        self.write_raw_call(&format!("__quantum__qis__{intrinsic}__body"), ids);
     }
 
     /// `__quantum__qis__{intrinsic}__adj`
-    fn write_qis_adj_call(&mut self, intrinsic: &str, operands: &[Operand]) {
-        self.write_raw_call(&format!("__quantum__qis__{intrinsic}__adj"), operands);
+    fn write_qis_adj_call(&mut self, intrinsic: &str, ids: &[u32]) {
+        self.write_raw_call(&format!("__quantum__qis__{intrinsic}__adj"), ids);
     }
 
     // Writes: `  call void @{intrinsic}(ptr inttoptr (i64 N to ptr), ...)`
-    // Resolves qubit indices via the qubit map and allocates result IDs internally.
-    fn write_raw_call(&mut self, intrinsic: &str, operands: &[Operand]) {
+    fn write_raw_call(&mut self, intrinsic: &str, ids: &[u32]) {
         write!(self, "  call void @{intrinsic}(");
-        for (i, &operand) in operands.iter().enumerate() {
+        for (i, &id) in ids.iter().enumerate() {
             if i > 0 {
                 write!(self, ", ");
             }
-            self.write_operand(operand);
+            self.write_ptr(id);
         }
         writeln!(self, ")");
-        let params = (0..operands.len())
-            .map(|_| "ptr")
-            .collect::<Vec<_>>()
-            .join(", ");
+        let params = (0..ids.len()).map(|_| "ptr").collect::<Vec<_>>().join(", ");
         self.used_intrinsics
             .entry(intrinsic.to_string())
             .or_insert_with(|| format!("declare void @{intrinsic}({params})"));
     }
 
-    fn write_noise_intrinsic(&mut self, name: &str, qubits: &[u32]) {
+    fn write_noise_intrinsic(&mut self, name: &str, ids: &[u32]) {
         write!(self, "  call void @{name}(");
-        for (i, &qubit) in qubits.iter().enumerate() {
+        for (i, &id) in ids.iter().enumerate() {
             if i > 0 {
                 write!(self, ", ");
             }
-            // Register the qubit so it is reflected in `required_num_qubits`, but emit
-            // the raw Stim index as the operand.
-            let id = self.map_qubit(qubit);
             write!(self, "ptr inttoptr (i64 {id} to ptr)");
         }
         writeln!(self, ")");
-        let params = (0..qubits.len())
-            .map(|_| "ptr")
-            .collect::<Vec<_>>()
-            .join(", ");
+        let params = (0..ids.len()).map(|_| "ptr").collect::<Vec<_>>().join(", ");
         self.used_intrinsics
             .entry(name.to_string())
             .or_insert_with(|| format!("declare void @{name}({params}) #2"));
         self.has_noise_intrinsic = true;
     }
 
-    // Resolves an Operand to its QIR ID and writes: `ptr inttoptr (i64 N to ptr)`
-    fn write_operand(&mut self, operand: Operand) {
-        let id = match operand {
-            Operand::Qubit(stim_index) => self.map_qubit(stim_index),
-            Operand::Result => self.next_result(),
-            Operand::ExistingResult(result_id) => result_id,
-        };
+    // writes: `ptr inttoptr (i64 N to ptr)`
+    fn write_ptr(&mut self, id: u32) {
         write!(self, "ptr inttoptr (i64 {id} to ptr)");
     }
 
@@ -129,13 +100,23 @@ impl QirWriter {
     }
 
     // Writes: `  %{dest} = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 N to ptr))`
-    fn write_read_result(&mut self, dest: &str, operand: Operand) {
+    fn write_read_result(&mut self, dest: &str, id: u32) {
         write!(self, "  %{dest} = call i1 @__quantum__rt__read_result(");
-        self.write_operand(operand);
+        self.write_ptr(id);
         writeln!(self, ")");
         self.used_intrinsics
             .entry("__quantum__rt__read_result".to_string())
             .or_insert_with(|| "declare i1 @__quantum__rt__read_result(ptr)".to_string());
+    }
+
+    // Writes: `  %{dest} = xor i1 %{lhs}, %{rhs}`
+    fn write_xor(&mut self, dest: &str, lhs: &str, rhs: &str) {
+        writeln!(self, "  %{dest} = xor i1 %{lhs}, %{rhs}");
+    }
+
+    // Writes: `  %{dest} = xor i1 %{operand}, true`
+    fn write_not(&mut self, dest: &str, operand: &str) {
+        writeln!(self, "  %{dest} = xor i1 %{operand}, true");
     }
 
     fn write_header(&mut self) {
@@ -146,8 +127,7 @@ impl QirWriter {
             .or_insert_with(|| "declare void @__quantum__rt__initialize(ptr)".to_string());
     }
 
-    fn write_record_output(&mut self) {
-        let num_results = self.num_results;
+    fn write_record_output(&mut self, num_results: u32) {
         writeln!(
             self,
             "  call void @__quantum__rt__array_record_output(i64 {num_results}, ptr null)"
@@ -178,14 +158,12 @@ impl QirWriter {
         }
     }
 
-    fn write_footer(&mut self) {
-        self.write_record_output();
+    fn write_footer(&mut self, num_qubits: u32, num_results: u32) {
+        self.write_record_output(num_results);
         writeln!(self, "  ret i64 0");
         writeln!(self, "}}");
         self.write_declarations();
 
-        let num_qubits = self.qubit_map.len();
-        let num_results = self.num_results;
         writeln!(self);
         writeln!(
             self,
@@ -224,19 +202,6 @@ impl QirWriter {
         );
         writeln!(self, "!6 = !{{i32 7, !\"backwards_branching\", i2 3}}");
         writeln!(self, "!7 = !{{i32 1, !\"arrays\", i1 true}}");
-    }
-
-    // Maps a Stim qubit index to a 0-based QIR qubit ID.
-    fn map_qubit(&mut self, stim_index: u32) -> u32 {
-        let next_id = self.qubit_map.len() as u32;
-        *self.qubit_map.entry(stim_index).or_insert(next_id)
-    }
-
-    // Allocates the next result ID.
-    fn next_result(&mut self) -> u32 {
-        let id = self.num_results;
-        self.num_results += 1;
-        id
     }
 }
 
@@ -324,28 +289,125 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("measurement record is out of bounds")]
+    #[diagnostic(code("Stim.MeasurementRecordOutOfBounds"))]
+    MeasurementRecordOutOfBounds {
+        #[label]
+        span: Span,
+    },
+    #[error("measurement record refers to a measurement outside the enclosing PREPARE block")]
+    #[diagnostic(code("Stim.MeasurementRecordOutOfScope"))]
+    MeasurementRecordOutOfScope {
+        #[label]
+        span: Span,
+    },
+    #[error("require must appear inside a PREPARE block")]
+    #[diagnostic(code("Stim.RequireOutsidePrepareBlock"))]
+    RequireOutsidePrepareBlock {
+        #[label]
+        span: Span,
+    },
+    #[error("prepare instruction must start a block")]
+    #[diagnostic(code("Stim.PrepareWithoutBlock"))]
+    PrepareWithoutBlock {
+        #[label]
+        span: Span,
+    },
+}
+
+struct IdMap {
+    qubit_map: FxHashMap<u32, u32>,
+    record_map: Vec<Option<u32>>, // index = result id, value = owning scope (if none then the result is not in a block)
+    scope_stack: Vec<u32>,        // active nested scopes; last() = current
+    name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
+}
+
+impl IdMap {
+    fn new() -> Self {
+        Self {
+            qubit_map: FxHashMap::default(),
+            record_map: Vec::new(),
+            scope_stack: Vec::new(),
+            name_counters: FxHashMap::default(),
+        }
+    }
+
+    fn fresh_name(&mut self, prefix: &'static str) -> String {
+        let counter = self.name_counters.entry(prefix).or_insert(0);
+        let id = *counter;
+        *counter += 1;
+        format!("{prefix}_{id}")
+    }
+
+    fn enter_scope(&mut self) {
+        let counter = self.name_counters.entry("scope").or_insert(0);
+        let id = *counter;
+        *counter += 1;
+        self.scope_stack.push(id);
+    }
+
+    fn exit_scope(&mut self) {
+        self.scope_stack.pop();
+    }
+
+    fn current_scope(&self) -> Option<u32> {
+        self.scope_stack.last().copied()
+    }
+
+    fn in_prepare_block(&self) -> bool {
+        !self.scope_stack.is_empty()
+    }
+
+    fn scope_of(&self, id: u32) -> Option<u32> {
+        match self.record_map.get(id as usize) {
+            Some(&scope) => scope,
+            None => unreachable!("record id not found"), // this is a compiler invariant
+        }
+    }
+
+    fn allocate_record(&mut self) -> u32 {
+        let id = self.record_map.len() as u32;
+        let current_scope = self.current_scope();
+        self.record_map.push(current_scope);
+        id
+    }
+
+    fn allocate_qubit(&mut self, stim_index: u32) -> u32 {
+        let next_id = self.qubit_map.len() as u32;
+        *self.qubit_map.entry(stim_index).or_insert(next_id)
+    }
+
+    fn num_results(&self) -> u32 {
+        self.record_map.len() as u32
+    }
+
+    fn num_qubits(&self) -> u32 {
+        self.qubit_map.len() as u32
+    }
+}
+
+fn prepare_label(scope: u32) -> String {
+    format!("prepare_{scope}")
 }
 
 struct Compiler<'noise> {
     writer: QirWriter,
-    last_preselect_begin: Option<u32>,
-    num_preselect_expects: u32,
     noise: &'noise mut NoiseConfig<f64, f64>,
     current_correlated_group: Option<CorrelatedGroup>,
     num_noise_intrinsics: u32,
     errors: Vec<Error>,
+    id_map: IdMap,
 }
 
 impl<'noise> Compiler<'noise> {
     fn new(noise: &'noise mut NoiseConfig<f64, f64>) -> Self {
         Self {
             writer: QirWriter::new(),
-            last_preselect_begin: None,
-            num_preselect_expects: 0,
             noise,
             current_correlated_group: None,
             num_noise_intrinsics: 0,
             errors: Vec::new(),
+            id_map: IdMap::new(),
         }
     }
 
@@ -369,10 +431,12 @@ impl<'noise> Compiler<'noise> {
             ..
         } = block;
 
+        self.id_map.enter_scope();
         self.compile_instruction(block_instruction);
         for item in items {
             self.compile_item(item);
         }
+        self.id_map.exit_scope();
     }
 
     fn compile_line(&mut self, line: &Line) {
@@ -735,15 +799,12 @@ impl<'noise> Compiler<'noise> {
 
             // Control Flow
             "REPEAT" => self.unsupported(instruction),
+            "PREPARE" => self.compile_prepare(instruction),
+            "REQUIRE" => self.compile_require(instruction),
 
             // Annotations
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
             | "TICK" => (),
-
-            // Custom Instructions
-            "!rhai" => (),
-            "#!preselect_begin" => self.compile_preselect_begin(),
-            "#!preselect_expect" => self.compile_preselect_expect(instruction),
 
             _ => self.unknown(instruction),
         }
@@ -778,23 +839,131 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn op(&mut self, intrinsic: &str, qubit: u32) {
-        self.writer
-            .write_qis_call(intrinsic, &[Operand::Qubit(qubit)]);
+        let q = self.id_map.allocate_qubit(qubit);
+        self.writer.write_qis_call(intrinsic, &[q]);
     }
 
     fn op_adj(&mut self, intrinsic: &str, qubit: u32) {
-        self.writer
-            .write_qis_adj_call(intrinsic, &[Operand::Qubit(qubit)]);
+        let q = self.id_map.allocate_qubit(qubit);
+        self.writer.write_qis_adj_call(intrinsic, &[q]);
     }
 
     fn op_measure(&mut self, intrinsic: &str, qubit: u32) {
-        self.writer
-            .write_qis_call(intrinsic, &[Operand::Qubit(qubit), Operand::Result]);
+        let q = self.id_map.allocate_qubit(qubit);
+        let r = self.id_map.allocate_record();
+        self.writer.write_qis_call(intrinsic, &[q, r]);
     }
 
     fn op_2(&mut self, intrinsic: &str, q0: u32, q1: u32) {
+        let q0 = self.id_map.allocate_qubit(q0);
+        let q1 = self.id_map.allocate_qubit(q1);
+        self.writer.write_qis_call(intrinsic, &[q0, q1]);
+    }
+
+    fn compile_prepare(&mut self, instruction: &Instruction) {
+        if !instruction.targets.is_empty() {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction
+                    .targets
+                    .first()
+                    .map(|t| t.span)
+                    .unwrap_or(instruction.span),
+            });
+            return;
+        }
+
+        if !instruction.args.is_empty() {
+            self.push_error(Error::UnsupportedArgument {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return;
+        }
+
+        let Some(scope) = self.id_map.current_scope() else {
+            self.push_error(Error::PrepareWithoutBlock {
+                span: instruction.span,
+            });
+            return;
+        };
+
+        let label = prepare_label(scope);
+        self.writer.write_jump(&label); // terminate the previous block
+        self.writer.write_label(&label); // start the new block
+    }
+
+    fn compile_require(&mut self, instruction: &Instruction) {
+        if !self.id_map.in_prepare_block() {
+            self.push_error(Error::RequireOutsidePrepareBlock {
+                span: instruction.span,
+            });
+            return;
+        }
+
+        if instruction.targets.is_empty() {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return;
+        }
+
+        let mut read_registers = Vec::new();
+        for target in &instruction.targets {
+            let Some((offset, negated)) = self.expect_measurement_record(instruction, target)
+            else {
+                return;
+            };
+            let Some(result_id) = self.resolve_record_offset(target, offset) else {
+                return;
+            };
+            let read_register = self.id_map.fresh_name("r");
+            self.writer.write_read_result(&read_register, result_id);
+
+            let term = if negated {
+                let not_register = self.id_map.fresh_name("r");
+                self.writer.write_not(&not_register, &read_register);
+                not_register
+            } else {
+                read_register
+            };
+            read_registers.push(term);
+        }
+
+        let Some((first, rest)) = read_registers.split_first() else {
+            unreachable!("REQUIRE always has at least one target");
+        };
+
+        let mut parity = first.clone();
+        for reg in rest {
+            let temp = self.id_map.fresh_name("x");
+            self.writer.write_xor(&temp, &parity, reg);
+            parity = temp;
+        }
+
+        let Some(scope) = self.id_map.current_scope() else {
+            unreachable!("REQUIRE runs inside a prepare block");
+        };
+        let restart_label = prepare_label(scope);
+        let continue_label = self.id_map.fresh_name("continue");
         self.writer
-            .write_qis_call(intrinsic, &[Operand::Qubit(q0), Operand::Qubit(q1)]);
+            .write_branch(&parity, &restart_label, &continue_label);
+        self.writer.write_label(&continue_label);
+    }
+
+    fn resolve_record_offset(&mut self, target: &Target, offset: u32) -> Option<u32> {
+        let num_results = self.id_map.num_results();
+        let Some(result_id) = num_results.checked_sub(offset) else {
+            self.push_error(Error::MeasurementRecordOutOfBounds { span: target.span });
+            return None;
+        };
+
+        if self.id_map.scope_of(result_id) != self.id_map.current_scope() {
+            self.push_error(Error::MeasurementRecordOutOfScope { span: target.span });
+            return None;
+        }
+        Some(result_id)
     }
 
     fn compile_fault_error(&mut self, instruction: &Instruction) {
@@ -902,67 +1071,6 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn compile_preselect_begin(&mut self) {
-        self.last_preselect_begin = match self.last_preselect_begin {
-            None => Some(0),
-            Some(n) => Some(n + 1),
-        };
-        let id = self
-            .last_preselect_begin
-            .expect("last_preselect_begin was just set to Some above");
-        let label = format!("preselect_begin_{id}");
-        self.writer.write_jump(&label); // terminate the previous block
-        self.writer.write_label(&label); // start the new block
-    }
-
-    fn compile_preselect_expect(&mut self, instruction: &Instruction) {
-        self.unsupported_args(instruction); // Temporary error
-        let id = self
-            .last_preselect_begin
-            .expect("PRESELECT_EXPECT must be preceded by a PRESELECT_BEGIN");
-        let reg = format!("preselect_r{}", self.num_preselect_expects);
-        self.num_preselect_expects += 1;
-
-        // First target: a measurement record (`rec[-N]`) selecting which result to read.
-        let Some(offset) = self.expect_measurement_record(instruction, &instruction.targets[0])
-        else {
-            return;
-        };
-        // Second target: the expected value (0 or 1) as a plain uint.
-        let Some(expected) = self.expect_qubit(instruction, &instruction.targets[1]) else {
-            return;
-        };
-
-        // `rec[-N]` references the N-th most recent measurement; guard against integer underflow
-        let Some(result_id) = self.writer.num_results.checked_sub(offset) else {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: instruction.targets[0].span,
-            });
-            return;
-        };
-
-        // Read the result into %reg
-        self.writer
-            .write_read_result(&reg, Operand::ExistingResult(result_id));
-
-        let begin_label = format!("preselect_begin_{id}");
-        let continue_label = format!("preselect_continue_{id}");
-
-        // Branch: if result matches expected → continue, else → retry
-        if expected == 0 {
-            // expected 0: if read is true (1) → mismatch → retry
-            self.writer
-                .write_branch(&reg, &begin_label, &continue_label);
-        } else {
-            // expected 1: if read is true (1) → match → continue
-            self.writer
-                .write_branch(&reg, &continue_label, &begin_label);
-        }
-
-        self.writer.write_label(&continue_label);
-    }
-
     fn accumulate_correlated_error(&mut self, instruction: &Instruction) {
         let Some(probability) = self.expect_probability(instruction) else {
             return;
@@ -1049,7 +1157,11 @@ impl<'noise> Compiler<'noise> {
         };
         self.noise.intrinsics.insert(id, table);
 
-        self.writer.write_noise_intrinsic(&name, &columns);
+        let column_ids: Vec<u32> = columns
+            .iter()
+            .map(|&stim_index| self.id_map.allocate_qubit(stim_index))
+            .collect();
+        self.writer.write_noise_intrinsic(&name, &column_ids);
     }
 
     fn expect_qubit(&mut self, instruction: &Instruction, target: &Target) -> Option<u32> {
@@ -1072,15 +1184,15 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         instruction: &Instruction,
         target: &Target,
-    ) -> Option<u32> {
-        let TargetKind::MeasurementRecord { value } = target.kind else {
+    ) -> Option<(u32, bool)> {
+        let TargetKind::MeasurementRecord { negated, value } = target.kind else {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
             });
             return None;
         };
-        Some(value)
+        Some((value, negated))
     }
 
     fn expect_probability(&mut self, instruction: &Instruction) -> Option<f64> {
@@ -1125,7 +1237,8 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_header();
         self.compile_circuit(circuit);
         self.finish_correlated_group();
-        self.writer.write_footer();
+        self.writer
+            .write_footer(self.id_map.num_qubits(), self.id_map.num_results());
         if self.errors.is_empty() {
             Ok(self.writer.output)
         } else {

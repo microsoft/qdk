@@ -114,6 +114,7 @@ pub enum TargetKind {
         value: u32,
     },
     MeasurementRecord {
+        negated: bool,
         value: u32,
     },
     SweepBit {
@@ -140,7 +141,13 @@ impl Display for TargetKind {
                     write!(f, "Qubit({value})")
                 }
             }
-            TargetKind::MeasurementRecord { value } => write!(f, "MeasurementRecord({value})"),
+            TargetKind::MeasurementRecord { negated, value } => {
+                if *negated {
+                    write!(f, "MeasurementRecord(-{value})")
+                } else {
+                    write!(f, "MeasurementRecord({value})")
+                }
+            }
             TargetKind::SweepBit { value } => write!(f, "SweepBit({value})"),
             TargetKind::Pauli {
                 negated,
@@ -219,6 +226,12 @@ pub enum Error {
     #[error("integer literal is too large to fit in a 32-bit unsigned integer")]
     #[diagnostic(code("Stim.Parser.IntegerTooLarge"))]
     IntegerTooLarge {
+        #[label]
+        span: Span,
+    },
+    #[error("measurement record offset cannot be zero; the most recent measurement is rec[-1]")]
+    #[diagnostic(code("Stim.Parser.ZeroMeasurementRecord"))]
+    ZeroMeasurementRecord {
         #[label]
         span: Span,
     },
@@ -556,16 +569,19 @@ impl<'a> Parser<'a> {
                 value: self.extract_uint(first_token, None)?,
             },
             TokenKind::InstructionName => self.parse_pauli_or_loss_target(first_token, negated)?,
-            TokenKind::Rec => TargetKind::MeasurementRecord {
+            TokenKind::Rec => {
                 // Strips 'rec[-' prefix and trailing ']'.
-                value: self.extract_uint(
-                    first_token,
-                    Some(Span {
-                        lo: first_token.span.lo + 5,
-                        hi: first_token.span.hi - 1,
-                    }),
-                )?,
-            },
+                let value_span = Span {
+                    lo: first_token.span.lo + 5,
+                    hi: first_token.span.hi - 1,
+                };
+                let value = self.extract_uint(first_token, Some(value_span))?;
+                if value == 0 {
+                    self.emit_error(Error::ZeroMeasurementRecord { span: value_span });
+                    return None;
+                }
+                TargetKind::MeasurementRecord { negated, value }
+            }
             TokenKind::Sweep => TargetKind::SweepBit {
                 // Strips 'sweep[' prefix and trailing ']'.
                 value: self.extract_uint(
@@ -588,7 +604,12 @@ impl<'a> Parser<'a> {
         };
 
         if let Some(bang) = negated_token
-            && !matches!(kind, TargetKind::Qubit { .. } | TargetKind::Pauli { .. })
+            && !matches!(
+                kind,
+                TargetKind::Qubit { .. }
+                    | TargetKind::Pauli { .. }
+                    | TargetKind::MeasurementRecord { .. }
+            )
         {
             self.emit_error(Error::CannotNegateTarget { span: bang.span });
             return None;
