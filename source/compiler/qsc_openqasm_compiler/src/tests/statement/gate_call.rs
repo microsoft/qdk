@@ -234,7 +234,7 @@ fn barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         c[0] = measure q[0];
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -278,7 +278,7 @@ fn barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
-    .assert_eq(&qsharp);
+    .assert_eq(&qir);
     Ok(())
 }
 
@@ -320,7 +320,7 @@ fn cx_called_with_one_qubit_generates_error() {
          3 |         qubit[2] q;
          4 |         cx q[0];
            :         ^^^^^^^^
-         5 |     
+         5 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -346,7 +346,7 @@ fn cx_called_with_too_many_qubits_generates_error() {
          3 |         qubit[3] q;
          4 |         cx q[0], q[1], q[2];
            :         ^^^^^^^^^^^^^^^^^^^^
-         5 |     
+         5 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -372,7 +372,7 @@ fn rx_gate_with_no_angles_generates_error() {
          3 |         qubit q;
          4 |         rx q;
            :         ^^^^^
-         5 |     
+         5 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -419,7 +419,7 @@ fn rx_gate_with_too_many_angles_generates_error() {
          3 |         qubit q;
          4 |         rx(2.0, 3.0) q;
            :         ^^^^^^^^^^^^^^^
-         5 |     
+         5 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -446,7 +446,67 @@ fn implicit_cast_to_angle_works() -> miette::Result<(), Vec<Report>> {
 }
 
 #[test]
-fn custom_gate_with_angle_parameter_generates_qir() -> miette::Result<(), Vec<Report>> {
+#[allow(clippy::too_many_lines)]
+fn custom_gate_with_angle_parameter_generates_qir_adaptive_rif() -> miette::Result<(), Vec<Report>>
+{
+    let source = r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        #pragma qdk.qir.profile Adaptive_RIF
+        gate phase_by(theta) q {
+            rz(theta) q;
+        }
+        qubit q;
+        output bit c;
+        phase_by(1.0) q;
+        c = measure q;
+    "#;
+
+    let qir = compile_qasm_to_qir(source)?;
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_t\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__rz__body(double 1.0000000000000002, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__rz__body(double, %Qubit*)
+
+        declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
+
+        declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]]
+    .assert_eq(&qir);
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(), Vec<Report>> {
     let source = r#"
         OPENQASM 3.0;
         include "stdgates.inc";
@@ -460,7 +520,150 @@ fn custom_gate_with_angle_parameter_generates_qir() -> miette::Result<(), Vec<Re
         c = measure q;
     "#;
 
-    let _ = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_t\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @phase_by(i64 1433540284805665, i64 53, ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        define void @phase_by(i64 %var_0, i64 %var_1, ptr %var_2) {
+        block_1:
+          call void @rz(i64 %var_0, i64 %var_1, ptr %var_2)
+          ret void
+        }
+
+        define void @rz(i64 %var_3, i64 %var_4, ptr %var_5) {
+        block_2:
+          %var_42 = call double @AngleAsDouble(i64 %var_3, i64 %var_4)
+          call void @Rz(double %var_42, ptr %var_5)
+          ret void
+        }
+
+        define double @AngleAsDouble(i64 %var_6, i64 %var_7) {
+        block_3:
+          %var_9 = alloca i64
+          %var_14 = alloca i64
+          %var_19 = alloca i64
+          %var_21 = alloca i64
+          %var_23 = alloca i1
+          %var_25 = alloca i1
+          %var_28 = alloca i64
+          %var_30 = alloca i64
+          %var_32 = alloca i64
+          %var_8 = icmp sgt i64 %var_7, 53
+          br i1 %var_8, label %block_4, label %block_5
+        block_4:
+          %var_10 = sub i64 %var_7, 53
+          %var_12 = sub i64 %var_10, 1
+          %var_13 = shl i64 1, %var_12
+          store i64 %var_13, ptr %var_14
+          %var_15 = shl i64 1, %var_10
+          %var_16 = sub i64 %var_15, 1
+          %var_18 = and i64 %var_6, %var_16
+          store i64 %var_18, ptr %var_19
+          %var_20 = ashr i64 %var_6, %var_10
+          store i64 %var_20, ptr %var_21
+          %var_53 = load i64, ptr %var_19
+          %var_54 = load i64, ptr %var_14
+          %var_22 = icmp sgt i64 %var_53, %var_54
+          store i1 true, ptr %var_23
+          br i1 %var_22, label %block_9, label %block_6
+        block_5:
+          store i64 %var_6, ptr %var_9
+          br label %block_13
+        block_6:
+          %var_56 = load i64, ptr %var_19
+          %var_57 = load i64, ptr %var_14
+          %var_24 = icmp eq i64 %var_56, %var_57
+          store i1 false, ptr %var_25
+          br i1 %var_24, label %block_7, label %block_8
+        block_7:
+          %var_68 = load i64, ptr %var_21
+          %var_26 = and i64 %var_68, 1
+          %var_27 = icmp eq i64 %var_26, 1
+          store i1 %var_27, ptr %var_25
+          br label %block_8
+        block_8:
+          %var_59 = load i1, ptr %var_25
+          store i1 %var_59, ptr %var_23
+          br label %block_9
+        block_9:
+          %var_61 = load i1, ptr %var_23
+          br i1 %var_61, label %block_10, label %block_11
+        block_10:
+          %var_66 = load i64, ptr %var_21
+          %var_29 = add i64 %var_66, 1
+          store i64 %var_29, ptr %var_28
+          br label %block_12
+        block_11:
+          %var_62 = load i64, ptr %var_21
+          store i64 %var_62, ptr %var_28
+          br label %block_12
+        block_12:
+          %var_64 = load i64, ptr %var_28
+          store i64 %var_64, ptr %var_9
+          br label %block_13
+        block_13:
+          %var_44 = load i64, ptr %var_9
+          store i64 %var_44, ptr %var_30
+          %var_31 = icmp sgt i64 %var_7, 53
+          br i1 %var_31, label %block_14, label %block_15
+        block_14:
+          store i64 53, ptr %var_32
+          br label %block_16
+        block_15:
+          store i64 %var_7, ptr %var_32
+          br label %block_16
+        block_16:
+          %var_47 = load i64, ptr %var_32
+          %var_34 = shl i64 1, %var_47
+          %var_35 = sitofp i64 %var_34 to double
+          %var_48 = load i64, ptr %var_30
+          %var_37 = sitofp i64 %var_48 to double
+          %var_39 = fdiv double 6.283185307179586, %var_35
+          %var_41 = fmul double %var_37, %var_39
+          ret double %var_41
+        }
+
+        define void @Rz(double %var_44, ptr %var_45) {
+        block_17:
+          call void @__quantum__qis__rz__body(double %var_44, ptr %var_45)
+          ret void
+        }
+
+        declare void @__quantum__qis__rz__body(double, ptr)
+
+        declare void @__quantum__qis__m__body(ptr, ptr) #1
+
+        declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]]
+    .assert_eq(&qir);
     Ok(())
 }
 
@@ -619,7 +822,7 @@ fn simulatable_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<
         bit result = measure q;
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -655,7 +858,7 @@ fn simulatable_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
-    "#]].assert_eq(&qsharp);
+    "#]].assert_eq(&qir);
     Ok(())
 }
 
@@ -675,7 +878,7 @@ fn qdk_qir_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<(), 
         bit result = measure q;
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -711,7 +914,7 @@ fn qdk_qir_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<(), 
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
-    "#]].assert_eq(&qsharp);
+    "#]].assert_eq(&qir);
     Ok(())
 }
 
@@ -1410,7 +1613,7 @@ fn broadcast_with_different_register_sizes_fails() {
          4 |         qubit[2] targets;
          5 |         ctrl @ x ctrls, targets;
            :                         ^^^^^^^
-         6 |     
+         6 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -1584,7 +1787,7 @@ fn qasm2_barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         c[0] = measure q[0];
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -1628,7 +1831,7 @@ fn qasm2_barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
-    .assert_eq(&qsharp);
+    .assert_eq(&qir);
     Ok(())
 }
 
@@ -1672,7 +1875,7 @@ fn qasm2_cx_called_with_one_qubit_generates_error() {
          4 |         qreg q[2];
          5 |         CX q[0];
            :         ^^^^^^^^
-         6 |     
+         6 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -1699,7 +1902,7 @@ fn qasm2_cx_called_with_too_many_qubits_generates_error() {
          4 |         qreg q[3];
          5 |         cx q[0], q[1], q[2];
            :         ^^^^^^^^^^^^^^^^^^^^
-         6 |     
+         6 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -1726,7 +1929,7 @@ fn qasm2_rx_gate_with_no_angles_generates_error() {
          4 |         qreg q[1];
          5 |         rx q;
            :         ^^^^^
-         6 |     
+         6 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -1775,7 +1978,7 @@ fn qasm2_rx_gate_with_too_many_angles_generates_error() {
          4 |         qreg q[1];
          5 |         rx(2.0, 3.0) q;
            :         ^^^^^^^^^^^^^^^
-         6 |     
+         6 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
@@ -1850,7 +2053,7 @@ fn qasm2_simulatable_intrinsic_on_gate_stmt_generates_correct_qir()
         result = measure q;
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -1890,7 +2093,7 @@ fn qasm2_simulatable_intrinsic_on_gate_stmt_generates_correct_qir()
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
-    "#]].assert_eq(&qsharp);
+    "#]].assert_eq(&qir);
     Ok(())
 }
 
@@ -2145,7 +2348,7 @@ fn qasm2_broadcast_with_different_register_sizes_fails() {
          5 |         qreg targets[2];
          6 |         CX ctrls, targets;
            :                   ^^^^^^^
-         7 |     
+         7 |
            `----
         ]"#]]
     .assert_eq(&format!("{errors:?}"));
