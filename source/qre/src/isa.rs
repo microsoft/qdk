@@ -352,60 +352,62 @@ impl Instruction {
     }
 
     #[must_use]
-    pub fn space(&self, arity: Option<u64>) -> Option<u64> {
+    pub fn space(&self, arity: Option<u64>, params: &[f64]) -> Option<u64> {
         match &self.metrics {
             Metrics::FixedArity { space, .. } => Some(*space),
-            Metrics::VariableArity { space_fn, .. } => arity.map(|a| space_fn.evaluate(a)),
+            Metrics::VariableArity { space_fn, .. } => arity.map(|a| space_fn.evaluate(a, params)),
         }
     }
 
     #[must_use]
-    pub fn length(&self, arity: Option<u64>) -> Option<u64> {
+    pub fn length(&self, arity: Option<u64>, params: &[f64]) -> Option<u64> {
         match &self.metrics {
             Metrics::FixedArity { length, .. } => Some(*length),
-            Metrics::VariableArity { length_fn, .. } => arity.map(|a| length_fn.evaluate(a)),
-        }
-    }
-
-    #[must_use]
-    pub fn time(&self, arity: Option<u64>) -> Option<u64> {
-        match &self.metrics {
-            Metrics::FixedArity { time, .. } => Some(*time),
-            Metrics::VariableArity { time_fn, .. } => arity.map(|a| time_fn.evaluate(a)),
-        }
-    }
-
-    #[must_use]
-    pub fn error_rate(&self, arity: Option<u64>) -> Option<f64> {
-        match &self.metrics {
-            Metrics::FixedArity { error_rate, .. } => Some(*error_rate),
-            Metrics::VariableArity { error_rate_fn, .. } => {
-                arity.map(|a| error_rate_fn.evaluate(a))
+            Metrics::VariableArity { length_fn, .. } => {
+                arity.map(|a| length_fn.evaluate(a, params))
             }
         }
     }
 
     #[must_use]
-    pub fn expect_space(&self, arity: Option<u64>) -> u64 {
-        self.space(arity)
+    pub fn time(&self, arity: Option<u64>, params: &[f64]) -> Option<u64> {
+        match &self.metrics {
+            Metrics::FixedArity { time, .. } => Some(*time),
+            Metrics::VariableArity { time_fn, .. } => arity.map(|a| time_fn.evaluate(a, params)),
+        }
+    }
+
+    #[must_use]
+    pub fn error_rate(&self, arity: Option<u64>, params: &[f64]) -> Option<f64> {
+        match &self.metrics {
+            Metrics::FixedArity { error_rate, .. } => Some(*error_rate),
+            Metrics::VariableArity { error_rate_fn, .. } => {
+                arity.map(|a| error_rate_fn.evaluate(a, params))
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn expect_space(&self, arity: Option<u64>, params: &[f64]) -> u64 {
+        self.space(arity, params)
             .expect("Instruction does not support variable arity")
     }
 
     #[must_use]
-    pub fn expect_length(&self, arity: Option<u64>) -> u64 {
-        self.length(arity)
+    pub fn expect_length(&self, arity: Option<u64>, params: &[f64]) -> u64 {
+        self.length(arity, params)
             .expect("Instruction does not support variable arity")
     }
 
     #[must_use]
-    pub fn expect_time(&self, arity: Option<u64>) -> u64 {
-        self.time(arity)
+    pub fn expect_time(&self, arity: Option<u64>, params: &[f64]) -> u64 {
+        self.time(arity, params)
             .expect("Instruction does not support variable arity")
     }
 
     #[must_use]
-    pub fn expect_error_rate(&self, arity: Option<u64>) -> f64 {
-        self.error_rate(arity)
+    pub fn expect_error_rate(&self, arity: Option<u64>, params: &[f64]) -> f64 {
+        self.error_rate(arity, params)
             .expect("Instruction does not support variable arity")
     }
 
@@ -557,7 +559,7 @@ impl InstructionConstraint {
             }
             Metrics::VariableArity { error_rate_fn, .. } => {
                 if let (Some(constraint_arity), Some(bound)) = (self.arity, &self.error_rate_fn)
-                    && !bound.evaluate(&error_rate_fn.evaluate(constraint_arity))
+                    && !bound.evaluate(&error_rate_fn.evaluate(constraint_arity, &[]))
                 {
                     return false;
                 }
@@ -598,6 +600,13 @@ pub enum Metrics {
     },
 }
 
+/// A callback that maps an instruction arity to a value of type `T`.
+type ArityFn<T> = Arc<dyn Fn(u64) -> T + Send + Sync>;
+
+/// A callback that maps an instruction arity and its parameters to a value of
+/// type `T`.
+type ArityWithParamsFn<T> = Arc<dyn Fn(u64, &[f64]) -> T + Send + Sync>;
+
 #[derive(Clone, Serialize, Deserialize)]
 pub enum VariableArityFunction<T> {
     Constant {
@@ -613,7 +622,11 @@ pub enum VariableArityFunction<T> {
     },
     #[serde(skip)]
     Generic {
-        func: Arc<dyn Fn(u64) -> T + Send + Sync>,
+        func: ArityFn<T>,
+    },
+    #[serde(skip)]
+    GenericWithParams {
+        func: ArityWithParamsFn<T>,
     },
 }
 
@@ -642,11 +655,15 @@ impl<T: Add<Output = T> + std::ops::Mul<Output = T> + Copy + FromPrimitive>
         }
     }
 
-    pub fn generic_from_arc(func: Arc<dyn Fn(u64) -> T + Send + Sync>) -> Self {
+    pub fn generic_from_arc(func: ArityFn<T>) -> Self {
         VariableArityFunction::Generic { func }
     }
 
-    pub fn evaluate(&self, arity: u64) -> T {
+    pub fn generic_with_params_from_arc(func: ArityWithParamsFn<T>) -> Self {
+        VariableArityFunction::GenericWithParams { func }
+    }
+
+    pub fn evaluate(&self, arity: u64, params: &[f64]) -> T {
         match self {
             VariableArityFunction::Constant { value } => *value,
             VariableArityFunction::Linear { slope } => {
@@ -662,6 +679,7 @@ impl<T: Add<Output = T> + std::ops::Mul<Output = T> + Copy + FromPrimitive>
                     + *offset
             }
             VariableArityFunction::Generic { func } => func(arity),
+            VariableArityFunction::GenericWithParams { func } => func(arity, params),
         }
     }
 }

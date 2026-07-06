@@ -277,34 +277,42 @@ impl Instruction {
         self.0.arity()
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn space(&self, arity: Option<u64>) -> Option<u64> {
-        self.0.space(arity)
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn space(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> Option<u64> {
+        self.0.space(arity, params.as_deref().unwrap_or(&[]))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn time(&self, arity: Option<u64>) -> Option<u64> {
-        self.0.time(arity)
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn time(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> Option<u64> {
+        self.0.time(arity, params.as_deref().unwrap_or(&[]))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn error_rate(&self, arity: Option<u64>) -> Option<f64> {
-        self.0.error_rate(arity)
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn error_rate(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> Option<f64> {
+        self.0.error_rate(arity, params.as_deref().unwrap_or(&[]))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn expect_space(&self, arity: Option<u64>) -> PyResult<u64> {
-        Ok(self.0.expect_space(arity))
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn expect_space(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> PyResult<u64> {
+        Ok(self.0.expect_space(arity, params.as_deref().unwrap_or(&[])))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn expect_time(&self, arity: Option<u64>) -> PyResult<u64> {
-        Ok(self.0.expect_time(arity))
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn expect_time(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> PyResult<u64> {
+        Ok(self.0.expect_time(arity, params.as_deref().unwrap_or(&[])))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn expect_error_rate(&self, arity: Option<u64>) -> PyResult<f64> {
-        Ok(self.0.expect_error_rate(arity))
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn expect_error_rate(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> PyResult<f64> {
+        Ok(self
+            .0
+            .expect_error_rate(arity, params.as_deref().unwrap_or(&[])))
     }
 
     pub fn set_source(&mut self, index: usize) {
@@ -353,14 +361,14 @@ impl qre::ParetoItem2D for Instruction {
 
     fn objective1(&self) -> Self::Objective1 {
         self.0
-            .space(None)
-            .unwrap_or_else(|| self.0.expect_space(Some(1)))
+            .space(None, &[])
+            .unwrap_or_else(|| self.0.expect_space(Some(1), &[]))
     }
 
     fn objective2(&self) -> Self::Objective2 {
         self.0
-            .time(None)
-            .unwrap_or_else(|| self.0.expect_time(Some(1)))
+            .time(None, &[])
+            .unwrap_or_else(|| self.0.expect_time(Some(1), &[]))
     }
 }
 
@@ -371,20 +379,20 @@ impl qre::ParetoItem3D for Instruction {
 
     fn objective1(&self) -> Self::Objective1 {
         self.0
-            .space(None)
-            .unwrap_or_else(|| self.0.expect_space(Some(1)))
+            .space(None, &[])
+            .unwrap_or_else(|| self.0.expect_space(Some(1), &[]))
     }
 
     fn objective2(&self) -> Self::Objective2 {
         self.0
-            .time(None)
-            .unwrap_or_else(|| self.0.expect_time(Some(1)))
+            .time(None, &[])
+            .unwrap_or_else(|| self.0.expect_time(Some(1), &[]))
     }
 
     fn objective3(&self) -> Self::Objective3 {
         self.0
-            .error_rate(None)
-            .unwrap_or_else(|| self.0.expect_error_rate(Some(1)))
+            .error_rate(None, &[])
+            .unwrap_or_else(|| self.0.expect_error_rate(Some(1), &[]))
     }
 }
 
@@ -764,15 +772,19 @@ pub struct FloatFunction(qre::VariableArityFunction<f64>);
 
 #[pymethods]
 impl IntFunction {
-    fn __call__(&self, arity: u64) -> u64 {
-        self.0.evaluate(arity)
+    #[pyo3(signature = (arity, params = None))]
+    #[allow(clippy::needless_pass_by_value)]
+    fn __call__(&self, arity: u64, params: Option<Vec<f64>>) -> u64 {
+        self.0.evaluate(arity, params.as_deref().unwrap_or(&[]))
     }
 }
 
 #[pymethods]
 impl FloatFunction {
-    fn __call__(&self, arity: u64) -> f64 {
-        self.0.evaluate(arity)
+    #[pyo3(signature = (arity, params = None))]
+    #[allow(clippy::needless_pass_by_value)]
+    fn __call__(&self, arity: u64, params: Option<Vec<f64>>) -> f64 {
+        self.0.evaluate(arity, params.as_deref().unwrap_or(&[]))
     }
 }
 
@@ -829,17 +841,31 @@ pub fn block_linear_function<'py>(
     }
 }
 
+/// Closure type used to wrap a Python callable that maps an arity and its
+/// parameters to an integer value.
+type ParamsIntClosure = Arc<dyn Fn(u64, &[f64]) -> u64 + Send + Sync>;
+
+/// Closure type used to wrap a Python callable that maps an arity and its
+/// parameters to a floating point value.
+type ParamsFloatClosure = Arc<dyn Fn(u64, &[f64]) -> f64 + Send + Sync>;
+
 #[pyfunction]
 pub fn generic_function<'py>(
     py: Python<'py>,
     func: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    // Try to get return type annotation from the function
+    // Determine whether the callable is integer-valued by inspecting its
+    // return type annotation. The annotation may be either the actual `int`
+    // type object or, under `from __future__ import annotations` (PEP 563),
+    // the stringized name `"int"`; both are treated as integer-valued.
     let is_int = if let Ok(annotations) = func.getattr("__annotations__") {
         if let Ok(return_type) = annotations.get_item("return") {
-            // Check if return type is float
-            let float_type = py.get_type::<pyo3::types::PyInt>();
-            return_type.eq(float_type).unwrap_or(false)
+            let int_type = py.get_type::<pyo3::types::PyInt>();
+            return_type.eq(&int_type).unwrap_or(false)
+                || return_type
+                    .extract::<String>()
+                    .map(|s| s.trim() == "int")
+                    .unwrap_or(false)
         } else {
             false
         }
@@ -849,32 +875,78 @@ pub fn generic_function<'py>(
 
     let func: Py<PyAny> = func.unbind();
 
-    if is_int {
-        let closure = move |arity: u64| -> u64 {
-            Python::attach(|py| {
-                let result = func.call1(py, (arity,));
-                match result {
-                    Ok(value) => value.extract::<u64>(py).unwrap_or(0),
-                    Err(_) => 0,
-                }
-            })
-        };
+    // Determine whether the callable accepts a second `params` argument by
+    // inspecting its argument count. Two-argument callables are evaluated with
+    // the instruction parameters.
+    let has_params = Python::attach(|py| {
+        func.getattr(py, "__code__")
+            .and_then(|code| code.getattr(py, "co_argcount"))
+            .and_then(|count| count.extract::<usize>(py))
+            .map(|count| count >= 2)
+            .unwrap_or(false)
+    });
 
-        let arc: Arc<dyn Fn(u64) -> u64 + Send + Sync> = Arc::new(closure);
-        IntFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
-    } else {
-        let closure = move |arity: u64| -> f64 {
-            Python::attach(|py| {
-                let result = func.call1(py, (arity,));
-                match result {
-                    Ok(value) => value.extract::<f64>(py).unwrap_or(0.0),
-                    Err(_) => 0.0,
-                }
-            })
-        };
-
-        let arc: Arc<dyn Fn(u64) -> f64 + Send + Sync> = Arc::new(closure);
-        FloatFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
+    match (is_int, has_params) {
+        (true, true) => {
+            let closure = move |arity: u64, params: &[f64]| -> u64 {
+                Python::attach(|py| {
+                    let params = params.to_vec();
+                    let result = func.call1(py, (arity, params));
+                    match result {
+                        Ok(value) => value.extract::<u64>(py).unwrap_or(0),
+                        Err(_) => 0,
+                    }
+                })
+            };
+            let arc: ParamsIntClosure = Arc::new(closure);
+            IntFunction(qre::VariableArityFunction::generic_with_params_from_arc(
+                arc,
+            ))
+            .into_bound_py_any(py)
+        }
+        (true, false) => {
+            let closure = move |arity: u64| -> u64 {
+                Python::attach(|py| {
+                    let result = func.call1(py, (arity,));
+                    match result {
+                        Ok(value) => value.extract::<u64>(py).unwrap_or(0),
+                        Err(_) => 0,
+                    }
+                })
+            };
+            let arc: Arc<dyn Fn(u64) -> u64 + Send + Sync> = Arc::new(closure);
+            IntFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
+        }
+        (false, true) => {
+            let closure = move |arity: u64, params: &[f64]| -> f64 {
+                Python::attach(|py| {
+                    let params = params.to_vec();
+                    let result = func.call1(py, (arity, params));
+                    match result {
+                        Ok(value) => value.extract::<f64>(py).unwrap_or(0.0),
+                        Err(_) => 0.0,
+                    }
+                })
+            };
+            let arc: ParamsFloatClosure = Arc::new(closure);
+            FloatFunction(qre::VariableArityFunction::generic_with_params_from_arc(
+                arc,
+            ))
+            .into_bound_py_any(py)
+        }
+        (false, false) => {
+            let closure = move |arity: u64| -> f64 {
+                Python::attach(|py| {
+                    let result = func.call1(py, (arity,));
+                    match result {
+                        Ok(value) => value.extract::<f64>(py).unwrap_or(0.0),
+                        Err(_) => 0.0,
+                    }
+                })
+            };
+            let arc: Arc<dyn Fn(u64) -> f64 + Send + Sync> = Arc::new(closure);
+            FloatFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
+        }
     }
 }
 

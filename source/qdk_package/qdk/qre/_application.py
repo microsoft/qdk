@@ -6,6 +6,7 @@ from __future__ import annotations
 import types
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from inspect import signature
 from types import NoneType
 from typing import (
     ClassVar,
@@ -93,7 +94,12 @@ class Application(ABC, Generic[TraceParameters]):
             Trace: A trace for each enumerated set of trace parameters.
         """
 
-        param_type = get_type_hints(self.__class__.get_trace).get("parameters")
+        # Resolve the trace-parameter type from the first parameter of
+        # ``get_trace`` (after ``self``), rather than a hard-coded name, so
+        # subclasses are free to name the parameter however they like.
+        type_hints = get_type_hints(self.__class__.get_trace)
+        param_names = [name for name in signature(self.__class__.get_trace).parameters if name != "self"]
+        param_type = type_hints.get(param_names[0]) if param_names else NoneType
         if param_type is types.NoneType:
             yield self.get_trace(None)  # type: ignore
             return

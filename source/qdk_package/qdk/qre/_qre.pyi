@@ -606,10 +606,10 @@ class Constraint:
         ...
 
 class _IntFunction:
-    def __call__(self, arity: int) -> int: ...
+    def __call__(self, arity: int, params: Optional[list[float]] = None) -> int: ...
 
 class _FloatFunction:
-    def __call__(self, arity: int) -> float: ...
+    def __call__(self, arity: int, params: Optional[list[float]] = None) -> float: ...
 
 @overload
 def constant_function(value: int) -> _IntFunction: ...
@@ -679,11 +679,27 @@ def block_linear_function(
 def generic_function(func: Callable[[int], int]) -> _IntFunction: ...
 @overload
 def generic_function(func: Callable[[int], float]) -> _FloatFunction: ...
+@overload
 def generic_function(
-    func: Callable[[int], int | float],
+    func: Callable[[int, list[float]], int],
+) -> _IntFunction: ...
+@overload
+def generic_function(
+    func: Callable[[int, list[float]], float],
+) -> _FloatFunction: ...
+def generic_function(
+    func: (
+        Callable[[int], int | float]
+        | Callable[[int, list[float]], int | float]
+    ),
 ) -> _IntFunction | _FloatFunction:
     """
     Create a generic function from a Python callable.
+
+    The callable may accept either a single ``arity`` argument or an
+    ``arity`` plus a ``params`` list of floats.  Whether the resulting
+    function is integer- or float-valued is determined by the callable's
+    return type annotation (defaulting to float when unannotated).
 
     Note:
         Only use this function if the other function constructors
@@ -693,7 +709,8 @@ def generic_function(
         simple as possible to minimize overhead.
 
     Args:
-        func (Callable[[int], int | float]): The Python callable.
+        func (Callable[[int], int | float] | Callable[[int, list[float]], int | float]):
+            The Python callable.
 
     Returns:
         _IntFunction | _FloatFunction: The generic function.
