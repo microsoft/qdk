@@ -17,6 +17,7 @@ use thiserror::Error;
 struct QirWriter {
     output: String,
     used_intrinsics: FxHashMap<String, String>,
+    defined_functions: FxHashMap<String, String>,
     has_noise_intrinsic: bool,
 }
 
@@ -25,6 +26,7 @@ impl QirWriter {
         Self {
             output: String::new(),
             used_intrinsics: FxHashMap::default(),
+            defined_functions: FxHashMap::default(),
             has_noise_intrinsic: false,
         }
     }
@@ -43,17 +45,17 @@ impl QirWriter {
 
     /// `__quantum__qis__{intrinsic}__body`
     fn write_qis_call(&mut self, intrinsic: &str, ids: &[u32]) {
-        self.write_raw_call(&format!("__quantum__qis__{intrinsic}__body"), ids);
+        self.call_intrinsic(&format!("__quantum__qis__{intrinsic}__body"), ids);
     }
 
     /// `__quantum__qis__{intrinsic}__adj`
     fn write_qis_adj_call(&mut self, intrinsic: &str, ids: &[u32]) {
-        self.write_raw_call(&format!("__quantum__qis__{intrinsic}__adj"), ids);
+        self.call_intrinsic(&format!("__quantum__qis__{intrinsic}__adj"), ids);
     }
 
-    // Writes: `  call void @{intrinsic}(ptr inttoptr (i64 N to ptr), ...)`
-    fn write_raw_call(&mut self, intrinsic: &str, ids: &[u32]) {
-        write!(self, "  call void @{intrinsic}(");
+    // Writes: `  call void @{name}(ptr inttoptr (i64 N to ptr), ...)` without declaring `name`.
+    fn write_call(&mut self, name: &str, ids: &[u32]) {
+        write!(self, "  call void @{name}(");
         for (i, &id) in ids.iter().enumerate() {
             if i > 0 {
                 write!(self, ", ");
@@ -61,10 +63,54 @@ impl QirWriter {
             self.write_ptr(id);
         }
         writeln!(self, ")");
+    }
+
+    fn call_intrinsic(&mut self, intrinsic: &str, ids: &[u32]) {
+        self.write_call(intrinsic, ids);
         self.declare(intrinsic, || {
             let params = vec!["ptr"; ids.len()].join(", ");
             format!("declare void @{intrinsic}({params})")
         });
+    }
+
+    fn call_internal_helper(
+        &mut self,
+        name: &str,
+        ids: &[u32],
+        definition: impl FnOnce() -> String,
+    ) {
+        self.defined_functions
+            .entry(name.to_string())
+            .or_insert_with(definition);
+        self.write_call(name, ids);
+    }
+
+    fn write_classical_control(&mut self, pauli: &str, result_id: u32, qubit: u32) {
+        self.declare("__quantum__rt__read_result", || {
+            "declare i1 @__quantum__rt__read_result(ptr)".to_string()
+        });
+        self.declare(&format!("__quantum__qis__{pauli}__body"), || {
+            format!("declare void @__quantum__qis__{pauli}__body(ptr)")
+        });
+        let name = format!("classical_control_c{pauli}");
+        self.call_internal_helper(&name, &[result_id, qubit], || {
+            Self::classical_control_def(pauli)
+        });
+    }
+
+    fn classical_control_def(pauli: &str) -> String {
+        format!(
+            "define void @classical_control_c{pauli}(ptr %result, ptr %qubit) {{
+block_c{pauli}_entry:
+  %result_val = call i1 @__quantum__rt__read_result(ptr %result)
+  br i1 %result_val, label %block_c{pauli}_apply, label %block_c{pauli}_exit
+block_c{pauli}_apply:
+  call void @__quantum__qis__{pauli}__body(ptr %qubit)
+  br label %block_c{pauli}_exit
+block_c{pauli}_exit:
+  ret void
+}}"
+        )
     }
 
     fn write_noise_intrinsic(&mut self, name: &str, ids: &[u32]) {
@@ -161,10 +207,19 @@ impl QirWriter {
         }
     }
 
+    fn write_definitions(&mut self) {
+        let definitions: Vec<String> = self.defined_functions.values().cloned().collect();
+        for definition in definitions {
+            writeln!(self);
+            writeln!(self, "{definition}");
+        }
+    }
+
     fn write_footer(&mut self, num_qubits: u32, num_results: u32) {
         self.write_record_output(num_results);
         writeln!(self, "  ret i64 0");
         writeln!(self, "}}");
+        self.write_definitions();
         self.write_declarations();
 
         writeln!(self);
@@ -596,9 +651,7 @@ impl<'noise> Compiler<'noise> {
                 |s, q0, q1| {
                     s.op_2("cx", q0, q1);
                 },
-                |s, q| {
-                    s.op("x", q);
-                },
+                "x",
             ),
             "CXSWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): CX 1 0; CX 0 1
@@ -611,9 +664,7 @@ impl<'noise> Compiler<'noise> {
                 |s, q0, q1| {
                     s.op_2("cy", q0, q1);
                 },
-                |s, q| {
-                    s.op("y", q);
-                },
+                "y",
             ),
             "CZ" | "ZCZ" => self.broadcast_controlled(
                 instruction,
@@ -621,9 +672,7 @@ impl<'noise> Compiler<'noise> {
                 |s, q0, q1| {
                     s.op_2("cz", q0, q1);
                 },
-                |s, q| {
-                    s.op("z", q);
-                },
+                "z",
             ),
             "CZSWAP" | "SWAPCZ" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1
@@ -742,9 +791,7 @@ impl<'noise> Compiler<'noise> {
                     // Stim decomposition (into H, S, CX, M, R): CX 1 0
                     s.op_2("cx", q1, q0);
                 },
-                |s, q| {
-                    s.op("x", q);
-                },
+                "x",
             ),
             "YCX" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 1; CX 1 0; S 0; H 1
@@ -773,9 +820,7 @@ impl<'noise> Compiler<'noise> {
                     s.op_2("cx", q1, q0);
                     s.op("s", q0);
                 },
-                |s, q| {
-                    s.op("y", q);
-                },
+                "y",
             ),
 
             // Noise Channels
@@ -925,7 +970,7 @@ impl<'noise> Compiler<'noise> {
         instruction: &Instruction,
         allowed_rec_position: AllowedRecPosition,
         mut quantum: impl FnMut(&mut Self, u32, u32),
-        mut classical: impl FnMut(&mut Self, u32),
+        classical_pauli: &str,
     ) {
         self.unsupported_args(instruction);
         let Some(pairs) = self.expect_target_pairs(instruction) else {
@@ -945,12 +990,12 @@ impl<'noise> Compiler<'noise> {
                 (TargetKind::MeasurementRecord { .. }, TargetKind::Qubit { .. })
                     if allowed_rec_position.allows_first() =>
                 {
-                    self.classical_control(instruction, &pair[0], &pair[1], &mut classical);
+                    self.classical_control(instruction, &pair[0], &pair[1], classical_pauli);
                 }
                 (TargetKind::Qubit { .. }, TargetKind::MeasurementRecord { .. })
                     if allowed_rec_position.allows_second() =>
                 {
-                    self.classical_control(instruction, &pair[1], &pair[0], &mut classical);
+                    self.classical_control(instruction, &pair[1], &pair[0], classical_pauli);
                 }
                 (TargetKind::MeasurementRecord { .. }, TargetKind::MeasurementRecord { .. }) => {
                     self.push_error(Error::MeasurementRecordWithoutQubit {
@@ -987,7 +1032,7 @@ impl<'noise> Compiler<'noise> {
         instruction: &Instruction,
         rec_target: &Target,
         qubit_target: &Target,
-        classical: &mut impl FnMut(&mut Self, u32),
+        pauli: &str,
     ) {
         let Some((offset, negated)) = self.expect_measurement_record(instruction, rec_target)
         else {
@@ -1006,19 +1051,8 @@ impl<'noise> Compiler<'noise> {
         let Some(target) = self.expect_qubit(instruction, qubit_target) else {
             return;
         };
-
-        let measurement_result = self.id_map.fresh_name("r");
-        self.writer
-            .write_read_result(&measurement_result, result_id);
-
-        let apply_label = self.id_map.fresh_name("apply_controlled");
-        let continue_label = self.id_map.fresh_name("continue_controlled");
-        self.writer
-            .write_branch(&measurement_result, &apply_label, &continue_label);
-        self.writer.write_label(&apply_label);
-        classical(self, target);
-        self.writer.write_jump(&continue_label);
-        self.writer.write_label(&continue_label);
+        let qubit = self.id_map.allocate_qubit(target);
+        self.writer.write_classical_control(pauli, result_id, qubit);
     }
 
     fn op(&mut self, intrinsic: &str, qubit: u32) {
