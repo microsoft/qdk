@@ -16,7 +16,9 @@ pub use isa::{
     ConstraintBound, Encoding, ISA, ISARequirements, Instruction, InstructionConstraint, LockedISA,
     ProvenanceGraph, VariableArityFunction,
 };
-pub use result::{EstimationCollection, EstimationResult, FactoryResult, ResultSummary};
+pub use result::{
+    ErrorComposition, EstimationCollection, EstimationResult, FactoryResult, ResultSummary,
+};
 mod trace;
 pub use trace::instruction_ids;
 pub use trace::instruction_ids::instruction_name;

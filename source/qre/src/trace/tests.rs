@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::isa::{Encoding, ISA, Instruction};
+use crate::result::ErrorComposition;
 use crate::trace::{Trace, instruction_ids::*};
 
 #[test]
@@ -225,11 +226,46 @@ fn test_estimate_simple() {
         0.001,    // error_rate
     ));
 
-    let result = trace.estimate(&isa, None).expect("Estimation failed");
+    let result = trace
+        .estimate(&isa, None, ErrorComposition::UnionBound)
+        .expect("Estimation failed");
 
     assert!((result.error() - 0.001).abs() <= f64::EPSILON);
     assert_eq!(result.runtime(), 100);
     assert_eq!(result.qubits(), 50);
+}
+
+#[test]
+fn test_estimate_product_composition() {
+    // Ten T gates, each with error rate 0.1. Under the union bound the total
+    // error is the sum (1.0), while under product composition it is
+    // 1 - (1 - 0.1)^10.
+    let mut trace = Trace::new(1);
+    for _ in 0..10 {
+        trace.add_operation(T, vec![0], vec![]);
+    }
+
+    let mut isa = ISA::new();
+    isa.add_instruction(Instruction::fixed_arity(
+        T,
+        Encoding::Logical,
+        1,        // arity
+        100,      // time
+        Some(50), // space
+        None,     // length (defaults to arity)
+        0.1,      // error_rate
+    ));
+
+    let union = trace
+        .estimate(&isa, None, ErrorComposition::UnionBound)
+        .expect("Estimation failed");
+    assert!((union.error() - 1.0).abs() <= 1e-9);
+
+    let product = trace
+        .estimate(&isa, None, ErrorComposition::Product)
+        .expect("Estimation failed");
+    let expected = 1.0 - 0.9_f64.powi(10);
+    assert!((product.error() - expected).abs() <= 1e-9);
 }
 
 #[test]
@@ -265,7 +301,9 @@ fn test_estimate_with_factory() {
         0.0,
     ));
 
-    let result = trace.estimate(&isa, None).expect("Estimation failed");
+    let result = trace
+        .estimate(&isa, None, ErrorComposition::UnionBound)
+        .expect("Estimation failed");
 
     assert_eq!(result.runtime(), 1000);
     assert_eq!(result.qubits(), 700);
