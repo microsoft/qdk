@@ -1,5 +1,6 @@
 import pytest
 from qdk import Context
+from qdk.test_utils import run_tests
 
 
 @pytest.mark.parametrize(
@@ -14,7 +15,7 @@ from qdk import Context
     ],
 )
 def test_library(library_name: str):
-    Context(project_root=f"library/{library_name}").run_tests()
+    run_tests(Context(project_root=f"library/{library_name}"))
 
 
 # Use this test case for library development.
@@ -22,4 +23,4 @@ def test_library(library_name: str):
 # pytest source/qdk_package/tests-integration/test_libraries.py::test_single -s
 def test_single():
     ctx = Context(project_root="library/table_lookup")
-    ctx.run_tests(verbose=3, regex="TestLookupMatchesStd")
+    run_tests(ctx, verbose=3, regex="TestLookupMatchesStd")

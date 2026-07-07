@@ -10,7 +10,6 @@ independent Q# environments to coexist.
 """
 
 import json
-import re
 import sys
 import types
 import weakref
@@ -1031,87 +1030,3 @@ class Context:
     def get_target_profile(self) -> TargetProfile:
         """Returns target profile for this Context."""
         return self._target_profile
-
-    def _get_test_callables(self) -> List[Callable]:
-        """Returns a list of all Q# callables with the `@Test` attribute in this Context."""
-        test_callables: List[Callable] = []
-
-        # Iterate through all the attributes of self.code and check if they are
-        # callables with the __is_test__ attribute set to True.
-        # Recursively check for nested modules as well.
-        def find_test_callables(module):
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                if callable(attr) and getattr(attr, "__is_test__", False):
-                    test_callables.append(attr)
-                elif isinstance(attr, types.ModuleType) or isinstance(
-                    attr, types.SimpleNamespace
-                ):
-                    find_test_callables(attr)
-
-        find_test_callables(self.code)
-        return test_callables
-
-    def run_tests(
-        self,
-        seed: Optional[int] = None,
-        regex: Optional[str] = None,
-        verbose: int = 1,
-    ) -> None:
-        """
-        Runs all Q# callables with the `@Test` attribute in this Context.
-
-        :param seed: The seed to use for the random number generator in simulation, if any.
-        :param regex: Optional regular expression used to filter tests by fully
-            qualified test name (for example, ``MyNamespace.MyTest``). Only
-            matching tests are run.
-        :param verbose: Verbosity level.
-            0 - don't print anything.
-            1 - print "." for each successful test case, suppress output from Q#.
-            2 - print test case names, suppress output from Q#.
-            3+ - print test case names and output from Q#.
-            For verbose>=1, prints failures and test summary in the end.
-
-        Raises an error if some tests failed.
-        """
-        tests = self._get_test_callables()
-        if regex is not None:
-            tests = [
-                test for test in tests if re.search(regex, test.__name__) is not None
-            ]
-
-        if verbose >= 1:
-            print(f"Running {len(tests)} tests...")
-        failed_tests = []
-        failures = []
-        for test in tests:
-            if verbose >= 2:
-                print(f"Running {test.__name__}...")
-            try:
-                self.run(test, 1, seed=seed, save_events=(verbose <= 2))
-                if verbose == 1:
-                    print(".", end="")
-                elif verbose >= 2:
-                    print(f"PASSED: {test.__name__}")
-            except Exception as e:
-                if verbose >= 1:
-                    print()
-                    print(f"FAILED: {test.__name__}")
-                    print(e)
-                failed_tests.append(test.__name__)
-                failures.append(str(e))
-
-        # Print summary.
-        if verbose >= 1:
-            num_passed = len(tests) - len(failed_tests)
-            print()
-            print(f"Finished tests: {num_passed} passed, {len(failed_tests)} failed.")
-            for test_name in failed_tests:
-                print(f" FAILED: {test.__name__}")
-
-        # Construct descriptive error if there are any failures.
-        if len(failed_tests) > 0:
-            err = f"{len(failed_tests)} test(s) failed\n"
-            for test_name, failure in zip(failed_tests, failures):
-                err += f"FAILED: {test.__name__}\n{failure}\n"
-            raise RuntimeError(err)

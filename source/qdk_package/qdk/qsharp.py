@@ -49,7 +49,6 @@ from ._interpreter import (
     circuit,
     estimate,
     logical_counts,
-    run_tests,
     set_quantum_seed,
     set_classical_seed,
     dump_machine,
@@ -74,7 +73,6 @@ __all__ = [
     "circuit",
     "estimate",
     "logical_counts",
-    "run_tests",
     # Seed / state
     "set_quantum_seed",
     "set_classical_seed",
