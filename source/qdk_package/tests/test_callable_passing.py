@@ -328,6 +328,52 @@ def test_nested_closure_arg_generates_inner_effect() -> None:
     assert qir.count("call void @__quantum__qis__rz__body(double 4.0,") == 1
 
 
+def test_qir_from_returned_for_each_callable_capturing_length_alias() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    qsharp.eval("""
+        import Std.Arrays.ForEach;
+        function Make() : Int[][] => Int[] {
+            let f = Length;
+            ForEach(arr => f(arr), _)
+        }
+        operation Apply(op : Int[][] => Int[], arrs : Int[][]) : Int[] {
+            return op(arrs);
+        }
+    """)
+
+    from qdk import code
+
+    op = code.Make()
+    qir = str(qsharp.compile(code.Apply, op, [[1, 2], [1]]))
+    assert "i64 2" in qir
+    assert "i64 1" in qir
+
+
+def test_qir_from_returned_for_each_callable_calling_length_directly() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RI)
+    qsharp.eval("""
+        import Std.Arrays.ForEach;
+        function Make() : Int[][] => Int[] {
+            ForEach(arr => Length(arr), _)
+        }
+        operation ToLengths(arrs : Int[][]) : Int[] {
+            return Make()(arrs);
+        }
+        operation Apply(op : Int[][] => Int[], arrs : Int[][]) : Int[] {
+            return op(arrs);
+        }
+    """)
+
+    from qdk import code
+
+    assert qsharp.eval("ToLengths([[1, 2], [1]])") == [2, 1]
+    op = code.Make()
+    qir = str(qsharp.compile(code.Apply, op, [[1, 2], [1]]))
+    assert "__quantum__rt__array_record_output(i64 2" in qir
+    assert "__quantum__rt__int_record_output(i64 2" in qir
+    assert "__quantum__rt__int_record_output(i64 1" in qir
+
+
 def test_circuit_from_python_callable_passed_to_python_callable() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
     qsharp.eval("""

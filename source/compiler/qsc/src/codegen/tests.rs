@@ -8,9 +8,7 @@ mod adaptive_ri_profile;
 mod adaptive_rif_profile;
 mod base_profile;
 
-use std::sync::Arc;
-
-use std::rc::Rc;
+use std::{io::Cursor, rc::Rc, sync::Arc};
 
 use expect_test::expect;
 use miette::Report;
@@ -20,9 +18,11 @@ use qsc_data_structures::{
     source::SourceMap,
     target::{Profile, TargetCapabilityFlags},
 };
+use qsc_eval::output::CursorReceiver;
 use qsc_eval::val::Value;
 use qsc_frontend::compile::parse_all;
 use qsc_hir::hir::{ItemKind, PackageId};
+use qsc_passes::PackageType;
 use rustc_hash::FxHashMap;
 
 use crate::codegen::qir::{
@@ -2204,6 +2204,32 @@ fn callable_args_to_qir(
     }
 }
 
+fn eval_fragments(interpreter: &mut crate::interpret::Interpreter, source: &str) -> Value {
+    let mut cursor = Cursor::new(Vec::<u8>::new());
+    let mut receiver = CursorReceiver::new(&mut cursor);
+    interpreter
+        .eval_fragments(&mut receiver, source)
+        .unwrap_or_else(|errors| {
+            panic!("eval_fragments failed: {}", format_interpret_errors(errors))
+        })
+}
+
+fn interpreter_with_capabilities(
+    capabilities: TargetCapabilityFlags,
+) -> crate::interpret::Interpreter {
+    let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
+    let dependencies = &[(std_id, None)];
+    crate::interpret::Interpreter::new(
+        SourceMap::default(),
+        PackageType::Lib,
+        capabilities,
+        LanguageFeatures::default(),
+        store,
+        dependencies,
+    )
+    .expect("interpreter should be created")
+}
+
 // ---- Synthetic path: arrow + non-callable params (tuple input) ----
 
 #[test]
@@ -2562,6 +2588,107 @@ fn synthetic_path_classical_capture_closure_generates_qir() {
     assert!(
         qir.contains("__quantum__qis__x__body"),
         "expected X gate from the captured shift in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_returned_for_each_with_generic_global_capture_generates_qir() {
+    let caps = Profile::AdaptiveRI.into();
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(
+        &mut interpreter,
+        indoc::indoc! {r#"
+            import Std.Arrays.ForEach;
+
+            function Make() : Int[][] => Int[] {
+                let f = Length;
+                ForEach(arr => f(arr), _)
+            }
+
+            operation Apply(op : Int[][] => Int[], arrs : Int[][]) : Int[] {
+                return op(arrs);
+            }
+        "#},
+    );
+
+    let op = eval_fragments(&mut interpreter, "Make()");
+    let apply = eval_fragments(&mut interpreter, "Apply");
+    let args = Value::Tuple(
+        vec![
+            op,
+            Value::Array(
+                vec![
+                    Value::Array(vec![Value::Int(1), Value::Int(2)].into()),
+                    Value::Array(vec![Value::Int(1)].into()),
+                ]
+                .into(),
+            ),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = interpreter
+        .qirgen_from_callable(&apply, args)
+        .unwrap_or_else(|errors| {
+            panic!(
+                "returned ForEach callable should compile, got: {}",
+                format_interpret_errors(errors)
+            )
+        });
+    assert!(
+        qir.contains("i64 2") && qir.contains("i64 1"),
+        "expected QIR to contain the computed lengths [2, 1]:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_returned_for_each_direct_length_closure_generates_qir() {
+    let caps = Profile::AdaptiveRI.into();
+    let mut interpreter = interpreter_with_capabilities(caps);
+    eval_fragments(
+        &mut interpreter,
+        indoc::indoc! {r#"
+            import Std.Arrays.ForEach;
+
+            function Make() : Int[][] => Int[] {
+                ForEach(arr => Length(arr), _)
+            }
+
+            operation Apply(op : Int[][] => Int[], arrs : Int[][]) : Int[] {
+                return op(arrs);
+            }
+        "#},
+    );
+
+    let op = eval_fragments(&mut interpreter, "Make()");
+    let apply = eval_fragments(&mut interpreter, "Apply");
+    let args = Value::Tuple(
+        vec![
+            op,
+            Value::Array(
+                vec![
+                    Value::Array(vec![Value::Int(1), Value::Int(2)].into()),
+                    Value::Array(vec![Value::Int(1)].into()),
+                ]
+                .into(),
+            ),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = interpreter
+        .qirgen_from_callable(&apply, args)
+        .unwrap_or_else(|errors| {
+            panic!(
+                "returned direct ForEach callable should compile, got: {}",
+                format_interpret_errors(errors)
+            )
+        });
+    assert!(
+        qir.contains("i64 2") && qir.contains("i64 1"),
+        "expected QIR to contain the computed lengths [2, 1]:\n{qir}"
     );
 }
 

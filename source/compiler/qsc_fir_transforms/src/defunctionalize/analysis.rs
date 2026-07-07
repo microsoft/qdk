@@ -2100,6 +2100,11 @@ fn compound_literal_has_residual_leak(
             compound_literal_has_residual_leak(pkg, substitutions, *callee)
                 || compound_literal_has_residual_leak(pkg, substitutions, *arg)
         }
+        // Non-pure calls cannot be relocated while rebuilding a captured
+        // compound literal in the caller, even when the call has no producer
+        // locals to leak. Decline the closure instead of duplicating or moving
+        // operation effects.
+        ExprKind::Call(..) => true,
         ExprKind::BinOp(_, lhs, rhs) => {
             compound_literal_has_residual_leak(pkg, substitutions, *lhs)
                 || compound_literal_has_residual_leak(pkg, substitutions, *rhs)
@@ -2133,7 +2138,6 @@ fn compound_literal_has_residual_leak(
         | ExprKind::AssignField(..)
         | ExprKind::AssignIndex(..)
         | ExprKind::Block(..)
-        | ExprKind::Call(..)
         | ExprKind::Closure(..)
         | ExprKind::Fail(..)
         | ExprKind::Hole
@@ -2398,18 +2402,14 @@ fn resolve_indexed_callable_candidates(
 
         match resolved {
             CalleeLattice::Single(callable) => {
-                if should_add_indexed_callable_candidate(&candidates, &callable) {
-                    candidates.push(callable);
-                }
+                candidates.push(callable);
             }
             CalleeLattice::Multi(entries) => {
                 for (callable, condition) in entries {
                     if !condition.is_empty() {
                         return None;
                     }
-                    if should_add_indexed_callable_candidate(&candidates, &callable) {
-                        candidates.push(callable);
-                    }
+                    candidates.push(callable);
                 }
             }
             CalleeLattice::Bottom | CalleeLattice::Dynamic => return None,
@@ -2421,20 +2421,6 @@ fn resolve_indexed_callable_candidates(
     }
 
     (!candidates.is_empty()).then_some(candidates)
-}
-
-/// Reports whether a resolved callable should be added to an indexed-array
-/// candidate set. Closures are always kept because their captured environments
-/// make them distinct; globals are deduplicated.
-fn should_add_indexed_callable_candidate(
-    candidates: &[ConcreteCallable],
-    callable: &ConcreteCallable,
-) -> bool {
-    if matches!(callable, ConcreteCallable::Closure { .. }) {
-        true
-    } else {
-        !candidates.contains(callable)
-    }
 }
 
 /// Resolves an array-literal expression to the concrete callables stored in
@@ -2587,7 +2573,8 @@ pub(super) fn resolve_captures(
         .iter()
         .map(|&var| {
             let ty = find_local_var_type(pkg, locals, var)?;
-            let expr = resolve_scoped_capture_expr(pkg, locals, var, scoped_capture_vars);
+            let expr = resolve_known_callable_capture_expr(pkg, locals, var)
+                .or_else(|| resolve_scoped_capture_expr(pkg, locals, var, scoped_capture_vars));
             Some(CapturedVar {
                 var,
                 ty,
@@ -2596,6 +2583,45 @@ pub(super) fn resolve_captures(
             })
         })
         .collect()
+}
+
+/// Returns the initializer expression bound to `var` when it resolves to a
+/// statically-known callable value (see [`is_known_callable_capture_expr`]),
+/// used to recognize a capture that can be baked into a closure target.
+fn resolve_known_callable_capture_expr(
+    pkg: &Package,
+    locals: &LocalState,
+    var: LocalVarId,
+) -> Option<ExprId> {
+    let expr_id = *locals.exprs.get(&var)?;
+    is_known_callable_capture_expr(pkg, locals, expr_id, 0).then_some(expr_id)
+}
+
+/// Tests whether an expression is a statically-known callable value: a
+/// non-generic item reference, a capture-free closure, or a local that forwards
+/// (through `LocalState`) to one of those.
+///
+/// Recursion is bounded by `MAX_RESOLVE_DEPTH` and guards against a local that
+/// refers back to itself, so a forwarding chain cannot loop.
+fn is_known_callable_capture_expr(
+    pkg: &Package,
+    locals: &LocalState,
+    expr_id: ExprId,
+    depth: usize,
+) -> bool {
+    if depth > MAX_RESOLVE_DEPTH {
+        return false;
+    }
+    let (base_id, _) = peel_body_functors(pkg, expr_id);
+    match &pkg.get_expr(base_id).kind {
+        ExprKind::Var(Res::Item(_), generic_args) => generic_args.is_empty(),
+        ExprKind::Closure(captures, _) => captures.is_empty(),
+        ExprKind::Var(Res::Local(next), _) => locals.exprs.get(next).is_some_and(|&next_expr| {
+            next_expr != expr_id
+                && is_known_callable_capture_expr(pkg, locals, next_expr, depth + 1)
+        }),
+        _ => false,
+    }
 }
 
 /// Resolves a capture expression by walking the enclosing block scope and

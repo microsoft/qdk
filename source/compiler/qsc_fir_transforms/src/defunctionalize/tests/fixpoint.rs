@@ -2814,3 +2814,40 @@ fn operation_computed_captured_field_declines_to_dynamic_callable() {
         &expect!["callable argument could not be resolved statically"],
     );
 }
+
+#[test]
+fn operation_call_in_captured_compound_literal_without_locals_declines_to_dynamic_callable() {
+    // A closure returned from `MakeOp` captures a `Payload` struct literal whose
+    // field is initialized by a runtime operation call (`ReadValue()`), with no
+    // intervening local binding to anchor that call. The captured value is not a
+    // statically-known callable, so defunctionalization must decline the
+    // `ApplyOp(MakeOp(), q)` call site to a dynamic callable — emitting the
+    // "callable argument could not be resolved statically" diagnostic — rather than
+    // attempt to specialize the unresolved compound-literal capture.
+    check_errors(
+        r#"
+        struct Payload { Value : Int }
+        operation ReadValue() : Int {
+            return 1;
+        }
+        operation UsePayload(payload : Payload, q : Qubit) : Unit {
+            if payload.Value == 1 {
+                H(q);
+            }
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation MakeOp() : Qubit => Unit {
+            let payload = new Payload { Value = ReadValue() };
+            return q => UsePayload(payload, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyOp(MakeOp(), q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}

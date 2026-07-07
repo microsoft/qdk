@@ -598,33 +598,10 @@ fn analysis_apply_operation_power_ca_consumer() {
             }
             operation Main() : Unit {
                 let qs : Qubit[] = AllocateQubitArray(1);
-                Consume_AdjCtl__closure__U_(qs);
+                Consume_AdjCtl__closure_(qs);
                 ReleaseQubitArray(qs);
             }
-            operation _lambda_4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole : Qubit[])) : Unit is Adj + Ctl {
-                body ... {
-                    ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole)
-                }
-                adjoint ... {
-                    Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole)
-                }
-                controlled (ctls, ...) {
-                    Controlled ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole))
-                }
-                controlled adjoint (ctls, ...) {
-                    Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole))
-                }
-            }
-            operation Consume_AdjCtl_(apply_power_of_u : ((Int, Qubit[]) => Unit is Adj + Ctl), target : Qubit[]) : Unit {
-                apply_power_of_u(1, target);
-            }
-            operation Consume_AdjCtl__closure_(target : Qubit[], __capture_0 : (Qubit[] => Unit is Adj + Ctl)) : Unit {
-                _lambda_4(__capture_0, (1, target));
-            }
-            operation Consume_AdjCtl__closure__U_(target : Qubit[]) : Unit {
-                _lambda_4_U_(1, target);
-            }
-            operation _lambda_4_U_(hole : Int, hole : Qubit[]) : Unit is Adj + Ctl {
+            operation _lambda_4(hole : Int, hole : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole)
                 }
@@ -637,6 +614,12 @@ fn analysis_apply_operation_power_ca_consumer() {
                 controlled adjoint (ctls, ...) {
                     Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl__U_(ctls, (hole, hole))
                 }
+            }
+            operation Consume_AdjCtl_(apply_power_of_u : ((Int, Qubit[]) => Unit is Adj + Ctl), target : Qubit[]) : Unit {
+                apply_power_of_u(1, target);
+            }
+            operation Consume_AdjCtl__closure_(target : Qubit[]) : Unit {
+                _lambda_4(1, target);
             }
             operation ApplyOperationPowerCA__Qubit_____AdjCtl__U_(power : Int, target : Qubit[]) : Unit is Adj + Ctl {
                 body ... {

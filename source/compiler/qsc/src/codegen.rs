@@ -64,6 +64,16 @@ pub mod qir {
         },
     }
 
+    /// Pre-computed type information for a reachable global callable: its formal
+    /// arrow type and the generic type parameters that type is quantified over.
+    /// Cached so a call site can infer the callable's concrete generic arguments
+    /// from the type expected at that site.
+    #[derive(Clone)]
+    struct CallableValueInfo {
+        ty: qsc_fir::ty::Ty,
+        generics: Vec<qsc_fir::ty::TypeParameter>,
+    }
+
     /// Extracts the entry point expression from codegen FIR.
     ///
     /// Forms a `ProgramEntry` suitable for downstream codegen (QIR, RIR generation)
@@ -478,13 +488,25 @@ pub mod qir {
     fn build_callable_type_map(
         fir_store: &qsc_fir::fir::PackageStore,
         callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
-    ) -> rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, qsc_fir::ty::Ty> {
+    ) -> rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo> {
+        use qsc_fir::fir::{Global, PackageLookup};
+
         let mut map =
             rustc_hash::FxHashMap::with_capacity_and_hasher(callables.len(), Default::default());
         for id in callables {
+            let package = fir_store.get(id.package);
+            let Some(Global::Callable(callable_decl)) = package.get_global(id.item) else {
+                panic!("callable should exist in lowered package");
+            };
             let (_, ty) = callable_expr_span_and_ty(fir_store, *id);
             let normalized_ty = resolve_functor_params(&resolve_udt_ty(fir_store, &ty));
-            map.insert(*id, normalized_ty);
+            map.insert(
+                *id,
+                CallableValueInfo {
+                    ty: normalized_ty,
+                    generics: callable_decl.generics.clone(),
+                },
+            );
         }
         map
     }
@@ -713,7 +735,7 @@ pub mod qir {
         fir_package_id: qsc_fir::fir::PackageId,
         target_callable: qsc_fir::fir::StoreItemId,
         args: &Value,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, qsc_fir::ty::Ty>,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
     ) {
         use qsc_fir::fir::{Global, PackageLookup};
 
@@ -850,7 +872,7 @@ pub mod qir {
         assigner: &mut qsc_fir::assigner::Assigner,
         input_ty: &qsc_fir::ty::Ty,
         args: &Value,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, qsc_fir::ty::Ty>,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
         match input_ty {
@@ -1116,7 +1138,7 @@ pub mod qir {
         assigner: &mut qsc_fir::assigner::Assigner,
         value: &Value,
         expected_ty: Option<&qsc_fir::ty::Ty>,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, qsc_fir::ty::Ty>,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
         let (kind, ty) = match value {
@@ -1237,7 +1259,14 @@ pub mod qir {
                 )
             }
             Value::Global(id, functor) => {
-                return lower_global_to_expr(package, assigner, *id, *functor, callable_types);
+                return lower_global_to_expr(
+                    package,
+                    assigner,
+                    *id,
+                    *functor,
+                    expected_ty,
+                    callable_types,
+                );
             }
             Value::Closure(c) => {
                 return lower_closure_to_expr(package, assigner, c, callable_types, pending_stmts);
@@ -1269,12 +1298,19 @@ pub mod qir {
         assigner: &mut qsc_fir::assigner::Assigner,
         id: qsc_fir::fir::StoreItemId,
         functor: FunctorApp,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, qsc_fir::ty::Ty>,
+        expected_ty: Option<&qsc_fir::ty::Ty>,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
     ) -> qsc_fir::fir::ExprId {
-        let ty = callable_types
+        let info = callable_types
             .get(&id)
             .expect("Global callable type must be pre-computed")
             .clone();
+        let formal_ty = info.ty;
+        let inferred_generic_args = expected_ty.and_then(|actual_ty| {
+            infer_global_generic_args(&info.generics, &formal_ty, actual_ty)
+                .map(|generic_args| (actual_ty.clone(), generic_args))
+        });
+        let (ty, generic_args) = inferred_generic_args.unwrap_or_else(|| (formal_ty, Vec::new()));
         let expr_id = assigner.next_expr();
         package.exprs.insert(
             expr_id,
@@ -1287,13 +1323,122 @@ pub mod qir {
                         package: id.package,
                         item: id.item,
                     }),
-                    Vec::new(),
+                    generic_args,
                 ),
                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
                     ..qsc_fir::fir::ExecGraphIdx::ZERO,
             },
         );
         wrap_expr_with_functor_app(package, assigner, expr_id, &ty, functor)
+    }
+
+    /// Infers the concrete generic arguments for a reference to a generic global
+    /// callable by matching its formal type against the `actual_ty` expected at
+    /// the use site.
+    ///
+    /// Returns `None` when the callable is non-generic or the two types do not
+    /// unify; otherwise returns one `GenericArg` per declared parameter in
+    /// declaration order.
+    fn infer_global_generic_args(
+        generics: &[qsc_fir::ty::TypeParameter],
+        formal_ty: &qsc_fir::ty::Ty,
+        actual_ty: &qsc_fir::ty::Ty,
+    ) -> Option<Vec<qsc_fir::ty::GenericArg>> {
+        if generics.is_empty() {
+            return None;
+        }
+        let mut arg_map = rustc_hash::FxHashMap::default();
+        if !infer_generic_ty_args(formal_ty, actual_ty, &mut arg_map) {
+            return None;
+        }
+        generics
+            .iter()
+            .enumerate()
+            .map(
+                |(idx, param)| match (param, arg_map.get(&qsc_fir::ty::ParamId::from(idx))) {
+                    (
+                        qsc_fir::ty::TypeParameter::Ty { .. },
+                        Some(qsc_fir::ty::GenericArg::Ty(ty)),
+                    ) => Some(qsc_fir::ty::GenericArg::Ty(ty.clone())),
+                    (
+                        qsc_fir::ty::TypeParameter::Functor(_),
+                        Some(qsc_fir::ty::GenericArg::Functor(functors)),
+                    ) => Some(qsc_fir::ty::GenericArg::Functor(*functors)),
+                    _ => None,
+                },
+            )
+            .collect()
+    }
+
+    /// Structurally unifies a formal type against an actual type, recording each
+    /// type/functor parameter binding in `arg_map`.
+    ///
+    /// Returns `false` on any structural mismatch or on conflicting bindings for
+    /// the same parameter (see [`record_inferred_arg`]).
+    fn infer_generic_ty_args(
+        formal: &qsc_fir::ty::Ty,
+        actual: &qsc_fir::ty::Ty,
+        arg_map: &mut rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
+    ) -> bool {
+        match (formal, actual) {
+            (qsc_fir::ty::Ty::Param(param), _) => {
+                record_inferred_arg(*param, qsc_fir::ty::GenericArg::Ty(actual.clone()), arg_map)
+            }
+            (qsc_fir::ty::Ty::Array(formal), qsc_fir::ty::Ty::Array(actual)) => {
+                infer_generic_ty_args(formal, actual, arg_map)
+            }
+            (qsc_fir::ty::Ty::Arrow(formal), qsc_fir::ty::Ty::Arrow(actual)) => {
+                formal.kind == actual.kind
+                    && infer_generic_ty_args(&formal.input, &actual.input, arg_map)
+                    && infer_generic_ty_args(&formal.output, &actual.output, arg_map)
+                    && infer_generic_functor_args(formal.functors, actual.functors, arg_map)
+            }
+            (qsc_fir::ty::Ty::Tuple(formal), qsc_fir::ty::Ty::Tuple(actual))
+                if formal.len() == actual.len() =>
+            {
+                formal
+                    .iter()
+                    .zip(actual)
+                    .all(|(formal, actual)| infer_generic_ty_args(formal, actual, arg_map))
+            }
+            (qsc_fir::ty::Ty::Prim(formal), qsc_fir::ty::Ty::Prim(actual)) => formal == actual,
+            (qsc_fir::ty::Ty::Udt(formal), qsc_fir::ty::Ty::Udt(actual)) => formal == actual,
+            (qsc_fir::ty::Ty::Infer(formal), qsc_fir::ty::Ty::Infer(actual)) => formal == actual,
+            (qsc_fir::ty::Ty::Err, qsc_fir::ty::Ty::Err) => true,
+            _ => false,
+        }
+    }
+
+    /// Unifies a formal functor set against an actual one, recording the binding
+    /// when the formal side is a functor parameter; otherwise requires the two
+    /// sets to be equal.
+    fn infer_generic_functor_args(
+        formal: qsc_fir::ty::FunctorSet,
+        actual: qsc_fir::ty::FunctorSet,
+        arg_map: &mut rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
+    ) -> bool {
+        match formal {
+            qsc_fir::ty::FunctorSet::Param(param) => {
+                record_inferred_arg(param, qsc_fir::ty::GenericArg::Functor(actual), arg_map)
+            }
+            _ => formal == actual,
+        }
+    }
+
+    /// Records the inferred argument for a generic parameter, returning whether
+    /// it is consistent: a first binding is inserted and accepted, while a
+    /// repeated binding must equal the one already recorded.
+    fn record_inferred_arg(
+        param: qsc_fir::ty::ParamId,
+        arg: qsc_fir::ty::GenericArg,
+        arg_map: &mut rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
+    ) -> bool {
+        if let Some(existing) = arg_map.get(&param) {
+            existing == &arg
+        } else {
+            arg_map.insert(param, arg);
+            true
+        }
     }
 
     /// Wraps a callable expression with the FIR functor operations in `functor`.
@@ -1364,7 +1509,7 @@ pub mod qir {
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
         closure: &qsc_eval::val::Closure,
-        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, qsc_fir::ty::Ty>,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
         // Full type of the underlying lifted callable, whose input is the tuple
@@ -1372,6 +1517,7 @@ pub mod qir {
         let full_ty = callable_types
             .get(&closure.id)
             .expect("Closure callable type must be pre-computed")
+            .ty
             .clone();
 
         if closure.fixed_args.is_empty() {

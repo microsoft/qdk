@@ -1392,6 +1392,104 @@ fn bound_tuple_arg_combines_into_one_spec() {
 }
 
 #[test]
+fn indexed_callable_array_preserves_duplicate_global_positions() {
+    let source = r#"
+        operation ApplyAt(ops : (Qubit => Unit)[], idx : Int, q : Qubit) : Unit {
+            ops[idx](q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyAt([H, H, X], 1, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let mut matching_targets = Vec::new();
+    for item in package.items.values() {
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        if !decl.name.name.starts_with("ApplyAt") || decl.name.name.as_ref() == "ApplyAt" {
+            continue;
+        }
+        let mut targets = Vec::new();
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |_expr_id, expr| {
+                if let fir::ExprKind::Call(callee_id, _) = &expr.kind
+                    && let Some(target) = call_target_name(&fir_store, package, *callee_id)
+                    && matches!(target.as_str(), "H" | "X")
+                {
+                    targets.push(target);
+                }
+            },
+        );
+        targets.sort();
+        matching_targets.push((decl.name.name.to_string(), targets));
+    }
+
+    assert!(
+        matching_targets
+            .iter()
+            .any(|(_, targets)| targets == &["H", "H", "X"]),
+        "expected one ApplyAt specialization to dispatch [H, H, X], got {matching_targets:?}"
+    );
+}
+
+#[test]
+fn struct_copy_surviving_field_is_forwarded_after_callable_field_removal() {
+    let source = r#"
+        struct Config { Op : Qubit => Unit, Data : Int }
+        operation Run(config : Config, q : Qubit) : Unit {
+            if config.Data == 1 {
+                config.Op(q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let base = new Config { Op = X, Data = 1 };
+            Run(new Config { ...base, Op = H }, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let mut found = false;
+    for expr in package.exprs.values() {
+        let fir::ExprKind::Call(callee_id, args_id) = &expr.kind else {
+            continue;
+        };
+        let Some(target) = call_target_name(&fir_store, package, *callee_id) else {
+            continue;
+        };
+        if !target.starts_with("Run") || target == "Run" {
+            continue;
+        }
+
+        let args = package.get_expr(*args_id);
+        let fir::ExprKind::Tuple(elements) = &args.kind else {
+            panic!("specialized Run call should receive Data and q, got {args:?}");
+        };
+        assert_eq!(
+            elements.len(),
+            2,
+            "specialized Run call must keep copied Data and q"
+        );
+        assert!(
+            matches!(
+                package.get_expr(elements[0]).ty,
+                qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Int)
+            ),
+            "first specialized Run argument must be the surviving copied Int field"
+        );
+        found = true;
+    }
+    assert!(found, "expected a specialized Run call for H");
+}
+
+#[test]
 fn capture_local_ids_are_reasonable() {
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(
         r#"
