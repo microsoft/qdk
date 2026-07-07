@@ -4132,6 +4132,161 @@ fn producer_scope_struct_capture_operation_field_declines_to_dynamic() {
     );
 }
 
+/// A mixed branch-split call can combine a dispatched callable field with a
+/// single-valued producer closure while leaving another field of the same tuple
+/// parameter live.
+///
+/// The combined specialization must remove only the callable fields from
+/// `pair`; dropping the whole tuple parameter deletes the destructuring that
+/// binds `target` and leaves the inlined calls using an unbound local. The
+/// snapshot pins the surviving `target` binding in both dispatch leaves.
+#[test]
+fn mixed_branch_split_partial_tuple_field_coverage_preserves_surviving_field() {
+    check_rewrite(
+        r#"
+        operation Run(pair : (Qubit => Unit, Qubit => Unit, Qubit)) : Unit {
+            let (first, second, target) = pair;
+            first(target);
+            second(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let choose = M(q) == One;
+            let first = if choose { H } else { X };
+            let angle = 0.25;
+            Run((first, target => Rz(angle, target), q));
+        }
+        "#,
+        &expect![[r#"
+            BEFORE:
+            operation Run(pair : ((Qubit => Unit), (Qubit => Unit), Qubit)) : Unit {
+                let (first : (Qubit => Unit), second : (Qubit => Unit), target : Qubit) = pair;
+                first(target);
+                second(target);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let choose : Bool = M(q) == One;
+                let first : (Qubit => Unit is Adj + Ctl) = if choose {
+                    H
+                } else {
+                    X
+                };
+                let angle : Double = 0.25;
+                Run_AdjCtl__Empty_(first, / * closure item = 3 captures = [angle] * / _lambda_3, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(angle : Double, target : Qubit) : Unit {
+                Rz(angle, target)
+            }
+            operation Run_AdjCtl__Empty_(pair : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit), Qubit)) : Unit {
+                let (first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit), target : Qubit) = pair;
+                first(target);
+                second(target);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Run(pair : ((Qubit => Unit), (Qubit => Unit), Qubit)) : Unit {
+                let (first : (Qubit => Unit), second : (Qubit => Unit), target : Qubit) = pair;
+                first(target);
+                second(target);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let choose : Bool = M(q) == One;
+                let angle : Double = 0.25;
+                if choose {
+                    Run_AdjCtl__Empty__H__closure_(q, angle)
+                } else {
+                    Run_AdjCtl__Empty__X__closure_(q, angle)
+                };
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(angle : Double, target : Qubit) : Unit {
+                Rz(angle, target)
+            }
+            operation Run_AdjCtl__Empty_(pair : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit), Qubit)) : Unit {
+                let (first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit), target : Qubit) = pair;
+                first(target);
+                second(target);
+            }
+            operation Run_AdjCtl__Empty__H__closure_(pair : Qubit, __capture_0 : Double) : Unit {
+                let target : Qubit = pair;
+                H(target);
+                _lambda_3(__capture_0, target);
+            }
+            operation Run_AdjCtl__Empty__X__closure_(pair : Qubit, __capture_0 : Double) : Unit {
+                let target : Qubit = pair;
+                X(target);
+                _lambda_3(__capture_0, target);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A mixed branch-split group with a `Dynamic` sibling is intentionally not a
+/// combined per-candidate specialization.
+///
+/// The unresolved `third` argument must surface as `DynamicCallable`. The
+/// producer closure sibling may still get a transient per-row spec while that
+/// diagnostic is collected, but tracking it as consumed would clear its body or
+/// trip the internal consistency panic. This test uses more than `MULTI_CAP`
+/// array elements to force the sibling to `Dynamic` and asserts the pass returns
+/// diagnostics instead of panicking.
+#[test]
+fn mixed_branch_split_dynamic_sibling_reports_error_without_panic() {
+    use std::fmt::Write as _;
+
+    const ELEMENTS: usize = 1001;
+
+    let mut defs = String::new();
+    let mut elems = String::new();
+    for i in 0..ELEMENTS {
+        writeln!(defs, "        operation Op{i}(q : Qubit) : Unit {{}}").expect("write succeeds");
+        if i > 0 {
+            elems.push_str(", ");
+        }
+        write!(elems, "Op{i}").expect("write succeeds");
+    }
+
+    let source = format!(
+        r#"
+{defs}
+        operation Run(
+            first : Qubit => Unit,
+            second : Qubit => Unit,
+            third : Qubit => Unit,
+            q : Qubit
+        ) : Unit {{
+            first(q);
+            second(q);
+            third(q);
+        }}
+        operation Main() : Unit {{
+            use q = Qubit();
+            let choose = M(q) == One;
+            let first = if choose {{ Op0 }} else {{ Op1 }};
+            let angle = 0.25;
+            let ops = [{elems}];
+            for third in ops {{
+                Run(first, target => Rz(angle, target), third, q);
+            }}
+        }}
+        "#
+    );
+
+    check_errors(
+        &source,
+        &expect![[r#"
+            callable argument could not be resolved statically
+            callable argument could not be resolved statically"#]],
+    );
+}
+
 #[test]
 fn single_element_callable_array_into_struct_field_survives_as_array() {
     // A single-element callable array threaded into a callee that indexes it

@@ -348,6 +348,19 @@ fn track_specialized_closures(
             if let Some(group) = groups.get(&(cs.call_pkg_id, cs.call_expr_id))
                 && closure_constant_sibling_of_dispatch(group, cs)
             {
+                // A `Dynamic` sibling means `partition_mixed_branch_split`
+                // intentionally declined this group so the unresolved argument
+                // can surface as `DynamicCallable`. In that case the per-row
+                // closure spec may exist only as a transient side effect of
+                // collecting diagnostics; do not mark its producer body as
+                // consumed, and do not treat the absence of the mixed combined
+                // spec as an internal rewrite/specialization disagreement.
+                if group
+                    .iter()
+                    .any(|member| matches!(member.callable_arg, ConcreteCallable::Dynamic))
+                {
+                    continue;
+                }
                 panic!(
                     "internal error in defunctionalize: producer-closure target {target:?} is a \
                      single-valued sibling of a parameter dispatched over several candidates at \

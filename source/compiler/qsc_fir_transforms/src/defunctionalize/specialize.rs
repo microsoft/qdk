@@ -1083,16 +1083,37 @@ fn remove_combined_callable_params(
     callable_array_position: Option<&(usize, Vec<usize>)>,
     total_captures: usize,
 ) {
+    // Nested callable parameters usually leave a destructuring statement such
+    // as `let (first, second, target) = pair`. When the whole `pair` slot is
+    // removed, that destructuring is dead and must be dropped before the input
+    // pattern loses the slot it refers to.
     let nested_param_vars: FxHashSet<LocalVarId> = remapped_params
         .iter()
         .filter(|p| !p.field_path.is_empty())
         .map(|p| p.param_var)
         .collect();
-    if !nested_param_vars.is_empty() {
+
+    // A repeated position can appear several times in the analysis group, for
+    // example one row per branch candidate or per callable-array element. The
+    // input pattern should be edited once per parameter position, not once per
+    // row, otherwise earlier removals would shift later indices.
+    let params_for_removal = unique_params_for_removal(remapped_params);
+
+    // Whole-slot cleanup is only valid when every field of a tuple-valued
+    // parameter is consumed. If any non-callable field survives, keep the
+    // destructuring statement in place so `remove_nested_callable_param` can
+    // rewrite it to bind the surviving fields instead of deleting those locals.
+    let remove_partial_nested_params_individually = callable_array_position.is_none()
+        && should_remove_combined_nested_params_individually(target, new_decl, &params_for_removal);
+    if !remove_partial_nested_params_individually && !nested_param_vars.is_empty() {
         remove_param_destructuring_stmts(target, &new_decl.implementation, &nested_param_vars);
     }
+
     if callable_array_position.is_some() {
-        let params_for_removal = unique_params_for_removal(remapped_params);
+        // Callable-array groups can contain many rows for one logical nested
+        // parameter. Removing nested positions from highest to lowest keeps
+        // earlier tuple fields from reindexing the positions still waiting to
+        // be removed.
         if params_for_removal
             .iter()
             .all(|(param, _)| !param.field_path.is_empty())
@@ -1108,15 +1129,114 @@ fn remove_combined_callable_params(
                 remove_nested_callable_param(target, new_decl, param, had_closure_captures);
             }
         } else {
+            // Top-level callable-array removal still uses the combined path:
+            // every removed position is a full input slot, so one pass over the
+            // outer pattern is the shape-preserving edit.
             let param_refs: Vec<&CallableParam> =
                 params_for_removal.iter().map(|(param, _)| *param).collect();
             remove_callable_params(target, new_decl, &param_refs, total_captures);
         }
+    } else if remove_partial_nested_params_individually {
+        // Mixed branch-split can combine only the callable fields of a tuple
+        // parameter. Use the nested-removal path so surviving fields keep their
+        // bindings and field projections are reindexed against the reduced
+        // tuple shape.
+        let mut removal_order = params_for_removal;
+        removal_order.sort_by(|(left, _), (right, _)| {
+            right
+                .top_level_param
+                .cmp(&left.top_level_param)
+                .then_with(|| right.field_path.cmp(&left.field_path))
+        });
+        for (param, had_closure_captures) in removal_order {
+            remove_nested_callable_param(target, new_decl, param, had_closure_captures);
+        }
     } else {
-        let param_refs: Vec<&CallableParam> = remapped_params.iter().collect();
+        // The ordinary combined case consumed whole input slots. Remove them
+        // in one pass so tuple-parameter indices are interpreted against the
+        // original input shape.
+        let param_refs: Vec<&CallableParam> =
+            params_for_removal.iter().map(|(param, _)| *param).collect();
         remove_callable_params(target, new_decl, &param_refs, total_captures);
     }
+
+    // Parameter edits and capture threading can leave stale expression, block,
+    // and pattern types in the cloned body. Refresh after all structural edits
+    // so downstream invariants see one consistent final shape.
     refresh_rewritten_value_types(target, &new_decl.implementation);
+}
+
+/// Returns `true` when a combined specialization must remove nested callable
+/// fields one at a time instead of dropping their whole top-level parameter.
+///
+/// The ordinary combined path removes a whole tuple-valued parameter after all
+/// of that parameter's fields are specialized away. Mixed branch-split groups
+/// can combine only some fields of a tuple-valued parameter, leaving non-arrow
+/// siblings such as a target qubit still live in the specialized body. Those
+/// partial-coverage groups need the nested removal path so destructuring
+/// bindings and sibling field projections are rewritten to the surviving tuple
+/// shape instead of being deleted as dead whole-parameter destructuring.
+fn should_remove_combined_nested_params_individually(
+    package: &Package,
+    decl: &CallableDecl,
+    params_for_removal: &[(&CallableParam, bool)],
+) -> bool {
+    if params_for_removal.is_empty()
+        || !params_for_removal
+            .iter()
+            .all(|(param, _)| !param.field_path.is_empty())
+    {
+        return false;
+    }
+
+    let mut removed_fields_by_slot: FxHashMap<usize, FxHashSet<usize>> = FxHashMap::default();
+    for (param, _) in params_for_removal {
+        let [field] = param.field_path.as_slice() else {
+            return true;
+        };
+        removed_fields_by_slot
+            .entry(param.top_level_param)
+            .or_default()
+            .insert(*field);
+    }
+
+    removed_fields_by_slot
+        .into_iter()
+        .any(|(top_level_param, removed_fields)| {
+            !nested_param_removal_covers_entire_slot(
+                package,
+                decl,
+                top_level_param,
+                removed_fields.len(),
+            )
+        })
+}
+
+/// Checks whether the nested fields being removed account for every element in
+/// the top-level tuple slot.
+///
+/// Whole-slot coverage is the only case where `remove_callable_params` can
+/// safely drop the top-level parameter and discard its destructuring. If any
+/// field survives, callers must preserve the slot and let
+/// `remove_nested_callable_param` rewrite the body against the reduced shape.
+fn nested_param_removal_covers_entire_slot(
+    package: &Package,
+    decl: &CallableDecl,
+    top_level_param: usize,
+    removed_field_count: usize,
+) -> bool {
+    let input_pat = package.get_pat(decl.input);
+    let slot_ty = match &input_pat.kind {
+        PatKind::Tuple(pats) => pats
+            .get(top_level_param)
+            .map(|pat_id| package.get_pat(*pat_id).ty.clone()),
+        PatKind::Bind(_) => Some(input_pat.ty.clone()),
+        PatKind::Discard => None,
+    };
+    let Some(slot_ty) = slot_ty else {
+        return false;
+    };
+    matches!(resolve_udt_ty(package, &slot_ty), Ty::Tuple(fields) if fields.len() == removed_field_count)
 }
 
 /// Clones a HOF callable, transforms its body to replace the callable
