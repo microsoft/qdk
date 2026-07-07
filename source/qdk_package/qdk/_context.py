@@ -1056,6 +1056,7 @@ class Context:
         self,
         seed: Optional[int] = None,
         regex: Optional[str] = None,
+        verbose: int = 1,
     ) -> None:
         """
         Runs all Q# callables with the `@Test` attribute in this Context.
@@ -1064,6 +1065,14 @@ class Context:
         :param regex: Optional regular expression used to filter tests by fully
             qualified test name (for example, ``MyNamespace.MyTest``). Only
             matching tests are run.
+        :param verbose: Verbosity level.
+            0 - don't print anything.
+            1 - print "." for each successful test case, suppress output from Q#.
+            2 - print test case names, suppress output from Q#.
+            3+ - print test case names and output from Q#.
+            For verbose>=1, prints failures and test summary in the end.
+
+        Raises an error if some tests failed.
         """
         tests = self._get_test_callables()
         if regex is not None:
@@ -1071,19 +1080,38 @@ class Context:
                 test for test in tests if re.search(regex, test.__name__) is not None
             ]
 
-        print("Starting tests...")
+        if verbose >= 1:
+            print(f"Running {len(tests)} tests...")
         failed_tests = []
+        failures = []
         for test in tests:
-            print(f"Running `{test.__name__}`...")
+            if verbose >= 2:
+                print(f"Running {test.__name__}...")
             try:
-                self.run(test, 1, seed=seed)
-                print(f"`{test.__name__}` passed")
+                self.run(test, 1, seed=seed, save_events=(verbose <= 2))
+                if verbose == 1:
+                    print(".", end="")
+                elif verbose >= 2:
+                    print(f"PASSED: {test.__name__}")
             except Exception as e:
-                print(f"`{test.__name__}` FAILED with exception:\n{e}")
+                if verbose >= 1:
+                    print()
+                    print(f"FAILED: {test.__name__}")
+                    print(e)
                 failed_tests.append(test.__name__)
-        print(
-            f"Finished tests: {len(tests) - len(failed_tests)} passed, {len(failed_tests)} failed."
-        )
-        if failed_tests:
-            for failed_test in failed_tests:
-                print(f" - `{failed_test}` FAILED")
+                failures.append(str(e))
+
+        # Print summary.
+        if verbose >= 1:
+            num_passed = len(tests) - len(failed_tests)
+            print()
+            print(f"Finished tests: {num_passed} passed, {len(failed_tests)} failed.")
+            for test_name in failed_tests:
+                print(f" FAILED: {test.__name__}")
+
+        # Construct descriptive error if there are any failures.
+        if len(failed_tests) > 0:
+            err = f"{len(failed_tests)} test(s) failed\n"
+            for test_name, failure in zip(failed_tests, failures):
+                err += f"FAILED: {test.__name__}\n{failure}\n"
+            raise RuntimeError(err)
