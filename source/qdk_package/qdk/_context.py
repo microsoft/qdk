@@ -10,6 +10,7 @@ independent Q# environments to coexist.
 """
 
 import json
+import re
 import sys
 import types
 import weakref
@@ -1035,8 +1036,9 @@ class Context:
         """Returns a list of all Q# callables with the `@Test` attribute in this Context."""
         test_callables: List[Callable] = []
 
-        # Iterate through all the attributes of self.code and check if they are callables with the __is_test__ attribute set to True
-        # Recursively check for nested modules as well
+        # Iterate through all the attributes of self.code and check if they are
+        # callables with the __is_test__ attribute set to True.
+        # Recursively check for nested modules as well.
         def find_test_callables(module):
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
@@ -1050,13 +1052,25 @@ class Context:
         find_test_callables(self.code)
         return test_callables
 
-    def run_tests(self, seed: Optional[int] = None) -> None:
+    def run_tests(
+        self,
+        seed: Optional[int] = None,
+        regex: Optional[str] = None,
+    ) -> None:
         """
         Runs all Q# callables with the `@Test` attribute in this Context.
 
         :param seed: The seed to use for the random number generator in simulation, if any.
+        :param regex: Optional regular expression used to filter tests by fully
+            qualified test name (for example, ``MyNamespace.MyTest``). Only
+            matching tests are run.
         """
         tests = self._get_test_callables()
+        if regex is not None:
+            tests = [
+                test for test in tests if re.search(regex, test.__name__) is not None
+            ]
+
         print("Starting tests...")
         failed_tests = []
         for test in tests:
