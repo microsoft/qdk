@@ -3726,6 +3726,35 @@ fn rewrite_single_arg_nested(
     }
 }
 
+/// Removes the forwarded callable-array fields from a call's argument tuple and
+/// threads any closure captures through, for a call routed to a combined
+/// callable-array specialization by [`rewrite_callable_array_multi`].
+///
+/// The callable array sits in one of two argument shapes, selected by
+/// `uses_tuple_input`:
+/// - A multi-parameter HOF whose input is a tuple of parameters, where the
+///   array lives in the `top_level_param` slot of that tuple.
+/// - A single tuple-valued parameter whose whole argument *is* that tuple.
+///
+/// Fields to drop are identified positionally by `remove_indices` and by the
+/// exact forwarded element expression via `remove_expr_ids`, matching the
+/// callee-type reduction already applied by
+/// [`build_nested_callable_array_callee_ty`].
+///
+/// # Before (`uses_tuple_input`, `top_level_param = 1`)
+/// ```text
+/// (other_arg, (callable0, callable1, keep), more_args)
+/// ```
+/// # After
+/// ```text
+/// (other_arg, (keep), more_args, capture0, ...)   // array fields removed, captures appended
+/// ```
+///
+/// # Mutations
+/// - Rewrites the inner tuple slot (or `args_id` itself) in place via
+///   [`rewrite_nested_arg_expr_remove_fields`].
+/// - Refreshes the outer tuple's slot type and appends closure captures.
+/// - Allocates capture `Expr` nodes through `assigner`.
 #[allow(clippy::too_many_arguments)]
 fn rewrite_args_remove_nested_callable_fields(
     package: &mut Package,
@@ -3743,6 +3772,10 @@ fn rewrite_args_remove_nested_callable_fields(
     let owner_callable = expr_owner_lookup.get(&call_expr_id).copied();
 
     if uses_tuple_input {
+        // Multi-parameter HOF: the callable array occupies one slot of the
+        // top-level argument tuple. Descend into `elements[top_level_param]`,
+        // strip the callable fields there, then refresh that slot's type and
+        // append any captures as top-level siblings of the surviving arguments.
         if let ExprKind::Tuple(elements) = args_expr.kind {
             let inner_id = elements[top_level_param];
             if rewrite_nested_arg_expr_remove_fields(
@@ -3751,15 +3784,21 @@ fn rewrite_args_remove_nested_callable_fields(
                 inner_id,
                 remove_indices,
                 remove_expr_ids,
+                // No captures here: they belong at the top level (siblings of the
+                // other parameters), not inside this one parameter's slot, so they
+                // are appended to the outer `args_id` tuple below instead.
                 &[],
                 assigner,
             ) {
+                // Refresh the outer tuple's type for the now-reduced inner slot.
                 let inner_ty = package.get_expr(inner_id).ty.clone();
                 let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
                 if let Ty::Tuple(ref mut tys) = args_mut.ty {
                     tys[top_level_param] = inner_ty;
                 }
                 if !captures.is_empty() {
+                    // Append closure captures (and their types) as top-level
+                    // siblings, matching the combined callee's input pattern.
                     let capture_ids =
                         allocate_capture_exprs(package, args_expr.span, captures, assigner);
                     let capture_tys: Vec<Ty> =
@@ -3777,6 +3816,10 @@ fn rewrite_args_remove_nested_callable_fields(
         return;
     }
 
+    // Single tuple-valued parameter: the whole argument is the tuple holding the
+    // callable array, so strip the fields directly from `args_id` and thread the
+    // captures in the same pass. The returned success flag is unused because
+    // there is no enclosing slot type to refresh afterward.
     let _ = rewrite_nested_arg_expr_remove_fields(
         package,
         owner_callable,
