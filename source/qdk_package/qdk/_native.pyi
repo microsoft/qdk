@@ -1071,6 +1071,10 @@ class NoiseConfig:
     rxx: NoiseTable
     ryy: NoiseTable
     rzz: NoiseTable
+    # The simulator assumes a `swap` is either a logical swap (relabel) or a
+    # physical exchange of the two qubits, so it exchanges their loss state. A
+    # `swap` is never treated as an information exchange via three CX gates; that
+    # form is decomposed into other instructions before reaching the simulator.
     swap: NoiseTable
     mov: NoiseTable
     mresetz: NoiseTable
