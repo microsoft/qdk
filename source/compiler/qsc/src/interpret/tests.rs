@@ -2964,7 +2964,7 @@ mod given_interpreter {
             expect![[r#"
                 "B"
             "#]]
-            .assert_debug_eq(&items[0].namespace);
+            .assert_debug_eq(&items[0].name);
         }
 
         #[test]
