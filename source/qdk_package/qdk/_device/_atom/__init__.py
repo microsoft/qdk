@@ -205,7 +205,6 @@ class NeutralAtomDevice(Device):
                 "Please install it via 'pip install \"qdk[jupyter]\"' or 'pip install qsharp-widgets'."
             )
         from ._trace import Trace
-        from ._validate import ValidateNoConditionalBranches
         from ._scheduler import Schedule
         from pyqir import Module, Context
         from IPython.display import display
@@ -216,7 +215,6 @@ class NeutralAtomDevice(Device):
         # Compile and visualize the trace in one step.
         compiled = self.compile(qir)
         module = Module.from_ir(Context(), str(compiled))
-        ValidateNoConditionalBranches().run(module)
         Schedule(self).run(module)
         tracer = Trace(self)
         tracer.run(module)
@@ -257,7 +255,6 @@ class NeutralAtomDevice(Device):
             run_qir_cpu,
             run_qir_gpu,
         )
-        from ._validate import ValidateNoConditionalBranches
         from ._scheduler import Schedule
         from ._decomp import DecomposeRzAnglesToCliffordGates
         from pyqir import Module, Context
@@ -298,7 +295,6 @@ class NeutralAtomDevice(Device):
 
         compiled = self.compile(qir)
         module = Module.from_ir(Context(), str(compiled))
-        ValidateNoConditionalBranches().run(module)
         Schedule(self).run(module)
 
         if type is None:

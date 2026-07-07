@@ -16,7 +16,6 @@ from qdk.simulation import NoiseConfig
 from qdk.simulation._simulation import run_qir_clifford
 from qdk._device._atom import NeutralAtomDevice
 from qdk._device._atom._decomp import DecomposeRzAnglesToCliffordGates
-from qdk._device._atom._validate import ValidateNoConditionalBranches
 from qdk import TargetProfile, Result
 
 current_file_path = Path(__file__)
@@ -75,7 +74,6 @@ def expect_distribution(
 def transform_to_clifford(input) -> str:
     native_qir = NeutralAtomDevice().compile(input)
     module = pyqir.Module.from_ir(pyqir.Context(), str(native_qir))
-    ValidateNoConditionalBranches().run(module)
     DecomposeRzAnglesToCliffordGates().run(module)
     return str(module)
 
