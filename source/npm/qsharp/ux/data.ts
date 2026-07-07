@@ -79,5 +79,5 @@ export type CircuitProps = {
 };
 
 export type EditorHandlers = import("./circuit-vis/index.js").EditorHandlers;
-export type CircuitGroup = import("./circuit-vis/circuit.js").CircuitGroup;
-export type CircuitModel = import("./circuit-vis/circuit.js").Circuit;
+export type CircuitGroup = import("./circuit-vis/data/circuit.js").CircuitGroup;
+export type CircuitModel = import("./circuit-vis/data/circuit.js").Circuit;
