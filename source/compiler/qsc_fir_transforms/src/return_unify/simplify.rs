@@ -61,8 +61,8 @@ mod tests;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BlockId, ExprId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageLookup, PatKind,
-        Res, StmtId, StmtKind,
+        BlockId, ExprId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+        PatKind, Res, StmtId, StmtKind,
     },
     ty::{Prim, Ty},
 };
@@ -83,6 +83,7 @@ use crate::walk_utils;
 pub(super) fn run_to_fixpoint(
     package: &mut Package,
     assigner: &mut Assigner,
+    package_id: PackageId,
     block_id: BlockId,
     errors: &mut Vec<super::Error>,
     slots: &SynthSlots,
@@ -93,14 +94,14 @@ pub(super) fn run_to_fixpoint(
     };
     let mut prev_measure: Option<(usize, usize)> = None;
     for _ in 0..hard_cap {
-        let changed = apply_all_rules(package, assigner, block_id, slots);
+        let changed = apply_all_rules(package, assigner, package_id, block_id, slots);
         if !changed {
             return;
         }
         let block = package.get_block(block_id);
         let measure = (
             block.stmts.len(),
-            count_identical_branch_heads(package, &block.stmts),
+            count_identical_branch_heads(package, package_id, &block.stmts),
         );
         if matches!(prev_measure, Some(prev) if measure >= prev) {
             errors.push(super::Error::FixpointNotReached("simplify", block_id));
@@ -116,24 +117,29 @@ pub(super) fn run_to_fixpoint(
 fn apply_all_rules(
     package: &mut Package,
     assigner: &mut Assigner,
+    package_id: PackageId,
     block_id: BlockId,
     slots: &SynthSlots,
 ) -> bool {
     let mut changed = false;
     changed |= guard_clause::apply(package, assigner, block_id, slots);
-    changed |= run_identical_branches(package, block_id);
+    changed |= run_identical_branches(package, package_id, block_id);
     changed |= both_branches::apply(package, assigner, block_id, slots);
     changed |= single_branch::apply(package, assigner, block_id, slots);
     changed |= bare_return::apply(package, assigner, block_id, slots);
     changed |= let_folding::apply(package, assigner, block_id, slots);
     changed |= dead_flag::apply(package, assigner, block_id, slots);
-    changed |= dead_local::apply(package, assigner, block_id);
+    changed |= dead_local::apply(package, assigner, package_id, block_id);
     changed
 }
 
 /// Count how many top-level `If` statements in `stmts` have structurally
 /// equal then/else branches — the pattern [`run_identical_branches`] folds.
-fn count_identical_branch_heads(package: &Package, stmts: &[StmtId]) -> usize {
+fn count_identical_branch_heads(
+    package: &Package,
+    package_id: PackageId,
+    stmts: &[StmtId],
+) -> usize {
     stmts
         .iter()
         .filter(|&&stmt_id| {
@@ -141,7 +147,7 @@ fn count_identical_branch_heads(package: &Package, stmts: &[StmtId]) -> usize {
                 StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => *e,
                 StmtKind::Item(_) => return false,
             };
-            try_fold_identical_branches(package, expr_id).is_some()
+            try_fold_identical_branches(package, package_id, expr_id).is_some()
         })
         .count()
 }
@@ -152,23 +158,27 @@ fn count_identical_branch_heads(package: &Package, stmts: &[StmtId]) -> usize {
 /// Walks each top-level statement and folds its initializer/trailing
 /// expression when the expression is `If(_, then, Some(else))` with
 /// structurally identical arms.
-fn run_identical_branches(package: &mut Package, block_id: BlockId) -> bool {
+fn run_identical_branches(package: &mut Package, package_id: PackageId, block_id: BlockId) -> bool {
     let stmts = package.get_block(block_id).stmts.clone();
     let mut changed = false;
     for stmt_id in stmts {
-        changed |= fold_identical_branches_in_stmt(package, stmt_id);
+        changed |= fold_identical_branches_in_stmt(package, package_id, stmt_id);
     }
     changed
 }
 
 /// Fold `If(c, x, Some(x))` → `x` for the expression at the head of
 /// `stmt_id`. Returns `true` when the fold fires.
-fn fold_identical_branches_in_stmt(package: &mut Package, stmt_id: StmtId) -> bool {
+fn fold_identical_branches_in_stmt(
+    package: &mut Package,
+    package_id: PackageId,
+    stmt_id: StmtId,
+) -> bool {
     let expr_id = match &package.get_stmt(stmt_id).kind {
         StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => *e,
         StmtKind::Item(_) => return false,
     };
-    let Some(replacement) = try_fold_identical_branches(package, expr_id) else {
+    let Some(replacement) = try_fold_identical_branches(package, package_id, expr_id) else {
         return false;
     };
     let stmt = package.stmts.get_mut(stmt_id).expect("stmt not found");
@@ -184,13 +194,17 @@ fn fold_identical_branches_in_stmt(package: &mut Package, stmt_id: StmtId) -> bo
 /// If `expr_id` is an `If(cond, then_expr, Some(else_expr))` where the
 /// then and else branches are structurally identical, return the branch
 /// expression id to replace the if with. Returns `None` otherwise.
-pub(super) fn try_fold_identical_branches(package: &Package, expr_id: ExprId) -> Option<ExprId> {
+pub(super) fn try_fold_identical_branches(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+) -> Option<ExprId> {
     let expr = package.get_expr(expr_id);
     let ExprKind::If(cond_id, then_id, Some(else_id)) = &expr.kind else {
         return None;
     };
     if exprs_structurally_equal(package, *then_id, *else_id)
-        && walk_utils::expr_is_side_effect_free(package, *cond_id)
+        && walk_utils::expr_is_safe_to_discard(package, package_id, *cond_id)
     {
         Some(*then_id)
     } else {
