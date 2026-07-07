@@ -3145,6 +3145,16 @@ fn analyze_expr_flow(
     mut recorder: Option<&mut CallRecorder>,
 ) {
     let expr = pkg.get_expr(expr_id);
+    // Any write to a local invalidates conditional callables whose dispatch
+    // guard reads that local. Rewrite re-evaluates guards at the apply site, so
+    // reassigning a guard variable after a conditional callable's guarded value
+    // was formed would make the apply-site read observe the new value and
+    // dispatch to the wrong branch. Degrade those callables to `Dynamic` before
+    // processing the write so the stale dispatch is rejected with a clear
+    // diagnostic rather than silently miscompiled.
+    if let Some(written) = assignment_written_local(pkg, expr) {
+        invalidate_guard_dependents(pkg, state, written);
+    }
     match &expr.kind {
         ExprKind::Assign(lhs_id, rhs_id) => {
             // Recurse into the RHS first (in evaluation order) so any nested
@@ -3492,6 +3502,75 @@ fn collect_assigned_vars_expr(pkg: &Package, expr_id: ExprId, vars: &mut Vec<Loc
             }
         }
     });
+}
+
+/// Resolves the base local of an assignment left-hand side, descending through
+/// field and index projections (`x::field = ...`, `arr[i] = ...`) to the
+/// underlying `Var(Local)`. Returns `None` when the target is not rooted in a
+/// local.
+fn assign_lhs_base_local(pkg: &Package, lhs_id: ExprId) -> Option<LocalVarId> {
+    match &pkg.get_expr(lhs_id).kind {
+        ExprKind::Var(Res::Local(var), _) => Some(*var),
+        ExprKind::Field(base, _) | ExprKind::Index(base, _) => assign_lhs_base_local(pkg, *base),
+        _ => None,
+    }
+}
+
+/// Reports whether `expr` transitively reads the local `var`.
+fn expr_reads_local(pkg: &Package, expr_id: ExprId, var: LocalVarId) -> bool {
+    let mut found = false;
+    crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_id, expr| {
+        if let ExprKind::Var(Res::Local(v), _) = &expr.kind
+            && *v == var
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+/// Degrades to `Dynamic` any conditional callable in `state` whose dispatch
+/// guard reads `written`, invoked when `written` is reassigned during the
+/// forward flow.
+///
+/// Rewrite reconstructs a conditional callable's dispatch by re-evaluating its
+/// guards at the *apply* site, not the *binding* site. Once a guard variable is
+/// reassigned after the callable's guarded value was formed, the guard read at
+/// the apply site would observe the new value and select the wrong branch (see
+/// the `reaching_def_conditional_callable_reassigned_guard_dynamic` regression).
+/// Marking such callables `Dynamic` surfaces a clear "could not be resolved
+/// statically" diagnostic instead of emitting incorrect dispatch. Guards formed
+/// *after* this write are unaffected, so a normalization accumulator assigned
+/// before the branch decision (e.g. `cond_normalize`'s `__cond`) stays
+/// resolvable.
+fn invalidate_guard_dependents(pkg: &Package, state: &mut LocalState, written: LocalVarId) {
+    for lattice in state.callable.values_mut() {
+        if let CalleeLattice::Multi(entries) = lattice {
+            let depends = entries.iter().any(|(_, guards)| {
+                guards
+                    .iter()
+                    .any(|&guard| expr_reads_local(pkg, guard, written))
+            });
+            if depends {
+                *lattice = CalleeLattice::Dynamic;
+            }
+        }
+    }
+}
+
+/// Resolves the base local written by an assignment expression, descending
+/// through field and index projections (`x::field = ...`, `arr[i] = ...`) to
+/// the underlying `Var(Local)`. Returns `None` when the expression is not an
+/// assignment rooted in a local.
+fn assignment_written_local(pkg: &Package, expr: &Expr) -> Option<LocalVarId> {
+    let lhs_id = match &expr.kind {
+        ExprKind::Assign(lhs, _)
+        | ExprKind::AssignOp(_, lhs, _)
+        | ExprKind::AssignField(lhs, _, _)
+        | ExprKind::AssignIndex(lhs, _, _) => *lhs,
+        _ => return None,
+    };
+    assign_lhs_base_local(pkg, lhs_id)
 }
 
 /// Extracts bindings from a pattern. For `Bind(ident)` patterns, records

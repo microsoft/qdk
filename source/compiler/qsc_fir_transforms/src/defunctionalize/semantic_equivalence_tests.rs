@@ -243,3 +243,82 @@ fn single_multi_shared_callable_across_branches_is_equivalent() {
         }
     "#});
 }
+
+/// Regression for the `Multi ⊔ Multi` join's "unmodified variable" fast path: a
+/// callable-valued local is selected by an outer dynamic `if` whose *both*
+/// branches are dynamic conditionals that yield the *same set of callables*
+/// (`X`/`Z`) but under *different* inner guards (`rb` in the true branch, `rc`
+/// in the false branch).
+///
+/// The merge must not treat the two branches as an unmodified variable just
+/// because the callable identities coincide — the guards differ, so keeping the
+/// true-branch chain drops the outer condition and reroutes the `outer == false`
+/// path through the true branch's `rb` guard instead of the false branch's `rc`
+/// guard. The fixture pins `outer == false` (`a` stays |0>), `rb == One`
+/// (`b` is |1>), and `rc == Zero` (`c` stays |0>): the original applies `Z(q)`
+/// (measuring `Zero`) while the buggy rewrite applies `X(q)` (measuring `One`),
+/// diverging in both return value and effect trace.
+#[test]
+fn multi_multi_same_callables_different_guards_is_equivalent() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyOp(op : Qubit => Unit is Adj, q : Qubit) : Unit is Adj {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                use a = Qubit();
+                use b = Qubit();
+                use c = Qubit();
+                // a stays |0> (outer guard false); b is |1> (rb == One);
+                // c stays |0> (rc == Zero).
+                X(b);
+                let ra = MResetZ(a);
+                let rb = MResetZ(b);
+                let rc = MResetZ(c);
+                let op = if ra == One {
+                             if rb == One { X } else { Z }
+                         } else {
+                             if rc == One { X } else { Z }
+                         };
+                ApplyOp(op, q);
+                return MResetZ(q);
+            }
+        }
+    "#});
+}
+
+/// Probe: a conditional callable is bound from a guard variable that is then
+/// mutated before the callable is applied. The original captures the callable
+/// value at binding time (guard true -> `X`); a defunctionalization that
+/// re-evaluates the guard at the apply site would read the mutated guard
+/// (now false -> `Z`) and diverge.
+///
+/// The safe-degradation regression asserting the pipeline rejects this rather
+/// than silently miscompiling lives in
+/// `defunctionalize::tests::guard_var_reassigned_after_binding_degrades_to_dynamic`.
+#[test]
+fn guard_var_never_reassigned_after_binding_is_equivalent() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyOp(op : Qubit => Unit is Adj, q : Qubit) : Unit is Adj {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                use a = Qubit();
+                X(a);
+                let ra = MResetZ(a);
+                // `flag` is mutable but never reassigned after the binding, so
+                // hoisting its read to the apply site is safe and dispatch is
+                // preserved.
+                mutable flag = ra == One;
+                let op = if flag { X } else { Z };
+                ApplyOp(op, q);
+                return MResetZ(q);
+            }
+        }
+    "#});
+}

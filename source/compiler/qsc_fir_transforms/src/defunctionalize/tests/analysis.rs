@@ -2020,6 +2020,35 @@ fn reaching_def_mutable_in_loop_dynamic() {
     );
 }
 
+/// A conditional callable whose selecting guard reads a local that is
+/// reassigned after the callable is bound must not be lowered to a guarded
+/// dispatch: rewrite re-evaluates the guard at the *apply* site, but the guard
+/// variable's value there differs from its value at the *binding* site, so the
+/// dispatch would silently select the wrong callable. The analysis degrades
+/// such a guard to `Dynamic`, surfacing a clear diagnostic instead of emitting
+/// incorrect dispatch.
+#[test]
+fn reaching_def_conditional_callable_reassigned_guard_dynamic() {
+    check_errors(
+        r#"
+        operation ApplyOp(op : Qubit => Unit is Adj, q : Qubit) : Unit is Adj {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            use a = Qubit();
+            X(a);
+            let ra = MResetZ(a);
+            mutable flag = ra == One;
+            let op = if flag { X } else { Z };
+            set flag = false;
+            ApplyOp(op, q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}
+
 #[test]
 fn analysis_closure_through_multiple_levels() {
     let source = r#"

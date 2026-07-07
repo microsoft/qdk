@@ -177,7 +177,7 @@ pub(super) const MULTI_CAP: usize = 1000;
 
 /// Reaching-definitions lattice for callable variables.
 /// Tracks the set of possible concrete callables at each program point.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CalleeLattice {
     /// No value assigned yet (before first definition).
     Bottom,
@@ -315,15 +315,16 @@ impl CalleeLattice {
                 }
             }
             // Multi from both branches (nested dispatch on each side). Identical
-            // callable sets mean the variable was not modified in the branch —
-            // keep `s1` to stay byte-stable; otherwise merge the two chains.
+            // dispatch chains — same callables *and* same guards — mean the
+            // variable was not modified in the branch, so keep `s1` to stay
+            // byte-stable; otherwise merge the two chains. Comparing callable
+            // identity alone is unsound: two branches can reassign the local to
+            // the same set of callables under *different* inner guards (e.g.
+            // `if rb {X} else {Z}` vs `if rc {X} else {Z}`), and collapsing to
+            // `s1` would drop the outer condition and reroute the false-branch
+            // path through the true branch's guards.
             (Self::Multi(s1), Self::Multi(s2)) => {
-                let same_callables = s1.len() == s2.len()
-                    && s1
-                        .iter()
-                        .zip(s2.iter())
-                        .all(|((cc1, _), (cc2, _))| cc1 == cc2);
-                if same_callables {
+                if s1 == s2 {
                     Self::Multi(s1)
                 } else {
                     // Prepend `condition` onto every `s1` guard list; keep `s2`
