@@ -1,13 +1,12 @@
 """Utilities for testing Q# code."""
 
-from collections.abc import Callable
 import re
 import types
+from collections.abc import Callable
 from typing import Any, Optional
 
-from qdk._interpreter import _get_context_or_default, _get_default_context
-
 from ._context import Context
+from ._interpreter import _get_context_or_default, _get_default_context
 
 
 def dump_operation_on_state(
