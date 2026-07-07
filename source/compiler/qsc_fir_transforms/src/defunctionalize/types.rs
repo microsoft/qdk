@@ -257,7 +257,10 @@ impl CalleeLattice {
     /// `condition`.
     ///
     /// - `Single(a)` vs distinct `Single(b)`: `[(a,[condition]), (b,[])]`.
-    /// - `Single(a)` vs `Multi(s)`: prepend `(a,[condition])`; `s` unchanged.
+    /// - `Single(a)` vs `Multi(s)`: prepend `(a,[condition])` unconditionally;
+    ///   `s` unchanged. The true-branch arm is kept even when `a` already
+    ///   appears inside `s` under a different guard — collapsing it would drop
+    ///   the `condition` arm.
     /// - `Multi(s)` vs `Single(b)`: prepend `condition` onto every entry of
     ///   `s`, then append `(b,[])` as the trailing default.
     /// - `Multi(s1)` vs `Multi(s2)`: if the callable sets are identical (the
@@ -282,10 +285,13 @@ impl CalleeLattice {
             }
             (Self::Single(a), Self::Multi(mut s)) => {
                 // Prepend the conditioned true-branch entry; `s` supplies the
-                // implicit `!condition` via sequential ordering.
-                if !s.iter().any(|(cc, _)| *cc == a) {
-                    s.insert(0, (a, vec![condition]));
-                }
+                // implicit `!condition` via sequential ordering. Prepended
+                // unconditionally: even when `a` already appears inside `s`
+                // under a different guard, the true-branch arm is a distinct
+                // dispatch case — deduplicating it against the inner occurrence
+                // would drop the `condition` arm and reroute that path through
+                // `s`'s guards instead of unconditionally selecting `a`.
+                s.insert(0, (a, vec![condition]));
                 if s.len() > MULTI_CAP {
                     Self::Dynamic
                 } else {

@@ -737,10 +737,15 @@ fn extract_arg_at_path(pkg: &Package, args_expr_id: ExprId, path: &[usize]) -> E
     }
     let args_expr = pkg.get_expr(args_expr_id);
     if let ExprKind::Tuple(elements) = &args_expr.kind {
-        if path.len() == 1 {
-            elements[path[0]]
-        } else {
-            extract_arg_at_path(pkg, elements[path[0]], &path[1..])
+        // Defensive `.get()` mirrors `resolve_callee_at_path`, which walks the
+        // same path over the same argument expression: an out-of-range index
+        // falls back to the whole argument rather than panicking, keeping the
+        // two path walkers in lockstep instead of one crashing where the other
+        // degrades.
+        match elements.get(path[0]) {
+            Some(&element_id) if path.len() == 1 => element_id,
+            Some(&element_id) => extract_arg_at_path(pkg, element_id, &path[1..]),
+            None => args_expr_id,
         }
     } else {
         // Single-parameter callable: the args expression IS the argument.
