@@ -35,6 +35,12 @@ impl QirWriter {
             .expect("writing to a String should be infallible");
     }
 
+    fn declare(&mut self, name: &str, declaration: impl FnOnce() -> String) {
+        self.used_intrinsics
+            .entry(name.to_string())
+            .or_insert_with(declaration);
+    }
+
     /// `__quantum__qis__{intrinsic}__body`
     fn write_qis_call(&mut self, intrinsic: &str, ids: &[u32]) {
         self.write_raw_call(&format!("__quantum__qis__{intrinsic}__body"), ids);
@@ -55,10 +61,10 @@ impl QirWriter {
             self.write_ptr(id);
         }
         writeln!(self, ")");
-        let params = (0..ids.len()).map(|_| "ptr").collect::<Vec<_>>().join(", ");
-        self.used_intrinsics
-            .entry(intrinsic.to_string())
-            .or_insert_with(|| format!("declare void @{intrinsic}({params})"));
+        self.declare(intrinsic, || {
+            let params = vec!["ptr"; ids.len()].join(", ");
+            format!("declare void @{intrinsic}({params})")
+        });
     }
 
     fn write_noise_intrinsic(&mut self, name: &str, ids: &[u32]) {
@@ -70,10 +76,10 @@ impl QirWriter {
             write!(self, "ptr inttoptr (i64 {id} to ptr)");
         }
         writeln!(self, ")");
-        let params = (0..ids.len()).map(|_| "ptr").collect::<Vec<_>>().join(", ");
-        self.used_intrinsics
-            .entry(name.to_string())
-            .or_insert_with(|| format!("declare void @{name}({params}) #2"));
+        self.declare(name, || {
+            let params = vec!["ptr"; ids.len()].join(", ");
+            format!("declare void @{name}({params}) #2")
+        });
         self.has_noise_intrinsic = true;
     }
 
@@ -105,9 +111,9 @@ impl QirWriter {
         write!(self, "  %{dest} = call i1 @__quantum__rt__read_result(");
         self.write_ptr(id);
         writeln!(self, ")");
-        self.used_intrinsics
-            .entry("__quantum__rt__read_result".to_string())
-            .or_insert_with(|| "declare i1 @__quantum__rt__read_result(ptr)".to_string());
+        self.declare("__quantum__rt__read_result", || {
+            "declare i1 @__quantum__rt__read_result(ptr)".to_string()
+        });
     }
 
     // Writes: `  %{dest} = xor i1 %{lhs}, %{rhs}`
@@ -123,9 +129,9 @@ impl QirWriter {
     fn write_header(&mut self) {
         writeln!(self, "define i64 @ENTRYPOINT__main() #0 {{");
         writeln!(self, "  call void @__quantum__rt__initialize(ptr null)");
-        self.used_intrinsics
-            .entry("__quantum__rt__initialize".to_string())
-            .or_insert_with(|| "declare void @__quantum__rt__initialize(ptr)".to_string());
+        self.declare("__quantum__rt__initialize", || {
+            "declare void @__quantum__rt__initialize(ptr)".to_string()
+        });
     }
 
     fn write_record_output(&mut self, num_results: u32) {
@@ -133,22 +139,18 @@ impl QirWriter {
             self,
             "  call void @__quantum__rt__array_record_output(i64 {num_results}, ptr null)"
         );
-        self.used_intrinsics
-            .entry("__quantum__rt__array_record_output".to_string())
-            .or_insert_with(|| {
-                "declare void @__quantum__rt__array_record_output(i64, ptr)".to_string()
-            });
+        self.declare("__quantum__rt__array_record_output", || {
+            "declare void @__quantum__rt__array_record_output(i64, ptr)".to_string()
+        });
         for i in 0..num_results {
             writeln!(
                 self,
                 "  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 {i} to ptr), ptr null)"
             );
         }
-        self.used_intrinsics
-            .entry("__quantum__rt__result_record_output".to_string())
-            .or_insert_with(|| {
-                "declare void @__quantum__rt__result_record_output(ptr, ptr)".to_string()
-            });
+        self.declare("__quantum__rt__result_record_output", || {
+            "declare void @__quantum__rt__result_record_output(ptr, ptr)".to_string()
+        });
     }
 
     fn write_declarations(&mut self) {
