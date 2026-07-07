@@ -746,18 +746,17 @@ pub mod qir {
         };
         let span = callable_decl.span;
         let input_pat = package.get_pat(callable_decl.input);
-        let input_ty = resolve_functor_params(&resolve_udt_ty(fir_store, &input_pat.ty));
-        let output_ty = resolve_functor_params(&resolve_udt_ty(fir_store, &callable_decl.output));
-        let arrow_ty = qsc_fir::ty::Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
-            kind: callable_decl.kind,
-            input: Box::new(input_ty.clone()),
-            output: Box::new(output_ty.clone()),
-            functors: qsc_fir::ty::FunctorSet::Value(callable_decl.functors),
-        }));
-
-        // Build concrete generic args for the callee Var so monomorphization can
-        // resolve FunctorSet::Param in the specialized clone's body types.
-        let generic_args = build_concrete_generic_args(&callable_decl.generics);
+        let formal_input_ty = resolve_udt_ty(fir_store, &input_pat.ty);
+        let formal_output_ty = resolve_udt_ty(fir_store, &callable_decl.output);
+        let (generic_args, input_ty, output_ty, arrow_ty) = instantiate_synthetic_target_arrow(
+            callable_decl.generics.as_slice(),
+            callable_decl.kind,
+            callable_decl.functors,
+            &formal_input_ty,
+            &formal_output_ty,
+            args,
+            callable_types,
+        );
 
         // Build assigner from the package's current ID counters.
         let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_package_id));
@@ -859,6 +858,50 @@ pub mod qir {
         // Set entry to the synthetic call (optionally wrapped in a block).
         package.entry = Some(entry_expr_id);
         package.entry_exec_graph = Default::default();
+    }
+
+    /// Infers concrete generic arguments for the synthetic target invocation and
+    /// returns the target's instantiated input, output, and arrow types.
+    ///
+    /// The synthetic entry is built before the normal monomorphization pass can
+    /// specialize the target for these runtime arguments. Instantiating the
+    /// arrow here keeps the synthetic call structurally concrete, so later FIR
+    /// passes do not see unresolved type or functor parameters.
+    fn instantiate_synthetic_target_arrow(
+        generics: &[qsc_fir::ty::TypeParameter],
+        kind: qsc_fir::fir::CallableKind,
+        functors: qsc_fir::ty::FunctorSetValue,
+        formal_input_ty: &qsc_fir::ty::Ty,
+        formal_output_ty: &qsc_fir::ty::Ty,
+        args: &Value,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) -> (
+        Vec<qsc_fir::ty::GenericArg>,
+        qsc_fir::ty::Ty,
+        qsc_fir::ty::Ty,
+        qsc_fir::ty::Ty,
+    ) {
+        let generic_args =
+            infer_target_generic_args(generics, formal_input_ty, args, callable_types);
+        let formal_arrow = qsc_fir::ty::Arrow {
+            kind,
+            input: Box::new(formal_input_ty.clone()),
+            output: Box::new(formal_output_ty.clone()),
+            functors: qsc_fir::ty::FunctorSet::Value(functors),
+        };
+        let instantiated_arrow =
+            qsc_fir::ty::Scheme::new(generics.to_vec(), Box::new(formal_arrow.clone()))
+                .instantiate(&generic_args)
+                .unwrap_or(formal_arrow);
+        let input_ty = resolve_functor_params(&instantiated_arrow.input);
+        let output_ty = resolve_functor_params(&instantiated_arrow.output);
+        let arrow_ty = qsc_fir::ty::Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
+            kind: instantiated_arrow.kind,
+            input: Box::new(input_ty.clone()),
+            output: Box::new(output_ty.clone()),
+            functors: instantiated_arrow.functors,
+        }));
+        (generic_args, input_ty, output_ty, arrow_ty)
     }
 
     /// Builds an args expression matching the target's input type.
@@ -1106,25 +1149,151 @@ pub mod qir {
         }
     }
 
-    /// Builds concrete generic args from a callable's generic parameter list.
+    /// Builds concrete generic args from a target callable's input and the
+    /// runtime argument values supplied to the synthetic entry.
     ///
-    /// For each `TypeParameter::Functor`, produces `GenericArg::Functor(Value(Empty))`.
-    /// For each `TypeParameter::Ty`, produces `GenericArg::Ty(Tuple([]))` (unit).
-    /// These concrete args let monomorphization create a fully resolved specialization.
-    fn build_concrete_generic_args(
+    /// Any parameter that cannot be inferred from the argument value tree falls
+    /// back to the same concrete defaults used before synthetic-entry inference:
+    /// type parameters become `Unit`, and functor parameters become `Empty`.
+    fn infer_target_generic_args(
         generics: &[qsc_fir::ty::TypeParameter],
+        formal_input_ty: &qsc_fir::ty::Ty,
+        args: &Value,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
     ) -> Vec<qsc_fir::ty::GenericArg> {
+        let mut arg_map = rustc_hash::FxHashMap::default();
+        if let Some(actual_input_ty) =
+            value_ty_for_inference(args, Some(formal_input_ty), callable_types)
+        {
+            let _ = infer_generic_ty_args(formal_input_ty, &actual_input_ty, &mut arg_map);
+        }
+
         generics
             .iter()
-            .map(|param| match param {
-                qsc_fir::ty::TypeParameter::Functor(_) => qsc_fir::ty::GenericArg::Functor(
-                    qsc_fir::ty::FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty),
-                ),
-                qsc_fir::ty::TypeParameter::Ty { .. } => {
-                    qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Tuple(Vec::new()))
+            .enumerate()
+            .map(|(idx, param)| {
+                let inferred = arg_map.get(&qsc_fir::ty::ParamId::from(idx));
+                match (param, inferred) {
+                    (
+                        qsc_fir::ty::TypeParameter::Ty { .. },
+                        Some(qsc_fir::ty::GenericArg::Ty(ty)),
+                    ) if !ty_contains_param(ty) => qsc_fir::ty::GenericArg::Ty(ty.clone()),
+                    (
+                        qsc_fir::ty::TypeParameter::Functor(_),
+                        Some(qsc_fir::ty::GenericArg::Functor(functors)),
+                    ) if matches!(functors, qsc_fir::ty::FunctorSet::Value(_)) => {
+                        qsc_fir::ty::GenericArg::Functor(*functors)
+                    }
+                    _ => default_generic_arg(param),
                 }
             })
             .collect()
+    }
+
+    /// Produces the concrete fallback used when an individual generic parameter
+    /// cannot be inferred from the runtime argument value.
+    fn default_generic_arg(param: &qsc_fir::ty::TypeParameter) -> qsc_fir::ty::GenericArg {
+        match param {
+            qsc_fir::ty::TypeParameter::Functor(_) => qsc_fir::ty::GenericArg::Functor(
+                qsc_fir::ty::FunctorSet::Value(qsc_fir::ty::FunctorSetValue::Empty),
+            ),
+            qsc_fir::ty::TypeParameter::Ty { .. } => {
+                qsc_fir::ty::GenericArg::Ty(qsc_fir::ty::Ty::Tuple(Vec::new()))
+            }
+        }
+    }
+
+    /// Returns true when a type still contains an unresolved type parameter or
+    /// parametric functor set.
+    fn ty_contains_param(ty: &qsc_fir::ty::Ty) -> bool {
+        match ty {
+            qsc_fir::ty::Ty::Param(_) => true,
+            qsc_fir::ty::Ty::Array(item) => ty_contains_param(item),
+            qsc_fir::ty::Ty::Arrow(arrow) => {
+                matches!(arrow.functors, qsc_fir::ty::FunctorSet::Param(_))
+                    || ty_contains_param(&arrow.input)
+                    || ty_contains_param(&arrow.output)
+            }
+            qsc_fir::ty::Ty::Tuple(items) => items.iter().any(ty_contains_param),
+            qsc_fir::ty::Ty::Err
+            | qsc_fir::ty::Ty::Infer(_)
+            | qsc_fir::ty::Ty::Prim(_)
+            | qsc_fir::ty::Ty::Udt(_) => false,
+        }
+    }
+
+    /// Reconstructs the best FIR type shape available from an interpreter value.
+    ///
+    /// This is used only for generic inference. Runtime identities that cannot
+    /// be lowered into synthetic FIR, such as qubits or dynamic variables, can
+    /// still expose enough type information to instantiate the target arrow.
+    /// Callable values prefer the expected type when it is compatible with the
+    /// callable's declared generic scheme, preserving caller-provided concrete
+    /// arrow types for generic globals.
+    fn value_ty_for_inference(
+        value: &Value,
+        expected_ty: Option<&qsc_fir::ty::Ty>,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) -> Option<qsc_fir::ty::Ty> {
+        match value {
+            Value::Int(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Int)),
+            Value::Double(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Double)),
+            Value::Bool(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Bool)),
+            Value::BigInt(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::BigInt)),
+            Value::Pauli(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Pauli)),
+            Value::Qubit(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Qubit)),
+            Value::Range(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Range)),
+            Value::Result(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Result)),
+            Value::String(_) => Some(qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::String)),
+            Value::Tuple(values, _) => {
+                let expected_items = match expected_ty {
+                    Some(qsc_fir::ty::Ty::Tuple(items)) if items.len() == values.len() => {
+                        Some(items.as_slice())
+                    }
+                    _ => None,
+                };
+                values
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, value)| {
+                        value_ty_for_inference(
+                            value,
+                            expected_items.map(|items| &items[idx]),
+                            callable_types,
+                        )
+                    })
+                    .collect::<Option<Vec<_>>>()
+                    .map(qsc_fir::ty::Ty::Tuple)
+            }
+            Value::Array(values) => {
+                let expected_item = match expected_ty {
+                    Some(qsc_fir::ty::Ty::Array(item)) => Some(item.as_ref()),
+                    _ => None,
+                };
+                let item_ty = values
+                    .first()
+                    .and_then(|value| value_ty_for_inference(value, expected_item, callable_types))
+                    .or_else(|| expected_item.cloned())?;
+                Some(qsc_fir::ty::Ty::Array(Box::new(item_ty)))
+            }
+            Value::Global(id, _) => {
+                let info = callable_types.get(id)?;
+                if let Some(expected_ty) = expected_ty
+                    && infer_global_generic_args(&info.generics, &info.ty, expected_ty).is_some()
+                {
+                    return Some(expected_ty.clone());
+                }
+                Some(info.ty.clone())
+            }
+            Value::Closure(closure) => {
+                let info = callable_types.get(&closure.id)?;
+                Some(partial_applied_closure_ty(
+                    &info.ty,
+                    closure.fixed_args.len(),
+                ))
+            }
+            Value::Var(_) => expected_ty.cloned(),
+        }
     }
 
     /// Lowers an interpreter `Value` into a FIR expression for the synthetic entry.
@@ -1755,11 +1924,11 @@ pub mod qir {
 
     /// Prepares codegen FIR when a callable is invoked with concrete argument values.
     ///
-    /// Uses a synthetic `Call(Var(target), args)` entry expression when callable args
-    /// can be represented as FIR values, making the target and args entry-reachable for full
-    /// pipeline participation. Falls back to a pin-based approach when:
-    /// - Args contain closures with captures (partial applications require capture context
-    ///   that can't be represented in the synthetic Call)
+    /// Uses a synthetic `Call(Var(target), args)` entry expression when callable
+    /// args can be represented as FIR values, making the target and args
+    /// entry-reachable for full pipeline participation. Falls back to a
+    /// pin-based approach when args contain runtime identities that cannot be
+    /// represented as FIR values.
     ///
     /// The original target is pinned for DCE survival so that `fir_to_qir_from_callable`
     /// can still use the original ID for partial evaluation.
@@ -1789,12 +1958,12 @@ pub mod qir {
             ));
         }
 
-        // Closures whose captures are runtime identities (allocated qubits or
-        // dynamic values) cannot be reconstructed as FIR literals, so they keep the
-        // pin-based approach where partial evaluation supplies the captures from the
-        // runtime closure value at QIR generation time. Closures whose captures are
-        // classical values flow into the self-contained synthetic entry below.
-        if has_closure_with_captures(args) && !captures_are_fir_lowerable(args) {
+        // Runtime identities (allocated qubits, dynamic values, and closures
+        // that capture them) cannot be reconstructed as FIR literals, so they
+        // keep the pin-based approach where partial evaluation supplies the
+        // original values at QIR generation time. Fully lowerable values flow
+        // into the self-contained synthetic entry below.
+        if !value_is_fir_lowerable(args) {
             let codegen_fir = prepare_codegen_fir_from_callable_args_pinned(
                 package_store,
                 callable,
@@ -1940,33 +2109,8 @@ pub mod qir {
         })
     }
 
-    /// Returns `true` if the value tree contains any closures with captures.
-    fn has_closure_with_captures(value: &Value) -> bool {
-        match value {
-            Value::Closure(c) => !c.fixed_args.is_empty(),
-            Value::Tuple(vs, _) => vs.iter().any(has_closure_with_captures),
-            Value::Array(vs) => vs.iter().any(has_closure_with_captures),
-            _ => false,
-        }
-    }
-
-    /// Returns `true` if every closure capture in the value tree can be lowered into
-    /// a FIR literal for the synthetic entry.
-    ///
-    /// Only the captures themselves are inspected. Top-level runtime arguments (for
-    /// example, freshly allocated qubit registers) are always acceptable because the
-    /// synthetic entry allocates them; the restriction applies to values a closure
-    /// has already fixed, which must be reconstructable as classical literals.
-    fn captures_are_fir_lowerable(value: &Value) -> bool {
-        match value {
-            Value::Closure(c) => c.fixed_args.iter().all(value_is_fir_lowerable),
-            Value::Tuple(vs, _) => vs.iter().all(captures_are_fir_lowerable),
-            Value::Array(vs) => vs.iter().all(captures_are_fir_lowerable),
-            _ => true,
-        }
-    }
-
-    /// Returns `true` if a captured value can be reconstructed as a FIR literal.
+    /// Returns `true` if a value can be reconstructed inside the synthetic entry
+    /// as FIR literals and callable references.
     ///
     /// Runtime identities such as allocated qubits and dynamic measurement results
     /// have no classical literal form and therefore cannot be lowered.

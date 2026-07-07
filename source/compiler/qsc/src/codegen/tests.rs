@@ -2308,6 +2308,87 @@ fn synthetic_path_two_arrow_args_generates_qir() {
     );
 }
 
+#[test]
+fn synthetic_path_generic_target_infers_type_from_callable_arg() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyGeneric<'T>(op : 'T => Unit, value : 'T) : Result {
+                op(value);
+                use q = Qubit();
+                return MResetZ(q);
+            }
+            operation DoHIfOne(n : Int) : Unit {
+                if n == 1 {
+                    use q = Qubit();
+                    H(q);
+                    Reset(q);
+                }
+            }
+        }
+    "#};
+    let caps = Profile::AdaptiveRIF.into();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("ApplyGeneric", true), ("DoHIfOne", true)], caps);
+
+    let do_h_if_one = Value::Global(fir_id_for(pkg, items["DoHIfOne"]), FunctorApp::default());
+    let args = Value::Tuple(vec![do_h_if_one, Value::Int(1)].into(), None);
+
+    let target_hir = hir_id_for(pkg, items["ApplyGeneric"]);
+    let (_codegen_fir, backend) = prepare_codegen_fir_from_callable_args(
+        &store, target_hir, &args, caps,
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "generic target should produce CodegenFir, got: {}",
+            format_interpret_errors(errors)
+        )
+    });
+    assert!(
+        matches!(backend, CallableArgsBackend::SyntheticEntry),
+        "lowerable generic target args should use the synthetic entry"
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["ApplyGeneric"], &args, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected generic target to infer T = Int and emit H:\n{qir}"
+    );
+}
+
+#[test]
+fn callable_args_with_top_level_qubit_value_use_reinvoke_original() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyGeneric<'T>(op : 'T => Unit, value : 'T) : Unit {
+                op(value);
+            }
+            operation DoH(q : Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = Profile::AdaptiveRIF.into();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("ApplyGeneric", true), ("DoH", true)], caps);
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let qubit = Rc::new(qsc_eval::val::Qubit(0));
+    let args = Value::Tuple(vec![do_h, Value::Qubit((&qubit).into())].into(), None);
+
+    let target_hir = hir_id_for(pkg, items["ApplyGeneric"]);
+    let (_codegen_fir, backend) = prepare_codegen_fir_from_callable_args(
+        &store, target_hir, &args, caps,
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "top-level qubit callable args should produce CodegenFir, got: {}",
+            format_interpret_errors(errors)
+        )
+    });
+    assert!(
+        matches!(backend, CallableArgsBackend::ReinvokeOriginal { .. }),
+        "top-level runtime qubit values must not be lowered into the synthetic entry"
+    );
+}
+
 // ---- Synthetic path: arrow sandwiched between non-callable params ----
 
 #[test]

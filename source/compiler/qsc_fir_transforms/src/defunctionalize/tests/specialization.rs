@@ -324,6 +324,114 @@ fn specialize_closure_with_captures() {
 }
 
 #[test]
+fn closure_callable_capture_specializations_keep_distinct_callees() {
+    let source = r#"
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+
+        function Wrap(inner : Qubit => Unit) : Qubit => Unit {
+            q => inner(q)
+        }
+
+        operation Main() : Unit {
+            use a = Qubit();
+            use b = Qubit();
+            ApplyOp(Wrap(H), a);
+            ApplyOp(Wrap(X), b);
+        }
+        "#;
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            function Wrap(inner : (Qubit => Unit)) : (Qubit => Unit) {
+                / * closure item = 4 captures = [inner] * / _lambda_4
+            }
+            operation Main() : Unit {
+                let a : Qubit = __quantum__rt__qubit_allocate();
+                let b : Qubit = __quantum__rt__qubit_allocate();
+                ApplyOp_Empty_(Wrap_AdjCtl_(H), a);
+                ApplyOp_Empty_(Wrap_AdjCtl_(X), b);
+                __quantum__rt__qubit_release(b);
+                __quantum__rt__qubit_release(a);
+            }
+            operation _lambda_4(inner : (Qubit => Unit), q : Qubit) : Unit {
+                inner(q)
+            }
+            operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            function Wrap_AdjCtl_(inner : (Qubit => Unit is Adj + Ctl)) : (Qubit => Unit) {
+                / * closure item = 7 captures = [inner] * / _lambda_4
+            }
+            operation _lambda_4(inner : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                inner(q)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            function Wrap(inner : (Qubit => Unit)) : (Qubit => Unit) {
+                / * closure item = 4 captures = [inner] * / _lambda_4
+            }
+            operation Main() : Unit {
+                let a : Qubit = __quantum__rt__qubit_allocate();
+                let b : Qubit = __quantum__rt__qubit_allocate();
+                ApplyOp_Empty__H_(a);
+                ApplyOp_Empty__X_(b);
+                __quantum__rt__qubit_release(b);
+                __quantum__rt__qubit_release(a);
+            }
+            operation _lambda_4(inner : (Qubit => Unit), q : Qubit) : Unit {
+                inner(q)
+            }
+            operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            function Wrap_AdjCtl_(inner : (Qubit => Unit is Adj + Ctl)) : (Qubit => Unit) {
+                inner
+            }
+            operation _lambda_4(inner : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                inner(q)
+            }
+            function Wrap_AdjCtl__H_() : (Qubit => Unit) {
+                H
+            }
+            operation ApplyOp_Empty__H_(q : Qubit) : Unit {
+                H(q);
+            }
+            function Wrap_AdjCtl__X_() : (Qubit => Unit) {
+                X
+            }
+            operation ApplyOp_Empty__X_(q : Qubit) : Unit {
+                X(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+
+    assert!(
+        after.contains("H(q);"),
+        "Wrap(H) should specialize to a concrete H call:\n{after}"
+    );
+    assert!(
+        after.contains("X(q);"),
+        "Wrap(X) should specialize to a concrete X call distinct from Wrap(H):\n{after}"
+    );
+}
+
+#[test]
 fn specialize_closure_capture_types_preserved() {
     check_rewrite(
         r#"
@@ -2364,6 +2472,70 @@ fn specialize_nested_callable_transitive_alias() {
             operation Wrapper_AdjCtl__H_(pair : Int, q : Qubit) : Unit {
                 let _ : Int = pair;
                 H(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn specialize_nested_callable_through_aggregate_alias() {
+    check_rewrite(
+        r#"
+        operation Wrapper(pair : (Qubit => Unit, Int), q : Qubit) : Unit {
+            let alias = pair;
+            let (op, n) = alias;
+            op(q);
+            let _ = n;
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Wrapper((H, 42), q);
+        }
+        "#,
+        &expect![[r#"
+            BEFORE:
+            operation Wrapper(pair : ((Qubit => Unit), Int), q : Qubit) : Unit {
+                let alias : ((Qubit => Unit), Int) = pair;
+                let (op : (Qubit => Unit), n : Int) = alias;
+                op(q);
+                let _ : Int = n;
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Wrapper_AdjCtl_((H, 42), q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Wrapper_AdjCtl_(pair : ((Qubit => Unit is Adj + Ctl), Int), q : Qubit) : Unit {
+                let alias : ((Qubit => Unit is Adj + Ctl), Int) = pair;
+                let (op : (Qubit => Unit is Adj + Ctl), n : Int) = alias;
+                op(q);
+                let _ : Int = n;
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Wrapper(pair : ((Qubit => Unit), Int), q : Qubit) : Unit {
+                let (op : (Qubit => Unit), n : Int) = pair;
+                op(q);
+                let _ : Int = n;
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Wrapper_AdjCtl__H_(42, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Wrapper_AdjCtl_(pair : ((Qubit => Unit is Adj + Ctl), Int), q : Qubit) : Unit {
+                let (op : (Qubit => Unit is Adj + Ctl), n : Int) = pair;
+                op(q);
+                let _ : Int = n;
+            }
+            operation Wrapper_AdjCtl__H_(pair : Int, q : Qubit) : Unit {
+                let n : Int = pair;
+                H(q);
+                let _ : Int = n;
             }
             // entry
             Main()
