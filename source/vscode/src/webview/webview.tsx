@@ -11,7 +11,6 @@ import {
   CircuitProps,
   EstimatesPanel,
   Histogram,
-  BlochSphere,
   setRenderer,
   detectThemeChange,
   updateStyleSheetTheme,
@@ -66,14 +65,12 @@ type DocumentationState = {
 type State =
   | { viewType: "loading"; panelId: string }
   | { viewType: "help" }
-  | { viewType: "bloch" }
   | HistogramState
   | EstimatesState
   | CircuitState
   | DocumentationState;
 const loadingState: State = { viewType: "loading", panelId: "" };
 const helpState: State = { viewType: "help" };
-const blochState: State = { viewType: "bloch" };
 let state: State = loadingState;
 
 function main() {
@@ -140,9 +137,6 @@ function onMessage(event: any) {
       break;
     case "help":
       state = helpState;
-      break;
-    case "bloch":
-      state = blochState;
       break;
     case "circuit":
       {
@@ -233,8 +227,6 @@ function App({ state }: { state: State }) {
       return <CircuitPanel {...state.props}></CircuitPanel>;
     case "help":
       return <HelpPage />;
-    case "bloch":
-      return <BlochSphere />;
     case "documentation":
       // Ideally we'd have this on all web views, but it makes the font a little
       // too large in the others right now. Something to unify later.

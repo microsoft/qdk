@@ -349,8 +349,9 @@ export class QSharpWebViewPanel {
 
     const katexCss = getUri(["out", "katex", "katex.min.css"]);
     const githubCss = getUri(["out", "katex", "github-markdown-dark.css"]);
-    const webviewCss = getUri(["out", "webview", "webview.css"]);
-    const webviewJs = getUri(["out", "webview", "webview.js"]);
+    const bundleName = this.type == "bloch" ? "bloch" : "webview";
+    const webviewCss = getUri(["out", "webview", `${bundleName}.css`]);
+    const webviewJs = getUri(["out", "webview", `${bundleName}.js`]);
     const resourcesUri = getUri(["resources"]);
 
     return /*html*/ `
