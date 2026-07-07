@@ -855,7 +855,9 @@ fn from_qdk_simulators_noise_table<T: Float>(
 fn allowed_noise_policies_from_gate_name(gate_name: &str) -> Vec<LossPolicy> {
     match gate_name {
         "i" | "x" | "y" | "z" | "h" | "s" | "s_adj" | "t" | "t_adj" | "sx" | "sx_adj" | "rx"
-        | "ry" | "rz" => return NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec(),
+        | "ry" | "rz" | "mz" | "mresetz" | "mov" => {
+            return NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec();
+        }
         _ => (),
     }
 
