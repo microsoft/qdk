@@ -338,13 +338,13 @@ pub fn estimate_with_graph(
                                 // Filter out nodes that don't meet the constraint bounds.
                                 let instruction = graph_lock.instruction(node);
                                 constraint.error_rate().is_none_or(|c| {
-                                    c.evaluate(&instruction.error_rate(Some(1)).unwrap_or(0.0))
+                                    c.evaluate(&instruction.error_rate(Some(1), &[]).unwrap_or(0.0))
                                 })
                             })
                             .map(|&node| {
                                 let instruction = graph_lock.instruction(node);
-                                let space = instruction.space(Some(1)).unwrap_or(0);
-                                let time = instruction.time(Some(1)).unwrap_or(0);
+                                let space = instruction.space(Some(1), &[]).unwrap_or(0);
+                                let time = instruction.time(Some(1), &[]).unwrap_or(0);
                                 NodeProfile {
                                     node_index: node,
                                     space,

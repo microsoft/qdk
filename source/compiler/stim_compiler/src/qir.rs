@@ -388,6 +388,12 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("prepare instruction must start a block")]
+    #[diagnostic(code("Stim.PrepareWithoutBlock"))]
+    PrepareWithoutBlock {
+        #[label]
+        span: Span,
+    },
 }
 
 // This enum keeps track of which side of a controlled operation the measurement record is allowed to appear on.
@@ -1099,6 +1105,9 @@ impl<'noise> Compiler<'noise> {
         }
 
         let Some(scope) = self.id_map.current_scope() else {
+            self.push_error(Error::PrepareWithoutBlock {
+                span: instruction.span,
+            });
             return;
         };
 
