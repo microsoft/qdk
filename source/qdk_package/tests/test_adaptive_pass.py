@@ -989,7 +989,7 @@ def test_pass_on_qir_with_barrier_instruction_succeeds():
 # ---------------------------------------------------------------------------
 
 
-ADAPTIVE_RIFLA_QIR = r"""
+ADAPTIVE_QIR = r"""
 %Result = type opaque
 %Qubit = type opaque
 
@@ -1025,7 +1025,7 @@ attributes #1 = { "irreversible" }
 
 def test_arrays_flag_accepted():
     """Modules with 'arrays' flag are accepted (no longer raise ValueError)."""
-    r = _run_pass(ADAPTIVE_RIFLA_QIR)
+    r = _run_pass(ADAPTIVE_QIR)
     assert r.num_qubits == 0
     assert r.num_results == 0
 

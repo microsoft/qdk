@@ -205,7 +205,6 @@ class NeutralAtomDevice(Device):
                 "Please install it via 'pip install \"qdk[jupyter]\"' or 'pip install qsharp-widgets'."
             )
         from ._trace import Trace
-        from ._validate import ValidateNoConditionalBranches
         from ._scheduler import Schedule
         from pyqir import Module, Context
         from IPython.display import display
@@ -216,7 +215,6 @@ class NeutralAtomDevice(Device):
         # Compile and visualize the trace in one step.
         compiled = self.compile(qir)
         module = Module.from_ir(Context(), str(compiled))
-        ValidateNoConditionalBranches().run(module)
         Schedule(self).run(module)
         tracer = Trace(self)
         tracer.run(module)
@@ -257,7 +255,6 @@ class NeutralAtomDevice(Device):
             run_qir_cpu,
             run_qir_gpu,
         )
-        from ._validate import ValidateNoConditionalBranches
         from ._scheduler import Schedule
         from ._decomp import DecomposeRzAnglesToCliffordGates
         from pyqir import Module, Context
@@ -274,31 +271,30 @@ class NeutralAtomDevice(Device):
                 noise.t.x = noise.rz.x
                 noise.t.y = noise.rz.y
                 noise.t.z = noise.rz.z
-                noise.t.loss = noise.rz.loss
+                noise.t.l = noise.rz.l
             if noise.t_adj.is_noiseless():
                 noise.t_adj.x = noise.rz.x
                 noise.t_adj.y = noise.rz.y
                 noise.t_adj.z = noise.rz.z
-                noise.t_adj.loss = noise.rz.loss
+                noise.t_adj.l = noise.rz.l
             if noise.s.is_noiseless():
                 noise.s.x = noise.rz.x
                 noise.s.y = noise.rz.y
                 noise.s.z = noise.rz.z
-                noise.s.loss = noise.rz.loss
+                noise.s.l = noise.rz.l
             if noise.s_adj.is_noiseless():
                 noise.s_adj.x = noise.rz.x
                 noise.s_adj.y = noise.rz.y
                 noise.s_adj.z = noise.rz.z
-                noise.s_adj.loss = noise.rz.loss
+                noise.s_adj.l = noise.rz.l
             if noise.z.is_noiseless():
                 noise.z.x = noise.rz.x
                 noise.z.y = noise.rz.y
                 noise.z.z = noise.rz.z
-                noise.z.loss = noise.rz.loss
+                noise.z.l = noise.rz.l
 
         compiled = self.compile(qir)
         module = Module.from_ir(Context(), str(compiled))
-        ValidateNoConditionalBranches().run(module)
         Schedule(self).run(module)
 
         if type is None:

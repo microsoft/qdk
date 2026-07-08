@@ -22,43 +22,46 @@ pub fn remap_block_ids(program: &mut Program) {
     // Check if the program is acyclic, which lets us construct a topological ordering.
     let is_acyclic = check_acyclic(program);
 
-    // Only update the entry point.
-    let entry_block_id = program
-        .get_callable(program.entry)
-        .body
-        .expect("entry point should have a body block");
-
     // Because we know the program is acyclic, we can keep a list as the map from old block IDs to new block IDs, where
-    // the new block ID is the index in the list.
+    // the new block ID is the index in the list. We accumulate this list by walking the reachable blocks of every
+    // bodied callable in a deterministic order, so block-id assignment is stable across runs (and snapshots).
+    // Distinct callable bodies own disjoint block sets, so each callable contributes a contiguous segment of new IDs.
     let mut block_id_map = Vec::new();
-    let mut blocks_to_visit: VecDeque<BlockId> = vec![entry_block_id].into();
-    while let Some(block_id) = blocks_to_visit.pop_front() {
-        // If we've already visited this block, remove it from the previous ordering so that we can insert it at the end.
-        // This effectively remaps all the blocks in the list and updates the mapped id of the current block.
-        // This is only safe without cycles, so on a cyclic graph the node is skipped and not remapped.
-        if is_acyclic {
-            block_id_map.retain(|id| *id != block_id);
-        } else if block_id_map.contains(&block_id) {
+    for callable_id in program.all_callable_ids() {
+        // Intrinsics (and any other bodyless callables) have no blocks to remap.
+        let Some(entry_block_id) = program.get_callable(callable_id).body else {
             continue;
-        }
-        block_id_map.push(block_id);
+        };
 
-        let successors = get_block_successors(program.get_block(block_id));
-        if blocks_to_visit.len() >= successors.len()
-            && blocks_to_visit
-                .iter()
-                .skip(blocks_to_visit.len() - successors.len())
-                .eq(successors.iter())
-        {
-            // All successors are already at the end of the queue in same order, so avoid adding them and reprocessing
-            // the same blocks back-to-back.
-            continue;
+        let mut blocks_to_visit: VecDeque<BlockId> = vec![entry_block_id].into();
+        while let Some(block_id) = blocks_to_visit.pop_front() {
+            // If we've already visited this block, remove it from the previous ordering so that we can insert it at the end.
+            // This effectively remaps all the blocks in the list and updates the mapped id of the current block.
+            // This is only safe without cycles, so on a cyclic graph the node is skipped and not remapped.
+            if is_acyclic {
+                block_id_map.retain(|id| *id != block_id);
+            } else if block_id_map.contains(&block_id) {
+                continue;
+            }
+            block_id_map.push(block_id);
+
+            let successors = get_block_successors(program.get_block(block_id));
+            if blocks_to_visit.len() >= successors.len()
+                && blocks_to_visit
+                    .iter()
+                    .skip(blocks_to_visit.len() - successors.len())
+                    .eq(successors.iter())
+            {
+                // All successors are already at the end of the queue in same order, so avoid adding them and reprocessing
+                // the same blocks back-to-back.
+                continue;
+            }
+            // Since we are going to extend the blocks to visit using the successors of the current block, we can remove them from
+            // anywhere else in the list to visit so we avoid visiting them multiple times (only the last visit to a block is
+            // significant, so others can be skipped).
+            blocks_to_visit.retain(|id| !successors.contains(id));
+            blocks_to_visit.extend(successors);
         }
-        // Since we are going to extend the blocks to visit using the successors of the current block, we can remove them from
-        // anywhere else in the list to visit so we avoid visiting them multiple times (only the last visit to a block is
-        // significant, so others can be skipped).
-        blocks_to_visit.retain(|id| !successors.contains(id));
-        blocks_to_visit.extend(successors);
     }
 
     let block_id_map = block_id_map
@@ -80,11 +83,18 @@ pub fn remap_block_ids(program: &mut Program) {
         );
         program.blocks.insert(new_block_id.into(), block);
     }
-    program
-        .callables
-        .get_mut(program.entry)
-        .expect("entry should exist")
-        .body = Some(block_id_map[&entry_block_id].into());
+
+    // Update each bodied callable to point at the remapped id of its entry block.
+    for callable_id in program.all_callable_ids() {
+        let Some(old_body) = program.get_callable(callable_id).body else {
+            continue;
+        };
+        program
+            .callables
+            .get_mut(callable_id)
+            .expect("callable should exist")
+            .body = Some(block_id_map[&old_body].into());
+    }
 }
 
 fn check_acyclic(program: &Program) -> bool {

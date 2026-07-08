@@ -14,6 +14,8 @@ use qsc_rir::{
 };
 use std::fmt::Write;
 
+use super::name::llvm_global_name;
+
 /// A trait for converting a type into QIR of type `T`.
 /// This can be used to generate QIR strings or other representations.
 pub trait ToQir<T> {
@@ -178,6 +180,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Fdiv(lhs, rhs, variable) => {
                 fbinop_to_qir("fdiv", lhs, rhs, *variable, program)
             }
+            rir::Instruction::Frem(lhs, rhs, variable) => {
+                fbinop_to_qir("frem", lhs, rhs, *variable, program)
+            }
             rir::Instruction::Fmul(lhs, rhs, variable) => {
                 fbinop_to_qir("fmul", lhs, rhs, *variable, program)
             }
@@ -206,7 +211,7 @@ impl ToQir<String> for rir::Instruction {
                 format!("  br label %{}", ToQir::<String>::to_qir(block_id, program))
             }
             rir::Instruction::Phi(args, variable) => phi_to_qir(args, *variable, program),
-            rir::Instruction::Return => "  ret i64 0".to_string(),
+            rir::Instruction::Return(_) => "  ret i64 0".to_string(),
             rir::Instruction::Sdiv(lhs, rhs, variable) => {
                 binop_to_qir("sdiv", lhs, rhs, *variable, program)
             }
@@ -334,18 +339,19 @@ fn call_to_qir(
         .collect::<Vec<_>>()
         .join(", ");
     let callable = program.get_callable(call_id);
+    let callable_name = llvm_global_name(&callable.name);
     if let Some(output) = output {
         format!(
-            "  {} = call {} @{}({args})",
+            "  {} = call {} {}({args})",
             ToQir::<String>::to_qir(&output.variable_id, program),
             ToQir::<String>::to_qir(&callable.output_type, program),
-            callable.name
+            callable_name
         )
     } else {
         format!(
-            "  call {} @{}({args})",
+            "  call {} {}({args})",
             ToQir::<String>::to_qir(&callable.output_type, program),
-            callable.name
+            callable_name
         )
     }
 }
@@ -621,9 +627,9 @@ impl ToQir<String> for rir::Callable {
             .join(", ");
         let output_type = ToQir::<String>::to_qir(&self.output_type, program);
         let Some(entry_id) = self.body else {
+            let callable_name = llvm_global_name(&self.name);
             return format!(
-                "declare {output_type} @{}({input_type}){}",
-                self.name,
+                "declare {output_type} {callable_name}({input_type}){}",
                 match self.call_type {
                     rir::CallableType::Measurement | rir::CallableType::Reset => {
                         // These callables are a special case that need the irreversible attribute.

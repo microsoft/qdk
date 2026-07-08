@@ -1,4 +1,6 @@
 namespace Kata {
+    import Std.Arrays.*;
+
     operation Oracle_SATClause(x : Qubit[], y : Qubit, clause : (Int, Bool)[]) : Unit is Adj + Ctl {
         // Implement your solution here...
 

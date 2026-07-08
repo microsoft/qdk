@@ -5,11 +5,13 @@ mod correlated_noise;
 pub(crate) mod cpu_simulators;
 pub(crate) mod gpu_full_state;
 
+use std::fmt::{Display, Write};
+
 use crate::qir_simulation::correlated_noise::parse_noise_table;
 
 use num_traits::{Float, Unsigned};
 use pyo3::{
-    Bound, FromPyObject, Py, PyRef, PyResult, Python,
+    Bound, FromPyObject, Py, PyAny, PyRef, PyResult, Python,
     exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError},
     pybacked::PyBackedStr,
     pyclass, pymethods,
@@ -17,7 +19,7 @@ use pyo3::{
 };
 use qdk_simulators::{
     bytecode,
-    noise_config::{encode_pauli, is_pauli_identity},
+    noise_config::{PauliAndLossString, encode_pauli, is_pauli_identity},
 };
 use rustc_hash::FxHashMap;
 
@@ -86,6 +88,60 @@ pub enum QirInstruction {
         u32,      /* table id */
         Vec<u32>, /* qubit args */
     ),
+}
+
+/// Specifies the behavior of a multi-qubit gate when at least one of its
+/// qubit operands is lost. Mirrors [`qdk_simulators::noise_config::LossPolicy`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
+pub enum LossPolicy {
+    #[pyo3(name = "SKIP")]
+    Skip = 0,
+    #[pyo3(name = "PROPAGATE")]
+    Propagate = 1,
+    #[pyo3(name = "DEGRADE")]
+    Degrade = 2,
+    #[pyo3(name = "RESIDUAL_S_DAGGER")]
+    ResidualSDagger = 3,
+    #[pyo3(name = "APPLY_ANYWAY")]
+    ApplyAnyway = 4,
+}
+
+impl Display for LossPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            LossPolicy::Skip => "SKIP",
+            LossPolicy::Propagate => "PROPAGATE",
+            LossPolicy::Degrade => "DEGRADE",
+            LossPolicy::ResidualSDagger => "RESIDUAL_S_DAGGER",
+            LossPolicy::ApplyAnyway => "APPLY_ANYWAY",
+        };
+        write!(f, "{name}")
+    }
+}
+
+impl From<LossPolicy> for qdk_simulators::noise_config::LossPolicy {
+    fn from(value: LossPolicy) -> Self {
+        match value {
+            LossPolicy::Skip => Self::Skip,
+            LossPolicy::Propagate => Self::Propagate,
+            LossPolicy::Degrade => Self::Degrade,
+            LossPolicy::ResidualSDagger => Self::ResidualSDagger,
+            LossPolicy::ApplyAnyway => Self::ApplyAnyway,
+        }
+    }
+}
+
+impl From<qdk_simulators::noise_config::LossPolicy> for LossPolicy {
+    fn from(value: qdk_simulators::noise_config::LossPolicy) -> Self {
+        match value {
+            qdk_simulators::noise_config::LossPolicy::Skip => Self::Skip,
+            qdk_simulators::noise_config::LossPolicy::Propagate => Self::Propagate,
+            qdk_simulators::noise_config::LossPolicy::Degrade => Self::Degrade,
+            qdk_simulators::noise_config::LossPolicy::ResidualSDagger => Self::ResidualSDagger,
+            qdk_simulators::noise_config::LossPolicy::ApplyAnyway => Self::ApplyAnyway,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -173,9 +229,10 @@ impl NoiseConfig {
         } else {
             let new_table = Py::new(
                 py,
-                NoiseTable::from(qdk_simulators::noise_config::NoiseTable::<f64>::noiseless(
-                    num_qubits,
-                )),
+                from_qdk_simulators_noise_table(
+                    &qdk_simulators::noise_config::NoiseTable::<f64>::noiseless(num_qubits),
+                    "",
+                ),
             )?;
             self.intrinsics
                 .borrow_mut(py)
@@ -245,34 +302,73 @@ fn bind_noise_config<T: Float, Q: Float>(
     value: &qdk_simulators::noise_config::NoiseConfig<T, Q>,
 ) -> PyResult<NoiseConfig> {
     Ok(NoiseConfig {
-        i: Py::new(py, NoiseTable::from(value.i.clone()))?,
-        x: Py::new(py, NoiseTable::from(value.x.clone()))?,
-        y: Py::new(py, NoiseTable::from(value.y.clone()))?,
-        z: Py::new(py, NoiseTable::from(value.z.clone()))?,
-        h: Py::new(py, NoiseTable::from(value.h.clone()))?,
-        s: Py::new(py, NoiseTable::from(value.s.clone()))?,
-        s_adj: Py::new(py, NoiseTable::from(value.s_adj.clone()))?,
-        t: Py::new(py, NoiseTable::from(value.t.clone()))?,
-        t_adj: Py::new(py, NoiseTable::from(value.t_adj.clone()))?,
-        sx: Py::new(py, NoiseTable::from(value.sx.clone()))?,
-        sx_adj: Py::new(py, NoiseTable::from(value.sx_adj.clone()))?,
-        rx: Py::new(py, NoiseTable::from(value.rx.clone()))?,
-        ry: Py::new(py, NoiseTable::from(value.ry.clone()))?,
-        rz: Py::new(py, NoiseTable::from(value.rz.clone()))?,
-        cx: Py::new(py, NoiseTable::from(value.cx.clone()))?,
-        cy: Py::new(py, NoiseTable::from(value.cy.clone()))?,
-        cz: Py::new(py, NoiseTable::from(value.cz.clone()))?,
-        rxx: Py::new(py, NoiseTable::from(value.rxx.clone()))?,
-        ryy: Py::new(py, NoiseTable::from(value.ryy.clone()))?,
-        rzz: Py::new(py, NoiseTable::from(value.rzz.clone()))?,
-        swap: Py::new(py, NoiseTable::from(value.swap.clone()))?,
-        ccx: Py::new(py, NoiseTable::from(value.ccx.clone()))?,
-        mov: Py::new(py, NoiseTable::from(value.mov.clone()))?,
-        mz: Py::new(py, NoiseTable::from(value.mz.clone()))?,
-        mresetz: Py::new(py, NoiseTable::from(value.mresetz.clone()))?,
+        i: Py::new(py, from_qdk_simulators_noise_table(&value.i, "i"))?,
+        x: Py::new(py, from_qdk_simulators_noise_table(&value.x, "x"))?,
+        y: Py::new(py, from_qdk_simulators_noise_table(&value.y, "y"))?,
+        z: Py::new(py, from_qdk_simulators_noise_table(&value.z, "z"))?,
+        h: Py::new(py, from_qdk_simulators_noise_table(&value.h, "h"))?,
+        s: Py::new(py, from_qdk_simulators_noise_table(&value.s, "s"))?,
+        s_adj: Py::new(py, from_qdk_simulators_noise_table(&value.s_adj, "s_adj"))?,
+        t: Py::new(py, from_qdk_simulators_noise_table(&value.t, "t"))?,
+        t_adj: Py::new(py, from_qdk_simulators_noise_table(&value.t_adj, "t_adj"))?,
+        sx: Py::new(py, from_qdk_simulators_noise_table(&value.sx, "sx"))?,
+        sx_adj: Py::new(py, from_qdk_simulators_noise_table(&value.sx_adj, "sx_adj"))?,
+        rx: Py::new(py, from_qdk_simulators_noise_table(&value.rx, "rx"))?,
+        ry: Py::new(py, from_qdk_simulators_noise_table(&value.ry, "ry"))?,
+        rz: Py::new(py, from_qdk_simulators_noise_table(&value.rz, "rz"))?,
+        cx: Py::new(py, from_qdk_simulators_noise_table(&value.cx, "cx"))?,
+        cy: Py::new(py, from_qdk_simulators_noise_table(&value.cy, "cy"))?,
+        cz: Py::new(py, from_qdk_simulators_noise_table(&value.cz, "cz"))?,
+        rxx: Py::new(py, from_qdk_simulators_noise_table(&value.rxx, "rxx"))?,
+        ryy: Py::new(py, from_qdk_simulators_noise_table(&value.ryy, "ryy"))?,
+        rzz: Py::new(py, from_qdk_simulators_noise_table(&value.rzz, "rzz"))?,
+        swap: Py::new(py, from_qdk_simulators_noise_table(&value.swap, "swap"))?,
+        ccx: Py::new(py, from_qdk_simulators_noise_table(&value.ccx, "ccx"))?,
+        mov: Py::new(py, from_qdk_simulators_noise_table(&value.mov, "mov"))?,
+        mz: Py::new(py, from_qdk_simulators_noise_table(&value.mz, "mz"))?,
+        mresetz: Py::new(
+            py,
+            from_qdk_simulators_noise_table(&value.mresetz, "mresetz"),
+        )?,
         // idle: Py::new(py, IdleNoiseParams::from(value.idle))?,
         intrinsics: Py::new(py, NoiseIntrinsicsTable::default())?,
     })
+}
+
+/// Builds a Python [`NoiseConfig`] for the Stim-to-QIR path, populating the
+/// intrinsics table from the Rust intrinsics map. The intrinsics handling is
+/// specific to Stim, so it lives here rather than in the general
+/// [`bind_noise_config`].
+pub(crate) fn bind_stim_noise_config<T: Float, Q: Float>(
+    py: Python,
+    value: &qdk_simulators::noise_config::NoiseConfig<T, Q>,
+) -> PyResult<NoiseConfig> {
+    let mut config = bind_noise_config(py, value)?;
+    config.intrinsics = Py::new(py, to_stim_intrinsics_table(py, &value.intrinsics)?)?;
+    Ok(config)
+}
+
+/// Builds a Python [`NoiseIntrinsicsTable`] from the Rust intrinsics map,
+/// preserving each intrinsic's id and naming it `noise_intrinsic_{id}` so the
+/// name matches the call emitted by the Stim-to-QIR compiler.
+fn to_stim_intrinsics_table<Q: Float>(
+    py: Python,
+    intrinsics: &FxHashMap<u32, qdk_simulators::noise_config::NoiseTable<Q>>,
+) -> PyResult<NoiseIntrinsicsTable> {
+    let mut table = FxHashMap::default();
+    let mut next_id = 0u32;
+    for (id, noise_table) in intrinsics {
+        let name = format!("noise_intrinsic_{id}");
+        table.insert(
+            name,
+            (
+                *id,
+                Py::new(py, from_qdk_simulators_noise_table(noise_table, ""))?,
+            ),
+        );
+        next_id = next_id.max(*id + 1);
+    }
+    Ok(NoiseIntrinsicsTable { next_id, table })
 }
 
 pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
@@ -357,12 +453,23 @@ impl From<qdk_simulators::noise_config::IdleNoiseParams> for IdleNoiseParams {
 #[pyclass(from_py_object, module = "qdk._native")]
 pub struct NoiseTable {
     qubits: u32,
-    pauli_noise: FxHashMap<u64, Probability>,
-    #[pyo3(get, set)]
-    pub loss: Probability,
+    #[pyo3(get)]
+    on_loss: LossPolicy,
+    pauli_noise: FxHashMap<PauliAndLossString, Probability>,
+    allowed_loss_policies: Vec<LossPolicy>,
 }
 
 impl NoiseTable {
+    /// Loss policies doesn't make sense for single-qubit gates.
+    const DEFAULT_SINGLE_QUBIT_LOSS_POLICIES: [LossPolicy; 0] = [];
+
+    /// All multi-qubit gates support these loss policies.
+    const DEFAULT_MULTI_QUBIT_LOSS_POLICIES: [LossPolicy; 3] = [
+        LossPolicy::Skip,
+        LossPolicy::Propagate,
+        LossPolicy::ResidualSDagger,
+    ];
+
     fn validate_probability(p: Probability) -> PyResult<()> {
         // If the user enters an entry with a probability of zero, we delete this
         // entry from the noise table if it was previously set, or ignore it if
@@ -379,10 +486,10 @@ impl NoiseTable {
         // Validate pauli string chars.
         if !pauli_string
             .chars()
-            .all(|c| matches!(c, 'I' | 'X' | 'Y' | 'Z'))
+            .all(|c| matches!(c, 'I' | 'X' | 'Y' | 'Z' | 'L'))
         {
             return Err(PyAttributeError::new_err(format!(
-                "Pauli string can only contain 'I', 'X', 'Y', 'Z' characters, found {pauli_string}"
+                "Pauli string can only contain 'I', 'X', 'Y', 'Z', 'L' characters, found {pauli_string}"
             )));
         }
         // Validate number of qubits.
@@ -489,6 +596,69 @@ impl NoiseTable {
         }
         Ok(())
     }
+
+    /// Distributes a per-qubit loss probability across the correlated loss
+    /// fault strings so that it is equivalent to applying loss independently
+    /// to each qubit targeted by the operation: a single-qubit operation sets
+    /// the `L` entry, and a two-qubit operation sets `IL`, `LI`, and `LL`.
+    fn set_loss(&mut self, value: Probability) -> PyResult<()> {
+        Self::validate_probability(value)?;
+        match self.qubits {
+            1 => self.set_pauli_noise_elt("L", value),
+            2 => {
+                let single = value * (1.0 - value);
+                let both = value * value;
+                for fault in ["XL", "YL", "ZL", "LX", "LY", "LZ"] {
+                    self.set_pauli_noise_elt(fault, 0.0)?;
+                }
+                self.set_pauli_noise_elt("IL", single)?;
+                self.set_pauli_noise_elt("LI", single)?;
+                self.set_pauli_noise_elt("LL", both)
+            }
+            n => Err(PyAttributeError::new_err(format!(
+                "The `loss` attribute is only supported for one- and two-qubit operations, but this operation targets {n} qubits."
+            ))),
+        }
+    }
+
+    fn set_loss_policy(&mut self, value: LossPolicy) -> PyResult<()> {
+        if self.allowed_loss_policies.contains(&value) {
+            self.on_loss = value;
+            Ok(())
+        } else {
+            let mut buffer = String::from(
+                "The `on_loss` attribute for the {} gate only supports the following policies:",
+            );
+            for policy in &self.allowed_loss_policies {
+                write!(buffer, "\n  {policy}").expect("writing to a String should succeed");
+            }
+
+            Err(PyAttributeError::new_err(buffer))
+        }
+    }
+
+    fn get_loss(&self) -> PyResult<Probability> {
+        match self.qubits {
+            1 => self.get_pauli_noise_elt("L"),
+            2 => {
+                for fault in ["XL", "YL", "ZL", "LX", "LY", "LZ"] {
+                    if self.get_pauli_noise_elt(fault)? > 0.0 {
+                        return Err(PyAttributeError::new_err(
+                            "`.loss` convenience mechanism should not be used with setting correlated faults individually.
+To get the loss probabilities, access the correlated strings individually.
+E.g.: `noise_config.cz.IL`"
+                                .to_string(),
+                        ));
+                    }
+                }
+                let both = self.get_pauli_noise_elt("LL")?;
+                Ok(both.sqrt())
+            }
+            n => Err(PyAttributeError::new_err(format!(
+                "The `loss` attribute is only supported for one- and two-qubit operations, but this operation targets {n} qubits."
+            ))),
+        }
+    }
 }
 
 #[allow(
@@ -503,7 +673,12 @@ impl NoiseTable {
         NoiseTable {
             qubits: num_qubits,
             pauli_noise: FxHashMap::default(),
-            loss: 0.0,
+            on_loss: LossPolicy::Skip,
+            allowed_loss_policies: if num_qubits == 1 {
+                NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec()
+            } else {
+                NoiseTable::DEFAULT_MULTI_QUBIT_LOSS_POLICIES.to_vec()
+            },
         }
     }
 
@@ -514,10 +689,9 @@ impl NoiseTable {
     /// for arbitrary pauli fields.
     fn __getattr__(&mut self, name: &str) -> PyResult<Probability> {
         if name == "loss" {
-            Ok(self.loss)
-        } else {
-            self.get_pauli_noise_elt(&name.to_uppercase())
+            return self.get_loss();
         }
+        self.get_pauli_noise_elt(&name.to_uppercase())
     }
 
     #[allow(
@@ -531,12 +705,21 @@ impl NoiseTable {
     ///
     /// for arbitrary pauli fields. Setting an element that was
     /// previously set overrides that entry with the new value.
-    fn __setattr__(&mut self, name: &str, value: Probability) -> PyResult<()> {
-        if name == "loss" {
-            self.loss = value;
-            Ok(())
-        } else {
-            self.set_pauli_noise_elt(&name.to_uppercase(), value)
+    ///
+    /// The `on_loss` attribute is special-cased to accept a `LossPolicy`.
+    fn __setattr__(&mut self, name: &str, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        match name {
+            "on_loss" => {
+                if self.qubits < 2 {
+                    Err(PyAttributeError::new_err(
+                        "Loss policies only apply to multi-qubit gates.".to_string(),
+                    ))
+                } else {
+                    self.set_loss_policy(value.extract::<LossPolicy>()?)
+                }
+            }
+            "loss" => self.set_loss(value.extract::<Probability>()?),
+            _ => self.set_pauli_noise_elt(&name.to_uppercase(), value.extract::<Probability>()?),
         }
     }
 
@@ -612,7 +795,7 @@ or one argument of type 'list[tuple[str, float]]', but found {py_args:?}"
     }
 
     pub fn is_noiseless(&self) -> PyResult<bool> {
-        Ok(self.pauli_noise.is_empty() && self.loss == 0.0)
+        Ok(self.pauli_noise.is_empty())
     }
 }
 
@@ -628,7 +811,7 @@ impl<T: Float> From<NoiseTable> for qdk_simulators::noise_config::NoiseTable<T> 
             qubits: value.qubits,
             pauli_strings,
             probabilities,
-            loss: generic_float_cast(value.loss),
+            on_loss: value.on_loss.into(),
         }
     }
 }
@@ -647,29 +830,49 @@ fn from_noise_table_ref<T: Float>(
         qubits: value.qubits,
         pauli_strings,
         probabilities,
-        loss: generic_float_cast(value.loss),
+        on_loss: value.on_loss.into(),
     }
 }
 
-impl<T: Float> From<qdk_simulators::noise_config::NoiseTable<T>> for NoiseTable {
-    fn from(value: qdk_simulators::noise_config::NoiseTable<T>) -> Self {
-        let pauli_noise = value
-            .pauli_strings
-            .iter()
-            .copied()
-            .zip(
-                value
-                    .probabilities
-                    .into_iter()
-                    .map(|p| generic_float_cast(p)),
-            )
-            .collect::<FxHashMap<_, _>>();
-        NoiseTable {
-            qubits: value.qubits,
-            pauli_noise,
-            loss: generic_float_cast(value.loss),
-        }
+fn from_qdk_simulators_noise_table<T: Float>(
+    value: &qdk_simulators::noise_config::NoiseTable<T>,
+    gate_name: &str,
+) -> NoiseTable {
+    let pauli_noise = value
+        .pauli_strings
+        .iter()
+        .copied()
+        .zip(value.probabilities.iter().map(|p| generic_float_cast(*p)))
+        .collect::<FxHashMap<_, _>>();
+    NoiseTable {
+        qubits: value.qubits,
+        pauli_noise,
+        on_loss: value.on_loss.into(),
+        allowed_loss_policies: allowed_noise_policies_from_gate_name(gate_name),
     }
+}
+
+fn allowed_noise_policies_from_gate_name(gate_name: &str) -> Vec<LossPolicy> {
+    match gate_name {
+        "i" | "x" | "y" | "z" | "h" | "s" | "s_adj" | "t" | "t_adj" | "sx" | "sx_adj" | "rx"
+        | "ry" | "rz" | "mz" | "mresetz" | "mov" => {
+            return NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec();
+        }
+        _ => (),
+    }
+
+    let additional_policies: &[LossPolicy] = match gate_name {
+        "rxx" | "ryy" | "rzz" => &[LossPolicy::Degrade],
+        "swap" => &[LossPolicy::ApplyAnyway],
+        _ => &[],
+    };
+
+    [
+        &NoiseTable::DEFAULT_MULTI_QUBIT_LOSS_POLICIES,
+        additional_policies,
+    ]
+    .concat()
+    .clone()
 }
 
 #[derive(Debug, Default)]

@@ -33,7 +33,9 @@ struct ShotData {
     rand_damping: f32,
     rand_dephase: f32,
     rand_measure: f32,
-    rand_loss: f32,
+    // Bitmask of qubits the most recent noise sampler chose to lose. A following
+    // loss-commit op consumes (and clears) its qubit's bit.
+    pending_loss_mask: u32,
 
     // The type of the next operation to execute. This will be OPID_SHOT_BUFF_* if it should use the unitary from the op buffer
     op_type: u32,
@@ -70,10 +72,14 @@ struct Op {
     q1: u32,
     q2: u32,
     q3: u32,
+    policy: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
     // Entries in the unitary are: 00, 01, 02, 03, 10, 11, 12, 13, 20, ..., 32, 33
     // 1q matrix elements are stored in: 00, 01, 10, 11 (i.e., indices 0, 1, 4, and 5)
     unitary: array<vec2f, 16>,
-} // Struct size: 4 * 4 + 16 * 8 = 144 bytes (which is aligned to 16 bytes)
+} // Struct size: 4 * 4 + 16 * 8 = 160 bytes (which is aligned to 16 bytes)
 
 @group(0) @binding(2)
 var<storage, read> ops: array<Op>;
@@ -193,17 +199,23 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32) {
     let sample = sample_correlated_noise(shot_idx, op_idx, noise_table_idx);
     if (sample.should_apply == 0u) { return; }
 
-    // Build bit-flip and phase-flip masks using qubit IDs from the op's unitary matrix
+    // Build bit-flip, phase-flip, and loss masks using qubit IDs from the op's unitary matrix
     var bit_flip_mask: u32 = 0u;
     var phase_flip_mask: u32 = 0u;
+    var loss_mask: u32 = 0u;
     for (var i: u32 = 0u; i < qubit_count; i++) {
         let pauli_bits = get_pauli_bits(sample.paulis_lo, sample.paulis_hi, qubit_count, i);
         let qubit_mask = 1u << get_correlated_noise_qubit(op_idx, i);
-        if ((pauli_bits & 0x1u) != 0u) { bit_flip_mask |= qubit_mask; }
-        if ((pauli_bits & 0x2u) != 0u) { phase_flip_mask |= qubit_mask; }
+        if ((pauli_bits & 0x4u) != 0u) {
+            // Loss term (L = 4): the qubit is lost, no Pauli is applied to it.
+            loss_mask |= qubit_mask;
+        } else {
+            if ((pauli_bits & 0x1u) != 0u) { bit_flip_mask |= qubit_mask; }
+            if ((pauli_bits & 0x2u) != 0u) { phase_flip_mask |= qubit_mask; }
+        }
     }
 
-    commit_correlated_noise(shot_idx, op_idx, bit_flip_mask, phase_flip_mask);
+    commit_correlated_noise(shot_idx, op_idx, bit_flip_mask, phase_flip_mask, loss_mask);
 }
 
 
@@ -268,6 +280,22 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         return;
     }
 
+    // Loss-commit op: lose this qubit if and only if the preceding noise sampler
+    // set its bit in pending_loss_mask; otherwise act as identity.
+    if (op.id == OPID_LOSS_NOISE) {
+        shot.next_op_idx = op_idx + 1u;
+        let loss_bit = 1u << op.q1;
+        if ((shot.pending_loss_mask & loss_bit) != 0u) {
+            shot.pending_loss_mask &= ~loss_bit;
+            prep_measure_reset(shot_idx, op_idx, true /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
+        } else {
+            shot.op_type = OPID_ID;
+            shot.op_idx = op_idx;
+            shot.qubits_updated_last_op_mask = 0u;
+        }
+        return;
+    }
+
     /* Handle noise:
        - For the 1-qubit op case, there could be pauli and loss noise after the op itself. We want to check for loss first and
          only apply pauli noise if the qubit wasn't lost. (If lost, the pauli noise and even the gate itself don't matter).
@@ -276,8 +304,9 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     */
 
     let pauli_op_idx = get_pauli_noise_idx(op_idx);
-    let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));
-    shot.next_op_idx = max(op_idx, max(pauli_op_idx, loss_op_idx)) + 1u;
+    // Advance past this gate and its (optional) inline Pauli/loss noise op. Any
+    // loss-commit ops that follow are separate ops handled on later iterations.
+    shot.next_op_idx = max(op_idx, pauli_op_idx) + 1u;
 
     // Handle correlated noise operations
     if (op.id == OPID_CORRELATED_NOISE) {
@@ -285,37 +314,37 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         return;
     }
 
-    // Before doing further work, if any qubit for the gate is lost, just skip by marking the op as ID
-     if (shot.qubit_state[op.q1].heat == -1.0) ||
-         (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ || op.id == OPID_SWAP || op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ || op.id == OPID_MAT2Q) &&
-       (shot.qubit_state[op.q2].heat == -1.0) {
-        shot.op_type = OPID_ID;
-        shot.op_idx = op_idx;
-        return;
-    }
-
-    // If there is loss noise to apply, do that now
-    if (loss_op_idx != 0u) {
-        let loss_op = &ops[loss_op_idx];
-        let p_loss = loss_op.unitary[0].x; // Loss probability is stored in the x part of first vec2
-        if (shot.rand_loss < p_loss) {
-            // Qubit is lost - perform MResetZ with is_loss = true
-            // (stores_result is irrelevant here since the is_loss path never stores a result)
-            prep_measure_reset(shot_idx, op_idx, true /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
-            // There is no further noise of gate to apply, just the loss execution.
-            return;
-        }
+    // Before doing further work, if any qubit for the gate is lost, dispatch
+    // the gate's configured loss policy (stamped on op.policy).
+    let has_lost_operand = gate_has_lost_operand(shot_idx, op_idx, op.q1, op.q2);
+    if (has_lost_operand) {
+        handle_lost_operand_policy(shot_idx, op_idx, op.q1, op.q2);
     }
 
     if pauli_op_idx != 0 {
         if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-            apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
-            // This will have set up all the state we need.
+            // A 1-qubit gate has a single operand; if it is lost there is no
+            // surviving qubit to receive Pauli noise, so skip the noise.
+            if (!has_lost_operand) {
+                apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, op.q1);
+            }
             return;
         } else {
-            apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            if (has_lost_operand) {
+                // The gate body was handled by the loss policy above. Still apply
+                // the attached Pauli noise to the surviving operand (if any).
+                apply_2q_pauli_noise_on_survivor(shot_idx, op_idx, pauli_op_idx, op.q1, op.q2);
+            } else {
+                apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, op.q1, op.q2);
+            }
             return;
         }
+    }
+
+    // If the gate has any lost operands (and no attached noise), the gate logic
+    // was completely handled inside `handle_lost_operand_policy`.
+    if (has_lost_operand) {
+        return;
     }
 
     // No noise to apply, just set up the shot to execute the op as-is

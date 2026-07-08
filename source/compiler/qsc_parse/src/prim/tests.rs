@@ -408,19 +408,25 @@ fn seq_fail_consume() {
     check_seq(
         |s| seq(s, expr),
         "foo, bar(",
-        &expect![[r"
-            Error(
-                Token(
-                    Close(
-                        Paren,
+        &expect![[r#"
+            (Expr _id_ [0-3]: Path: Path _id_ [0-3] (Ident _id_ [0-3] "foo"),
+            Expr _id_ [5-9]: Call:
+                Expr _id_ [5-8]: Path: Path _id_ [5-8] (Ident _id_ [5-8] "bar")
+                Expr _id_ [8-9]: Unit, Missing)
+
+            [
+                Error(
+                    Token(
+                        Close(
+                            Paren,
+                        ),
+                        Eof,
+                        Span {
+                            lo: 9,
+                            hi: 9,
+                        },
                     ),
-                    Eof,
-                    Span {
-                        lo: 9,
-                        hi: 9,
-                    },
                 ),
-            )
-        "]],
+            ]"#]],
     );
 }

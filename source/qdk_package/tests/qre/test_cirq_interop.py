@@ -1,13 +1,15 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# flake8: noqa E402
+
+
 import pytest
 
 cirq = pytest.importorskip("cirq")
 
 from qdk.qre import PSSPC
-from qdk.qre.application import CirqApplication
-from qdk.qre.interop import trace_from_cirq
+from qdk.qre.application import CirqApplication, CirqApplicationParams
 from qdk.qre.interop._cirq import (
     TypedQubit,
     QubitType,
@@ -18,7 +20,7 @@ from qdk.qre.interop._cirq import (
 
 def test_with_qft():
     """Test trace generation from a 1025-qubit QFT circuit."""
-    _test_one_circuit(cirq.qft(*cirq.LineQubit.range(1025)), 1025, 74142, 92932)
+    _test_one_circuit(cirq.qft(*cirq.LineQubit.range(1025)), 1025, 78166, 97962)
 
 
 def test_h():
@@ -124,7 +126,8 @@ def _make_memory_circuit(*ops):
 def test_write_to_memory_memory_compute_true():
     """Test WriteToMemoryGate produces WRITE_TO_MEMORY instructions when memory_compute is True."""
     circuit = _make_memory_circuit(write_to_memory)
-    trace = trace_from_cirq(circuit, track_memory_qubits=True)
+    app = CirqApplication(circuit)
+    trace = app.get_trace(CirqApplicationParams(track_memory_qubits=True))
 
     assert trace.compute_qubits == 2
     assert trace.memory_qubits == 2
@@ -141,7 +144,8 @@ def test_write_to_memory_memory_compute_true():
 def test_write_to_memory_memory_compute_false():
     """Test WriteToMemoryGate decomposes into SWAPs when memory_compute is False."""
     circuit = _make_memory_circuit(write_to_memory)
-    trace = trace_from_cirq(circuit, track_memory_qubits=False)
+    app = CirqApplication(circuit)
+    trace = app.get_trace(CirqApplicationParams(track_memory_qubits=False))
 
     assert trace.compute_qubits == 4
     assert trace.memory_qubits is None
@@ -158,7 +162,8 @@ def test_write_to_memory_memory_compute_false():
 def test_read_from_memory_memory_compute_true():
     """Test ReadFromMemoryGate produces READ_FROM_MEMORY instructions when memory_compute is True."""
     circuit = _make_memory_circuit(read_from_memory)
-    trace = trace_from_cirq(circuit, track_memory_qubits=True)
+    app = CirqApplication(circuit)
+    trace = app.get_trace(CirqApplicationParams(track_memory_qubits=True))
 
     assert trace.compute_qubits == 2
     assert trace.memory_qubits == 2
@@ -175,7 +180,8 @@ def test_read_from_memory_memory_compute_true():
 def test_read_from_memory_memory_compute_false():
     """Test ReadFromMemoryGate decomposes into SWAPs when memory_compute is False."""
     circuit = _make_memory_circuit(read_from_memory)
-    trace = trace_from_cirq(circuit, track_memory_qubits=False)
+    app = CirqApplication(circuit)
+    trace = app.get_trace(CirqApplicationParams(track_memory_qubits=False))
 
     assert trace.compute_qubits == 4
     assert trace.memory_qubits is None
@@ -192,7 +198,8 @@ def test_read_from_memory_memory_compute_false():
 def test_read_write_memory_round_trip_memory_compute_true():
     """Test a write followed by a read produces both instruction types with memory_compute True."""
     circuit = _make_memory_circuit(write_to_memory, read_from_memory)
-    trace = trace_from_cirq(circuit, track_memory_qubits=True)
+    app = CirqApplication(circuit)
+    trace = app.get_trace(CirqApplicationParams(track_memory_qubits=True))
 
     assert trace.compute_qubits == 2
     assert trace.memory_qubits == 2
@@ -209,7 +216,8 @@ def test_read_write_memory_round_trip_memory_compute_true():
 def test_read_write_memory_round_trip_memory_compute_false():
     """Test a write followed by a read decomposes fully with memory_compute False."""
     circuit = _make_memory_circuit(write_to_memory, read_from_memory)
-    trace = trace_from_cirq(circuit, track_memory_qubits=False)
+    app = CirqApplication(circuit)
+    trace = app.get_trace(CirqApplicationParams(track_memory_qubits=False))
 
     assert trace.compute_qubits == 4
     assert trace.memory_qubits is None
@@ -227,8 +235,9 @@ def test_plain_circuit_unaffected_by_memory_compute():
     """Test that memory_compute has no effect on circuits without memory qubits."""
     circuit = cirq.H.on_each(*cirq.LineQubit.range(3))
 
-    trace_true = trace_from_cirq(circuit, track_memory_qubits=True)
-    trace_false = trace_from_cirq(circuit, track_memory_qubits=False)
+    app = CirqApplication(circuit)
+    trace_true = app.get_trace(CirqApplicationParams(track_memory_qubits=True))
+    trace_false = app.get_trace(CirqApplicationParams(track_memory_qubits=False))
 
     assert trace_true.compute_qubits == trace_false.compute_qubits == 3
     assert trace_true.memory_qubits is None

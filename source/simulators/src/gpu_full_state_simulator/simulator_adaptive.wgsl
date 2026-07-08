@@ -39,7 +39,8 @@ struct ShotData {
     rand_damping: f32,
     rand_dephase: f32,
     rand_measure: f32,
-    rand_loss: f32,
+    // Bitmask of qubits the most recent noise sampler chose to lose.
+    pending_loss_mask: u32,
 
     // The type of the next operation to execute. This will be OPID_SHOT_BUFF_* if it should use the unitary from the op buffer
     op_type: u32,
@@ -79,10 +80,14 @@ struct Op {
     q1: u32,
     q2: u32,
     q3: u32,
+    policy: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
     // Entries in the unitary are: 00, 01, 02, 03, 10, 11, 12, 13, 20, ..., 32, 33
     // 1q matrix elements are stored in: 00, 01, 10, 11 (i.e., indices 0, 1, 4, and 5)
     unitary: array<vec2f, 16>,
-} // Struct size: 4 * 4 + 16 * 8 = 144 bytes (which is aligned to 16 bytes)
+} // Struct size: 4 * 8 + 16 * 8 = 160 bytes (which is aligned to 16 bytes)
 
 @group(0) @binding(2)
 var<storage, read> ops: array<Op>;
@@ -288,6 +293,12 @@ const STATUS_TERMINATED:       u32 = 2u;
 const STATUS_ERROR:            u32 = 3u;
 const STATUS_YIELD:            u32 = 4u;
 
+// pending_op_type values: 0 = gate, 1 = measure, 2 = reset, 3 = loss commit.
+// A loss-commit pending op carries the lost qubit in pending_op_idx (not an
+// ops-pool index) and is produced while draining pending_loss_mask. Its value
+// must not collide with the gate/measure/reset types resolved in prepare_op.
+const PENDING_OP_LOSS_COMMIT:  u32 = 3u;
+
 // -----------------------------------------------------------------------------
 // Adaptive interpreter — opcodes
 // -----------------------------------------------------------------------------
@@ -358,6 +369,7 @@ const OP_FADD:          u32 = 0x38;
 const OP_FSUB:          u32 = 0x39;
 const OP_FMUL:          u32 = 0x3A;
 const OP_FDIV:          u32 = 0x3B;
+const OP_FREM:          u32 = 0x3C;
 
 // -- Type Conversion ----------------------------------------------------------
 const OP_ZEXT:          u32 = 0x40;
@@ -368,6 +380,8 @@ const OP_FPTRUNC:       u32 = 0x44;
 const OP_INTTOPTR:      u32 = 0x45;
 const OP_FPTOSI:        u32 = 0x46;
 const OP_SITOFP:        u32 = 0x47;
+const OP_FPTOUI:        u32 = 0x48;
+const OP_UITOFP:        u32 = 0x49;
 
 // -- SSA / Data Movement -----------------------------------------------------
 const OP_PHI:           u32 = 0x50;
@@ -544,6 +558,19 @@ struct QubitProbabilityPerThread {
 var<workgroup> qubitProbabilities: array<QubitProbabilityPerThread, THREADS_PER_WORKGROUP>;
 // Workgroup memory size: THREADS_PER_WORKGROUP (32) * 216 = 6,912 bytes.
 
+// Commit a sampled qubit loss on an explicitly given qubit (measure + reset to
+// |0> and mark the qubit lost). The lost qubit is carried to the execute stage
+// in `op_idx`, and `op_type` is set to OPID_LOSS_NOISE so execute applies the
+// reset matrix to that explicit qubit.
+fn prep_loss_commit(shot_idx: u32, qubit: u32) {
+    let shot = &shots[shot_idx];
+    let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
+    shot.qubit_state[qubit].heat = -1.0;
+    prep_measure_reset_instrument(shot_idx, qubit, result, true /* resets_to_zero */);
+    shot.op_idx = qubit; // execute reads the lost qubit from op_idx
+    shot.op_type = OPID_LOSS_NOISE;
+}
+
 // Prepare correlated noise for the adaptive path.
 // Qubit IDs are read from call_arg_table (register indices), following the same
 // pattern as OP_CALL argument passing.
@@ -553,18 +580,24 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32, qubit_count: u32, arg_offse
     let sample = sample_correlated_noise(shot_idx, op_idx, noise_table_idx);
     if (sample.should_apply == 0u) { return; }
 
-    // Build bit-flip and phase-flip masks using qubit IDs from registers via call_arg_table
+    // Build bit-flip, phase-flip, and loss masks using qubit IDs from registers via call_arg_table
     var bit_flip_mask: u32 = 0u;
     var phase_flip_mask: u32 = 0u;
+    var loss_mask: u32 = 0u;
     for (var i: u32 = 0u; i < qubit_count; i++) {
         let pauli_bits = get_pauli_bits(sample.paulis_lo, sample.paulis_hi, qubit_count, i);
         let arg_reg = batch_data.program.call_arg_table[arg_offset + i];
         let qubit_mask = 1u << read_reg(shot_idx, arg_reg);
-        if ((pauli_bits & 0x1u) != 0u) { bit_flip_mask |= qubit_mask; }
-        if ((pauli_bits & 0x2u) != 0u) { phase_flip_mask |= qubit_mask; }
+        if ((pauli_bits & 0x4u) != 0u) {
+            // Loss term (L = 4): the qubit is lost, no Pauli is applied to it.
+            loss_mask |= qubit_mask;
+        } else {
+            if ((pauli_bits & 0x1u) != 0u) { bit_flip_mask |= qubit_mask; }
+            if ((pauli_bits & 0x2u) != 0u) { phase_flip_mask |= qubit_mask; }
+        }
     }
 
-    commit_correlated_noise(shot_idx, op_idx, bit_flip_mask, phase_flip_mask);
+    commit_correlated_noise(shot_idx, op_idx, bit_flip_mask, phase_flip_mask, loss_mask);
 }
 
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
@@ -661,6 +694,20 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
     // -- Early-exit for shots that already finished or errored --
     let status = state.status;
     if status == STATUS_TERMINATED || status == STATUS_ERROR {
+        return;
+    }
+
+    // -- Drain pending qubit losses before resuming classical execution --
+    // The most recent noise op (per-gate Pauli/loss or correlated) may have
+    // sampled one or more qubits as lost, recorded in pending_loss_mask. Commit
+    // each as its own measure+reset quantum op (one per round) before running
+    // any more bytecode, so loss is applied with the correct correlation.
+    if shots[shot_idx].pending_loss_mask != 0u {
+        let q = firstTrailingBit(shots[shot_idx].pending_loss_mask);
+        shots[shot_idx].pending_loss_mask &= ~(1u << q);
+        shots[shot_idx].interp.pending_op_idx = q;
+        shots[shot_idx].interp.pending_op_type = PENDING_OP_LOSS_COMMIT;
+        shots[shot_idx].interp.status = STATUS_QUANTUM_PENDING;
         return;
     }
 
@@ -1210,6 +1257,16 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc++;
             }
 
+            // FREM: Float remainder. LLVM docs say this instruction has
+            // the same semantics as C's fmod, which is implemented as:
+            // dst = src0 - trunc(src0/src1) * src1
+            case OP_FREM {
+                let a = resolve_f32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_f32(shot_idx, instr.src1, flags, 1u);
+                write_reg_f32(shot_idx, instr.dst, a - trunc(a / b) * b);
+                pc++;
+            }
+
             // -------------------------------------------------------------
             // TYPE CONVERSIONS
             // -------------------------------------------------------------
@@ -1273,6 +1330,18 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // SITOFP: Signed integer to float conversion. dst = f32(src0).
             case OP_SITOFP {
                 write_reg_f32(shot_idx, instr.dst, f32(resolve_i32(shot_idx, instr.src0, flags, 0u)));
+                pc++;
+            }
+
+            // FPTOUI: Float to unsigned integer conversion. dst = u32(src0).
+            case OP_FPTOUI {
+                write_reg(shot_idx, instr.dst, u32(resolve_f32(shot_idx, instr.src0, flags, 0u)));
+                pc++;
+            }
+
+            // UITOFP: Unsigned integer to float conversion. dst = f32(src0).
+            case OP_UITOFP {
+                write_reg_f32(shot_idx, instr.dst, f32(resolve_u32(shot_idx, instr.src0, flags, 0u)));
                 pc++;
             }
 
@@ -1454,6 +1523,14 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     let op_idx = state.pending_op_idx;
     let op_type = state.pending_op_type;
+
+    // Loss commit: pending_op_idx holds the lost qubit (not an ops-pool index).
+    // Measure + reset that qubit; the execute stage applies it via op_idx.
+    if op_type == PENDING_OP_LOSS_COMMIT {
+        prep_loss_commit(shot_idx, op_idx);
+        return;
+    }
+
     let op = &ops[op_idx];
 
     // Correlated noise: qubit IDs are stored as register indices in
@@ -1544,28 +1621,40 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             shot.op_idx = op_idx;
             shot.op_type = op.id;
 
-            // Check for noise ops after this gate in the ops pool
-            let pauli_op_idx = get_pauli_noise_idx(op_idx);
-            let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));
-
-            // Handle loss noise first (if qubit is lost, gate doesn't matter)
-            if loss_op_idx != 0u {
-                let loss_op = &ops[loss_op_idx];
-                let p_loss = loss_op.unitary[0].x;
-                if shot.rand_loss < p_loss {
-                    prep_measure_reset(shot_idx, op_idx, true, false, true);
-                    shots[shot_idx].interp.status = STATUS_RUNNING;
-                    return;
-                }
+            // If any operand is lost, dispatch the gate's configured loss
+            // policy (stamped on op.policy).
+            let has_lost_operand = gate_has_lost_operand(shot_idx, op_idx, q1, q2);
+            if (has_lost_operand) {
+                handle_lost_operand_policy(shot_idx, op_idx, q1, q2);
             }
 
-            // Handle Pauli noise
+            // Check for noise ops after this gate in the ops pool
+            let pauli_op_idx = get_pauli_noise_idx(op_idx);
+
+            // Handle Pauli noise (loss, if sampled, is recorded in pending_loss_mask)
             if pauli_op_idx != 0u {
                 if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    // A 1-qubit gate has a single operand; if it is lost there
+                    // is no surviving qubit to receive Pauli noise.
+                    if (!has_lost_operand) {
+                        apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1);
+                    }
                 } else {
-                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    if (has_lost_operand) {
+                        // The gate body was handled by the loss policy above;
+                        // apply the noise to the surviving operand (if any).
+                        apply_2q_pauli_noise_on_survivor(shot_idx, op_idx, pauli_op_idx, q1, q2);
+                    } else {
+                        apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1, q2);
+                    }
                 }
+                shots[shot_idx].interp.status = STATUS_RUNNING;
+                return;
+            }
+
+            // If the gate has any lost operands (and no attached noise), the gate
+            // logic was completely handled inside `handle_lost_operand_policy`.
+            if (has_lost_operand) {
                 shots[shot_idx].interp.status = STATUS_RUNNING;
                 return;
             }
@@ -1605,26 +1694,15 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             // Check for noise ops before the measure op
             // (noise is applied as Id+noise, then original measure, matching non-adaptive pattern)
             let pauli_op_idx = get_pauli_noise_idx(op_idx);
-            let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));
-
-            if loss_op_idx != 0u {
-                let loss_op = &ops[loss_op_idx];
-                let p_loss = loss_op.unitary[0].x;
-                if shot.rand_loss < p_loss {
-                    prep_measure_reset(shot_idx, op_idx, true, false, true);
-                    shots[shot_idx].interp.status = STATUS_RUNNING;
-                    return;
-                }
-            }
 
             if pauli_op_idx != 0u {
                 // Apply noise to the Id gate before measure, then the measure itself
                 // The non-adaptive path inserts Id+noise before measure; here the Id
                 // is at op_idx and the original measure op follows after noise ops
                 if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1);
                 } else {
-                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1, q2);
                 }
                 shots[shot_idx].interp.status = STATUS_RUNNING;
                 return;
@@ -1663,6 +1741,9 @@ fn execute(
         // IGNORE
     } else if (shot.op_type == OPID_CORRELATED_NOISE) {
         apply_correlated_noise(workgroupId.x, tid);
+    } else if (shot.op_type == OPID_LOSS_NOISE) {
+        // Loss commit: the lost qubit is carried in op_idx (set by prep_loss_commit).
+        apply_1q_op(workgroupId.x, tid, shot.op_idx);
     } else if (is_1q_op(shot.op_type)) {
         let q1: u32 = resolve_q1(shot_idx_u32);
         apply_1q_op(workgroupId.x, tid, q1);

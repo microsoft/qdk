@@ -12,7 +12,7 @@ use qsc::{
 
 /// Provides information about where auto-imports should be inserted
 /// in the document based on the cursor offset.
-pub(super) struct TextEditRange {
+pub(crate) struct TextEditRange {
     /// Location to insert any auto-import text edits at.
     pub insert_import_at: Option<Range>,
     /// The indentation level for the auto-import text edits.

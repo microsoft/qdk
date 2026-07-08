@@ -18,8 +18,8 @@ fn check_rca_for_static_single_qubit_measurement() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -42,7 +42,7 @@ fn check_rca_for_dynamic_single_measurement() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(MeasurementWithinDynamicScope | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(MeasurementWithinDynamicScope | UseOfDynamicResult | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -63,8 +63,8 @@ fn check_rca_for_static_single_measurement_and_reset() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -88,7 +88,7 @@ fn check_rca_for_dynamic_single_measurement_and_reset() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(MeasurementWithinDynamicScope | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(MeasurementWithinDynamicScope | UseOfDynamicResult | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -109,8 +109,8 @@ fn check_rca_for_static_multi_qubit_measurement() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Variable
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }

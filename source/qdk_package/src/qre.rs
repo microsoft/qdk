@@ -25,10 +25,14 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ConstraintBound>()?;
     m.add_class::<ProvenanceGraph>()?;
     m.add_class::<Trace>()?;
+    m.add_class::<Gate>()?;
     m.add_class::<Block>()?;
     m.add_class::<PSSPC>()?;
     m.add_class::<LatticeSurgery>()?;
+    m.add_class::<DynamicMemoryCompute>()?;
+    m.add_class::<Unmemory>()?;
     m.add_class::<EstimationResult>()?;
+    m.add_class::<ErrorComposition>()?;
     m.add_class::<EstimationCollection>()?;
     m.add_class::<FactoryResult>()?;
     m.add_class::<InstructionFrontier>()?;
@@ -274,34 +278,42 @@ impl Instruction {
         self.0.arity()
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn space(&self, arity: Option<u64>) -> Option<u64> {
-        self.0.space(arity)
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn space(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> Option<u64> {
+        self.0.space(arity, params.as_deref().unwrap_or(&[]))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn time(&self, arity: Option<u64>) -> Option<u64> {
-        self.0.time(arity)
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn time(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> Option<u64> {
+        self.0.time(arity, params.as_deref().unwrap_or(&[]))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn error_rate(&self, arity: Option<u64>) -> Option<f64> {
-        self.0.error_rate(arity)
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn error_rate(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> Option<f64> {
+        self.0.error_rate(arity, params.as_deref().unwrap_or(&[]))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn expect_space(&self, arity: Option<u64>) -> PyResult<u64> {
-        Ok(self.0.expect_space(arity))
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn expect_space(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> PyResult<u64> {
+        Ok(self.0.expect_space(arity, params.as_deref().unwrap_or(&[])))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn expect_time(&self, arity: Option<u64>) -> PyResult<u64> {
-        Ok(self.0.expect_time(arity))
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn expect_time(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> PyResult<u64> {
+        Ok(self.0.expect_time(arity, params.as_deref().unwrap_or(&[])))
     }
 
-    #[pyo3(signature = (arity=None))]
-    pub fn expect_error_rate(&self, arity: Option<u64>) -> PyResult<f64> {
-        Ok(self.0.expect_error_rate(arity))
+    #[allow(clippy::needless_pass_by_value)]
+    #[pyo3(signature = (arity=None, params=None))]
+    pub fn expect_error_rate(&self, arity: Option<u64>, params: Option<Vec<f64>>) -> PyResult<f64> {
+        Ok(self
+            .0
+            .expect_error_rate(arity, params.as_deref().unwrap_or(&[])))
     }
 
     pub fn set_source(&mut self, index: usize) {
@@ -350,14 +362,14 @@ impl qre::ParetoItem2D for Instruction {
 
     fn objective1(&self) -> Self::Objective1 {
         self.0
-            .space(None)
-            .unwrap_or_else(|| self.0.expect_space(Some(1)))
+            .space(None, &[])
+            .unwrap_or_else(|| self.0.expect_space(Some(1), &[]))
     }
 
     fn objective2(&self) -> Self::Objective2 {
         self.0
-            .time(None)
-            .unwrap_or_else(|| self.0.expect_time(Some(1)))
+            .time(None, &[])
+            .unwrap_or_else(|| self.0.expect_time(Some(1), &[]))
     }
 }
 
@@ -368,20 +380,20 @@ impl qre::ParetoItem3D for Instruction {
 
     fn objective1(&self) -> Self::Objective1 {
         self.0
-            .space(None)
-            .unwrap_or_else(|| self.0.expect_space(Some(1)))
+            .space(None, &[])
+            .unwrap_or_else(|| self.0.expect_space(Some(1), &[]))
     }
 
     fn objective2(&self) -> Self::Objective2 {
         self.0
-            .time(None)
-            .unwrap_or_else(|| self.0.expect_time(Some(1)))
+            .time(None, &[])
+            .unwrap_or_else(|| self.0.expect_time(Some(1), &[]))
     }
 
     fn objective3(&self) -> Self::Objective3 {
         self.0
-            .error_rate(None)
-            .unwrap_or_else(|| self.0.expect_error_rate(Some(1)))
+            .error_rate(None, &[])
+            .unwrap_or_else(|| self.0.expect_error_rate(Some(1), &[]))
     }
 }
 
@@ -445,6 +457,15 @@ fn convert_encoding(encoding: u64) -> PyResult<qre::Encoding> {
     }
 }
 
+fn convert_eviction_strategy(strategy: u64) -> PyResult<qre::EvictionStrategy> {
+    match strategy {
+        0 => Ok(qre::EvictionStrategy::FirstAvailable),
+        1 => Ok(qre::EvictionStrategy::LeastRecentlyUsed),
+        2 => Ok(qre::EvictionStrategy::LeastFrequentlyUsed),
+        _ => Err(EstimationError::new_err("Invalid eviction strategy value")),
+    }
+}
+
 /// Build a `qre::Instruction` from either an existing `Instruction` Python
 /// object or from keyword arguments (id + encoding + arity + …).
 #[allow(clippy::too_many_arguments)]
@@ -503,6 +524,9 @@ fn build_instruction(
     // Apply additional properties from kwargs
     if let Some(kw) = kwargs {
         for (key, value) in kw {
+            if value.is_none() {
+                continue; // Ignore properties with None value
+            }
             let key_str: String = key.extract()?;
             let prop_key =
                 qre::property_name_to_key(&key_str.to_ascii_uppercase()).ok_or_else(|| {
@@ -693,6 +717,18 @@ impl ProvenanceGraph {
         Ok(self.0.read().map_err(poisoned_lock_err)?.raw_node_count())
     }
 
+    /// Returns the Pareto-optimal node indices for a given instruction ID.
+    ///
+    /// Must be called after `build_pareto_index`.
+    pub fn pareto_nodes(&self, instruction_id: u64) -> PyResult<Option<Vec<usize>>> {
+        Ok(self
+            .0
+            .read()
+            .map_err(poisoned_lock_err)?
+            .pareto_nodes(instruction_id)
+            .map(<[usize]>::to_vec))
+    }
+
     /// Computes an upper bound on the possible ISAs that can be formed from
     /// this graph.
     ///
@@ -737,15 +773,19 @@ pub struct FloatFunction(qre::VariableArityFunction<f64>);
 
 #[pymethods]
 impl IntFunction {
-    fn __call__(&self, arity: u64) -> u64 {
-        self.0.evaluate(arity)
+    #[pyo3(signature = (arity, params = None))]
+    #[allow(clippy::needless_pass_by_value)]
+    fn __call__(&self, arity: u64, params: Option<Vec<f64>>) -> u64 {
+        self.0.evaluate(arity, params.as_deref().unwrap_or(&[]))
     }
 }
 
 #[pymethods]
 impl FloatFunction {
-    fn __call__(&self, arity: u64) -> f64 {
-        self.0.evaluate(arity)
+    #[pyo3(signature = (arity, params = None))]
+    #[allow(clippy::needless_pass_by_value)]
+    fn __call__(&self, arity: u64, params: Option<Vec<f64>>) -> f64 {
+        self.0.evaluate(arity, params.as_deref().unwrap_or(&[]))
     }
 }
 
@@ -802,17 +842,30 @@ pub fn block_linear_function<'py>(
     }
 }
 
+/// Closure type used to wrap a Python callable that maps an arity and its
+/// parameters to an integer value.
+type ParamsIntClosure = Arc<dyn Fn(u64, &[f64]) -> u64 + Send + Sync>;
+
+/// Closure type used to wrap a Python callable that maps an arity and its
+/// parameters to a floating point value.
+type ParamsFloatClosure = Arc<dyn Fn(u64, &[f64]) -> f64 + Send + Sync>;
+
 #[pyfunction]
 pub fn generic_function<'py>(
     py: Python<'py>,
     func: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    // Try to get return type annotation from the function
+    // Determine whether the callable is integer-valued by inspecting its
+    // return type annotation. The annotation may be either the actual `int`
+    // type object or, under `from __future__ import annotations` (PEP 563),
+    // the stringized name `"int"`; both are treated as integer-valued.
     let is_int = if let Ok(annotations) = func.getattr("__annotations__") {
         if let Ok(return_type) = annotations.get_item("return") {
-            // Check if return type is float
-            let float_type = py.get_type::<pyo3::types::PyInt>();
-            return_type.eq(float_type).unwrap_or(false)
+            let int_type = py.get_type::<pyo3::types::PyInt>();
+            return_type.eq(&int_type).unwrap_or(false)
+                || return_type
+                    .extract::<String>()
+                    .is_ok_and(|s| s.trim() == "int")
         } else {
             false
         }
@@ -822,32 +875,77 @@ pub fn generic_function<'py>(
 
     let func: Py<PyAny> = func.unbind();
 
-    if is_int {
-        let closure = move |arity: u64| -> u64 {
-            Python::attach(|py| {
-                let result = func.call1(py, (arity,));
-                match result {
-                    Ok(value) => value.extract::<u64>(py).unwrap_or(0),
-                    Err(_) => 0,
-                }
-            })
-        };
+    // Determine whether the callable accepts a second `params` argument by
+    // inspecting its argument count. Two-argument callables are evaluated with
+    // the instruction parameters.
+    let has_params = Python::attach(|py| {
+        func.getattr(py, "__code__")
+            .and_then(|code| code.getattr(py, "co_argcount"))
+            .and_then(|count| count.extract::<usize>(py))
+            .is_ok_and(|count| count >= 2)
+    });
 
-        let arc: Arc<dyn Fn(u64) -> u64 + Send + Sync> = Arc::new(closure);
-        IntFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
-    } else {
-        let closure = move |arity: u64| -> f64 {
-            Python::attach(|py| {
-                let result = func.call1(py, (arity,));
-                match result {
-                    Ok(value) => value.extract::<f64>(py).unwrap_or(0.0),
-                    Err(_) => 0.0,
-                }
-            })
-        };
-
-        let arc: Arc<dyn Fn(u64) -> f64 + Send + Sync> = Arc::new(closure);
-        FloatFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
+    match (is_int, has_params) {
+        (true, true) => {
+            let closure = move |arity: u64, params: &[f64]| -> u64 {
+                Python::attach(|py| {
+                    let params = params.to_vec();
+                    let result = func.call1(py, (arity, params));
+                    match result {
+                        Ok(value) => value.extract::<u64>(py).unwrap_or(0),
+                        Err(_) => 0,
+                    }
+                })
+            };
+            let arc: ParamsIntClosure = Arc::new(closure);
+            IntFunction(qre::VariableArityFunction::generic_with_params_from_arc(
+                arc,
+            ))
+            .into_bound_py_any(py)
+        }
+        (true, false) => {
+            let closure = move |arity: u64| -> u64 {
+                Python::attach(|py| {
+                    let result = func.call1(py, (arity,));
+                    match result {
+                        Ok(value) => value.extract::<u64>(py).unwrap_or(0),
+                        Err(_) => 0,
+                    }
+                })
+            };
+            let arc: Arc<dyn Fn(u64) -> u64 + Send + Sync> = Arc::new(closure);
+            IntFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
+        }
+        (false, true) => {
+            let closure = move |arity: u64, params: &[f64]| -> f64 {
+                Python::attach(|py| {
+                    let params = params.to_vec();
+                    let result = func.call1(py, (arity, params));
+                    match result {
+                        Ok(value) => value.extract::<f64>(py).unwrap_or(0.0),
+                        Err(_) => 0.0,
+                    }
+                })
+            };
+            let arc: ParamsFloatClosure = Arc::new(closure);
+            FloatFunction(qre::VariableArityFunction::generic_with_params_from_arc(
+                arc,
+            ))
+            .into_bound_py_any(py)
+        }
+        (false, false) => {
+            let closure = move |arity: u64| -> f64 {
+                Python::attach(|py| {
+                    let result = func.call1(py, (arity,));
+                    match result {
+                        Ok(value) => value.extract::<f64>(py).unwrap_or(0.0),
+                        Err(_) => 0.0,
+                    }
+                })
+            };
+            let arc: Arc<dyn Fn(u64) -> f64 + Send + Sync> = Arc::new(closure);
+            FloatFunction(qre::VariableArityFunction::generic_from_arc(arc)).into_bound_py_any(py)
+        }
     }
 }
 
@@ -926,6 +1024,66 @@ impl EstimationCollectionIterator {
 #[pyclass]
 pub struct EstimationResult(qre::EstimationResult);
 
+/// Controls how per-item error contributions are composed into the total error
+/// reported by an estimation.
+///
+/// Both modes estimate the probability that at least one error occurs across
+/// many fault-prone operations, each with failure probability ``p_i``. They
+/// differ in the assumptions they make:
+///
+/// - ``UnionBound`` computes ``sum(p_i)`` (Boole's inequality). It is a strict
+///   upper bound that holds for any events, whether or not they are
+///   independent.
+///
+///   Advantages: always conservative (never underestimates); requires no
+///   independence assumption; cheap; additive, so contributions from
+///   subsystems simply add together.
+///
+///   Disadvantages: can exceed 1.0, which is meaningless as a probability; it
+///   grows increasingly loose as the individual errors grow, because it
+///   overcounts the overlap between simultaneous failures.
+///
+/// - ``Product`` computes ``1 - prod(1 - p_i)``, i.e. one minus the probability
+///   that no operation fails, assuming the failures are independent.
+///
+///   Advantages: always stays in ``[0, 1)``; it is tight (in fact exact) when
+///   the errors are independent.
+///
+///   Disadvantages: it relies on independence, so it can underestimate when
+///   errors are positively correlated; it is slightly more work to compute; for
+///   small ``p_i`` it barely differs from the union-bound sum, so the two only
+///   diverge noticeably in the high-error regime; and it is prone to
+///   finite-precision loss when composing many small probabilities, because
+///   each ``1 - p_i`` factor rounds toward 1 and the final ``1 - prod(...)``
+///   subtraction cancels most significant digits.
+#[pyclass(name = "ErrorComposition", eq, eq_int, from_py_object)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ErrorComposition {
+    /// Union bound: contributions are summed (`sum(p_i)`). This is the default
+    /// and can exceed 1.0.
+    UnionBound,
+    /// Product composition: contributions combine as `1 - prod(1 - p_i)`.
+    Product,
+}
+
+impl From<ErrorComposition> for qre::ErrorComposition {
+    fn from(value: ErrorComposition) -> Self {
+        match value {
+            ErrorComposition::UnionBound => qre::ErrorComposition::UnionBound,
+            ErrorComposition::Product => qre::ErrorComposition::Product,
+        }
+    }
+}
+
+impl From<qre::ErrorComposition> for ErrorComposition {
+    fn from(value: qre::ErrorComposition) -> Self {
+        match value {
+            qre::ErrorComposition::UnionBound => ErrorComposition::UnionBound,
+            qre::ErrorComposition::Product => ErrorComposition::Product,
+        }
+    }
+}
+
 #[pymethods]
 impl EstimationResult {
     #[new]
@@ -934,7 +1092,7 @@ impl EstimationResult {
         let mut result = qre::EstimationResult::new();
         result.add_qubits(qubits);
         result.add_runtime(runtime);
-        result.add_error(error);
+        result.add_error(error, 1.0);
 
         EstimationResult(result)
     }
@@ -967,6 +1125,16 @@ impl EstimationResult {
     #[setter]
     pub fn set_error(&mut self, error: f64) {
         self.0.set_error(error);
+    }
+
+    #[getter]
+    pub fn error_composition(&self) -> ErrorComposition {
+        self.0.error_composition().into()
+    }
+
+    #[setter]
+    pub fn set_error_composition(&mut self, composition: ErrorComposition) {
+        self.0.set_error_composition(composition.into());
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -1175,10 +1343,25 @@ impl Trace {
         self.0.num_gates()
     }
 
-    #[pyo3(signature = (isa, max_error = None))]
-    pub fn estimate(&self, isa: &ISA, max_error: Option<f64>) -> Option<EstimationResult> {
+    #[expect(clippy::needless_pass_by_value)]
+    #[getter]
+    pub fn gate_counts(self_: PyRef<'_, Self>) -> PyResult<Bound<'_, PyDict>> {
+        let dict = PyDict::new(self_.py());
+        for (id, count) in self_.0.gate_counts() {
+            dict.set_item(id, count)?;
+        }
+        Ok(dict)
+    }
+
+    #[pyo3(signature = (isa, max_error = None, composition = ErrorComposition::UnionBound))]
+    pub fn estimate(
+        &self,
+        isa: &ISA,
+        max_error: Option<f64>,
+        composition: ErrorComposition,
+    ) -> Option<EstimationResult> {
         self.0
-            .estimate(&isa.0, max_error)
+            .estimate(&isa.0, max_error, composition.into())
             .map(|mut r| {
                 r.set_isa(isa.0.clone());
                 EstimationResult(r)
@@ -1236,9 +1419,74 @@ impl Trace {
         format!("{}", self.0)
     }
 
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn flatten(slf: PyRef<'_, Self>) -> PyResult<Py<TraceWalkIterator>> {
+        let walk_iter = slf.0.walk_iter();
+        // SAFETY: The `WalkIterator` borrows from the `Trace` stored inside
+        // the `Py<Trace>` we keep alive in `parent`.  Because `Py<Trace>` is
+        // reference-counted and stored alongside the iterator, the underlying
+        // `Trace` (and its blocks/operations) will not be dropped while this
+        // `TraceWalkIterator` exists.  The struct is marked `unsendable` so it
+        // stays on the thread that created it.
+        let walk_iter: qre::WalkIterator<'static> = unsafe { std::mem::transmute(walk_iter) };
+        Py::new(
+            slf.py(),
+            TraceWalkIterator {
+                iter: walk_iter,
+                parent: slf.into(),
+            },
+        )
+    }
+
     #[getter]
     pub fn required_isa(&self) -> ISARequirements {
         ISARequirements(self.0.required_instruction_ids(None))
+    }
+}
+
+#[pyclass]
+pub struct Gate {
+    #[pyo3(get)]
+    id: u64,
+    #[pyo3(get)]
+    qubits: Vec<u64>,
+    #[pyo3(get)]
+    params: Vec<f64>,
+}
+
+#[pymethods]
+impl Gate {
+    fn __str__(&self) -> String {
+        format!(
+            "Gate(id={}, qubits={:?}, params={:?})",
+            self.id, self.qubits, self.params
+        )
+    }
+
+    fn __repr__(&self) -> String {
+        self.__str__()
+    }
+}
+
+#[pyclass(unsendable)]
+pub struct TraceWalkIterator {
+    iter: qre::WalkIterator<'static>,
+    #[allow(dead_code)]
+    parent: Py<Trace>,
+}
+
+#[pymethods]
+impl TraceWalkIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Gate> {
+        slf.iter.next().map(|g| Gate {
+            id: g.id(),
+            qubits: g.qubits().to_vec(),
+            params: g.params().to_vec(),
+        })
     }
 }
 
@@ -1299,6 +1547,46 @@ impl LatticeSurgery {
     #[new]
     pub fn new(slow_down_factor: f64) -> Self {
         Self(qre::LatticeSurgery::new(slow_down_factor))
+    }
+
+    pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {
+        self.0
+            .transform(&trace.0)
+            .map(Trace)
+            .map_err(|e| EstimationError::new_err(format!("{e}")))
+    }
+}
+
+#[pyclass]
+pub struct DynamicMemoryCompute(qre::DynamicMemoryCompute);
+
+#[pymethods]
+impl DynamicMemoryCompute {
+    #[new]
+    pub fn new(compute_capacity_percentage: f64, eviction_strategy: u64) -> PyResult<Self> {
+        Ok(Self(
+            qre::DynamicMemoryCompute::with_percentage(compute_capacity_percentage)
+                .with_strategy(convert_eviction_strategy(eviction_strategy)?),
+        ))
+    }
+
+    pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {
+        self.0
+            .transform(&trace.0)
+            .map(Trace)
+            .map_err(|e| EstimationError::new_err(format!("{e}")))
+    }
+}
+
+#[derive(Default)]
+#[pyclass]
+pub struct Unmemory(qre::Unmemory);
+
+#[pymethods]
+impl Unmemory {
+    #[new]
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn transform(&self, trace: &Trace) -> PyResult<Trace> {
@@ -1427,13 +1715,14 @@ impl InstructionFrontierIterator {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-#[pyfunction(name = "_estimate_parallel", signature = (traces, isas, max_error = 1.0, post_process = false))]
+#[pyfunction(name = "_estimate_parallel", signature = (traces, isas, max_error = 1.0, post_process = false, composition = ErrorComposition::UnionBound))]
 pub fn estimate_parallel(
     py: Python<'_>,
     traces: Vec<PyRef<'_, Trace>>,
     isas: Vec<PyRef<'_, ISA>>,
     max_error: f64,
     post_process: bool,
+    composition: ErrorComposition,
 ) -> EstimationCollection {
     let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
     let isas: Vec<_> = isas.iter().map(|i| &i.0).collect();
@@ -1444,24 +1733,37 @@ pub fn estimate_parallel(
     // If the calling thread holds the GIL while blocked in
     // std::thread::scope, the worker threads deadlock.
     let collection = release_gil(py, || {
-        qre::estimate_parallel(&traces, &isas, Some(max_error), post_process)
+        qre::estimate_parallel(
+            &traces,
+            &isas,
+            Some(max_error),
+            post_process,
+            composition.into(),
+        )
     });
     EstimationCollection(collection)
 }
 
 #[allow(clippy::needless_pass_by_value)]
-#[pyfunction(name = "_estimate_with_graph", signature = (traces, graph, max_error = 1.0, post_process = false))]
+#[pyfunction(name = "_estimate_with_graph", signature = (traces, graph, max_error = 1.0, post_process = false, composition = ErrorComposition::UnionBound))]
 pub fn estimate_with_graph(
     py: Python<'_>,
     traces: Vec<PyRef<'_, Trace>>,
     graph: &ProvenanceGraph,
     max_error: f64,
     post_process: bool,
+    composition: ErrorComposition,
 ) -> PyResult<EstimationCollection> {
     let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
 
     let collection = release_gil(py, || {
-        qre::estimate_with_graph(&traces, &graph.0, Some(max_error), post_process)
+        qre::estimate_with_graph(
+            &traces,
+            &graph.0,
+            Some(max_error),
+            post_process,
+            composition.into(),
+        )
     });
     Ok(EstimationCollection(collection))
 }
@@ -1623,8 +1925,6 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
         SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
         ACCELERATION,
-        ATOM_SPACING,
-        VELOCITY,
         NUM_TS_PER_ROTATION,
         EXPECTED_SHOTS,
         RUNTIME_SINGLE_SHOT,
@@ -1641,9 +1941,18 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         LOSS,
         LOGICAL_CYCLE_TIME,
         CODE_CYCLE_TIME,
+        ATOM_SPACING,
+        DATA_QUBIT_SPACING,
+        VELOCITY,
         ASSUMPTIONS,
         FEASIBILITY,
         TARGET_YEAR,
+        BLOCK_SIZE,
+        BASE_SYSTEM_COST,
+        SHOT_COST,
+        COST_PER_QUBIT,
+        COST_PER_HOUR,
+        COST_PER_QUBIT_PER_HOUR,
     );
 
     m.add_submodule(&property_keys)?;

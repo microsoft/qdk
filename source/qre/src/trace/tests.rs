@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::isa::{Encoding, ISA, Instruction};
+use crate::result::ErrorComposition;
 use crate::trace::{Trace, instruction_ids::*};
 
 #[test]
@@ -26,6 +27,59 @@ fn test_nested_blocks() {
     let repetitions = trace.deep_iter().map(|(_, rep)| rep).collect::<Vec<_>>();
     assert_eq!(repetitions.len(), 4);
     assert_eq!(repetitions, vec![1, 2, 6, 1]);
+}
+
+#[test]
+fn test_walk_iter_simple() {
+    let mut trace = Trace::new(2);
+    trace.add_operation(1, vec![0], vec![]);
+    trace.add_operation(2, vec![1], vec![]);
+
+    let ids: Vec<u64> = trace.walk_iter().map(|g| g.id).collect();
+    assert_eq!(ids, vec![1, 2]);
+}
+
+#[test]
+fn test_walk_iter_with_block() {
+    let mut trace = Trace::new(2);
+    trace.add_operation(1, vec![0], vec![]);
+    let block = trace.add_block(3);
+    block.add_operation(2, vec![1], vec![]);
+    trace.add_operation(3, vec![0], vec![]);
+
+    let ids: Vec<u64> = trace.walk_iter().map(|g| g.id).collect();
+    assert_eq!(ids, vec![1, 2, 2, 2, 3]);
+}
+
+#[test]
+fn test_walk_iter_nested_blocks() {
+    let mut trace = Trace::new(3);
+    trace.add_operation(1, vec![0], vec![]);
+    let block = trace.add_block(2);
+    block.add_operation(2, vec![1], vec![]);
+    let inner = block.add_block(3);
+    inner.add_operation(3, vec![2], vec![]);
+    trace.add_operation(4, vec![0], vec![]);
+
+    // Expected: gate 1, then 2x(gate 2, 3x(gate 3)), then gate 4
+    // = 1, [2, 3, 3, 3, 2, 3, 3, 3], 4
+    let ids: Vec<u64> = trace.walk_iter().map(|g| g.id).collect();
+    assert_eq!(ids, vec![1, 2, 3, 3, 3, 2, 3, 3, 3, 4]);
+}
+
+#[test]
+fn test_walk_iter_count_matches_deep_iter() {
+    let mut trace = Trace::new(3);
+    trace.add_operation(1, vec![0], vec![]);
+    let block = trace.add_block(2);
+    block.add_operation(2, vec![1], vec![]);
+    let inner = block.add_block(3);
+    inner.add_operation(3, vec![2], vec![]);
+    trace.add_operation(4, vec![0], vec![]);
+
+    let walk_count = trace.walk_iter().count();
+    let deep_count: u64 = trace.deep_iter().map(|(_, m)| m).sum();
+    assert_eq!(walk_count as u64, deep_count);
 }
 
 #[test]
@@ -172,11 +226,46 @@ fn test_estimate_simple() {
         0.001,    // error_rate
     ));
 
-    let result = trace.estimate(&isa, None).expect("Estimation failed");
+    let result = trace
+        .estimate(&isa, None, ErrorComposition::UnionBound)
+        .expect("Estimation failed");
 
     assert!((result.error() - 0.001).abs() <= f64::EPSILON);
     assert_eq!(result.runtime(), 100);
     assert_eq!(result.qubits(), 50);
+}
+
+#[test]
+fn test_estimate_product_composition() {
+    // Ten T gates, each with error rate 0.1. Under the union bound the total
+    // error is the sum (1.0), while under product composition it is
+    // 1 - (1 - 0.1)^10.
+    let mut trace = Trace::new(1);
+    for _ in 0..10 {
+        trace.add_operation(T, vec![0], vec![]);
+    }
+
+    let mut isa = ISA::new();
+    isa.add_instruction(Instruction::fixed_arity(
+        T,
+        Encoding::Logical,
+        1,        // arity
+        100,      // time
+        Some(50), // space
+        None,     // length (defaults to arity)
+        0.1,      // error_rate
+    ));
+
+    let union = trace
+        .estimate(&isa, None, ErrorComposition::UnionBound)
+        .expect("Estimation failed");
+    assert!((union.error() - 1.0).abs() <= 1e-9);
+
+    let product = trace
+        .estimate(&isa, None, ErrorComposition::Product)
+        .expect("Estimation failed");
+    let expected = 1.0 - 0.9_f64.powi(10);
+    assert!((product.error() - expected).abs() <= 1e-9);
 }
 
 #[test]
@@ -212,7 +301,9 @@ fn test_estimate_with_factory() {
         0.0,
     ));
 
-    let result = trace.estimate(&isa, None).expect("Estimation failed");
+    let result = trace
+        .estimate(&isa, None, ErrorComposition::UnionBound)
+        .expect("Estimation failed");
 
     assert_eq!(result.runtime(), 1000);
     assert_eq!(result.qubits(), 700);

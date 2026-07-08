@@ -1482,3 +1482,25 @@ fn export_namespace_with_same_name_as_newtype_does_not_cause_panic() {
     let unit = default_compile(sources);
     expect!["[]"].assert_eq(&format!("{:?}", unit.errors));
 }
+
+#[test]
+fn export_multiple_items_from_local_scope_does_not_cause_panic() {
+    let sources = SourceMap::new(
+        [(
+            "test".into(),
+            indoc! {"
+                function A() : Unit {}
+                function B() : Unit {}
+                function C() : Unit {
+                    export A, B;
+                }
+            "}
+            .into(),
+        )],
+        None,
+    );
+
+    let unit = default_compile(sources);
+    expect!["[Error(Resolve(ExportFromLocalScope(Span { lo: 72, hi: 84 })))]"]
+        .assert_eq(&format!("{:?}", unit.errors));
+}

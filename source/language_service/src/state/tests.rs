@@ -79,6 +79,34 @@ async fn clear_error() {
 }
 
 #[tokio::test]
+async fn conditionally_excluded_code_reported_as_unnecessary() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    // The default target profile is Unrestricted, so the `@Config(Base)` item
+    // is excluded from the compilation and should be reported as unnecessary.
+    updater
+        .update_document(
+            "single/foo.qs",
+            1,
+            "namespace Foo { operation Main() : Unit {} @Config(Base) operation Excluded() : Unit {} }",
+            "qsharp",
+        )
+        .await;
+
+    expect_errors(
+        &errors,
+        &expect![[r#"
+            [
+              uri: "single/foo.qs" version: Some(1) errors: [
+                this code is not included in the current compilation because it does not apply to the current target profile
+              ],
+            ]"#]],
+    );
+}
+
+#[tokio::test]
 async fn close_last_doc_in_project() {
     let received_errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());

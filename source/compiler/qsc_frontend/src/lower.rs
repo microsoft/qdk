@@ -654,26 +654,31 @@ impl With<'_> {
             stmts: block
                 .stmts
                 .iter()
-                .flat_map(|s| self.lower_stmt(s))
+                .filter_map(|s| self.lower_stmt(s))
                 .collect(),
         }
     }
 
-    pub(super) fn lower_stmt(&mut self, stmt: &ast::Stmt) -> Vec<hir::Stmt> {
+    pub(super) fn lower_stmt(&mut self, stmt: &ast::Stmt) -> Option<hir::Stmt> {
         let id = self.lower_id(stmt.id);
-        let mut stmts = Vec::new();
-        match &*stmt.kind {
-            ast::StmtKind::Empty | ast::StmtKind::Err => {}
-            ast::StmtKind::Expr(expr) => stmts.push(hir::StmtKind::Expr(self.lower_expr(expr))),
+        let stmt_kind = match &*stmt.kind {
+            ast::StmtKind::Empty | ast::StmtKind::Err => None,
+            ast::StmtKind::Expr(expr) => Some(hir::StmtKind::Expr(self.lower_expr(expr))),
             ast::StmtKind::Item(item) => {
-                stmts.extend(self.lower_item(item).into_iter().map(hir::StmtKind::Item));
+                // The only kind of item that can result in multiple lowered entries is an export, and those are invalid
+                // from statements. Only lower the first one to prevent a duplicate ID panic and allow the normal name
+                // resolution error to occur.
+                self.lower_item(item)
+                    .drain(..)
+                    .next()
+                    .map(hir::StmtKind::Item)
             }
-            ast::StmtKind::Local(mutability, lhs, rhs) => stmts.push(hir::StmtKind::Local(
+            ast::StmtKind::Local(mutability, lhs, rhs) => Some(hir::StmtKind::Local(
                 lower_mutability(*mutability),
                 self.lower_pat(lhs),
                 self.lower_expr(rhs),
             )),
-            ast::StmtKind::Qubit(source, lhs, rhs, block) => stmts.push(hir::StmtKind::Qubit(
+            ast::StmtKind::Qubit(source, lhs, rhs, block) => Some(hir::StmtKind::Qubit(
                 match source {
                     ast::QubitSource::Fresh => hir::QubitSource::Fresh,
                     ast::QubitSource::Dirty => hir::QubitSource::Dirty,
@@ -682,17 +687,14 @@ impl With<'_> {
                 self.lower_qubit_init(rhs),
                 block.as_ref().map(|b| self.lower_block(b)),
             )),
-            ast::StmtKind::Semi(expr) => stmts.push(hir::StmtKind::Semi(self.lower_expr(expr))),
-        }
+            ast::StmtKind::Semi(expr) => Some(hir::StmtKind::Semi(self.lower_expr(expr))),
+        };
 
-        stmts
-            .into_iter()
-            .map(|kind| hir::Stmt {
-                id,
-                span: stmt.span,
-                kind,
-            })
-            .collect()
+        stmt_kind.map(|kind| hir::Stmt {
+            id,
+            span: stmt.span,
+            kind,
+        })
     }
 
     #[allow(clippy::too_many_lines)]
@@ -923,9 +925,9 @@ impl With<'_> {
     }
 
     fn lower_lambda(&mut self, lambda: Lambda, span: Span) -> hir::ExprKind {
-        let (args, callable) = closure::lift(self.assigner, &self.lowerer.locals, lambda, span);
-
         let id = self.assigner.next_item();
+        let (args, callable) = closure::lift(self.assigner, &self.lowerer.locals, lambda, id, span);
+
         self.lowerer.items.push(hir::Item {
             id,
             span,

@@ -1,8 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._application import Application
-from ._architecture import Architecture, ISAContext
+from ._application import Application, TraceParameters
+from ._architecture import (
+    Architecture,
+    ISAContext,
+    TechnologyFamily,
+    qubit,
+    QUBIT_MODELS,
+)
 from ._estimation import estimate
 from ._instruction import (
     LOGICAL,
@@ -16,9 +22,11 @@ from ._isa_enumeration import ISAQuery, ISARefNode, ISA_ROOT
 from ._qre import (
     ISA,
     InstructionFrontier,
+    Instruction,
     Constraint,
     ConstraintBound,
     EstimationResult,
+    ErrorComposition,
     FactoryResult,
     ISARequirements,
     Block,
@@ -37,7 +45,16 @@ from ._results import (
     EstimationTableEntry,
     plot_estimates,
 )
-from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
+from ._target import QECStrategy, Target
+from ._trace import (
+    LatticeSurgery,
+    PSSPC,
+    TraceQuery,
+    TraceTransform,
+    EvictionStrategy,
+    DynamicMemoryCompute,
+    Unmemory,
+)
 
 # Extend Rust Python types with additional Python-side functionality
 from ._instruction import _isa_as_frame, _requirements_as_frame
@@ -57,7 +74,10 @@ __all__ = [
     "Block",
     "Constraint",
     "ConstraintBound",
+    "EvictionStrategy",
+    "DynamicMemoryCompute",
     "Encoding",
+    "ErrorComposition",
     "EstimationResult",
     "EstimationTable",
     "EstimationTableColumn",
@@ -66,6 +86,7 @@ __all__ = [
     "generic_function",
     "instruction_name",
     "InstructionFrontier",
+    "Instruction",
     "InstructionSource",
     "ISA",
     "ISA_ROOT",
@@ -78,9 +99,16 @@ __all__ = [
     "PSSPC",
     "property_name",
     "property_name_to_key",
+    "QECStrategy",
+    "qubit",
+    "Target",
+    "TechnologyFamily",
     "Trace",
+    "TraceParameters",
     "TraceQuery",
     "TraceTransform",
+    "Unmemory",
     "LOGICAL",
     "PHYSICAL",
+    "QUBIT_MODELS",
 ]

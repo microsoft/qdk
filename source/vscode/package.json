@@ -1,7 +1,7 @@
 {
   "name": "qsharp-lang-vscode-dev",
   "displayName": "[DEV BUILD] Microsoft Quantum Development Kit (QDK)",
-  "description": "Q# and OpenQASM Language Support",
+  "description": "Q#, OpenQASM, and DEQ Language Support",
   "version": "0.0.0",
   "publisher": "quantum",
   "icon": "resources/mobius.png",
@@ -751,6 +751,28 @@
           ".inc"
         ],
         "configuration": "./language-configuration-openqasm.json"
+      },
+      {
+        "id": "deq",
+        "aliases": [
+          "DEQ",
+          "deq"
+        ],
+        "extensions": [
+          ".deq"
+        ],
+        "configuration": "./language-configuration-deq.json"
+      },
+      {
+        "id": "stim",
+        "aliases": [
+          "Stim",
+          "stim"
+        ],
+        "extensions": [
+          ".stim"
+        ],
+        "configuration": "./language-configuration-stim.json"
       }
     ],
     "grammars": [
@@ -763,6 +785,21 @@
         "language": "openqasm",
         "scopeName": "source.openqasm",
         "path": "./syntaxes/openqasm.tmLanguage.json"
+      },
+      {
+        "language": "deq",
+        "scopeName": "source.deq",
+        "path": "./syntaxes/deq.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.python.mako": "python",
+          "meta.embedded.line.python.mako": "python",
+          "meta.embedded.expression.mako": "python"
+        }
+      },
+      {
+        "language": "stim",
+        "scopeName": "source.stim",
+        "path": "./syntaxes/stim.tmLanguage.json"
       }
     ],
     "jsonValidation": [
@@ -1457,7 +1494,7 @@
         ],
         "toolReferenceName": "qdkLearningSolution",
         "displayName": "QDK Learning: Solution",
-        "modelDescription": "Return the full reference solution code for the current exercise. Only valid on exercises.",
+        "modelDescription": "Return all reference solutions for the current exercise as an array. Only valid on exercises.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {

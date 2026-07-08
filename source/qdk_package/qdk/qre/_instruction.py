@@ -171,7 +171,7 @@ class ISATransform(ABC):
         )
 
     @classmethod
-    def bind(cls, name: str, node: ISAQuery) -> _BindingNode:
+    def bind(cls, name: str, node: ISAQuery) -> ISAQuery:
         """
         Create a BindingNode for this transform.
 
@@ -182,7 +182,7 @@ class ISATransform(ABC):
             node (Node): The child node that can reference this binding.
 
         Returns:
-            BindingNode: A binding node enclosing this transform.
+            ISAQuery: A binding node enclosing this transform.
         """
         return cls.q().bind(name, node)
 

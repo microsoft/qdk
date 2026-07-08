@@ -252,8 +252,8 @@ impl Compilation {
         );
         let res = qsc::openqasm::semantic::parse_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
-        let target_profile = unit.profile();
-        let CompileRawQasmResult(store, source_package_id, _, _sig, mut compile_errors) =
+        let target_profile = unit.profile().unwrap_or(Profile::Unrestricted);
+        let CompileRawQasmResult(store, source_package_id, _, _sig, mut compile_errors, _) =
             qsc::openqasm::compile_openqasm(unit, package_type);
 
         let compile_unit = store
@@ -413,7 +413,34 @@ fn run_fir_passes(
         return;
     }
 
-    let (fir_store, fir_package_id) = qsc::lower_hir_to_fir(package_store, package_id);
+    let (mut fir_store, fir_package_id, _assigner) =
+        qsc::lower_hir_to_fir(package_store, package_id);
+
+    // Run FIR transforms (monomorphize, defunctionalize, etc.) before capability checking.
+    // This matches the codegen pipeline ordering in qsc/src/codegen.rs.
+    // The transforms require an entry expression (defunctionalize uses reachability from entry),
+    // so only run when the package has one.
+    if fir_store.get(fir_package_id).entry.is_some() {
+        let transform_result =
+            qsc::fir_transforms::run_pipeline_with_diagnostics(&mut fir_store, fir_package_id);
+        if !transform_result.errors.is_empty() {
+            for err in transform_result.errors {
+                errors.push(WithSource::from_map(
+                    &unit.sources,
+                    compile::ErrorKind::FirTransform(err),
+                ));
+            }
+            return; // Don't run RCA on invalid FIR
+        }
+
+        for warning in transform_result.warnings {
+            errors.push(WithSource::from_map(
+                &unit.sources,
+                compile::ErrorKind::FirTransform(warning),
+            ));
+        }
+    }
+
     let caps_results =
         PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, target_profile.into());
     if let Err(caps_errors) = caps_results {

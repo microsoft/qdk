@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use indenter::{Indented, indented};
-use qsc_data_structures::span::Span;
+use indenter::indented;
+use qsc_data_structures::{display::core::set_indentation, span::Span};
 use rustc_hash::FxHashMap;
 
 use crate::fir::{CallableKind, FieldPath, Functor, ItemId, Res};
@@ -10,18 +10,6 @@ use std::{
     fmt::{self, Debug, Display, Formatter, Write},
     rc::Rc,
 };
-
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
-    }
-}
 
 /// A type.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -461,6 +449,19 @@ impl FunctorSetValue {
             | (_, Self::CtlAdj)
             | (Self::Adj, Self::Ctl)
             | (Self::Ctl, Self::Adj) => Self::CtlAdj,
+        }
+    }
+}
+
+impl FunctorSetValue {
+    /// Returns a compact identifier suitable for name mangling.
+    #[must_use]
+    pub fn mangle_name(&self) -> &'static str {
+        match self {
+            Self::Empty => "Empty",
+            Self::Adj => "Adj",
+            Self::Ctl => "Ctl",
+            Self::CtlAdj => "AdjCtl",
         }
     }
 }
