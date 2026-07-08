@@ -10,8 +10,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ConstraintBound, Encoding, Error, EstimationResult, FactoryResult, ISA, ISARequirements,
-    Instruction, InstructionConstraint, LockedISA,
+    ConstraintBound, Encoding, Error, ErrorComposition, EstimationResult, FactoryResult, ISA,
+    ISARequirements, Instruction, InstructionConstraint, LockedISA,
     property_keys::{
         LOGICAL_COMPUTE_QUBITS, LOGICAL_MEMORY_QUBITS, PHYSICAL_COMPUTE_QUBITS,
         PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS,
@@ -260,7 +260,12 @@ impl Trace {
         clippy::cast_sign_loss,
         clippy::too_many_lines
     )]
-    pub fn estimate(&self, isa: &ISA, max_error: Option<f64>) -> Result<EstimationResult, Error> {
+    pub fn estimate(
+        &self,
+        isa: &ISA,
+        max_error: Option<f64>,
+        composition: ErrorComposition,
+    ) -> Result<EstimationResult, Error> {
         let locked = isa.lock();
         let max_error = max_error.unwrap_or(1.0);
 
@@ -272,9 +277,10 @@ impl Trace {
         }
 
         let mut result = EstimationResult::new();
+        result.set_error_composition(composition);
 
         // base error starts with the error already present in the trace
-        result.add_error(self.base_error);
+        result.add_error(self.base_error, 1.0);
 
         // Counts how many magic state factories are needed per resource state ID
         let mut factories: FxHashMap<u64, u64> = FxHashMap::default();
@@ -290,7 +296,7 @@ impl Trace {
         if let Some(resource_states) = &self.resource_states {
             for (state_id, count) in resource_states {
                 let rate = get_error_rate_by_id(&locked, *state_id, &[])?;
-                let actual_error = result.add_error(rate * (*count as f64));
+                let actual_error = result.add_error(rate, *count as f64);
                 if actual_error > max_error {
                     return Err(Error::MaximumErrorExceeded {
                         actual_error,
@@ -319,7 +325,7 @@ impl Trace {
                 qubit_counts.insert(i, qubit_count);
             }
 
-            let actual_error = result.add_error(rate * (mult as f64));
+            let actual_error = result.add_error(rate, mult as f64);
             if actual_error > max_error {
                 return Err(Error::MaximumErrorExceeded {
                     actual_error,
@@ -393,8 +399,10 @@ impl Trace {
                 .runtime()
                 .div_ceil(memory.expect_time(Some(memory_qubits), &[]));
 
-            let actual_error = result
-                .add_error(rounds as f64 * memory.expect_error_rate(Some(memory_qubits), &[]));
+            let actual_error = result.add_error(
+                memory.expect_error_rate(Some(memory_qubits), &[]),
+                rounds as f64,
+            );
             if actual_error > max_error {
                 return Err(Error::MaximumErrorExceeded {
                     actual_error,

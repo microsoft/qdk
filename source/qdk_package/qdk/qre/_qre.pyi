@@ -688,10 +688,7 @@ def generic_function(
     func: Callable[[int, list[float]], float],
 ) -> _FloatFunction: ...
 def generic_function(
-    func: (
-        Callable[[int], int | float]
-        | Callable[[int, list[float]], int | float]
-    ),
+    func: Callable[[int], int | float] | Callable[[int, list[float]], int | float],
 ) -> _IntFunction | _FloatFunction:
     """
     Create a generic function from a Python callable.
@@ -935,6 +932,52 @@ class _ProvenanceGraph:
         """
         ...
 
+class ErrorComposition:
+    """
+    Controls how per-item error contributions are composed into the total
+    error reported by an estimation.
+
+    Both modes estimate the probability that at least one error occurs across
+    many fault-prone operations, each with failure probability ``p_i``. They
+    differ in the assumptions they make:
+
+    - ``UnionBound`` computes ``sum(p_i)`` (Boole's inequality). It is a strict
+      upper bound that holds for any events, whether or not they are
+      independent.
+
+      Advantages: always conservative (never underestimates); requires no
+      independence assumption; cheap; additive, so contributions from
+      subsystems simply add together.
+
+      Disadvantages: can exceed 1.0, which is meaningless as a probability; it
+      grows increasingly loose as the individual errors grow, because it
+      overcounts the overlap between simultaneous failures.
+
+    - ``Product`` computes ``1 - prod(1 - p_i)``, i.e. one minus the
+      probability that no operation fails, assuming the failures are
+      independent.
+
+      Advantages: always stays in ``[0, 1)``; it is tight (in fact exact) when
+      the errors are independent.
+
+      Disadvantages: it relies on independence, so it can underestimate when
+      errors are positively correlated; it is slightly more work to compute;
+      for small ``p_i`` it barely differs from the union-bound sum, so the
+      two only diverge noticeably in the high-error regime; and it is prone to
+      finite-precision loss when composing many small probabilities, because
+      each ``1 - p_i`` factor rounds toward 1 and the final ``1 - prod(...)``
+      subtraction cancels most significant digits.
+
+    Attributes:
+        UnionBound (ErrorComposition): Union bound; contributions are summed
+            (``sum(p_i)``). This is the default and can exceed 1.0.
+        Product (ErrorComposition): Product composition; contributions combine
+            as ``1 - prod(1 - p_i)``.
+    """
+
+    UnionBound: ErrorComposition
+    Product: ErrorComposition
+
 class EstimationResult:
     """
     Represents the result of a resource estimation.
@@ -1013,6 +1056,26 @@ class EstimationResult:
 
         Args:
             error (float): The error probability to set.
+        """
+        ...
+
+    @property
+    def error_composition(self) -> ErrorComposition:
+        """
+        The composition mode used when accumulating error contributions.
+
+        Returns:
+            ErrorComposition: The current composition mode.
+        """
+        ...
+
+    @error_composition.setter
+    def error_composition(self, composition: ErrorComposition) -> None:
+        """
+        Set the composition mode used when accumulating error contributions.
+
+        Args:
+            composition (ErrorComposition): The composition mode to set.
         """
         ...
 
@@ -1425,7 +1488,10 @@ class Trace:
         ...
 
     def estimate(
-        self, isa: ISA, max_error: Optional[float] = None
+        self,
+        isa: ISA,
+        max_error: Optional[float] = None,
+        composition: ErrorComposition = ErrorComposition.UnionBound,
     ) -> Optional[EstimationResult]:
         """
         Estimate resources for the trace given a logical ISA.
@@ -1434,6 +1500,11 @@ class Trace:
             isa (ISA): The logical ISA.
             max_error (Optional[float]): The maximum allowed error. If None,
                 Pareto points are computed.
+            composition (ErrorComposition): Controls how per-item error
+                contributions are composed. ``ErrorComposition.UnionBound``
+                (default) sums the contributions, while
+                ``ErrorComposition.Product`` composes them as
+                ``1 - prod(1 - p_i)``.
 
         Returns:
             Optional[EstimationResult]: The estimation result if max_error is
@@ -1720,6 +1791,7 @@ def _estimate_parallel(
     isas: list[ISA],
     max_error: float = 1.0,
     post_process: bool = False,
+    composition: ErrorComposition = ErrorComposition.UnionBound,
 ) -> _EstimationCollection:
     """
     Estimate resources for multiple traces and ISAs in parallel.
@@ -1730,6 +1802,10 @@ def _estimate_parallel(
         max_error (float): The maximum allowed error. The default is 1.0.
         post_process (bool): If True, computes auxiliary data such as result
             summaries needed for post-processing after estimation.
+        composition (ErrorComposition): Controls how per-item error
+            contributions are composed. ``ErrorComposition.UnionBound``
+            (default) sums the contributions, while
+            ``ErrorComposition.Product`` composes them as ``1 - prod(1 - p_i)``.
 
     Returns:
         _EstimationCollection: The estimation collection.
@@ -1741,6 +1817,7 @@ def _estimate_with_graph(
     graph: _ProvenanceGraph,
     max_error: float = 1.0,
     post_process: bool = False,
+    composition: ErrorComposition = ErrorComposition.UnionBound,
 ) -> _EstimationCollection:
     """
     Estimate resources using a Pareto-filtered provenance graph.
@@ -1755,6 +1832,10 @@ def _estimate_with_graph(
         max_error (float): The maximum allowed error. The default is 1.0.
         post_process (bool): If True, computes auxiliary data such as result
             summaries and ISAs needed for post-processing after estimation.
+        composition (ErrorComposition): Controls how per-item error
+            contributions are composed. ``ErrorComposition.UnionBound``
+            (default) sums the contributions, while
+            ``ErrorComposition.Product`` composes them as ``1 - prod(1 - p_i)``.
 
     Returns:
         _EstimationCollection: The estimation collection.
