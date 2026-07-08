@@ -4527,6 +4527,22 @@ fn remove_callable_params(
     }
 }
 
+/// Removes a top-level callable parameter from the specialized callable's
+/// input pattern, collapsing a singleton tuple to a bare pattern and
+/// replacing a bare-bind pattern with `Unit` when the removed parameter was
+/// the only one.
+///
+/// Delegates to [`remove_nested_callable_param`] when `param.field_path` is
+/// non-empty (the callable argument is nested inside a tuple parameter).
+///
+/// # Before
+/// ```text
+/// input = (a, callable, b)   // top_level_param = 1
+/// ```
+/// # After
+/// ```text
+/// input = (a, b)             // callable removed, tuple shrunk
+/// ```
 fn remove_callable_param(
     package: &mut Package,
     decl: &mut CallableDecl,
@@ -5129,7 +5145,6 @@ fn extract_stmt(source: &Package, stmt_id: qsc_fir::fir::StmtId, target: &mut Pa
     }
 }
 
-#[allow(clippy::too_many_lines)]
 /// Recursively copies an expression and its transitive references into the
 /// extraction target.
 ///
@@ -5139,6 +5154,7 @@ fn extract_stmt(source: &Package, stmt_id: qsc_fir::fir::StmtId, target: &mut Pa
 /// carries a bare `LocalItemId` with no package qualifier, so the lambda it
 /// references must live in the same package as the closure expression. Named
 /// nested functions in `StmtKind::Item` are followed for the same reason.
+#[allow(clippy::too_many_lines)]
 fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
     if target.exprs.contains_key(expr_id) {
         return;

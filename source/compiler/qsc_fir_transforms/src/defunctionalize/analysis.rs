@@ -868,17 +868,16 @@ fn resolve_callee_at_path(
     )
 }
 
-/// Resolves an expression to a [`CalleeLattice`] by peeling functor
-/// applications, following single-assignment immutable locals, resolving
-/// if-value-expressions, and recognising closures and global item references.
+/// Resolves a callee expression to its reaching-definitions lattice of concrete
+/// callables by peeling functor wrappers, following single-assignment immutable
+/// locals, resolving if-value-expressions, recognising closures and global item
+/// references, and tracing same-package callable returns — up to a recursion
+/// depth limit.
 #[allow(
     clippy::only_used_in_recursion,
     clippy::too_many_lines,
     clippy::too_many_arguments
 )]
-/// Resolves a callee expression to its reaching-definitions lattice of concrete
-/// callables, peeling functor wrappers and following local definitions up to a
-/// recursion depth limit.
 fn resolve_callee(
     pkg: &Package,
     store: &PackageStore,
@@ -1146,6 +1145,45 @@ fn resolve_callee(
 }
 
 /// Resolves a callable nested at `path` inside an aggregate expression.
+///
+/// Where [`resolve_callee`] resolves an expression that *is* a callable,
+/// this function resolves a callable that is *inside* an expression at a
+/// tuple/struct field path — e.g. the `.op` field of a UDT, or element `[1]`
+/// of a tuple. The distinction matters because the aggregate itself is not
+/// callable; only a specific field within it is.
+///
+/// # Why this exists separately from `resolve_callee`
+///
+/// A `Field(inner, path)` expression first attempts direct struct-field
+/// resolution via [`resolve_struct_field`] (which finds the initializer when
+/// the aggregate is a literal construction). When that fast path fails —
+/// because the aggregate flows through a local, a block tail, an `if`
+/// branch, or a same-package callable return — this function recursively
+/// *projects* into the intermediate expression kinds to locate the callable
+/// at the requested path. It handles tuples, locals, blocks, `if`/`else`,
+/// calls (both callable-returning functions and UDT constructors), struct
+/// literals, and nested field accesses.
+///
+/// # Key semantic difference: `if` branches are never literal-folded
+///
+/// Unlike `resolve_callee`'s `If` arm (which folds a constant condition to
+/// select a single branch), this function always joins both branches into a
+/// `CalleeLattice::Multi`. Folding would leave the unselected branch's
+/// closure target unregistered for specialization, and
+/// `cleanup_consumed_closures` would be unable to neutralize the surviving
+/// `ExprKind::Closure` node, breaking fixpoint convergence. The resulting
+/// `Multi` is materialized as a constant-conditioned dispatch by the rewrite
+/// phase's `branch_split_direct_call_rewrite`.
+///
+/// # Callers
+///
+/// - [`resolve_callee`] — when a `Field(inner, Path)` has no direct struct
+///   resolution.
+/// - [`resolve_callable_return`] — to trace a callable through the return
+///   value of a same-package function along an `output_path`.
+/// - [`bind_callable_pat_projections`] — to resolve arrow-typed sub-bindings
+///   in destructuring patterns by indexing into the initializer along a
+///   field path.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn resolve_callee_projection(
     pkg: &Package,
@@ -1432,17 +1470,16 @@ fn output_path_resolves_to_arrow(store: &PackageStore, ty: &Ty, path: &[usize]) 
     }
 }
 
-/// Attempts to resolve a callable-returning call whose target lives in the
-/// same package by treating the target body as a straight-line function,
-/// binding its parameters to the call's argument expressions and tracing
-/// the result back to a concrete callable.
-#[allow(clippy::too_many_arguments)]
 /// Resolves the callable value returned by a (possibly cross-package) callable
-/// invoked at a call site. The callee's body is read from its owning package
-/// (`item_id.package`), while the call arguments and caller lattice come from
-/// the caller's package (`pkg` / `package_id`). The returned closure's capture
-/// expressions therefore remain caller-package nodes, which is what the call
-/// site rewrite consumes.
+/// invoked at a call site by treating the target body as a straight-line
+/// function, binding its parameters to the call's argument expressions and
+/// tracing the result back to a concrete callable.
+///
+/// The callee's body is read from its owning package (`item_id.package`), while
+/// the call arguments and caller lattice come from the caller's package
+/// (`pkg` / `package_id`). The returned closure's capture expressions therefore
+/// remain caller-package nodes, which is what the call site rewrite consumes.
+#[allow(clippy::too_many_arguments)]
 fn resolve_callable_return(
     pkg: &Package,
     store: &PackageStore,
