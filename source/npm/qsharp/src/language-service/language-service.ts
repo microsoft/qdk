@@ -141,7 +141,7 @@ export class QSharpLanguageService implements ILanguageService {
     log.info("Constructing a QSharpLanguageService instance");
     this.languageService = new wasm.LanguageService();
 
-    this.backgroundWork = this.languageService.start_background_work(
+    this.backgroundWork = this.languageService.start_update_loop(
       this.onDiagnostics.bind(this),
       this.onTestCallables.bind(this),
       host,
@@ -261,7 +261,7 @@ export class QSharpLanguageService implements ILanguageService {
   }
 
   async dispose() {
-    this.languageService.stop_background_work();
+    this.languageService.stop_update_loop();
     await this.backgroundWork;
     this.languageService.free();
   }

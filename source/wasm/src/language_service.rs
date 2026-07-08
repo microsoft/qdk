@@ -31,7 +31,7 @@ impl LanguageService {
         LanguageService(qsls::LanguageService::new(Encoding::Utf16))
     }
 
-    pub fn start_background_work(
+    pub fn start_update_loop(
         &mut self,
         diagnostics_callback: &DiagnosticsCallback,
         test_callables_callback: &TestCallableCallback,
@@ -104,7 +104,7 @@ impl LanguageService {
         })
     }
 
-    pub fn stop_background_work(&mut self) {
+    pub fn stop_update_loop(&mut self) {
         self.0.stop_updates();
     }
 

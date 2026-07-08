@@ -124,7 +124,7 @@ export class Compiler implements ICompiler {
   async checkCode(code: string): Promise<VSDiagnostic[]> {
     let diags: VSDiagnostic[] = [];
     const languageService = new this.wasm.LanguageService();
-    const work = languageService.start_background_work(
+    const update_loop = languageService.start_update_loop(
       (uri: string, version: number | undefined, errors: VSDiagnostic[]) => {
         diags = errors;
       },
@@ -142,8 +142,8 @@ export class Compiler implements ICompiler {
     languageService.update_document("code", 1, code, "qsharp");
     // Yield to let the language service background worker handle the update
     await Promise.resolve();
-    languageService.stop_background_work();
-    await work;
+    languageService.stop_update_loop();
+    await update_loop;
     languageService.free();
     return diags;
   }
