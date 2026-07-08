@@ -144,6 +144,7 @@ fn check_var_usage(
             | Instruction::Fsub(operand0, operand1, variable)
             | Instruction::Fmul(operand0, operand1, variable)
             | Instruction::Fdiv(operand0, operand1, variable)
+            | Instruction::Frem(operand0, operand1, variable)
             | Instruction::LogicalAnd(operand0, operand1, variable)
             | Instruction::LogicalOr(operand0, operand1, variable)
             | Instruction::BitwiseAnd(operand0, operand1, variable)
@@ -195,7 +196,12 @@ fn check_var_usage(
             }
             Instruction::Phi(..) => panic!("phis should not be present during store pruning"),
 
-            Instruction::Return | Instruction::Jump(..) => {}
+            Instruction::Return(Some(operand)) => {
+                if let crate::rir::Operand::Variable(var) = operand {
+                    used_vars.insert(var.variable_id);
+                }
+            }
+            Instruction::Return(None) | Instruction::Jump(..) => {}
         }
     }
 }

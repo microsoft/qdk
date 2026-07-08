@@ -10,7 +10,7 @@ use std::{
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{EstimationCollection, ISA, ProvenanceGraph, ResultSummary, Trace};
+use crate::{ErrorComposition, EstimationCollection, ISA, ProvenanceGraph, ResultSummary, Trace};
 
 /// Estimates all (trace, ISA) combinations in parallel, returning only the
 /// successful results collected into an [`EstimationCollection`].
@@ -35,6 +35,7 @@ pub fn estimate_parallel<'a>(
     isas: &[&'a ISA],
     max_error: Option<f64>,
     post_process: bool,
+    composition: ErrorComposition,
 ) -> EstimationCollection {
     let total_jobs = traces.len() * isas.len();
     let num_isas = isas.len();
@@ -71,7 +72,8 @@ pub fn estimate_parallel<'a>(
                     let trace_idx = job / num_isas;
                     let isa_idx = job % num_isas;
 
-                    if let Ok(mut estimation) = traces[trace_idx].estimate(isas[isa_idx], max_error)
+                    if let Ok(mut estimation) =
+                        traces[trace_idx].estimate(isas[isa_idx], max_error, composition)
                     {
                         estimation.set_isa_index(isa_idx);
                         estimation.set_trace_index(trace_idx);
@@ -286,6 +288,7 @@ pub fn estimate_with_graph(
     graph: &Arc<RwLock<ProvenanceGraph>>,
     max_error: Option<f64>,
     post_process: bool,
+    composition: ErrorComposition,
 ) -> EstimationCollection {
     let max_error = max_error.unwrap_or(1.0);
 
@@ -338,13 +341,13 @@ pub fn estimate_with_graph(
                                 // Filter out nodes that don't meet the constraint bounds.
                                 let instruction = graph_lock.instruction(node);
                                 constraint.error_rate().is_none_or(|c| {
-                                    c.evaluate(&instruction.error_rate(Some(1)).unwrap_or(0.0))
+                                    c.evaluate(&instruction.error_rate(Some(1), &[]).unwrap_or(0.0))
                                 })
                             })
                             .map(|&node| {
                                 let instruction = graph_lock.instruction(node);
-                                let space = instruction.space(Some(1)).unwrap_or(0);
-                                let time = instruction.time(Some(1)).unwrap_or(0);
+                                let space = instruction.space(Some(1), &[]).unwrap_or(0);
+                                let time = instruction.time(Some(1), &[]).unwrap_or(0);
                                 NodeProfile {
                                     node_index: node,
                                     space,
@@ -444,7 +447,9 @@ pub fn estimate_with_graph(
                         isa.add_node(entry.instruction_id, entry.node.node_index);
                     }
 
-                    if let Ok(mut result) = traces[*trace_idx].estimate(&isa, Some(max_error)) {
+                    if let Ok(mut result) =
+                        traces[*trace_idx].estimate(&isa, Some(max_error), composition)
+                    {
                         let isa_idx = isa_index
                             .write()
                             .expect("RwLock should not be poisoned")

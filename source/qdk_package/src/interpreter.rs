@@ -14,8 +14,9 @@ use crate::{
     generic_estimator::register_generic_estimator_submodule,
     interop::{
         circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
-        create_filesystem_from_py, get_operation_name, get_output_semantics, get_program_type,
-        get_search_path, resource_estimate_qasm_program, run_qasm_program,
+        compile_stim_to_qir, create_filesystem_from_py, get_operation_name, get_output_semantics,
+        get_program_type, get_search_path, resource_estimate_qasm_program, run_qasm_program,
+        sanitize_name,
     },
     interpreter::data_interop::{
         PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
@@ -23,7 +24,7 @@ use crate::{
     },
     noisy_simulator::register_noisy_simulator_submodule,
     qir_simulation::{
-        IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
+        IdleNoiseParams, LossPolicy, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         cpu_simulators::{
             run_clifford, run_clifford_adaptive, run_cpu_adaptive, run_cpu_full_state,
         },
@@ -45,7 +46,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
-    circuit::TracerConfig,
+    circuit::{TracerConfig, circuit_to_standalone_qsharp, circuits_to_qsharp},
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -104,6 +105,7 @@ fn verify_classes_are_sendable() {
     is_send::<NoiseConfig>();
     is_send::<NoiseTable>();
     is_send::<IdleNoiseParams>();
+    is_send::<LossPolicy>();
 }
 
 #[pymodule]
@@ -133,6 +135,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<NoiseConfig>()?;
     m.add_class::<NoiseTable>()?;
     m.add_class::<IdleNoiseParams>()?;
+    m.add_class::<LossPolicy>()?;
     m.add_function(wrap_pyfunction!(physical_estimates, m)?)?;
     m.add_function(wrap_pyfunction!(run_clifford, m)?)?;
     m.add_function(wrap_pyfunction!(try_create_gpu_adapter, m)?)?;
@@ -147,11 +150,14 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     register_qre_submodule(m)?;
     // QASM interop
     m.add("QasmError", py.get_type::<QasmError>())?;
+    m.add("StimError", py.get_type::<StimError>())?;
     m.add_function(wrap_pyfunction!(resource_estimate_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(run_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_stim_to_qir, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_visual_circuit_to_qsharp, m)?)?;
     Ok(())
 }
 
@@ -182,10 +188,8 @@ pub(crate) enum TargetProfile {
     /// capabilities, as well as the optional floating-point computation
     /// extension defined by the QIR specification.
     Adaptive_RIF,
-    /// Target supports the Adaptive profile with integer & floating-point
-    /// computation extensions as well as loop extension and statically-sized
-    /// arrays extension.
-    Adaptive_RIFLA,
+    /// Target supports the QIR Adaptive Profile with all QDK-supported extensions.
+    Adaptive,
     /// Target supports the full set of capabilities required to run any Q# program.
     ///
     /// This option maps to the Full Profile as defined by the QIR specification.
@@ -214,7 +218,7 @@ impl TargetProfile {
             0 => Self::Base,
             1 => Self::Adaptive_RI,
             2 => Self::Adaptive_RIF,
-            3 => Self::Adaptive_RIFLA,
+            3 => Self::Adaptive,
             4 => Self::Unrestricted,
             _ => return Err(PyValueError::new_err("invalid state")),
         };
@@ -244,7 +248,7 @@ impl From<Profile> for TargetProfile {
             Profile::Base => TargetProfile::Base,
             Profile::AdaptiveRI => TargetProfile::Adaptive_RI,
             Profile::AdaptiveRIF => TargetProfile::Adaptive_RIF,
-            Profile::AdaptiveRIFLA => TargetProfile::Adaptive_RIFLA,
+            Profile::Adaptive => TargetProfile::Adaptive,
             Profile::Unrestricted => TargetProfile::Unrestricted,
         }
     }
@@ -256,7 +260,7 @@ impl From<TargetProfile> for Profile {
             TargetProfile::Base => Profile::Base,
             TargetProfile::Adaptive_RI => Profile::AdaptiveRI,
             TargetProfile::Adaptive_RIF => Profile::AdaptiveRIF,
-            TargetProfile::Adaptive_RIFLA => Profile::AdaptiveRIFLA,
+            TargetProfile::Adaptive => Profile::Adaptive,
             TargetProfile::Unrestricted => Profile::Unrestricted,
         }
     }
@@ -1131,6 +1135,28 @@ fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
 }
 
 #[pyfunction]
+pub fn compile_visual_circuit_to_qsharp(
+    file_name: &str,
+    circuit_json: &str,
+    index: usize,
+    program_type: ProgramType,
+) -> PyResult<(String, String)> {
+    let operation_name = sanitize_name(file_name);
+    let source = match program_type {
+        ProgramType::File => circuit_to_standalone_qsharp(&operation_name, circuit_json, index),
+        ProgramType::Operation => circuits_to_qsharp(&operation_name, circuit_json),
+        ProgramType::Fragments => Err(
+            "Visual circuit import supports ProgramType.File and ProgramType.Operation only."
+                .to_string(),
+        ),
+    };
+    match source {
+        Ok(source) => Ok((operation_name, source)),
+        Err(error) => Err(QSharpError::new_err(error)),
+    }
+}
+
+#[pyfunction]
 pub fn physical_estimates(logical_resources: &str, job_params: &str) -> PyResult<String> {
     match re::estimate_physical_resources_from_json(logical_resources, job_params) {
         Ok(estimates) => Ok(estimates),
@@ -1150,6 +1176,13 @@ create_exception!(
     QasmError,
     pyo3::exceptions::PyException,
     "An error returned from the OpenQASM parser."
+);
+
+create_exception!(
+    module,
+    StimError,
+    pyo3::exceptions::PyException,
+    "An error returned from the Stim compiler."
 );
 
 pub(crate) fn format_errors(errors: Vec<interpret::Error>) -> String {
@@ -1552,7 +1585,7 @@ fn create_py_callable(
     name: &str,
     val: Value,
 ) -> PyResult<()> {
-    if namespace.is_empty() && name == "<lambda>" {
+    if namespace.is_empty() && name.starts_with(".lambda") {
         // We don't want to bind auto-generated lambda callables.
         return Ok(());
     }

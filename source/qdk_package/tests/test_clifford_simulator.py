@@ -3,7 +3,7 @@
 
 from pathlib import Path
 from collections import Counter
-from typing import Sequence, cast
+from typing import Dict, Sequence, cast
 import pyqir
 import pytest
 import math
@@ -16,7 +16,6 @@ from qdk.simulation import NoiseConfig
 from qdk.simulation._simulation import run_qir_clifford
 from qdk._device._atom import NeutralAtomDevice
 from qdk._device._atom._decomp import DecomposeRzAnglesToCliffordGates
-from qdk._device._atom._validate import ValidateNoConditionalBranches
 from qdk import TargetProfile, Result
 
 current_file_path = Path(__file__)
@@ -26,10 +25,55 @@ current_dir = current_file_path.parent
 # Tests for the Q# noisy simulator.
 
 
+def format_expectation(actual: Dict[str, float], expect: Dict[str, float]):
+    return f"Expected distribution:\n  {expect}\n\nActual distribution:\n  {actual}"
+
+
+def assert_err(msg: str, actual: Dict[str, float], expect: Dict[str, float]):
+    return msg + "\n\n" + format_expectation(actual, expect)
+
+
+def assert_distributions_eq(
+    actual: Dict[str, float], expect: Dict[str, float], tolerance: float
+):
+    # Prune values that are smaller than the tolerance.
+    actual = {key: val for key, val in actual.items() if val > tolerance}
+    expect = {key: val for key, val in expect.items() if val > tolerance}
+
+    for key in actual:
+        assert key in expect, assert_err(
+            f"Unexpected measurement string: '{key}'.", actual, expect
+        )
+
+    for key in expect:
+        assert key in actual, assert_err(
+            f"Missing measurement string: '{key}'", actual, expect
+        )
+
+    tolerance_percent = int(tolerance * 100)
+    for key in actual:
+        assert abs(actual[key] - expect[key]) < tolerance, assert_err(
+            f"Probability for {key} outside {tolerance_percent}% tolerance.",
+            actual,
+            expect,
+        )
+
+
+def expect_distribution(
+    results,
+    expected: Dict[str, float],
+    *,
+    tolerance: float = 0.01,
+):
+    histogram = Counter(results)
+    total = sum(histogram.values())
+    actual = {key: val / total for key, val in histogram.items()}
+    assert_distributions_eq(actual, expected, tolerance)
+
+
 def transform_to_clifford(input) -> str:
     native_qir = NeutralAtomDevice().compile(input)
     module = pyqir.Module.from_ir(pyqir.Context(), str(native_qir))
-    ValidateNoConditionalBranches().run(module)
     DecomposeRzAnglesToCliffordGates().run(module)
     return str(module)
 
@@ -257,69 +301,70 @@ def test_clifford_run_no_noise():
     assert output == [[Result.Zero] * 16], "Expected result of 0s with pi/2 angles."
 
 
+QSHARP_OP_25_QUBITS = """
+operation Test() : Result[] {
+  use qs = Qubit[25]; X(qs[0]); CZ(qs[23], qs[24]); MResetEachZ(qs)
+}"""
+
+
 def test_clifford_run_bitflip_noise():
     """Bitflip noise for Clifford simulator."""
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qsharp.eval(QSHARP_OP_25_QUBITS)
 
-    p_noise = 0.005
+    p_noise = 0.2
     noise = NoiseConfig()
-    noise.rx.set_bitflip(p_noise)
-    noise.rzz.set_pauli_noise("XX", p_noise)
-    noise.mresetz.set_bitflip(p_noise)
+    noise.x.set_bitflip(p_noise)
+    noise.cz.set_pauli_noise("XX", p_noise)
+    expect = {
+        "1000000000000000000000000": (1 - p_noise) ** 2,  # No noise
+        "0000000000000000000000000": p_noise * (1 - p_noise),  # X bitflip
+        "1000000000000000000000011": (1 - p_noise) * p_noise,  # CZ bitflip
+        "0000000000000000000000011": p_noise**2,  # X & CZ bitflip
+    }
 
-    output = qsharp.run(
-        "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 10.0, 10)",
-        shots=1,
-        noise=noise,
-        seed=17,
-        type="clifford",
-    )
+    output = qsharp.run("Test()", shots=500, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
-    print(result)
-    # Reasonable results obtained from manual run
-    assert result == ["0000000011000001"]
+    expect_distribution(
+        result,
+        expect,
+        tolerance=0.02,
+    )
 
     # Same execution should work with the operation itself.
-    output = qsharp.run(
-        qdk.code.IsingModel2DEvolution,
-        1,
-        4,
-        4,
-        math.pi / 2,
-        math.pi / 2,
-        10.0,
-        10,
-        noise=noise,
-        seed=17,
-        type="clifford",
-    )
+    output = qsharp.run(qdk.code.Test, 500, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
-    print(result)
-    assert result == ["0000000011000001"]
+    expect_distribution(
+        result,
+        expect,
+        tolerance=0.02,
+    )
 
 
 def test_clifford_run_mixed_noise():
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qsharp.eval(QSHARP_OP_25_QUBITS)
 
+    p_noise = 0.2
     noise = NoiseConfig()
-    noise.rz.set_bitflip(0.008)
-    noise.rz.loss = 0.005
-    noise.rzz.set_depolarizing(0.008)
-    noise.rzz.loss = 0.005
+    noise.x.set_bitflip(p_noise)
+    noise.cz.XI = p_noise
+    noise.cz.IL = p_noise
 
-    output = qsharp.run(
-        "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 4.0, 4)",
-        shots=1,
-        noise=noise,
-        seed=228,
-        type="clifford",
-    )
+    output = qsharp.run("Test()", shots=500, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
-    print(result)
-    # Reasonable results obtained from manual run
-    assert result == ["00000-0000000001"]
+    expect_distribution(
+        result,
+        {
+            "1000000000000000000000000": (1 - p_noise) * (1 - 2 * p_noise),  # No noise
+            "0000000000000000000000000": p_noise * (1 - 2 * p_noise),  # X bitflip
+            "1000000000000000000000010": (1 - p_noise) * p_noise,  # CZ bitflip
+            "100000000000000000000000-": (1 - p_noise) * p_noise,  # CZ loss
+            "0000000000000000000000010": p_noise**2,  # X bitflip + CZ bitflip
+            "000000000000000000000000-": p_noise**2,  # X bitflip + CZ loss
+        },
+        tolerance=0.02,
+    )
 
 
 def test_clifford_run_isolated_loss():

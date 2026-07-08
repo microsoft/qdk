@@ -15,6 +15,7 @@ from .._native import (
     run_cpu_adaptive,
     run_cpu_full_state,
     NoiseConfig,
+    LossPolicy,
     GpuContext,
     try_create_gpu_adapter,
     Result,

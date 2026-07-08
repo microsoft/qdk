@@ -606,10 +606,10 @@ class Constraint:
         ...
 
 class _IntFunction:
-    def __call__(self, arity: int) -> int: ...
+    def __call__(self, arity: int, params: Optional[list[float]] = None) -> int: ...
 
 class _FloatFunction:
-    def __call__(self, arity: int) -> float: ...
+    def __call__(self, arity: int, params: Optional[list[float]] = None) -> float: ...
 
 @overload
 def constant_function(value: int) -> _IntFunction: ...
@@ -679,11 +679,24 @@ def block_linear_function(
 def generic_function(func: Callable[[int], int]) -> _IntFunction: ...
 @overload
 def generic_function(func: Callable[[int], float]) -> _FloatFunction: ...
+@overload
 def generic_function(
-    func: Callable[[int], int | float],
+    func: Callable[[int, list[float]], int],
+) -> _IntFunction: ...
+@overload
+def generic_function(
+    func: Callable[[int, list[float]], float],
+) -> _FloatFunction: ...
+def generic_function(
+    func: Callable[[int], int | float] | Callable[[int, list[float]], int | float],
 ) -> _IntFunction | _FloatFunction:
     """
     Create a generic function from a Python callable.
+
+    The callable may accept either a single ``arity`` argument or an
+    ``arity`` plus a ``params`` list of floats.  Whether the resulting
+    function is integer- or float-valued is determined by the callable's
+    return type annotation (defaulting to float when unannotated).
 
     Note:
         Only use this function if the other function constructors
@@ -693,7 +706,8 @@ def generic_function(
         simple as possible to minimize overhead.
 
     Args:
-        func (Callable[[int], int | float]): The Python callable.
+        func (Callable[[int], int | float] | Callable[[int, list[float]], int | float]):
+            The Python callable.
 
     Returns:
         _IntFunction | _FloatFunction: The generic function.
@@ -794,7 +808,7 @@ class _ProvenanceGraph:
         space: Optional[int | _IntFunction] = None,
         length: Optional[int | _IntFunction] = None,
         error_rate: float | _FloatFunction = ...,
-        **kwargs: int,
+        **kwargs: Optional[int],
     ) -> int: ...
     def add_instruction(
         self,
@@ -806,7 +820,7 @@ class _ProvenanceGraph:
         space: Optional[int | _IntFunction] = None,
         length: Optional[int | _IntFunction] = None,
         error_rate: float | _FloatFunction = ...,
-        **kwargs: int,
+        **kwargs: Optional[int],
     ) -> int:
         """
         Add an instruction to the provenance graph with no transform or
@@ -891,6 +905,21 @@ class _ProvenanceGraph:
         """
         ...
 
+    def pareto_nodes(self, instruction_id: int) -> Optional[list[int]]:
+        """
+        Return the Pareto-optimal node indices for a given instruction ID.
+
+        Requires ``build_pareto_index`` to have been called.
+
+        Args:
+            instruction_id (int): The instruction ID to look up.
+
+        Returns:
+            Optional[list[int]]: The Pareto-optimal node indices, or
+                None if the instruction ID has no entries.
+        """
+        ...
+
     def total_isa_count(self) -> int:
         """
         Return the total number of ISAs that can be formed from Pareto-optimal
@@ -902,6 +931,52 @@ class _ProvenanceGraph:
             int: The total number of ISAs that can be formed.
         """
         ...
+
+class ErrorComposition:
+    """
+    Controls how per-item error contributions are composed into the total
+    error reported by an estimation.
+
+    Both modes estimate the probability that at least one error occurs across
+    many fault-prone operations, each with failure probability ``p_i``. They
+    differ in the assumptions they make:
+
+    - ``UnionBound`` computes ``sum(p_i)`` (Boole's inequality). It is a strict
+      upper bound that holds for any events, whether or not they are
+      independent.
+
+      Advantages: always conservative (never underestimates); requires no
+      independence assumption; cheap; additive, so contributions from
+      subsystems simply add together.
+
+      Disadvantages: can exceed 1.0, which is meaningless as a probability; it
+      grows increasingly loose as the individual errors grow, because it
+      overcounts the overlap between simultaneous failures.
+
+    - ``Product`` computes ``1 - prod(1 - p_i)``, i.e. one minus the
+      probability that no operation fails, assuming the failures are
+      independent.
+
+      Advantages: always stays in ``[0, 1)``; it is tight (in fact exact) when
+      the errors are independent.
+
+      Disadvantages: it relies on independence, so it can underestimate when
+      errors are positively correlated; it is slightly more work to compute;
+      for small ``p_i`` it barely differs from the union-bound sum, so the
+      two only diverge noticeably in the high-error regime; and it is prone to
+      finite-precision loss when composing many small probabilities, because
+      each ``1 - p_i`` factor rounds toward 1 and the final ``1 - prod(...)``
+      subtraction cancels most significant digits.
+
+    Attributes:
+        UnionBound (ErrorComposition): Union bound; contributions are summed
+            (``sum(p_i)``). This is the default and can exceed 1.0.
+        Product (ErrorComposition): Product composition; contributions combine
+            as ``1 - prod(1 - p_i)``.
+    """
+
+    UnionBound: ErrorComposition
+    Product: ErrorComposition
 
 class EstimationResult:
     """
@@ -981,6 +1056,26 @@ class EstimationResult:
 
         Args:
             error (float): The error probability to set.
+        """
+        ...
+
+    @property
+    def error_composition(self) -> ErrorComposition:
+        """
+        The composition mode used when accumulating error contributions.
+
+        Returns:
+            ErrorComposition: The current composition mode.
+        """
+        ...
+
+    @error_composition.setter
+    def error_composition(self, composition: ErrorComposition) -> None:
+        """
+        Set the composition mode used when accumulating error contributions.
+
+        Args:
+            composition (ErrorComposition): The composition mode to set.
         """
         ...
 
@@ -1382,8 +1477,21 @@ class Trace:
         """
         ...
 
+    @property
+    def gate_counts(self) -> dict[int, int]:
+        """
+        The counts of each gate ID in the trace.
+
+        Returns:
+            dict[int, int]: A dictionary mapping gate IDs to their counts.
+        """
+        ...
+
     def estimate(
-        self, isa: ISA, max_error: Optional[float] = None
+        self,
+        isa: ISA,
+        max_error: Optional[float] = None,
+        composition: ErrorComposition = ErrorComposition.UnionBound,
     ) -> Optional[EstimationResult]:
         """
         Estimate resources for the trace given a logical ISA.
@@ -1392,6 +1500,11 @@ class Trace:
             isa (ISA): The logical ISA.
             max_error (Optional[float]): The maximum allowed error. If None,
                 Pareto points are computed.
+            composition (ErrorComposition): Controls how per-item error
+                contributions are composed. ``ErrorComposition.UnionBound``
+                (default) sums the contributions, while
+                ``ErrorComposition.Product`` composes them as
+                ``1 - prod(1 - p_i)``.
 
         Returns:
             Optional[EstimationResult]: The estimation result if max_error is
@@ -1462,6 +1575,76 @@ class Trace:
         """
         ...
 
+    def flatten(self) -> Iterator[Gate]:
+        """
+        Iterate over gates as if executing the circuit.
+
+        Yield each gate in execution order. Gates inside repeated blocks
+        are yielded once per repetition.
+
+        Returns:
+            Iterator[Gate]: An iterator over the gates in the trace.
+        """
+        ...
+
+class Gate:
+    """
+    Represent a single gate operation in a trace.
+
+    Attributes:
+        id (int): The instruction ID of the gate.
+        qubits (list[int]): The qubits the gate acts on.
+        params (list[float]): The parameters of the gate.
+    """
+
+    @property
+    def id(self) -> int:
+        """
+        The instruction ID of the gate.
+
+        Returns:
+            int: The instruction ID.
+        """
+        ...
+
+    @property
+    def qubits(self) -> list[int]:
+        """
+        The qubits the gate acts on.
+
+        Returns:
+            list[int]: The qubit indices.
+        """
+        ...
+
+    @property
+    def params(self) -> list[float]:
+        """
+        The parameters of the gate.
+
+        Returns:
+            list[float]: The gate parameters.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Return a string representation of the gate.
+
+        Returns:
+            str: A string representation of the gate.
+        """
+        ...
+
+    def __repr__(self) -> str:
+        """
+        Return a detailed string representation of the gate.
+
+        Returns:
+            str: A detailed string representation of the gate.
+        """
+        ...
+
 class Block:
     """
     Represents a block of operations in a trace.
@@ -1511,6 +1694,16 @@ class PSSPC:
 
 class LatticeSurgery:
     def __new__(cls, slow_down_factor: float) -> LatticeSurgery: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class DynamicMemoryCompute:
+    def __new__(
+        cls, compute_capacity_percentage: float, eviction_strategy: int
+    ) -> DynamicMemoryCompute: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class Unmemory:
+    def __new__(cls) -> Unmemory: ...
     def transform(self, trace: Trace) -> Optional[Trace]: ...
 
 class InstructionFrontier:
@@ -1598,6 +1791,7 @@ def _estimate_parallel(
     isas: list[ISA],
     max_error: float = 1.0,
     post_process: bool = False,
+    composition: ErrorComposition = ErrorComposition.UnionBound,
 ) -> _EstimationCollection:
     """
     Estimate resources for multiple traces and ISAs in parallel.
@@ -1608,6 +1802,10 @@ def _estimate_parallel(
         max_error (float): The maximum allowed error. The default is 1.0.
         post_process (bool): If True, computes auxiliary data such as result
             summaries needed for post-processing after estimation.
+        composition (ErrorComposition): Controls how per-item error
+            contributions are composed. ``ErrorComposition.UnionBound``
+            (default) sums the contributions, while
+            ``ErrorComposition.Product`` composes them as ``1 - prod(1 - p_i)``.
 
     Returns:
         _EstimationCollection: The estimation collection.
@@ -1619,6 +1817,7 @@ def _estimate_with_graph(
     graph: _ProvenanceGraph,
     max_error: float = 1.0,
     post_process: bool = False,
+    composition: ErrorComposition = ErrorComposition.UnionBound,
 ) -> _EstimationCollection:
     """
     Estimate resources using a Pareto-filtered provenance graph.
@@ -1633,6 +1832,10 @@ def _estimate_with_graph(
         max_error (float): The maximum allowed error. The default is 1.0.
         post_process (bool): If True, computes auxiliary data such as result
             summaries and ISAs needed for post-processing after estimation.
+        composition (ErrorComposition): Controls how per-item error
+            contributions are composed. ``ErrorComposition.UnionBound``
+            (default) sums the contributions, while
+            ``ErrorComposition.Product`` composes them as ``1 - prod(1 - p_i)``.
 
     Returns:
         _EstimationCollection: The estimation collection.

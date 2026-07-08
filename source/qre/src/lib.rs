@@ -16,12 +16,15 @@ pub use isa::{
     ConstraintBound, Encoding, ISA, ISARequirements, Instruction, InstructionConstraint, LockedISA,
     ProvenanceGraph, VariableArityFunction,
 };
-pub use result::{EstimationCollection, EstimationResult, FactoryResult, ResultSummary};
+pub use result::{
+    ErrorComposition, EstimationCollection, EstimationResult, FactoryResult, ResultSummary,
+};
 mod trace;
 pub use trace::instruction_ids;
 pub use trace::instruction_ids::instruction_name;
 pub use trace::{
-    Block, LatticeSurgery, PSSPC, Property, Trace, TraceTransform, estimate_parallel,
+    Block, ComputeCapacity, DynamicMemoryCompute, EvictionStrategy, LatticeSurgery, PSSPC,
+    Property, Trace, TraceTransform, Unmemory, WalkIterator, estimate_parallel,
     estimate_with_graph,
 };
 mod utils;
@@ -64,4 +67,12 @@ pub enum Error {
     #[error("unsupported instruction {} in trace transformation '{name}'", instruction_name(*id).unwrap_or(&id.to_string()))]
     #[diagnostic(code("Qre.UnsupportedInstruction"))]
     UnsupportedInstruction { id: u64, name: &'static str },
+    /// Compute capacity must be at least 1.
+    #[error("compute capacity must be at least 1")]
+    #[diagnostic(code("Qre.ZeroComputeCapacity"))]
+    ZeroComputeCapacity,
+    /// Gate arity exceeds compute capacity.
+    #[error("gate {} requires {arity} distinct qubits but compute capacity is {capacity}", instruction_name(*id).unwrap_or(&id.to_string()))]
+    #[diagnostic(code("Qre.GateArityExceedsCapacity"))]
+    GateArityExceedsCapacity { id: u64, arity: u64, capacity: u64 },
 }

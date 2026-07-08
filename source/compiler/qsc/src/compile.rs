@@ -8,6 +8,7 @@ use qsc_data_structures::{
 };
 pub use qsc_frontend::compile::Dependencies;
 use qsc_frontend::compile::{CompileUnit, PackageStore};
+pub use qsc_frontend::typeck::{TyInfo, TyInfoKind};
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 use thiserror::Error;
 
@@ -28,6 +29,11 @@ pub enum ErrorKind {
     /// and static analysis passes.
     #[diagnostic(transparent)]
     Pass(#[from] qsc_passes::Error),
+
+    /// Errors from FIR-level transforms (return unification, defunctionalization,
+    /// monomorphization) that run before capability checking.
+    #[diagnostic(transparent)]
+    FirTransform(#[from] qsc_fir_transforms::PipelineError),
 
     /// `Lint` variant represents lints generated during the linting stage. These diagnostics are
     /// typically emitted from the language server and happens after all other compilation passes.

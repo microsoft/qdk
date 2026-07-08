@@ -27,7 +27,7 @@ convenience: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.dump_machine`,
 :class:`~qdk.qsharp.StateDump`, :class:`~qdk.qsharp.ShotResult`,
 :class:`~qdk.qsharp.PauliNoise`, :class:`~qdk.qsharp.DepolarizingNoise`,
 :class:`~qdk.qsharp.BitFlipNoise`, :class:`~qdk.qsharp.PhaseFlipNoise`,
-and :class:`~qdk.Context`.
+:class:`~qdk.qsharp.ProgramType`, and :class:`~qdk.Context`.
 
 Optional extras enable additional submodules:
 
@@ -52,7 +52,7 @@ from ._interpreter import (
     set_classical_seed,
     set_quantum_seed,
 )
-from ._native import Result, TargetProfile
+from ._native import ProgramType, Result, TargetProfile
 from ._types import (
     BitFlipNoise,
     DepolarizingNoise,
@@ -80,6 +80,7 @@ __all__ = [
     "init",
     "Result",
     "TargetProfile",
+    "ProgramType",
     "StateDump",
     "ShotResult",
     "PauliNoise",

@@ -162,12 +162,12 @@ impl Symbol {
 
 impl std::fmt::Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use crate::display_utils;
-        display_utils::writeln_header(f, "Symbol", self.span)?;
-        display_utils::writeln_field(f, "name", &self.name)?;
-        display_utils::writeln_field(f, "type", &self.ty)?;
-        display_utils::writeln_field(f, "ty_span", &self.ty_span)?;
-        display_utils::write_field(f, "io_kind", &self.io_kind)
+        use qsc_data_structures::display;
+        display::writeln_header_with_span(f, "Symbol", self.span)?;
+        display::writeln_field(f, "name", &self.name)?;
+        display::writeln_field(f, "type", &self.ty)?;
+        display::writeln_field(f, "ty_span", &self.ty_span)?;
+        display::write_field(f, "io_kind", &self.io_kind)
     }
 }
 
@@ -421,6 +421,11 @@ impl SymbolTable {
     pub fn pop_scope(&mut self) {
         assert!(self.scopes.len() != 1, "Cannot pop the global scope");
         self.scopes.pop();
+    }
+
+    /// Returns an iterator over all symbols defined in the table, across all scopes.
+    pub fn symbols(&self) -> impl Iterator<Item = &Rc<Symbol>> {
+        self.symbols.values()
     }
 
     pub fn insert_symbol(&mut self, symbol: Symbol) -> Result<SymbolId, SymbolInsertError> {

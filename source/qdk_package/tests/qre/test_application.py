@@ -1,9 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import pytest
-
-cirq = pytest.importorskip("cirq")
 
 from dataclasses import dataclass, field
 
@@ -14,6 +11,7 @@ from qdk.qre import (
     ISA,
     LOGICAL,
     PSSPC,
+    ErrorComposition,
     EstimationResult,
     LatticeSurgery,
     Trace,
@@ -210,6 +208,44 @@ def test_trace_enumeration():
     assert sum(1 for _ in q.enumerate(ctx)) == 32
 
 
+def test_error_composition_modes():
+    """Test that union-bound and product error composition differ as expected."""
+    # Ten T gates, each with error rate 0.1.  Under the union bound the total
+    # error is the sum (1.0), while under product composition it is
+    # 1 - (1 - 0.1)^10.
+    trace = Trace(1)
+    for _ in range(10):
+        trace.add_operation(T, [0])
+
+    graph = _ProvenanceGraph()
+    isa = graph.make_isa(
+        [
+            graph.add_instruction(
+                T, encoding=LOGICAL, time=1000, space=400, error_rate=0.1
+            ),
+        ]
+    )
+
+    union = trace.estimate(
+        isa, max_error=float("inf"), composition=ErrorComposition.UnionBound
+    )
+    assert union is not None
+    assert abs(union.error - 1.0) <= 1e-9
+    assert union.error_composition == ErrorComposition.UnionBound
+
+    product = trace.estimate(
+        isa, max_error=float("inf"), composition=ErrorComposition.Product
+    )
+    assert product is not None
+    assert abs(product.error - (1.0 - 0.9**10)) <= 1e-9
+    assert product.error_composition == ErrorComposition.Product
+
+    # The default composition is the union bound.
+    default = trace.estimate(isa, max_error=float("inf"))
+    assert default is not None
+    assert abs(default.error - union.error) <= 1e-9
+
+
 def test_rotation_error_psspc():
     """Test that PSSPC base error stays below 1.0 for a single rotation gate."""
     # This test helps to bound the variables for the number of rotations in PSSPC
@@ -225,3 +261,51 @@ def test_rotation_error_psspc():
         assert (
             transformed.base_error < 1.0
         ), f"Base error too high: {transformed.base_error} for {psspc.num_ts_per_rotation} T states per rotation"
+
+
+def test_trace_iter_simple():
+    """Test that iterating over a trace yields gates in execution order."""
+    trace = Trace(2)
+    trace.add_operation(1, [0])
+    trace.add_operation(2, [1])
+
+    gate_ids = [g.id for g in trace.flatten()]
+    assert gate_ids == [1, 2]
+
+
+def test_trace_iter_with_repeated_block():
+    """Test that iterating over a trace repeats gates for repeated blocks."""
+    trace = Trace(2)
+    trace.add_operation(1, [0])
+    block = trace.add_block(3)
+    block.add_operation(2, [1])
+    trace.add_operation(3, [0])
+
+    gate_ids = [g.id for g in trace.flatten()]
+    assert gate_ids == [1, 2, 2, 2, 3]
+
+
+def test_trace_iter_nested_blocks():
+    """Test that iterating over nested repeated blocks works correctly."""
+    trace = Trace(3)
+    trace.add_operation(1, [0])
+    block = trace.add_block(2)
+    block.add_operation(2, [1])
+    inner = block.add_block(3)
+    inner.add_operation(3, [2])
+    trace.add_operation(4, [0])
+
+    gate_ids = [g.id for g in trace.flatten()]
+    assert gate_ids == [1, 2, 3, 3, 3, 2, 3, 3, 3, 4]
+
+
+def test_trace_iter_gate_attributes():
+    """Test that gate attributes are correctly exposed."""
+    trace = Trace(1)
+    trace.add_operation(42, [0, 1], [3.14])
+
+    gates = list(trace.flatten())
+    assert len(gates) == 1
+    assert gates[0].id == 42
+    assert gates[0].qubits == [0, 1]
+    assert gates[0].params == [3.14]

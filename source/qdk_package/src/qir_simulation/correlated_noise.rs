@@ -8,7 +8,7 @@ use rustc_hash::FxHashMap;
 use std::fmt;
 use std::str::FromStr;
 
-use crate::qir_simulation::NoiseTable;
+use crate::qir_simulation::{LossPolicy, NoiseTable};
 
 /// Errors that can occur while parsing a noise-table CSV.
 #[derive(Debug)]
@@ -81,10 +81,16 @@ pub fn parse_noise_table(contents: &str) -> Result<NoiseTable, ParseError> {
     if contents.len() < 128 * 1024 || num_threads <= 1 {
         let (entries, qubits) = parse_noise_chunk(contents, 0)?;
         let pauli_noise = FxHashMap::from_iter(entries);
+        let qubits = qubits.unwrap_or(0);
         return Ok(NoiseTable {
-            qubits: qubits.unwrap_or(0),
+            qubits,
             pauli_noise,
-            loss: 0.0,
+            on_loss: LossPolicy::Skip,
+            allowed_loss_policies: if qubits >= 2 {
+                NoiseTable::DEFAULT_MULTI_QUBIT_LOSS_POLICIES.to_vec()
+            } else {
+                NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec()
+            },
         });
     }
 
@@ -157,7 +163,12 @@ pub fn parse_noise_table(contents: &str) -> Result<NoiseTable, ParseError> {
     Ok(NoiseTable {
         qubits,
         pauli_noise,
-        loss: 0.0,
+        on_loss: LossPolicy::Skip,
+        allowed_loss_policies: if qubits >= 2 {
+            NoiseTable::DEFAULT_MULTI_QUBIT_LOSS_POLICIES.to_vec()
+        } else {
+            NoiseTable::DEFAULT_SINGLE_QUBIT_LOSS_POLICIES.to_vec()
+        },
     })
 }
 
@@ -228,14 +239,17 @@ fn parse_noise_chunk(contents: &str, line_offset: usize) -> Result<ChunkEntries,
         }
 
         // Validate characters, and encode to u64 in one pass.
+        // Uses 3 bits per Pauli char to match `encode_pauli`/`decode_pauli`
+        // (I=0, X=1, Z=2, Y=3, L=4).
         let pauli_bytes = pauli.as_bytes();
         let mut key: u64 = 0;
         for &b in pauli_bytes {
             let bits = match b {
-                b'I' => 0u64,
-                b'X' => 1u64,
-                b'Y' => 3u64,
-                b'Z' => 2u64,
+                b'I' => 0,
+                b'X' => 1,
+                b'Y' => 3,
+                b'Z' => 2,
+                b'L' => 4,
                 _ => {
                     return Err(ParseError::InvalidPauliChar {
                         line: i,
@@ -243,7 +257,7 @@ fn parse_noise_chunk(contents: &str, line_offset: usize) -> Result<ChunkEntries,
                     });
                 }
             };
-            key = (key << 2) | bits;
+            key = (key << 3) | bits;
         }
 
         if key != 0 && prob != 0.0 {

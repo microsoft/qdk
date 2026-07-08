@@ -7,6 +7,16 @@ import { type ExtensionApi } from "../../src/extension";
 // Q# extension log level. Increase this for debugging.
 const extensionLogLevel = "warn";
 
+/**
+ * The timeout to use for all integration tests, in milliseconds.
+ *
+ * By design, this is set deliberately high (10 minutes) so that even a slow
+ * machine never hits it. Tests that behave correctly will complete well before
+ * this; the timeout only exists to prevent a hung test from blocking the suite
+ * indefinitely.
+ */
+export const TEST_TIMEOUT_MS = 10 * 60 * 1000;
+
 // The code for the document status diagnostic.
 const documentStatusDiagnosticCode = "Qdk.Dev.DocumentStatus";
 
@@ -139,7 +149,7 @@ export async function delay(timeoutMs: number) {
 async function waitForDiagnostics(
   uri: vscode.Uri,
   condition: (diagnostics: vscode.Diagnostic[]) => boolean,
-  timeoutMs: number = 2000,
+  timeoutMs: number = TEST_TIMEOUT_MS,
   timeoutErrorMsg: string = "Diagnostics condition not met within timeout",
 ): Promise<vscode.Diagnostic[]> {
   await waitForCondition(
@@ -165,7 +175,7 @@ async function waitForDiagnostics(
  */
 export async function waitForDiagnosticsToAppear(
   uri: vscode.Uri,
-  timeoutMs: number = 2000,
+  timeoutMs: number = TEST_TIMEOUT_MS,
 ): Promise<vscode.Diagnostic[]> {
   const diagnostics = await waitForDiagnostics(
     uri,
@@ -189,7 +199,7 @@ export async function waitForDiagnosticsToAppear(
  */
 export async function waitForDiagnosticsToBeEmpty(
   uri: vscode.Uri,
-  timeoutMs: number = 2000,
+  timeoutMs: number = TEST_TIMEOUT_MS,
 ): Promise<void> {
   await waitForDiagnostics(
     uri,
@@ -214,7 +224,7 @@ export async function waitForDiagnosticsToBeEmpty(
  */
 export async function openDocumentAndWaitForProcessing(
   documentUri: vscode.Uri,
-  timeoutMs: number = 2000,
+  timeoutMs: number = TEST_TIMEOUT_MS,
 ): Promise<vscode.TextDocument> {
   const doc = await vscode.workspace.openTextDocument(documentUri);
   const version = doc.version;

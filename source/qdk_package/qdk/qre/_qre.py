@@ -14,6 +14,7 @@ from .._native import (
     _estimate_parallel,
     _estimate_with_graph,
     _EstimationCollection,
+    ErrorComposition,
     EstimationResult,
     FactoryResult,
     _FloatFunction,
@@ -33,4 +34,6 @@ from .._native import (
     property_name,
     _float_to_bits,
     _float_from_bits,
+    DynamicMemoryCompute,
+    Unmemory,
 )
