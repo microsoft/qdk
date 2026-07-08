@@ -79,7 +79,7 @@ type ClosureInfo = Option<ClosureSpecializationInfo>;
 struct ClosureSpecializationInfo {
     target: LocalItemId,
     capture_bindings: Vec<(LocalVarId, Ty)>,
-    callable_captures: Vec<CapturedCallableSpecialization>,
+    callable_capture: Option<CapturedCallableSpecialization>,
 }
 
 /// A captured value that is itself a statically-known callable, recorded so the
@@ -193,7 +193,7 @@ pub(super) fn specialize(
         //    each dispatch leaf inlines the sibling producer closure in the same
         //    pass; the per-row path would instead emit a lone producer spec that
         //    the closure-consistency check later rejects. Returns `true` only
-        //    when the group actually had this shape.
+        //    when the group had this shape and could be handled here.
         if specialize_mixed_branch_split_group(
             store,
             group,
@@ -304,8 +304,8 @@ fn resolve_group_members<'a>(
 /// argument together, inserting the new spec into `dedup`.
 ///
 /// Recovers the exact parameter for each row via [`resolve_group_members`], then
-/// clones the HOF via [`specialize_many`]. Already-specialized keys and missing
-/// HOF items are skipped; a recursive key records a
+/// clones the HOF via [`specialize_many`]. Already-specialized keys are
+/// skipped; a recursive key records a
 /// [`Error::RecursiveSpecialization`] diagnostic.
 fn specialize_combined_group(
     store: &mut PackageStore,
@@ -326,14 +326,6 @@ fn specialize_combined_group(
     }
 
     let hof_store_id = StoreItemId::from((hof_item_id.package, hof_item_id.item));
-    if !store
-        .get(hof_store_id.package)
-        .items
-        .contains_key(hof_store_id.item)
-    {
-        return;
-    }
-
     if recursion_guard.contains(&spec_key) {
         let package = store.get(group[0].call_pkg_id);
         let span = package.get_expr(group[0].call_expr_id).span;
@@ -373,8 +365,9 @@ fn specialize_combined_group(
 /// avoids a single-argument producer specialization that the consistency check
 /// in `track_specialized_closures` would otherwise reject.
 ///
-/// Returns `true` when the group is a mixed branch-split (whether or not any
-/// candidate produced a spec); `false` leaves the group for the per-row path.
+/// Returns `true` when the group is a mixed branch-split that can be claimed by
+/// this path (whether or not any candidate produced a spec); `false` leaves the
+/// group for the per-row path.
 fn specialize_mixed_branch_split_group(
     store: &mut PackageStore,
     group: &[&CallSite],
@@ -389,13 +382,6 @@ fn specialize_mixed_branch_split_group(
     };
     let hof_item_id = group[0].hof_item_id;
     let hof_store_id = StoreItemId::from((hof_item_id.package, hof_item_id.item));
-    if !store
-        .get(hof_store_id.package)
-        .items
-        .contains_key(hof_store_id.item)
-    {
-        return true;
-    }
     for candidate in &dispatch {
         let mut members_cs: Vec<&CallSite> = Vec::with_capacity(constants.len() + 1);
         members_cs.push(*candidate);
@@ -473,17 +459,8 @@ fn specialize_per_row_group(
 
         // The HOF may live in a foreign package, for example a generic std
         // lib callable monomorphized in place into its owning package.
-        // Confirm the HOF item actually exists in its declared package
-        // before proceeding.
         let hof_store_id =
             StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item));
-        if !store
-            .get(hof_store_id.package)
-            .items
-            .contains_key(hof_store_id.item)
-        {
-            continue;
-        }
 
         // Recursive specialization guard.
         if recursion_guard.contains(&spec_key) {
@@ -924,14 +901,14 @@ fn thread_group_closure_captures(
             ..
         } = call_site.callable_arg
         {
-            let callable_captures = captured_callable_specializations(target, captures);
+            let callable_capture = captured_callable_specialization(target, captures);
             let captures_to_thread: Vec<CapturedVar> = captures
                 .iter()
                 .enumerate()
                 .filter(|(idx, _)| {
-                    !callable_captures
-                        .iter()
-                        .any(|callable_capture| callable_capture.capture_idx == *idx)
+                    callable_capture
+                        .as_ref()
+                        .is_none_or(|callable_capture| callable_capture.capture_idx != *idx)
                 })
                 .map(|(_, capture)| capture.clone())
                 .collect();
@@ -947,7 +924,7 @@ fn thread_group_closure_captures(
             closure_infos.push(Some(ClosureSpecializationInfo {
                 target: closure_target,
                 capture_bindings,
-                callable_captures,
+                callable_capture,
             }));
         } else {
             closure_infos.push(None);
@@ -1010,11 +987,11 @@ fn transform_combined_callable_body(
         .zip(closure_infos.iter())
     {
         if let Some(info) = closure_info {
-            specialize_closure_target_callable_captures(
+            specialize_closure_target_callable_capture(
                 target,
                 package_id,
                 info.target,
-                &info.callable_captures,
+                info.callable_capture.as_ref(),
                 assigner,
             );
             let is_callable_array_member = callable_array_position.is_some_and(|position| {
@@ -1298,14 +1275,14 @@ fn specialize_one(
         ..
     } = call_site.callable_arg
     {
-        let callable_captures = captured_callable_specializations(target, captures);
+        let callable_capture = captured_callable_specialization(target, captures);
         let captures_to_thread: Vec<CapturedVar> = captures
             .iter()
             .enumerate()
             .filter(|(idx, _)| {
-                !callable_captures
-                    .iter()
-                    .any(|callable_capture| callable_capture.capture_idx == *idx)
+                callable_capture
+                    .as_ref()
+                    .is_none_or(|callable_capture| callable_capture.capture_idx != *idx)
             })
             .map(|(_, capture)| capture.clone())
             .collect();
@@ -1320,7 +1297,7 @@ fn specialize_one(
         Some(ClosureSpecializationInfo {
             target: closure_target,
             capture_bindings,
-            callable_captures,
+            callable_capture,
         })
     } else {
         None
@@ -1430,11 +1407,11 @@ fn apply_single_param_specialization(
     assigner: &mut Assigner,
 ) {
     if let Some(info) = &closure_info {
-        specialize_closure_target_callable_captures(
+        specialize_closure_target_callable_capture(
             target,
             package_id,
             info.target,
-            &info.callable_captures,
+            info.callable_capture.as_ref(),
             assigner,
         );
     }
@@ -1575,34 +1552,29 @@ fn concrete_with_threaded_captures(
     }
 }
 
-/// Identifies which of a closure's captured values are themselves concrete
-/// callables eligible to be baked into the closure target.
+/// Identifies whether a closure's only captured value is itself a concrete
+/// callable eligible to be baked into the closure target.
 ///
-/// Only a single-capture closure is considered; each qualifying capture yields
-/// a [`CapturedCallableSpecialization`] recording its index, type, and resolved
-/// concrete callable. Captures that are not statically-known callables are
-/// omitted so they stay threaded as ordinary runtime operands.
-fn captured_callable_specializations(
+/// Only a single-capture closure is considered. A qualifying capture yields a
+/// [`CapturedCallableSpecialization`] recording its index, type, and resolved
+/// concrete callable; any non-callable capture stays threaded as an ordinary
+/// runtime operand.
+fn captured_callable_specialization(
     package: &Package,
     captures: &[CapturedVar],
-) -> Vec<CapturedCallableSpecialization> {
+) -> Option<CapturedCallableSpecialization> {
     if captures.len() != 1 {
-        return Vec::new();
+        return None;
     }
-    captures
-        .iter()
-        .enumerate()
-        .filter_map(|(capture_idx, capture)| {
-            let expr_id = capture.expr?;
-            concrete_callable_from_capture_expr(package, expr_id).map(|concrete| {
-                CapturedCallableSpecialization {
-                    capture_idx,
-                    capture_ty: capture.ty.clone(),
-                    concrete,
-                }
-            })
-        })
-        .collect()
+    let capture = captures.first()?;
+    let expr_id = capture.expr?;
+    concrete_callable_from_capture_expr(package, expr_id).map(|concrete| {
+        CapturedCallableSpecialization {
+            capture_idx: 0,
+            capture_ty: capture.ty.clone(),
+            concrete,
+        }
+    })
 }
 
 /// Resolves a capture initializer expression to a [`ConcreteCallable`] when it
@@ -3517,30 +3489,30 @@ fn refresh_callable_types(package: &mut Package, item_id: LocalItemId) {
     refresh_rewritten_value_types(package, &implementation);
 }
 
-/// Specializes a closure target for each of its captured concrete callables.
+/// Specializes a closure target for its captured concrete callable.
 ///
-/// Iterates the recorded [`CapturedCallableSpecialization`]s in reverse capture
-/// order (so earlier capture indices stay valid as later slots are removed),
-/// inlining each concrete callable into the target body and dropping its
-/// capture parameter via [`specialize_closure_target_for_captured_param`].
-fn specialize_closure_target_callable_captures(
+/// Inlines the recorded [`CapturedCallableSpecialization`] into the target body
+/// and drops its capture parameter via
+/// [`specialize_closure_target_for_captured_param`].
+fn specialize_closure_target_callable_capture(
     package: &mut Package,
     package_id: PackageId,
     closure_target: LocalItemId,
-    callable_captures: &[CapturedCallableSpecialization],
+    callable_capture: Option<&CapturedCallableSpecialization>,
     assigner: &mut Assigner,
 ) {
-    for capture in callable_captures.iter().rev() {
-        specialize_closure_target_for_captured_param(
-            package,
-            package_id,
-            closure_target,
-            capture.capture_idx,
-            &capture.capture_ty,
-            &capture.concrete,
-            assigner,
-        );
-    }
+    let Some(capture) = callable_capture else {
+        return;
+    };
+    specialize_closure_target_for_captured_param(
+        package,
+        package_id,
+        closure_target,
+        capture.capture_idx,
+        &capture.capture_ty,
+        &capture.concrete,
+        assigner,
+    );
 }
 
 /// Removes the capture at `capture_idx` from the closure target callable's
