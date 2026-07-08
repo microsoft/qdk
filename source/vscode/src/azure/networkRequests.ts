@@ -82,7 +82,7 @@ export async function storageRequest(
   token?: string,
   proxy?: string,
   extraHeaders?: [string, string][],
-  body?: string | ArrayBuffer,
+  body?: string | Uint8Array<ArrayBuffer>,
   associationId?: string,
 ) {
   const headers: [string, string][] = [

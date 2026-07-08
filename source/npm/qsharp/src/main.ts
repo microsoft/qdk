@@ -47,7 +47,7 @@ export function getWasmModule(): WebAssembly.Module {
 // Used to track if an instance is already instantiated
 let wasmInstancePromise: Promise<wasm.InitOutput> | null = null;
 
-async function wasmLoader(uriOrBuffer: string | ArrayBuffer) {
+async function wasmLoader(uriOrBuffer: string | BufferSource) {
   if (typeof uriOrBuffer === "string") {
     log.info("Fetching wasm module from %s", uriOrBuffer);
     performance.mark("fetch-wasm-start");
@@ -70,7 +70,7 @@ async function wasmLoader(uriOrBuffer: string | ArrayBuffer) {
 }
 
 export function loadWasmModule(
-  uriOrBuffer: string | ArrayBuffer,
+  uriOrBuffer: string | BufferSource,
 ): Promise<void> {
   // Only initiate if not already in flight, to avoid race conditions
   if (!wasmModulePromise) {

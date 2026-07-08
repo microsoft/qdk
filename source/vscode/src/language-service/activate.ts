@@ -172,7 +172,9 @@ async function loadLanguageService(
   const start = performance.now();
   const wasmUri = vscode.Uri.joinPath(baseUri, "./wasm/qsc_wasm_bg.wasm");
   const wasmBytes = await vscode.workspace.fs.readFile(wasmUri);
-  await loadWasmModule(wasmBytes.buffer as ArrayBuffer);
+  // Cast: VS Code's readFile always returns an ArrayBuffer-backed Uint8Array,
+  // but @types/vscode uses the broader ArrayBufferLike.
+  await loadWasmModule(wasmBytes as Uint8Array<ArrayBuffer>);
   const languageService = await getLanguageService({
     findManifestDirectory,
     readFile,
