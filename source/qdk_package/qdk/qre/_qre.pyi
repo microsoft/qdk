@@ -962,8 +962,11 @@ class ErrorComposition:
 
       Disadvantages: it relies on independence, so it can underestimate when
       errors are positively correlated; it is slightly more work to compute;
-      and for small ``p_i`` it barely differs from the union-bound sum, so the
-      two only diverge noticeably in the high-error regime.
+      for small ``p_i`` it barely differs from the union-bound sum, so the
+      two only diverge noticeably in the high-error regime; and it is prone to
+      finite-precision loss when composing many small probabilities, because
+      each ``1 - p_i`` factor rounds toward 1 and the final ``1 - prod(...)``
+      subtraction cancels most significant digits.
 
     Attributes:
         UnionBound (ErrorComposition): Union bound; contributions are summed
