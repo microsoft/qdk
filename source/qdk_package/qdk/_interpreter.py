@@ -258,7 +258,7 @@ def run(
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
     """
-    return _get_default_context().run(
+    return _get_context_or_default(entry_expr).run(
         entry_expr,
         shots,
         *args,
@@ -294,7 +294,7 @@ def compile(
         with open('myfile.ll', 'w') as file:
             file.write(str(program))
     """
-    return _get_default_context().compile(entry_expr, *args)
+    return _get_context_or_default(entry_expr).compile(entry_expr, *args)
 
 
 def circuit(
@@ -350,7 +350,7 @@ def circuit(
     :rtype: Circuit
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
-    return _get_default_context().circuit(
+    return _get_context_or_default(entry_expr).circuit(
         entry_expr,
         *args,
         operation=operation,
@@ -413,7 +413,7 @@ def estimate(
     param_str = json.dumps(params)
     telemetry_events.on_estimate()
     start = monotonic()
-    context = _get_default_context()
+    context = _get_context_or_default(entry_expr)
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = context._python_args_to_interpreter_args(args)
         res_str = context._interpreter.estimate(
@@ -453,7 +453,7 @@ def logical_counts(
     :return: Program resources in terms of logical gate counts.
     :rtype: LogicalCounts
     """
-    return _get_default_context().logical_counts(entry_expr, *args)
+    return _get_context_or_default(entry_expr).logical_counts(entry_expr, *args)
 
 
 def set_quantum_seed(seed: Optional[int]) -> None:
