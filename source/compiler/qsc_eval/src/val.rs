@@ -12,7 +12,7 @@ use std::{
 
 use crate::{AsIndex, Error, Range as EvalRange, error::PackageSpan};
 
-pub const DEFAULT_RANGE_STEP: i64 = 1;
+pub const DEFAULT_RANGE_STEP: RangeEntry = RangeEntry::Literal(1);
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -41,9 +41,63 @@ pub struct Closure {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Range {
-    pub start: Option<i64>,
-    pub step: i64,
-    pub end: Option<i64>,
+    pub start: Option<RangeEntry>,
+    pub step: RangeEntry,
+    pub end: Option<RangeEntry>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RangeEntry {
+    Literal(i64),
+    Variable(Var),
+}
+
+impl Display for RangeEntry {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            Self::Literal(v) => write!(f, "{v}"),
+            Self::Variable(var) => write!(f, "Var({}, {})", var.id, var.ty),
+        }
+    }
+}
+
+impl From<RangeEntry> for Value {
+    fn from(entry: RangeEntry) -> Self {
+        match entry {
+            RangeEntry::Literal(v) => Self::Int(v),
+            RangeEntry::Variable(var) => Self::Var(var),
+        }
+    }
+}
+
+impl From<RangeEntry> for i64 {
+    fn from(entry: RangeEntry) -> Self {
+        match entry {
+            RangeEntry::Literal(v) => v,
+            RangeEntry::Variable(_) => panic!("cannot convert variable range entry to i64"),
+        }
+    }
+}
+
+impl From<i64> for RangeEntry {
+    fn from(value: i64) -> Self {
+        Self::Literal(value)
+    }
+}
+
+impl From<Var> for RangeEntry {
+    fn from(value: Var) -> Self {
+        Self::Variable(value)
+    }
+}
+
+impl From<RangeEntry> for Var {
+    fn from(entry: RangeEntry) -> Self {
+        match entry {
+            RangeEntry::Literal(_) => panic!("cannot convert literal range entry to variable"),
+            RangeEntry::Variable(var) => var,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -398,7 +452,7 @@ impl Value {
     /// # Panics
     /// This will panic if the [Value] is not a [`Value::Range`].
     #[must_use]
-    pub fn unwrap_range(self) -> (Option<i64>, i64, Option<i64>) {
+    pub fn unwrap_range(self) -> (Option<RangeEntry>, RangeEntry, Option<RangeEntry>) {
         let Value::Range(inner) = self else {
             panic!("value should be Range, got {}", self.type_name());
         };

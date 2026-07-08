@@ -1419,9 +1419,9 @@ pub mod qir {
                         id
                     })
                 };
-                let start = lower_opt(r.start, package, assigner);
-                let step = lower_opt(Some(r.step), package, assigner);
-                let end = lower_opt(r.end, package, assigner);
+                let start = lower_opt(r.start.map(Into::into), package, assigner);
+                let step = lower_opt(Some(Into::into(r.step)), package, assigner);
+                let end = lower_opt(r.end.map(Into::into), package, assigner);
                 (
                     qsc_fir::fir::ExprKind::Range(start, step, end),
                     qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Range),

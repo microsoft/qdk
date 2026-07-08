@@ -607,9 +607,9 @@ impl<'a> PartialEvaluator<'a> {
             }
             Value::Range(range) => update_index_range(
                 array,
-                range.start,
-                range.step,
-                range.end,
+                range.start.map(Into::into),
+                range.step.into(),
+                range.end.map(Into::into),
                 update_value,
                 index_expr_package_span,
             ),
@@ -2697,9 +2697,9 @@ impl<'a> PartialEvaluator<'a> {
             }
             Value::Range(range) => slice_array(
                 &array,
-                range.start,
-                range.step,
-                range.end,
+                range.start.map(Into::into),
+                range.step.into(),
+                range.end.map(Into::into),
                 index_package_span,
             )
             .map_err(Error::from),
@@ -2725,17 +2725,16 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         let field_value = match (record, field) {
-            (Value::Range(inner), Field::Prim(PrimField::Start)) => Value::Int(
-                inner
-                    .start
-                    .expect("range access should be validated by compiler"),
-            ),
-            (Value::Range(inner), Field::Prim(PrimField::Step)) => Value::Int(inner.step),
-            (Value::Range(inner), Field::Prim(PrimField::End)) => Value::Int(
-                inner
-                    .end
-                    .expect("range access should be validated by compiler"),
-            ),
+            (Value::Range(inner), Field::Prim(PrimField::Start)) => inner
+                .start
+                .expect("range access should be validated by compiler")
+                .into(),
+
+            (Value::Range(inner), Field::Prim(PrimField::Step)) => inner.step.into(),
+            (Value::Range(inner), Field::Prim(PrimField::End)) => inner
+                .end
+                .expect("range access should be validated by compiler")
+                .into(),
             (mut record, Field::Path(path)) => {
                 for index in path.indices {
                     let Value::Tuple(items, _) = record else {
@@ -4717,7 +4716,7 @@ impl<'a> PartialEvaluator<'a> {
         end: Option<ExprId>,
         span: PackageSpan,
     ) -> Result<EvalControlFlow, Error> {
-        let mut exprs = Vec::new();
+        let mut elems = Vec::new();
         for expr in [start, step, end] {
             // Try to evaluate the sub-expression.
             let expr_control_flow = expr.map(|id| self.try_eval_expr(id)).transpose()?;
@@ -4733,25 +4732,20 @@ impl<'a> PartialEvaluator<'a> {
                 .transpose()?;
             // Convert the value to an integer, if possible. Non-integer values should never happen,
             // variable values should be caught by RCA but may sneak through so fail gracefully.
-            let expr_int = expr_value
-                .map(|v| match v {
-                    Value::Int(i) => Ok(i),
-                    Value::Var(_) => Err(Error::Unexpected(
-                        "dynamic variable in Range expression".to_string(),
-                        span,
-                    )),
-                    _ => panic!("invalid type for Range expression: {}", v.type_name()),
-                })
-                .transpose()?;
-            exprs.push(expr_int);
+            let entry = expr_value.map(|v| match v {
+                Value::Int(i) => i.into(),
+                Value::Var(v) => v.into(),
+                _ => panic!("invalid type for Range expression: {}", v.type_name()),
+            });
+            elems.push(entry);
         }
 
         // Create a new range value from the processed sub-expressions, using the default step if not specified.
         Ok(EvalControlFlow::Continue(Value::Range(Box::new(
             val::Range {
-                start: exprs[0],
-                step: exprs[1].unwrap_or(val::DEFAULT_RANGE_STEP),
-                end: exprs[2],
+                start: elems[0],
+                step: elems[1].unwrap_or(val::DEFAULT_RANGE_STEP),
+                end: elems[2],
             },
         ))))
     }

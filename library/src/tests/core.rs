@@ -77,9 +77,9 @@ fn check_range_reverse_1_5() {
         "RangeReverse(1..5)",
         &Value::Range(
             ValueRange {
-                start: Some(5),
-                step: -1,
-                end: Some(1),
+                start: Some(5.into()),
+                step: (-1).into(),
+                end: Some(1.into()),
             }
             .into(),
         ),
@@ -92,9 +92,9 @@ fn check_range_reverse_1_n1_5() {
         "RangeReverse(1..-1..5)",
         &Value::Range(
             ValueRange {
-                start: Some(5),
-                step: 1,
-                end: Some(1),
+                start: Some(5.into()),
+                step: 1.into(),
+                end: Some(1.into()),
             }
             .into(),
         ),
@@ -107,9 +107,9 @@ fn check_range_reverse_1_7_10() {
         "RangeReverse(1..7..10)",
         &Value::Range(
             ValueRange {
-                start: Some(8),
-                step: -7,
-                end: Some(1),
+                start: Some(8.into()),
+                step: (-7).into(),
+                end: Some(1.into()),
             }
             .into(),
         ),

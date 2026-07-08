@@ -1397,13 +1397,13 @@ impl State {
     fn eval_field(&mut self, field: Field) {
         let record = self.take_val_register();
         let val = match (record, field) {
-            (Value::Range(inner), Field::Prim(PrimField::Start)) => Value::Int(
+            (Value::Range(inner), Field::Prim(PrimField::Start)) => Value::from(
                 inner
                     .start
                     .expect("range access should be validated by compiler"),
             ),
-            (Value::Range(inner), Field::Prim(PrimField::Step)) => Value::Int(inner.step),
-            (Value::Range(inner), Field::Prim(PrimField::End)) => Value::Int(
+            (Value::Range(inner), Field::Prim(PrimField::Step)) => Value::from(inner.step),
+            (Value::Range(inner), Field::Prim(PrimField::End)) => Value::from(
                 inner
                     .end
                     .expect("range access should be validated by compiler"),
@@ -1428,9 +1428,9 @@ impl State {
             Value::Range(inner) => {
                 self.set_val_register(slice_array(
                     &arr,
-                    inner.start,
-                    inner.step,
-                    inner.end,
+                    inner.start.map(Into::into),
+                    inner.step.into(),
+                    inner.end.map(Into::into),
                     self.to_global_span(span),
                 )?);
             }
@@ -1441,17 +1441,17 @@ impl State {
 
     fn eval_range(&mut self, has_start: bool, has_step: bool, has_end: bool) {
         let end = if has_end {
-            Some(self.take_val_register().unwrap_int())
+            Some(self.take_val_register().unwrap_int().into())
         } else {
             None
         };
         let step = if has_step {
-            self.pop_val().unwrap_int()
+            self.pop_val().unwrap_int().into()
         } else {
             val::DEFAULT_RANGE_STEP
         };
         let start = if has_start {
-            Some(self.pop_val().unwrap_int())
+            Some(self.pop_val().unwrap_int().into())
         } else {
             None
         };
@@ -1515,9 +1515,9 @@ impl State {
             Value::Int(index) => self.eval_update_index_single(&values, index, update, span),
             Value::Range(inner) => self.eval_update_index_range(
                 &values,
-                inner.start,
-                inner.step,
-                inner.end,
+                inner.start.map(Into::into),
+                inner.step.into(),
+                inner.end.map(Into::into),
                 update,
                 span,
             ),
@@ -1638,15 +1638,15 @@ impl State {
         let value = self.pop_val();
         let update = match (record, field) {
             (Value::Range(mut inner), Field::Prim(PrimField::Start)) => {
-                inner.start = Some(value.unwrap_int());
+                inner.start = Some(value.unwrap_int().into());
                 Value::Range(inner)
             }
             (Value::Range(mut inner), Field::Prim(PrimField::Step)) => {
-                inner.step = value.unwrap_int();
+                inner.step = value.unwrap_int().into();
                 Value::Range(inner)
             }
             (Value::Range(mut inner), Field::Prim(PrimField::End)) => {
-                inner.end = Some(value.unwrap_int());
+                inner.end = Some(value.unwrap_int().into());
                 Value::Range(inner)
             }
             (record, Field::Path(path)) => update_field_path(&record, &path.indices, &value)
@@ -1752,7 +1752,13 @@ impl State {
                     let Value::Range(inner) = range else {
                         unreachable!("range should be a Value::Range");
                     };
-                    let range = make_range(arr, inner.start, inner.step, inner.end, range_span)?;
+                    let range = make_range(
+                        arr,
+                        inner.start.map(Into::into),
+                        inner.step.into(),
+                        inner.end.map(Into::into),
+                        range_span,
+                    )?;
                     for (idx, rhs) in range.into_iter().zip(rhs.iter()) {
                         if idx < 0 {
                             return Err(Error::InvalidNegativeInt(idx, range_span));

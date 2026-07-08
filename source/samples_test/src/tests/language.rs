@@ -362,8 +362,7 @@ pub const REPEATUNTILLOOPS_EXPECT_DEBUG: Expect = expect!["()"];
 // RUS Loops cannot be compiled in Adaptive_RIF, so this error is expected.
 pub const REPEATUNTILLOOPS_EXPECT_CIRCUIT: Expect =
     expect!["compilation error: cannot have a loop with a dynamic condition"];
-pub const REPEATUNTILLOOPS_EXPECT_QIR: Expect =
-    expect!["generated QIR of length 2059"];
+pub const REPEATUNTILLOOPS_EXPECT_QIR: Expect = expect!["generated QIR of length 2059"];
 pub const RESULT_EXPECT: Expect = expect![[r#"
     Measurement: Zero
     Zero"#]];
