@@ -500,7 +500,7 @@ operation PostSelectZ(res : Result, qubit : Qubit) : Unit {
 /// ```qsharp
 /// let experimentName = Std.Diagnostics.GetConfig("experiment_name", "");
 /// ```
-function GetConfig<'T>(name : String, defaultValue : 'T) : 'T {
+operation GetConfig<'T>(name : String, defaultValue : 'T) : 'T {
     body intrinsic;
 }
 
