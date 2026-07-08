@@ -96,7 +96,7 @@ impl LanguageService {
         };
         let mut worker =
             self.0
-                .create_update_worker(diagnostics_callback, test_callables_callback, host);
+                .create_update_handler(diagnostics_callback, test_callables_callback, host);
 
         future_to_promise(async move {
             worker.run().await;
