@@ -476,15 +476,8 @@ pub(crate) fn compile_stim_to_qir(
         |noise_config| unbind_noise_config(py, noise_config),
     );
 
-    let qir = stim_compiler::compile(source, &mut noise_config).map_err(|errors| {
-        StimError::new_err(
-            errors
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
-    })?;
+    let qir = stim_compiler::compile(source, &mut noise_config)
+        .map_err(|errors| StimError::new_err(stim_compiler::format_stim_errors(errors)))?;
     Ok((qir, bind_stim_noise_config(py, &noise_config)?))
 }
 

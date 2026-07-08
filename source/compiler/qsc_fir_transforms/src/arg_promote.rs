@@ -28,11 +28,11 @@
 //!   signature/body rewrite ([`promote_callable`]) → call-site rewrite
 //!   ([`rewrite_call_sites`]). Peels one tuple nesting level per round, like
 //!   tuple-decompose.
-//! - **Post-convergence normalization.** [`normalize_call_arg_types`] runs once
-//!   after the fixed point to make argument expression types exactly match
-//!   callable input types (e.g. `T` → `(T,)` wrapping for single-element tuple
-//!   inputs). Run once, not per round, to avoid `(T,)` churn polluting change
-//!   detection.
+//! - **Post-convergence normalization.** [`normalize_reachable_call_arg_types`]
+//!   runs once after the fixed point to make argument expression types exactly
+//!   match callable input types (e.g. `T` → `(T,)` wrapping for single-element
+//!   tuple inputs). Run once, not per round, to avoid `(T,)` churn polluting
+//!   change detection.
 //! - **Functor-applied callees** (`Adjoint`/`Controlled`) are handled directly:
 //!   [`resolve_direct_item_callee`] unwraps the `UnOp` functor wrappers and
 //!   [`rewrite_controlled_call_site`] preserves the control-tuple layers and
@@ -49,8 +49,11 @@ mod cross_package_tests;
 #[cfg(test)]
 mod semantic_equivalence_tests;
 
-use crate::EMPTY_EXEC_RANGE;
-use crate::fir_builder::{alloc_local_var_expr, decompose_binding_to_leaves, functored_specs};
+use crate::fir_builder::{
+    alloc_block, alloc_block_expr, alloc_call_expr, alloc_expr_stmt, alloc_field_path_expr,
+    alloc_local_var, alloc_local_var_expr, alloc_tuple_expr, decompose_binding_to_leaves,
+    functored_specs,
+};
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::collect_reachable_from_entry;
 use crate::walk_utils::{
@@ -60,13 +63,12 @@ use crate::walk_utils::{
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident,
-    ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore,
-    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
+    CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, Functor, ItemKind, LocalItemId,
+    LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res,
+    SpecDecl, SpecImpl, StmtId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::rc::Rc;
 
 /// Base name for the synthesized local that holds a materialized call
 /// argument before it is projected into a promoted callable's scalar inputs
@@ -121,7 +123,7 @@ type ParamLeafRemap = (LocalVarId, Ty, LeafRemap);
 /// - Rewrites only entry-reachable callables.
 /// - Leaves first-class and closure-target callables unchanged.
 /// - Normalizes call argument shapes to match callable input types via
-///   [`normalize_call_arg_types`].
+///   [`normalize_reachable_call_arg_types`].
 ///
 /// # Mutations
 /// - Rewrites callable input patterns and specialization bodies.
@@ -609,10 +611,12 @@ fn collect_first_class_callables(
     first_class
 }
 
-/// Collects the `StoreItemId`s of callables that are targets of
-/// `Closure(_, local_item_id)` in the reachable package closure. A closure
-/// target resolves in the package that contains the `Closure` expression, so
-/// the recorded `StoreItemId` uses that containing package.
+/// Collects the `StoreItemId`s of callables that are targets of closure-like
+/// dispatch in the reachable package closure. Before defunctionalization this
+/// is a direct `Closure(_, local_item_id)` expression. After defunctionalization
+/// an indexed closure-array dispatch branch calls the target item directly but
+/// still uses the closure-call ABI `(captures..., original_args)`, so the target
+/// signature must remain stable for those call sites.
 fn collect_closure_targets(
     store: &PackageStore,
     package_id: PackageId,
@@ -640,6 +644,7 @@ fn collect_closure_targets(
                         item: *local_item_id,
                     });
                 }
+                collect_closure_abi_direct_call_target(package, pkg, expr, &mut targets);
             });
         }
 
@@ -656,6 +661,7 @@ fn collect_closure_targets(
                                 item: *local_item_id,
                             });
                         }
+                        collect_closure_abi_direct_call_target(package, pkg, expr, &mut targets);
                     },
                 );
             }
@@ -663,6 +669,121 @@ fn collect_closure_targets(
     }
 
     targets
+}
+
+/// Records `expr`'s callee as a closure-ABI dispatch target when `expr` is a
+/// same-package direct call that still passes the grouped closure-call payload
+/// `(captures..., original_args)`.
+///
+/// This is the post-defunctionalization case flagged by
+/// [`collect_closure_targets`]: an indexed closure-array branch lowers to a
+/// direct `Call(Var(Res::Item(id)), args)`, but the argument tuple keeps the
+/// closure-call ABI shape rather than the callable's own parameter shape. Such
+/// a target's signature must stay stable, so it is excluded from promotion.
+///
+/// Only in-package callees are recorded (a foreign item's arity is fixed by its
+/// own package's passes, so it is never a promotion candidate here). Non-calls,
+/// calls through non-item callees, and calls that use the plain direct-call
+/// argument shape are ignored via [`call_uses_grouped_closure_payload`].
+fn collect_closure_abi_direct_call_target(
+    package: &Package,
+    package_id: PackageId,
+    expr: &Expr,
+    targets: &mut FxHashSet<StoreItemId>,
+) {
+    // Only interested in call expressions...
+    let ExprKind::Call(callee_id, arg_id) = expr.kind else {
+        return;
+    };
+    // ...whose callee is a direct reference to a named item (not a first-class
+    // value or a functor-applied callee).
+    let callee_expr = package.get_expr(callee_id);
+    let ExprKind::Var(Res::Item(item_id), _) = callee_expr.kind else {
+        return;
+    };
+    // A foreign callee's arity is governed by its own package, so it is never a
+    // promotion candidate we need to protect here.
+    if item_id.package != package_id {
+        return;
+    }
+    // Only record it if the call still passes the grouped closure payload; a
+    // plain direct call with the callable's own argument shape is safe to
+    // promote and must not be excluded.
+    if !call_uses_grouped_closure_payload(package, item_id.item, arg_id, Some(&callee_expr.ty)) {
+        return;
+    }
+    targets.insert(StoreItemId {
+        package: item_id.package,
+        item: item_id.item,
+    });
+}
+
+/// Reports whether a call's argument tuple is shaped like the closure-call ABI
+/// `(captures..., original_args)` rather than the callee's own parameter tuple.
+///
+/// The closure-call ABI passes each captured variable as a leading scalar and
+/// bundles the callable's original arguments into a single trailing tuple, so
+/// for a target whose flattened input is `(c0, c1, a0, a1)` the call site looks
+/// like:
+///
+/// ```text
+/// // target signature (flattened): (c0, c1, a0, a1)
+/// f(cap0, cap1, (arg0, arg1))     // grouped closure payload  -> true
+/// f(cap0, cap1, arg0, arg1)       // plain direct-call shape   -> false
+/// ```
+///
+/// The shape is confirmed by matching arities: after replacing the trailing
+/// tuple with its own elements, the total argument count must equal the
+/// target's parameter count. The target's parameter tuple is read from
+/// `callee_ty` when it is an `Arrow` (the call-site view), falling back to the
+/// item's declared input pattern otherwise.
+fn call_uses_grouped_closure_payload(
+    package: &Package,
+    item_id: LocalItemId,
+    arg_id: ExprId,
+    callee_ty: Option<&Ty>,
+) -> bool {
+    // The argument must be a tuple with at least a capture and the trailing
+    // grouped-args tuple.
+    let ExprKind::Tuple(args) = &package.get_expr(arg_id).kind else {
+        return false;
+    };
+    if args.len() < 2 {
+        return false;
+    }
+
+    // Determine the target's parameter tuple: prefer the call site's arrow view
+    // of the callee, falling back to the item's declared input pattern type.
+    let item_input = || {
+        let Some(ItemKind::Callable(decl)) = package.items.get(item_id).map(|item| &item.kind)
+        else {
+            return None;
+        };
+        Some(package.get_pat(decl.input).ty.clone())
+    };
+    let target_input = match callee_ty {
+        Some(Ty::Arrow(arrow)) => arrow.input.as_ref().clone(),
+        _ => item_input().unwrap_or(Ty::Err),
+    };
+    let Ty::Tuple(target_items) = target_input else {
+        return false;
+    };
+    // Under the grouped ABI the target has strictly more parameters than the
+    // call has arguments (the trailing tuple stands in for several of them).
+    if target_items.len() <= args.len() {
+        return false;
+    }
+
+    // The trailing argument must itself be a tuple (the bundled original args).
+    let trailing_arg_ty = &package
+        .get_expr(*args.last().expect("args is non-empty"))
+        .ty;
+    let Ty::Tuple(trailing_items) = trailing_arg_ty else {
+        return false;
+    };
+    // Confirm the shape by arity: leading captures plus the unbundled trailing
+    // args must exactly account for every target parameter.
+    args.len() - 1 + trailing_items.len() == target_items.len()
 }
 
 /// Flattens an entire callable input into one flat tuple of scalar leaves,
@@ -1052,18 +1173,7 @@ fn build_leaf_tuple(
         // (handled by the early return above), so this fallback is unreachable for
         // well-formed flattened inputs. Fall back to a unit tuple to keep the
         // rewrite total.
-        let expr_id = assigner.next_expr();
-        package.exprs.insert(
-            expr_id,
-            Expr {
-                id: expr_id,
-                span: Span::default(),
-                ty: sub_ty.clone(),
-                kind: ExprKind::Tuple(vec![]),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
-        );
-        return expr_id;
+        return alloc_tuple_expr(package, assigner, vec![], sub_ty.clone(), Span::default());
     };
 
     let mut child_ids = Vec::with_capacity(elems.len());
@@ -1080,18 +1190,13 @@ fn build_leaf_tuple(
         child_path.pop();
     }
 
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: sub_ty.clone(),
-            kind: ExprKind::Tuple(child_ids),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
+    alloc_tuple_expr(
+        package,
+        assigner,
+        child_ids,
+        sub_ty.clone(),
+        Span::default(),
+    )
 }
 
 /// Navigates a (possibly nested) tuple type by a positional `path`, returning
@@ -1278,35 +1383,15 @@ fn create_projection_temp_binding(
     arg_ty: &Ty,
     tmp_counter: &mut u32,
 ) -> (LocalVarId, StmtId) {
-    let local_id = assigner.next_local();
-    let pat_id = assigner.next_pat();
     let temp_name = next_arg_promote_tmp_name(tmp_counter);
-    package.pats.insert(
-        pat_id,
-        Pat {
-            id: pat_id,
-            span: Span::default(),
-            ty: arg_ty.clone(),
-            kind: PatKind::Bind(Ident {
-                id: local_id,
-                span: Span::default(),
-                name: Rc::from(temp_name.as_str()),
-            }),
-        },
-    );
-
-    let stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        stmt_id,
-        Stmt {
-            id: stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Local(Mutability::Immutable, pat_id, arg_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    (local_id, stmt_id)
+    alloc_local_var(
+        package,
+        assigner,
+        &temp_name,
+        arg_ty,
+        arg_id,
+        Mutability::Immutable,
+    )
 }
 
 /// Returns `true` when the promotion leaf at `path` can be projected out of the
@@ -1366,23 +1451,14 @@ fn project_leaf_through_tuple_literal(
         return current;
     }
 
-    let field_expr_id = assigner.next_expr();
-    package.exprs.insert(
-        field_expr_id,
-        Expr {
-            id: field_expr_id,
-            span: Span::default(),
-            ty: leaf_ty.clone(),
-            kind: ExprKind::Field(
-                current,
-                Field::Path(FieldPath {
-                    indices: rest.to_vec(),
-                }),
-            ),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    field_expr_id
+    alloc_field_path_expr(
+        package,
+        assigner,
+        current,
+        rest.to_vec(),
+        leaf_ty.clone(),
+        Span::default(),
+    )
 }
 
 /// Attempts to build the flat projected tuple argument directly from a
@@ -1441,17 +1517,7 @@ fn try_inline_tuple_literal_projection(
             .map(|(_, leaf_ty)| leaf_ty.clone())
             .collect(),
     );
-    let new_arg_id = assigner.next_expr();
-    package.exprs.insert(
-        new_arg_id,
-        Expr {
-            id: new_arg_id,
-            span: Span::default(),
-            ty: tuple_ty,
-            kind: ExprKind::Tuple(field_expr_ids),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let new_arg_id = alloc_tuple_expr(package, assigner, field_expr_ids, tuple_ty, Span::default());
     Some(new_arg_id)
 }
 
@@ -1495,24 +1561,17 @@ fn create_projected_tuple_arg(
         } else {
             arg_id
         };
-        let field_expr_id = assigner.next_expr();
-        let field_expr = qsc_fir::fir::Expr {
-            id: field_expr_id,
-            span: Span::default(),
-            ty: leaf_ty.clone(),
-            kind: ExprKind::Field(
-                field_base_id,
-                Field::Path(FieldPath {
-                    indices: path.clone(),
-                }),
-            ),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        };
-        package.exprs.insert(field_expr_id, field_expr);
+        let field_expr_id = alloc_field_path_expr(
+            package,
+            assigner,
+            field_base_id,
+            path.clone(),
+            leaf_ty.clone(),
+            Span::default(),
+        );
         field_expr_ids.push(field_expr_id);
     }
 
-    let new_arg_id = assigner.next_expr();
     let tuple_ty = Ty::Tuple(
         promotion
             .leaves
@@ -1520,15 +1579,7 @@ fn create_projected_tuple_arg(
             .map(|(_, leaf_ty)| leaf_ty.clone())
             .collect(),
     );
-    let new_arg = qsc_fir::fir::Expr {
-        id: new_arg_id,
-        span: Span::default(),
-        ty: tuple_ty,
-        kind: ExprKind::Tuple(field_expr_ids),
-        exec_graph_range: EMPTY_EXEC_RANGE,
-    };
-    package.exprs.insert(new_arg_id, new_arg);
-    new_arg_id
+    alloc_tuple_expr(package, assigner, field_expr_ids, tuple_ty, Span::default())
 }
 
 /// Wraps a single promoted payload expression in a one-element tuple argument.
@@ -1538,16 +1589,13 @@ fn create_single_tuple_arg(
     arg_id: ExprId,
     elem_types: &[Ty],
 ) -> ExprId {
-    let new_arg_id = assigner.next_expr();
-    let new_arg = qsc_fir::fir::Expr {
-        id: new_arg_id,
-        span: Span::default(),
-        ty: Ty::Tuple(elem_types.to_vec()),
-        kind: ExprKind::Tuple(vec![arg_id]),
-        exec_graph_range: EMPTY_EXEC_RANGE,
-    };
-    package.exprs.insert(new_arg_id, new_arg);
-    new_arg_id
+    alloc_tuple_expr(
+        package,
+        assigner,
+        vec![arg_id],
+        Ty::Tuple(elem_types.to_vec()),
+        Span::default(),
+    )
 }
 
 /// Builds a block expression that evaluates a leading statement before
@@ -1560,40 +1608,17 @@ fn create_payload_block(
 ) -> ExprId {
     let result_ty = package.get_expr(result_expr_id).ty.clone();
 
-    let result_stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        result_stmt_id,
-        Stmt {
-            id: result_stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Expr(result_expr_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
+    let result_stmt_id = alloc_expr_stmt(package, assigner, result_expr_id, Span::default());
+
+    let block_id = alloc_block(
+        package,
+        assigner,
+        vec![leading_stmt_id, result_stmt_id],
+        result_ty.clone(),
+        Span::default(),
     );
 
-    let block_id = assigner.next_block();
-    package.blocks.insert(
-        block_id,
-        Block {
-            id: block_id,
-            span: Span::default(),
-            ty: result_ty.clone(),
-            stmts: vec![leading_stmt_id, result_stmt_id],
-        },
-    );
-
-    let block_expr_id = assigner.next_expr();
-    package.exprs.insert(
-        block_expr_id,
-        Expr {
-            id: block_expr_id,
-            span: Span::default(),
-            ty: result_ty,
-            kind: ExprKind::Block(block_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    block_expr_id
+    alloc_block_expr(package, assigner, block_id, result_ty, Span::default())
 }
 
 /// Returns `true` when `elems` is already the fully-flattened argument list:
@@ -1710,38 +1735,23 @@ fn wrap_call_in_block(
     call_ty: &Ty,
     leading_stmt_id: StmtId,
 ) {
-    let inner_call_id = assigner.next_expr();
-    package.exprs.insert(
-        inner_call_id,
-        Expr {
-            id: inner_call_id,
-            span: Span::default(),
-            ty: call_ty.clone(),
-            kind: ExprKind::Call(callee_id, new_arg_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
+    let inner_call_id = alloc_call_expr(
+        package,
+        assigner,
+        callee_id,
+        new_arg_id,
+        call_ty.clone(),
+        Span::default(),
     );
 
-    let call_stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        call_stmt_id,
-        Stmt {
-            id: call_stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Expr(inner_call_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let call_stmt_id = alloc_expr_stmt(package, assigner, inner_call_id, Span::default());
 
-    let block_id = assigner.next_block();
-    package.blocks.insert(
-        block_id,
-        Block {
-            id: block_id,
-            span: Span::default(),
-            ty: call_ty.clone(),
-            stmts: vec![leading_stmt_id, call_stmt_id],
-        },
+    let block_id = alloc_block(
+        package,
+        assigner,
+        vec![leading_stmt_id, call_stmt_id],
+        call_ty.clone(),
+        Span::default(),
     );
 
     let call_mut = package
@@ -1934,16 +1944,12 @@ fn rebuild_controlled_arg_layers(
             package.get_expr(controls).ty.clone(),
             package.get_expr(current).ty.clone(),
         ]);
-        let tuple_id = assigner.next_expr();
-        package.exprs.insert(
-            tuple_id,
-            Expr {
-                id: tuple_id,
-                span: Span::default(),
-                ty: tuple_ty,
-                kind: ExprKind::Tuple(vec![controls, current]),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
+        let tuple_id = alloc_tuple_expr(
+            package,
+            assigner,
+            vec![controls, current],
+            tuple_ty,
+            Span::default(),
         );
         current = tuple_id;
     }
