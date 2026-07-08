@@ -4,6 +4,7 @@
     "customConditions": ["browser"],
     "isolatedModules": true,
     "esModuleInterop": true,
+    "noUncheckedSideEffectImports": false,
     "noEmit": true,
     "target": "ES2022",
     "outDir": "out",

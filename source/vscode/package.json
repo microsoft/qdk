@@ -1531,12 +1531,12 @@
     "start": "npm exec --no -- @vscode/test-web --extensionDevelopmentPath . ../../samples",
     "test": "node ./test/runTests.mjs -- ",
     "pretest": "npm exec --no playwright install chromium && node ./test/buildTests.mjs",
-    "tsc:check:main": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json",
-    "tsc:check:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json",
-    "tsc:check:learning": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/webview/tsconfig.json",
+    "tsc:check:main": "tsc -p ./tsconfig.json",
+    "tsc:check:view": "tsc -p ./src/webview/tsconfig.json",
+    "tsc:check:learning": "tsc -p ./src/learning/webview/tsconfig.json",
     "tsc:check": "npm run tsc:check:main && npm run tsc:check:view && npm run tsc:check:learning",
-    "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json --watch --preserveWatchOutput",
-    "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput"
+    "tsc:watch": "tsc -p ./tsconfig.json --watch --preserveWatchOutput",
+    "tsc:watch:view": "tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput"
   },
   "repository": {
     "type": "git",

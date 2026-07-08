@@ -28,13 +28,14 @@
     "build": "npm run build:lib && npm run build:labextension:prod",
     "build:dev": "npm run build:lib && npm run build:labextension:dev",
     "build:prod": "npm run build:lib && npm run build:labextension:prod",
-    "build:lib": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json",
+    "build:lib": "tsc -p ./tsconfig.json",
     "build:labextension:dev": "node node_modules/@jupyterlab/builder/lib/build-labextension.js --core-path ./jupyterlab-core --development .",
     "build:labextension:prod": "node node_modules/@jupyterlab/builder/lib/build-labextension.js --core-path ./jupyterlab-core ."
   },
   "devDependencies": {
     "@jupyterlab/builder": "^4.5.6",
-    "typescript": "5.6.3"
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   },
   "dependencies": {
     "@codemirror/language": "^6.12.3",

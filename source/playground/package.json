@@ -7,8 +7,8 @@
   "license": "MIT",
   "scripts": {
     "build": "npm run tsc:check && node build.js",
-    "tsc:check": "node ../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json",
-    "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json --watch --preserveWatchOutput",
+    "tsc:check": "tsc -p ./src/tsconfig.json",
+    "tsc:watch": "tsc -p ./src/tsconfig.json --watch --preserveWatchOutput",
     "start": "node build.js --serve"
   }
 }

@@ -8,6 +8,7 @@
     "strict": true /* enable all strict type-checking options */,
     "isolatedModules": true,
     "esModuleInterop": true,
+    "noUncheckedSideEffectImports": false,
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "skipLibCheck": true,

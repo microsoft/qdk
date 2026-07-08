@@ -13,6 +13,7 @@
     "jsxImportSource": "preact",
     "isolatedModules": true,
     "esModuleInterop": true,
+    "noUncheckedSideEffectImports": false,
     "skipLibCheck": true,
     "types": []
   }

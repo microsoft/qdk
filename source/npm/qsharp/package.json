@@ -31,9 +31,9 @@
     "generate": "node generate_katas_content.js && node generate_samples_content.js",
     "generate:force": "node generate_katas_content.js --force && node generate_samples_content.js",
     "docs": "node generate_docs.js",
-    "build:tsc": "node ../../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json",
-    "build:ux": "node ../../../node_modules/typescript/bin/tsc -p ./ux/tsconfig.json",
-    "tsc:watch": "node ../../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json --watch --preserveWatchOutput",
+    "build:tsc": "tsc -p ./src/tsconfig.json",
+    "build:ux": "tsc -p ./ux/tsconfig.json",
+    "tsc:watch": "tsc -p ./src/tsconfig.json --watch --preserveWatchOutput",
     "test": "node --test"
   },
   "type": "module",
