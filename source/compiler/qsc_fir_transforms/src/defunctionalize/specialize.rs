@@ -131,7 +131,6 @@ pub(super) fn specialize(
 ) -> (FxHashMap<SpecKey, StoreItemId>, Vec<Error>) {
     let mut dedup: FxHashMap<SpecKey, StoreItemId> = FxHashMap::default();
     let mut errors: Vec<Error> = Vec::new();
-    let mut recursion_guard: FxHashSet<SpecKey> = FxHashSet::default();
 
     // Build a lookup from each HOF's StoreItemId => CallableParam. This
     // lowest-index entry serves the per-row path, used by single-arrow-param
@@ -175,15 +174,7 @@ pub(super) fn specialize(
             is_combined_eligible(package, group)
         };
         if combined {
-            specialize_combined_group(
-                store,
-                group,
-                &param_by_position,
-                &mut dedup,
-                &mut errors,
-                &mut recursion_guard,
-                assigners,
-            );
+            specialize_combined_group(store, group, &param_by_position, &mut dedup, assigners);
             continue;
         }
 
@@ -199,8 +190,6 @@ pub(super) fn specialize(
             group,
             &param_by_position,
             &mut dedup,
-            &mut errors,
-            &mut recursion_guard,
             assigners,
         ) {
             continue;
@@ -217,7 +206,6 @@ pub(super) fn specialize(
             &param_by_position,
             &mut dedup,
             &mut errors,
-            &mut recursion_guard,
             assigners,
         );
     }
@@ -304,16 +292,12 @@ fn resolve_group_members<'a>(
 /// argument together, inserting the new spec into `dedup`.
 ///
 /// Recovers the exact parameter for each row via [`resolve_group_members`], then
-/// clones the HOF via [`specialize_many`]. Already-specialized keys are
-/// skipped; a recursive key records a
-/// [`Error::RecursiveSpecialization`] diagnostic.
+/// clones the HOF via [`specialize_many`]. Already-specialized keys are skipped.
 fn specialize_combined_group(
     store: &mut PackageStore,
     group: &[&CallSite],
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
     dedup: &mut FxHashMap<SpecKey, StoreItemId>,
-    errors: &mut Vec<Error>,
-    recursion_guard: &mut FxHashSet<SpecKey>,
     assigners: &mut PackageAssigners,
 ) {
     // Combined multi-argument specialization keyed by every resolved argument
@@ -326,16 +310,7 @@ fn specialize_combined_group(
     }
 
     let hof_store_id = StoreItemId::from((hof_item_id.package, hof_item_id.item));
-    if recursion_guard.contains(&spec_key) {
-        let package = store.get(group[0].call_pkg_id);
-        let span = package.get_expr(group[0].call_expr_id).span;
-        errors.push(Error::RecursiveSpecialization(span));
-        return;
-    }
-    recursion_guard.insert(spec_key.clone());
-
     let Some(members) = resolve_group_members(group, hof_store_id, param_by_position) else {
-        recursion_guard.remove(&spec_key);
         return;
     };
 
@@ -349,7 +324,6 @@ fn specialize_combined_group(
     if let Some(id) = new_item_id {
         dedup.insert(spec_key.clone(), id);
     }
-    recursion_guard.remove(&spec_key);
 }
 
 /// Specializes each dispatch candidate of a mixed branch-split group into a
@@ -373,8 +347,6 @@ fn specialize_mixed_branch_split_group(
     group: &[&CallSite],
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
     dedup: &mut FxHashMap<SpecKey, StoreItemId>,
-    errors: &mut Vec<Error>,
-    recursion_guard: &mut FxHashSet<SpecKey>,
     assigners: &mut PackageAssigners,
 ) -> bool {
     let Some((dispatch, constants)) = partition_mixed_branch_split(group) else {
@@ -390,17 +362,9 @@ fn specialize_mixed_branch_split_group(
         if dedup.contains_key(&spec_key) {
             continue;
         }
-        if recursion_guard.contains(&spec_key) {
-            let package = store.get(candidate.call_pkg_id);
-            let span = package.get_expr(candidate.call_expr_id).span;
-            errors.push(Error::RecursiveSpecialization(span));
-            continue;
-        }
-        recursion_guard.insert(spec_key.clone());
 
         let Some(members) = resolve_group_members(&members_cs, hof_store_id, param_by_position)
         else {
-            recursion_guard.remove(&spec_key);
             continue;
         };
 
@@ -414,7 +378,6 @@ fn specialize_mixed_branch_split_group(
         if let Some(id) = new_item_id {
             dedup.insert(spec_key.clone(), id);
         }
-        recursion_guard.remove(&spec_key);
     }
     true
 }
@@ -435,7 +398,6 @@ fn specialize_per_row_group(
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
     dedup: &mut FxHashMap<SpecKey, StoreItemId>,
     errors: &mut Vec<Error>,
-    recursion_guard: &mut FxHashSet<SpecKey>,
     assigners: &mut PackageAssigners,
 ) {
     for call_site in group {
@@ -462,15 +424,6 @@ fn specialize_per_row_group(
         let hof_store_id =
             StoreItemId::from((call_site.hof_item_id.package, call_site.hof_item_id.item));
 
-        // Recursive specialization guard.
-        if recursion_guard.contains(&spec_key) {
-            let package = store.get(call_site.call_pkg_id);
-            let span = package.get_expr(call_site.call_expr_id).span;
-            errors.push(Error::RecursiveSpecialization(span));
-            continue;
-        }
-        recursion_guard.insert(spec_key.clone());
-
         // Look up the callable parameter for this HOF, preferring the exact
         // per-position match so a per-row specialization removes its own slot
         // rather than the lowest-index slot. This keeps the specialize side
@@ -486,7 +439,6 @@ fn specialize_per_row_group(
             .or_else(|| param_lookup.get(&hof_store_id))
             .copied()
         else {
-            recursion_guard.remove(&spec_key);
             continue;
         };
 
@@ -506,8 +458,6 @@ fn specialize_per_row_group(
         if let Some(id) = new_item_id {
             dedup.insert(spec_key.clone(), id);
         }
-
-        recursion_guard.remove(&spec_key);
     }
 }
 

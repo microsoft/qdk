@@ -452,15 +452,6 @@ pub enum Error {
     #[diagnostic(help("ensure all callable arguments are known at compile time"))]
     DynamicCallable(#[label] Span),
 
-    /// Emitted when specializing a HOF would re-enter the same
-    /// `(HOF, concrete-argument)` combination during a single pass — for
-    /// example, a HOF that calls itself with the same callable argument it
-    /// received. The recursion guard in `specialize` rejects the duplicate
-    /// entry rather than looping indefinitely.
-    #[error("specialization leads to infinite recursion")]
-    #[diagnostic(code("Qsc.Defunctionalize.RecursiveSpecialization"))]
-    RecursiveSpecialization(#[label] Span),
-
     /// Emitted when a higher-order function forwards two or more distinct
     /// arrays of callables through a single call. The callables are statically
     /// resolved, but the combined removal models only one forwarded callable
