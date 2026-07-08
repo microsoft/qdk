@@ -132,7 +132,24 @@ pub(super) struct SynthSlots {
 /// trailing expression. Returns the [`SynthSlots`] handles so the simplify
 /// phase can fold the canonical flag/slot shapes back into structured control
 /// flow.
-#[allow(clippy::too_many_lines)]
+///
+/// # Transformation
+///
+/// ```text
+/// // before: two exits — the early return and the trailing value
+/// {
+///     if cond { return x; }
+///     y
+/// }
+/// // after: one exit — declare flag + slot, guard the suffix, read the slot
+/// {
+///     mutable __has_returned = false;
+///     mutable __return_slot = <default>;
+///     if cond { set __return_slot = x; set __has_returned = true; }
+///     if not __has_returned { set __return_slot = y; }
+///     __return_slot
+/// }
+/// ```
 #[allow(clippy::too_many_arguments)]
 pub(super) fn transform_block_with_flags(
     package: &mut Package,
@@ -144,9 +161,13 @@ pub(super) fn transform_block_with_flags(
     arrow_default_cache: &mut ArrowDefaultCache,
     return_slot_strategy: ReturnSlotStrategy,
 ) -> SynthSlots {
+    // Declare the `__has_returned` flag (starts `false`) at the block head. It
+    // records whether an early return has fired.
     let (has_returned_var_id, has_returned_decl_stmt) =
         create_mutable_bool_var(package, assigner, symbols::HAS_RETURNED, false);
 
+    // Declare the return slot that will hold the block's eventual return value,
+    // seeded with a default appropriate for `return_ty`.
     let (return_slot, ret_val_decl_stmt) = create_return_slot_decl(
         package,
         assigner,
@@ -157,11 +178,15 @@ pub(super) fn transform_block_with_flags(
         return_slot_strategy,
     );
 
+    // Snapshot the original statements, then start the new body with the two
+    // fresh declarations before any rewritten statement.
     let original_stmts = package.get_block(block_id).stmts.clone();
     let mut new_stmts: Vec<StmtId> = Vec::new();
 
     new_stmts.push(has_returned_decl_stmt);
     new_stmts.push(ret_val_decl_stmt);
+    // Bundle the flag/slot handles so the per-statement rewrite can reference
+    // them without passing each one separately.
     let flag_context = FlagContext {
         package_id,
         has_returned_var_id,
@@ -169,6 +194,9 @@ pub(super) fn transform_block_with_flags(
         return_ty,
         udt_pure_tys,
     };
+    // Rewrite the body statements: returns become flag/slot writes and every
+    // statement after the first return is guarded behind the flag. The trailing
+    // value is handled lazily so it, too, is skipped once a return has fired.
     new_stmts.extend(transform_block_stmts_with_flags(
         package,
         assigner,
@@ -180,6 +208,8 @@ pub(super) fn transform_block_with_flags(
         },
     ));
 
+    // Append the synthesized trailing expression that reads the slot back out,
+    // giving the block its single, unified exit value.
     let (trailing, trailing_result) =
         create_flag_trailing_expr_for_slot(package, assigner, &mut new_stmts, &flag_context);
 
@@ -187,10 +217,14 @@ pub(super) fn transform_block_with_flags(
         new_stmts.push(trailing_stmt);
     }
 
+    // Swap in the rewritten statement list and keep the block's type as the
+    // declared return type.
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts = new_stmts;
     block.ty = return_ty.clone();
 
+    // Hand back the synthesized local ids so the simplify phase can recognize
+    // and fold these canonical flag/slot shapes.
     SynthSlots {
         has_returned: has_returned_var_id,
         return_slot,
@@ -240,7 +274,50 @@ pub(super) struct FlagContext<'a> {
     pub(super) udt_pure_tys: &'a UdtPureTyCache,
 }
 
-#[allow(clippy::too_many_lines)]
+/// Threads the `__has_returned` flag through a sequence of statements so that,
+/// once an early `return` has fired, no later statement in the block runs.
+///
+/// This is the per-statement workhorse behind [`transform_block_with_flags`].
+/// It walks the statements in order while remembering whether a return-bearing
+/// statement has already been seen. The first return-bearing statement has its
+/// `return`s rewritten into flag/slot writes; every statement after it is
+/// wrapped in `if not __has_returned { … }` so it becomes a no-op on the paths
+/// where the early return already ran. This guarding stands in for the PHI
+/// merge a backend like LLVM would insert at the join point.
+///
+/// Two cases break out of the straight-line guarding and instead emit a single
+/// *lazy continuation* — the entire remaining suffix nested inside one
+/// `if not __has_returned { … }` block:
+/// - When [`continuation_suffix_requires_split`] reports that the suffix can't
+///   be guarded statement-by-statement (for example because a later binding is
+///   read by the trailing value and must stay in one scope).
+/// - When the final trailing expression is reached under
+///   [`FinalTrailingExprStrategy::Lazy`], or under `Preserve` but the trailing
+///   expression itself still contains a `return`.
+///
+/// Under `FinalTrailingExprStrategy::Preserve` with no nested return, the
+/// trailing expression is left untouched so a block that already produces its
+/// value can keep it verbatim.
+///
+/// # Transformation
+///
+/// Given a block body like:
+///
+/// ```text
+/// foo();
+/// if cond { return x; }
+/// bar();
+/// baz()
+/// ```
+///
+/// the returns become flag/slot writes and each following statement is guarded:
+///
+/// ```text
+/// foo();
+/// if cond { set __return_slot = x; set __has_returned = true; }
+/// if not __has_returned { bar(); }
+/// if not __has_returned { baz() } else { __return_slot }
+/// ```
 fn transform_block_stmts_with_flags(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -249,10 +326,16 @@ fn transform_block_stmts_with_flags(
     arrow_default_cache: &mut ArrowDefaultCache,
     output: FlagBlockOutput,
 ) -> Vec<StmtId> {
+    // The rewritten statement list we build up, and a running flag that flips
+    // to `true` the moment we pass a statement that can perform an early return.
     let mut new_stmts: Vec<StmtId> = Vec::new();
     let mut seen_return_bearing_stmt = false;
 
     for (index, &stmt_id) in original_stmts.iter().enumerate() {
+        // Classify this statement before deciding how to handle it:
+        // - does it hold a `while` loop that itself contains a `return`?
+        // - does it contain a `return` anywhere?
+        // - is it the block's final trailing expression (the block's value)?
         let has_return_in_while = match &package.get_stmt(stmt_id).kind {
             StmtKind::Expr(e) | StmtKind::Semi(e) => contains_return_in_while_expr(package, *e),
             _ => false,
@@ -262,6 +345,10 @@ fn transform_block_stmts_with_flags(
             && index == original_stmts.len() - 1
             && matches!(package.get_stmt(stmt_id).kind, StmtKind::Expr(_));
 
+        // We are already past an early return, and the rest of the block can't
+        // be guarded one statement at a time (e.g. a later binding is needed by
+        // the trailing value). Emit the whole remaining suffix as a single lazy
+        // `if not __has_returned { … }` block and stop.
         if seen_return_bearing_stmt
             && continuation_suffix_requires_split(
                 package,
@@ -283,11 +370,15 @@ fn transform_block_stmts_with_flags(
             break;
         }
 
+        // We are past an early return and this is the block's trailing value.
+        // How we finish depends on the caller's strategy for the trailing expr.
         if seen_return_bearing_stmt && is_final_trailing_expr {
             match output
                 .final_trailing_expr_strategy()
                 .expect("final trailing strategy should be set for value output")
             {
+                // Lazy: wrap the trailing expression (and anything left) in one
+                // guarded block that falls back to the return slot value.
                 FinalTrailingExprStrategy::Lazy => {
                     let lazy_continuation = create_lazy_flag_continuation_stmt(
                         package,
@@ -300,6 +391,9 @@ fn transform_block_stmts_with_flags(
                     new_stmts.push(lazy_continuation);
                     break;
                 }
+                // Preserve, but the trailing expression still has its own
+                // `return` inside it: it can't be kept verbatim, so guard it
+                // lazily like the Lazy case.
                 FinalTrailingExprStrategy::Preserve if has_return => {
                     let lazy_continuation = create_lazy_flag_continuation_stmt(
                         package,
@@ -312,6 +406,8 @@ fn transform_block_stmts_with_flags(
                     new_stmts.push(lazy_continuation);
                     break;
                 }
+                // Preserve with no nested return: the block already produces its
+                // value here, so keep the trailing expression exactly as-is.
                 FinalTrailingExprStrategy::Preserve => {
                     new_stmts.push(stmt_id);
                     continue;
@@ -319,59 +415,112 @@ fn transform_block_stmts_with_flags(
             }
         }
 
-        if has_return_in_while {
-            transform_while_stmt(
-                package,
-                assigner,
-                stmt_id,
-                flag_context,
-                arrow_default_cache,
-            );
-            new_stmts.push(stmt_id);
-            seen_return_bearing_stmt = true;
-        } else if has_return && !seen_return_bearing_stmt {
-            replace_returns_with_flags(
-                package,
-                assigner,
-                stmt_id,
-                flag_context,
-                arrow_default_cache,
-            );
-            new_stmts.push(stmt_id);
-            seen_return_bearing_stmt = true;
-        } else if has_return {
-            replace_returns_with_flags(
-                package,
-                assigner,
-                stmt_id,
-                flag_context,
-                arrow_default_cache,
-            );
-            let guarded = guard_stmt_with_flag(
-                package,
-                assigner,
-                flag_context,
-                stmt_id,
-                arrow_default_cache,
-            );
-            new_stmts.push(guarded);
-        } else if seen_return_bearing_stmt {
-            let guarded = guard_stmt_with_flag(
-                package,
-                assigner,
-                flag_context,
-                stmt_id,
-                arrow_default_cache,
-            );
-            new_stmts.push(guarded);
-        } else {
-            new_stmts.push(stmt_id);
-        }
+        // The common path: rewrite this one statement (replace its returns with
+        // flag writes and/or guard it behind the flag as needed) and record
+        // whether we have now passed a return-bearing statement.
+        seen_return_bearing_stmt = transform_and_push_flag_stmt(
+            package,
+            assigner,
+            stmt_id,
+            flag_context,
+            arrow_default_cache,
+            &mut new_stmts,
+            has_return_in_while,
+            has_return,
+            seen_return_bearing_stmt,
+        );
     }
 
     new_stmts
 }
 
+/// Rewrites a single statement for the flag-threaded block and appends it to
+/// `new_stmts`, returning the updated `seen_return_bearing_stmt` state.
+///
+/// A `while` bearing a return is rewritten in place; the first return-bearing
+/// statement has its returns replaced with flag writes; later statements are
+/// guarded by the flag (standing in for LLVM's PHI merge). A statement that is
+/// neither return-bearing nor after a return is passed through unchanged.
+#[allow(clippy::too_many_arguments)]
+fn transform_and_push_flag_stmt(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    stmt_id: StmtId,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    new_stmts: &mut Vec<StmtId>,
+    has_return_in_while: bool,
+    has_return: bool,
+    seen_return_bearing_stmt: bool,
+) -> bool {
+    if has_return_in_while {
+        // A `while` that can early-return is rewritten in place (flag-guarded
+        // loop condition + return replacement in its body) and kept as-is.
+        transform_while_stmt(
+            package,
+            assigner,
+            stmt_id,
+            flag_context,
+            arrow_default_cache,
+        );
+        new_stmts.push(stmt_id);
+        true
+    } else if has_return && !seen_return_bearing_stmt {
+        // The first return-bearing statement: turn its `return`s into flag/slot
+        // writes. It runs unconditionally (nothing before it could have
+        // returned), so no flag guard is needed.
+        replace_returns_with_flags(
+            package,
+            assigner,
+            stmt_id,
+            flag_context,
+            arrow_default_cache,
+        );
+        new_stmts.push(stmt_id);
+        true
+    } else if has_return {
+        // A later return-bearing statement: replace its returns with flag
+        // writes AND guard the whole statement, since an earlier return may
+        // already have fired.
+        replace_returns_with_flags(
+            package,
+            assigner,
+            stmt_id,
+            flag_context,
+            arrow_default_cache,
+        );
+        let guarded = guard_stmt_with_flag(
+            package,
+            assigner,
+            flag_context,
+            stmt_id,
+            arrow_default_cache,
+        );
+        new_stmts.push(guarded);
+        seen_return_bearing_stmt
+    } else if seen_return_bearing_stmt {
+        // No return of its own, but it sits after one, so guard it behind the
+        // flag so it is skipped on the early-return path.
+        let guarded = guard_stmt_with_flag(
+            package,
+            assigner,
+            flag_context,
+            stmt_id,
+            arrow_default_cache,
+        );
+        new_stmts.push(guarded);
+        seen_return_bearing_stmt
+    } else {
+        // Nothing special: no return here and none before it, so keep it
+        // untouched.
+        new_stmts.push(stmt_id);
+        seen_return_bearing_stmt
+    }
+}
+
+/// Builds a lazy-continuation *statement* wrapping the remaining suffix in one
+/// flag-guarded block (see [`create_lazy_flag_continuation_expr`]), choosing an
+/// expression- or semicolon-statement to match the block's value/unit output.
 fn create_lazy_flag_continuation_stmt(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -389,15 +538,38 @@ fn create_lazy_flag_continuation_stmt(
         output,
     );
     match output {
+        // A value-producing block ends in an expression statement (no trailing
+        // semicolon) so the guarded `if` becomes the block's value.
         FlagBlockOutput::ReturnValue { .. } => {
             alloc_expr_stmt(package, assigner, lazy_continuation, Span::default())
         }
+        // A unit block ends in a semicolon statement.
         FlagBlockOutput::Unit => {
             alloc_semi_stmt(package, assigner, lazy_continuation, Span::default())
         }
     }
 }
 
+/// Builds the lazy-continuation *expression*: the entire remaining suffix of a
+/// block nested inside `if not __has_returned { <suffix> } else { <slot> }`.
+///
+/// Rather than guard each remaining statement individually, everything after an
+/// early return is bundled into one guarded block. On the not-yet-returned path
+/// the suffix runs; on the already-returned path control falls to the `else`,
+/// which reads the return slot so the block still produces the return value.
+///
+/// # Transformation
+///
+/// ```text
+/// // suffix after an early return, value-producing block:
+/// if not __has_returned {
+///     <transformed suffix statements...>
+///     <trailing value>       // slot-read-or-fail appended if the suffix
+///                            // produced no value of the return type
+/// } else {
+///     __return_slot          // already returned: yield the stored value
+/// }
+/// ```
 fn create_lazy_flag_continuation_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -406,6 +578,8 @@ fn create_lazy_flag_continuation_expr(
     arrow_default_cache: &mut ArrowDefaultCache,
     output: FlagBlockOutput,
 ) -> ExprId {
+    // Recursively flag-thread the suffix statements. `output.lazy()` keeps the
+    // nested block on the lazy trailing-expression strategy too.
     let mut continuation_stmts = transform_block_stmts_with_flags(
         package,
         assigner,
@@ -416,7 +590,11 @@ fn create_lazy_flag_continuation_expr(
     );
     let (continuation_ty, else_expr) = match output {
         FlagBlockOutput::ReturnValue { .. } => {
+            // The guarded block must yield a value of the return type. If the
+            // transformed suffix doesn't already end in one, make it.
             if !has_value_trailing_stmt(package, &continuation_stmts, flag_context.return_ty) {
+                // Drop a trailing side-effect-free unit statement first so it
+                // doesn't sit awkwardly before the value we're about to append.
                 if let Some(&last_id) = continuation_stmts.last()
                     && let StmtKind::Expr(e) = package.get_stmt(last_id).kind
                     && package.get_expr(e).ty == Ty::UNIT
@@ -424,6 +602,8 @@ fn create_lazy_flag_continuation_expr(
                 {
                     continuation_stmts.pop();
                 }
+                // Append an expression that reads the slot, or fails at runtime
+                // if this path is reached without a value having been set.
                 let missing_value = create_return_slot_read_or_fail_expr(
                     package,
                     assigner,
@@ -439,6 +619,7 @@ fn create_lazy_flag_continuation_expr(
                 ));
             }
 
+            // The `else` branch (already-returned path) simply reads the slot.
             let ret_var = create_return_slot_read_expr(
                 package,
                 assigner,
@@ -447,8 +628,10 @@ fn create_lazy_flag_continuation_expr(
             );
             (flag_context.return_ty.clone(), Some(ret_var))
         }
+        // A unit block needs no value and no `else` branch.
         FlagBlockOutput::Unit => (Ty::UNIT, None),
     };
+    // Wrap the suffix statements in a block expression of the chosen type.
     let continuation_block = alloc_block(
         package,
         assigner,
@@ -463,6 +646,8 @@ fn create_lazy_flag_continuation_expr(
         continuation_ty.clone(),
         Span::default(),
     );
+    // Guard on `not __has_returned` so the suffix runs only when no early return
+    // has fired; otherwise control takes the `else` (slot read) path.
     let not_flag = create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
 
     alloc_if_expr(
@@ -476,6 +661,8 @@ fn create_lazy_flag_continuation_expr(
     )
 }
 
+/// Reports whether the last statement is an expression statement whose type is
+/// the block's return type — i.e. the block already ends in a return value.
 fn has_value_trailing_stmt(package: &Package, stmts: &[StmtId], return_ty: &Ty) -> bool {
     stmts.last().is_some_and(|&stmt_id| {
         matches!(
@@ -485,6 +672,8 @@ fn has_value_trailing_stmt(package: &Package, stmts: &[StmtId], return_ty: &Ty) 
     })
 }
 
+/// Entry point for rewriting a statement that holds a `while`-with-return:
+/// unwraps the statement's expression and hands it to [`transform_while_in_expr`].
 fn transform_while_stmt(
     package: &mut Package,
     assigner: &mut Assigner,
