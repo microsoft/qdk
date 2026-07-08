@@ -348,22 +348,28 @@ interface InteractionContext {
 ```
 
 Controllers are intentionally translation-only: they own their
-listeners and lifecycle, but hold no state. State lives on
-`model` (persistent) or `interaction` (ephemeral). That's what
-lets `dragController.test.mjs` etc. construct a controller with a
-hand-built context and exercise it directly.
+listeners and lifecycle, and hold no state _between_ gestures.
+Durable state lives on `model` (persistent) or `interaction`
+(ephemeral). The one exception is transient, single-gesture
+bookkeeping a controller sets up and tears down within one drag —
+`DragController`'s shift-extend fields (`_shiftExtendCtx`,
+`_shiftExtendDropzones`, `_ghostBorder`, and the document
+keydown/keyup handlers) exist only between `setupShiftExtend` and
+`tearDownShiftExtend`. That's what lets `dragController.test.mjs`
+etc. construct a controller with a hand-built context and exercise
+it directly.
 
 ---
 
 ## Controller responsibilities
 
-| Controller                                                                         | Surface                                                                                        | Notes                                                                                                                                                                                       |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [DragController](editor/controllers/dragController.ts)                             | gate-drag, toolbox-drag, dropzone commit, document-level mouseup, add/remove-control wire-pick | Largest controller — these flows share dropzones/ghost/`interaction` flags so splitting wouldn't separate concerns. Holds a `QubitController` ref for the qubit-label drag-out-delete path. |
-| [QubitController](editor/controllers/qubitController.ts)                           | qubit-label drag (swap + insert-between dropzones), `removeQubitLineWithConfirmation`          | Public method called from two callers: context menu (via `CircuitEvents` shim) and `DragController`'s document-mouseup handler.                                                             |
-| [SelectionController](editor/controllers/selectionController.ts)                   | host-element mousedown (sets `selectedWire`/`movingControl`), context-menu attach              | Smallest controller; runs deeper in the DOM than `DragController`'s gate handler so its state mutation is visible by the time the drag handler runs.                                        |
-| [KeyboardController](editor/controllers/keyboardController.ts)                     | document `keydown`/`keyup` for Ctrl-toggle move/copy                                           | Stateless; only consults whether `selectedOperation` has a location.                                                                                                                        |
-| `enableAutoScroll` ([scrollController.ts](editor/controllers/scrollController.ts)) | document `mousemove` near container edges                                                      | Function not class — no shared state, called fresh by both gate-drag and qubit-drag. Self-removes on next mouseup.                                                                          |
+| Controller                                                                         | Surface                                                                                                      | Notes                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [DragController](editor/controllers/dragController.ts)                             | gate-drag, toolbox-drag, dropzone commit, document-level mouseup, add/remove-control wire-pick, shift-extend | Largest controller — these flows share dropzones/ghost/`interaction` flags so splitting wouldn't separate concerns. Holds a `QubitController` ref for the qubit-label drag-out-delete path, plus transient shift-extend state scoped to a single drag. |
+| [QubitController](editor/controllers/qubitController.ts)                           | qubit-label drag (swap + insert-between dropzones), `removeQubitLineWithConfirmation`                        | Public method called from two callers: context menu (via `CircuitEvents` shim) and `DragController`'s document-mouseup handler.                                                                                                                        |
+| [SelectionController](editor/controllers/selectionController.ts)                   | host-element mousedown (sets `selectedWire`/`movingControl`), context-menu attach                            | Smallest controller; runs deeper in the DOM than `DragController`'s gate handler so its state mutation is visible by the time the drag handler runs.                                                                                                   |
+| [KeyboardController](editor/controllers/keyboardController.ts)                     | document `keydown`/`keyup` for Ctrl-toggle move/copy                                                         | Stateless; only consults whether `selectedOperation` has a location.                                                                                                                                                                                   |
+| `enableAutoScroll` ([scrollController.ts](editor/controllers/scrollController.ts)) | document `mousemove` near container edges                                                                    | Function not class — no shared state, called fresh by both gate-drag and qubit-drag. Self-removes on next mouseup.                                                                                                                                     |
 
 `CircuitEvents` itself ([events.ts](editor/events.ts)) is just
 wiring: build the context, instantiate each controller, expose
@@ -474,8 +480,10 @@ node --test "test/circuit-editor/**/*.test.mjs"
 
 ## Conventions
 
-- **Controllers translate, they do not own.** No mutable state on
-  the controller class itself.
+- **Controllers translate, they do not own.** No durable state on
+  the controller class itself — only transient, single-gesture
+  bookkeeping (e.g. `DragController`'s shift-extend fields, set up
+  and torn down within one drag).
 - **Actions mutate, they do not render.** No DOM, no `renderFn`
   calls inside `actions/`. Controllers re-render after dispatching.
 - **Locations go through `Location`.** Never hand-format
