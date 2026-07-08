@@ -29,6 +29,7 @@ import {
 } from "./circuit-actions/derivedTargets.js";
 import {
   addOp,
+  getSubtreeMinMaxWire,
   moveArrayElement,
   removeOp,
   updateMeasurementLines,
@@ -37,8 +38,10 @@ import {
 } from "./circuit-actions/gridPrimitives.js";
 import {
   collectMeasurementWires,
+  moveAsUnit,
   moveX,
   moveY,
+  shiftAllRegisters,
 } from "./circuit-actions/move.js";
 
 /*
@@ -159,8 +162,22 @@ const moveOperation = (
   const affectedMeasurementWires = new Set<number>();
   collectMeasurementWires(originalOperation, affectedMeasurementWires);
 
-  // Grow the model to fit the wire the moved leg will land on.
-  model.ensureQubitCount(targetWire);
+  // Grow the model to fit the highest wire the moved op will land
+  // on. For a single-leg move that's `targetWire`; for a unit-shift
+  // every register shifts by `targetWire - sourceWire`, so the high
+  // wire moves to `maxOrigWire + delta`, which can exceed it.
+  // Refuse the move if a unit-shift would push any wire below 0
+  // (the model has no negative wires); the drop silently no-ops.
+  if (moveAsUnit(newSourceOperation, movingControl)) {
+    const delta = targetWire - sourceWire;
+    const [minOrigWire, maxOrigWire] = getSubtreeMinMaxWire(newSourceOperation);
+    if (minOrigWire >= 0 && minOrigWire + delta < 0) {
+      return null;
+    }
+    model.ensureQubitCount(Math.max(targetWire, maxOrigWire + delta));
+  } else {
+    model.ensureQubitCount(targetWire);
+  }
 
   // Update operation's targets and controls
   moveY(newSourceOperation, sourceWire, targetWire, movingControl);
@@ -451,6 +468,11 @@ const removeMeasurementWithDependents = (
 /**
  * Add an operation into the circuit.
  *
+ * @param sourceWire The wire the source op was "grabbed" on. Only
+ *   meaningful when clone-dropping a group or multi-target op: the
+ *   subtree shifts by `targetWire - sourceWire` to keep its shape
+ *   (mirrors `moveOperation`'s `moveAsUnit` path). Omit for fresh
+ *   toolbox drops, which take the single-leg rewrite below.
  * @returns The added operation or null if the addition was unsuccessful.
  */
 const addOperation = (
@@ -459,6 +481,7 @@ const addOperation = (
   targetLocation: string,
   targetWire: number,
   insertNewColumn: boolean = false,
+  sourceWire?: number,
 ): Operation | null => {
   const targetOperationParent = findParentArray(
     model.componentGrid,
@@ -472,18 +495,37 @@ const addOperation = (
     JSON.stringify(sourceOperation),
   );
 
-  // Single-leg rewrite (toolbox drop, single-target clone): re-pin
-  // the op to `targetWire`.
-  if (newSourceOperation.kind === "measurement") {
-    newSourceOperation.qubits = [{ qubit: targetWire }];
-    // The measurement result is updated later in the updateMeasurementLines function
-  } else if (
-    newSourceOperation.kind === "unitary" ||
-    newSourceOperation.kind === "ket"
-  ) {
-    newSourceOperation.targets = [{ qubit: targetWire }];
+  // Decide whether this clone needs the rigid unit-shift treatment
+  // (same predicate as `moveOperation`'s move path). `movingControl`
+  // is always false here — clone-of-a-control routes through
+  // addControl + moveOperation, not addOperation.
+  const cloneAsUnit =
+    sourceWire !== undefined && moveAsUnit(newSourceOperation, false);
+
+  if (cloneAsUnit) {
+    // Mirror `moveOperation`'s unit-shift block: refuse if it would
+    // push any wire below 0, then grow the model to fit.
+    const delta = targetWire - sourceWire;
+    const [minOrigWire, maxOrigWire] = getSubtreeMinMaxWire(newSourceOperation);
+    if (minOrigWire >= 0 && minOrigWire + delta < 0) {
+      return null;
+    }
+    model.ensureQubitCount(Math.max(targetWire, maxOrigWire + delta));
+    if (delta !== 0) shiftAllRegisters(newSourceOperation, delta);
+  } else {
+    // Single-leg rewrite (toolbox drop, single-target clone): re-pin
+    // the op to `targetWire`.
+    if (newSourceOperation.kind === "measurement") {
+      newSourceOperation.qubits = [{ qubit: targetWire }];
+      // The measurement result is updated later in the updateMeasurementLines function
+    } else if (
+      newSourceOperation.kind === "unitary" ||
+      newSourceOperation.kind === "ket"
+    ) {
+      newSourceOperation.targets = [{ qubit: targetWire }];
+    }
+    model.ensureQubitCount(targetWire);
   }
-  model.ensureQubitCount(targetWire);
 
   // Capture the dest ancestor chain BEFORE addOp so the rung
   // references survive any column splices. Empty when top-level.
@@ -499,6 +541,20 @@ const addOperation = (
     targetLastIndex,
     insertNewColumn,
   );
+
+  // Unit-shift clones can drop nested measurements onto wires the
+  // model has never seen. `addOp` only refreshes TOP-LEVEL
+  // measurements, so refresh each touched wire explicitly. Single-leg
+  // drops skip this — `addOp` already handled their only measurement.
+  if (cloneAsUnit) {
+    const affectedMeasurementWires = new Set<number>();
+    collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
+    for (const wire of affectedMeasurementWires) {
+      if (wire >= 0 && wire < model.qubits.length) {
+        updateMeasurementLines(model, wire);
+      }
+    }
+  }
 
   // After mutating the parent group's children, the centralized
   // post-widening cleanup re-derives every ancestor's `.targets` and
