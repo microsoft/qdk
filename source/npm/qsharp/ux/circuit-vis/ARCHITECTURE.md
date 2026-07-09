@@ -16,7 +16,7 @@ renderer/    ← layout + SVG generation (View, called by sqore.ts)
 state-viz/   ← state visualization panel (parallel subsystem)
 ```
 
-Plus three top-level files:
+Plus a few top-level files:
 
 - `sqore.ts` — entrypoint. `new Sqore(...).draw()` renders, and on
   every render hands control to either the read-only path or
@@ -24,6 +24,8 @@ Plus three top-level files:
 - `utils.ts` — small shared helpers (location-walking
   `findOperation` family, register helpers, DOM lookups).
 - `index.ts` — public API barrel.
+- `angleExpression.ts` — parse/normalize/evaluate gate rotation
+  angle expressions (handles `pi`/`π` and simple arithmetic).
 
 The hard rule that drives the layering: **`data/` and `actions/`
 are pure data and never touch the DOM.** That's why the
@@ -67,6 +69,7 @@ ux/circuit-vis/
 ├── sqore.ts                      ← entrypoint (Sqore class)
 ├── utils.ts                      ← findOperation/findParentArray/... + DOM helpers
 ├── index.ts                      ← public re-exports
+├── angleExpression.ts            ← parse/normalize/evaluate gate angle expressions (π-aware)
 │
 ├── data/                         ← Data layer (no DOM, no actions)
 │   ├── circuit.ts                  Circuit/ComponentGrid/Operation types
@@ -78,7 +81,13 @@ ux/circuit-vis/
 ├── actions/                      ← Action layer (mutates data, no DOM)
 │   ├── circuitActions.ts           addOperation/moveOperation/etc against CircuitModel
 │   ├── interactionState.ts         InteractionState: ephemeral session state
-│   └── interactionActions.ts       resetTransient/clearSelection/etc against InteractionState
+│   ├── interactionActions.ts       resetTransient/clearSelection/etc against InteractionState
+│   └── circuit-actions/            circuitActions.ts internals (grid/move/ref helpers)
+│       ├── gridPrimitives.ts         addOp/removeOp, overlap resolution, measurement-line edits
+│       ├── move.ts                    moveX/moveY placement + measurement-wire collection
+│       ├── ancestors.ts               ancestor-chain walking for nested (grouped) ops
+│       ├── classicalRefs.ts           classical-register ref remap on move/delete
+│       └── derivedTargets.ts          refresh/prune derived .targets + span-change resolution
 │
 ├── editor/                       ← View layer (DOM glue, controllers)
 │   ├── installEditor.ts            Editor-mode bootstrap (one call from sqore.ts)
@@ -157,7 +166,11 @@ argument and mutates it in place; returns the affected
   `CircuitModel`. Examples:
   `addOperation`, `removeOperation`, `moveOperation`,
   `addControl`, `removeControl`, `removeQubitWithDependents`,
-  `moveQubit`, `removeQubit`. No DOM.
+  `moveQubit`, `removeQubit`. No DOM. The heavier grid mechanics
+  live in the [`circuit-actions/`](actions/circuit-actions/)
+  subfolder it delegates to — grid primitives, move placement,
+  ancestor-chain walking, classical-ref remapping, and
+  derived-`.targets` refresh.
 - **[`interactionState.ts`](actions/interactionState.ts)** —
   ephemeral session state container. Holds `selectedOperation`
   (persists across mouseup so the context menu can use it),
