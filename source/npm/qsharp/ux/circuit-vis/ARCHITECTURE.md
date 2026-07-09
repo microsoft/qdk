@@ -53,11 +53,6 @@ flowchart TB
     editor --> renderer
     actions --> data
     renderer -->|read-only| data
-
-    classDef pure fill:#eef7ee,stroke:#4a7c4a;
-    classDef view fill:#eef0fa,stroke:#4a4a7c;
-    class data,actions pure;
-    class editor,renderer view;
 ```
 
 Arrows are _depends on_. `actions/` and `data/` have no edges out
