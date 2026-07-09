@@ -1,5 +1,125 @@
 # QDK Changelog
 
+## v1.30.0
+
+Below are some of the highlights for the 1.30 release of the QDK.
+
+### Adaptive profile capabilities
+
+[QIR](https://github.com/microsoft/qdk/wiki/QIR) is the industry standard format that the QDK compiles programs into from various quantum languages (Q\#, OpenQASM, Qiskit, etc), and is how programs are sent to quantum computers for execution (such as via the Azure Quantum service). It is also the format some of the QDK simulators use, such as the Stabilizer and GPU state vector simulators.
+
+QIR specifies different `profiles` that dictate what instructions the QIR may contain, and the profile may contain [optional features](https://github.com/qir-alliance/qir-spec/blob/main/specification/profiles/Adaptive_Profile.md#optional-capabilities). In this release, we have added a number of these "optional" features in the code generation for the "Adaptive" profile.
+
+Several of these features don't directly effect what your code can express, but they can significantly impact performance. For example, by being able to directly express loops (rather than having to unroll them) and calls (rather than having to inline them) compilation time can be significant sped up and compiled program size significantly reduced. In the most noteable cases internally, we observed both improve by orders of magnitude.
+
+One concrete example where this does allow new algorithm capabilities is in unbounded loops, such as the "repeat-until-success" pattern. The below is a contrived but minimal example of a "repeat-until-success" loop that now compiles to QIR. (Previously this would have given an "cannot have a loop with a dynamic condition" error).
+
+```qsharp
+@EntryPoint(Adaptive)
+operation Main() : Int {
+    mutable iterations = 0;
+    use qubit = Qubit();
+
+    // Loop until the measurement of the qubit in the Z basis returns One
+    repeat {
+        iterations += 1;
+        Rx(0.1, qubit);
+    } until MResetZ(qubit) == One;
+
+    // Return the number of iterations it took to measure the desired state
+    iterations
+}
+```
+
+The `Adaptive` capabilities are a work in progress. Please check the wiki page at <https://github.com/microsoft/qdk/wiki/QIR> for the latest capabilities, limitations, and known issues. As always, please log an issue at <https://github.com/microsoft/qdk/issues> for any bugs, questions, or feature requests.
+
+### New quick-fixes
+
+Several new Quick Fixes have been added this release. The first is to add missing import statements.
+
+<video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/import-quickfix.mp4" autoplay loop muted playsinline></video>
+
+Another common coding error is to pass a single qubit where a qubit array was expected, such as in Controlled functors.
+For example, the code `Controlled SX(qs[0], qs[1]);` gives an error of "type error: expected Qubit[], found Qubit", and the "Convert to single element array" Quick Fix will change the code to be `Controlled SX([qs[0]], qs[1]);`, resolving the error.
+
+### Simulator loss policies
+
+The [noise model](https://learn.microsoft.com/en-us/azure/quantum/qdk-simulator-noise-models) that can be applied to quantum simulations now support specifying a "loss policy", which describes the behavior of a two-qubit gate when one of the qubits is lost.
+
+Previously the behavior was always to skip the two-qubit operation if one qubit is marked as "lost". This makes sense for example if mathematically you treat a lost qubit as being in the $\ket{0}$ state, then gates such as CX and CZ are effectively no-ops if one qubit is lost. On some quantum machines the effect of a 2-qubit gate may differ. The "loss policy" can now specify the desired behavior, for example:
+
+```python
+from qdk.simulation import NoiseConfig, LossPolicy, run_qir
+qir = ... # get the compiled program
+
+noise = NoiseConfig()
+noise.cz.on_loss   = LossPolicy.SKIP               # if one of the qubits is lost, skip the unitary
+noise.cx.on_loss   = LossPolicy.PROPAGATE          # if one of the qubits is lost, lose the other one also
+noise.rxx.on_loss  = LossPolicy.DEGRADE            # degrade to a single qubit gate, i.e. rx on the remaining qubit
+noise.ryy.on_loss  = LossPolicy.RESIDUAL_S_DAGGER  # apply an S_DAG to the remaining qubits
+noise.swap.on_loss = LossPolicy.APPLY_ANYWAY       # if swap is implemented as a relabel, this is still applies
+
+# Works with all simulator types, in any profile.
+run_qir(qir, shots=100, noise=noise, type="clifford")
+```
+
+## Other notable changes
+
+- Support --editable flag by @billti in [3224](https://github.com/microsoft/qdk/pull/3224)
+- Bump rand by @billti in [3239](https://github.com/microsoft/qdk/pull/3239)
+- Add correlated noise sample by @orpuente-MS in [3264](https://github.com/microsoft/qdk/pull/3264)
+- Fix stale selection in Learning panel by @amcasey in [3265](https://github.com/microsoft/qdk/pull/3265)
+- Add some tests to validate the qsharp API surface by @ScottCarda-MS in [3270](https://github.com/microsoft/qdk/pull/3270)
+- Handle missing rparen on call by @amcasey in [3279](https://github.com/microsoft/qdk/pull/3279)
+- Add `frem`, `fptoui`, `uitofp` instructions to QIR simulators by @orpuente-MS in [3268](https://github.com/microsoft/qdk/pull/3268)
+- Updates to qubit models by @msoeken in [3257](https://github.com/microsoft/qdk/pull/3257)
+- Add default `dim=2` to Cirq QRE qubit manager `qalloc` APIs by @fedimser with @Copilot in [3293](https://github.com/microsoft/qdk/pull/3293)
+- Gray out excluded code by @sorin-bolos in [3295](https://github.com/microsoft/qdk/pull/3295)
+- Add auto-import quickfix for unresolved names by @sorin-bolos in [3294](https://github.com/microsoft/qdk/pull/3294)
+- feat: supported openqasm support to the playground along with its ast, hir and rir by @Gmin2 in [3289](https://github.com/microsoft/qdk/pull/3289)
+- Surface multiple solutions for katas that have them by @amcasey in [3275](https://github.com/microsoft/qdk/pull/3275)
+- Update error span for call argument type mismatch by @amcasey in [3287](https://github.com/microsoft/qdk/pull/3287)
+- feat(python): load visual circuits directly in Context by @tzh476 in [3291](https://github.com/microsoft/qdk/pull/3291)
+- add deq language syntax highlight by @yuewuo in [3316](https://github.com/microsoft/qdk/pull/3316)
+- Update Python API to avoid private types in public signatures by @ScottCarda-MS in [3278](https://github.com/microsoft/qdk/pull/3278)
+- Fix panic in call expr type inference by @amcasey in [3314](https://github.com/microsoft/qdk/pull/3314)
+- Rename `Adaptive_RIFLA` to just `Adaptive` by @swernli in [3338](https://github.com/microsoft/qdk/pull/3338)
+- Add a code fix for should-have-been-array by @amcasey in [3330](https://github.com/microsoft/qdk/pull/3330)
+- Track dynamic constants across call boundaries in RCA by @swernli in [3349](https://github.com/microsoft/qdk/pull/3349)
+- Add initial support for simple IR functions in QIR by @idavis in [3344](https://github.com/microsoft/qdk/pull/3344)
+- Add a helper to get action of an operation on a state by @fedimser in [3300](https://github.com/microsoft/qdk/pull/3300)
+- Update service.ts to so that pressing next on the last kata works by @xhaidendsouza in [3354](https://github.com/microsoft/qdk/pull/3354)
+- Fix for reading `qdk.qir.profile` pragma in playground by @swernli in [3371](https://github.com/microsoft/qdk/pull/3371)
+- Stim compiler by @joao-boechat in [3305](https://github.com/microsoft/qdk/pull/3305)
+- Added (Majorana) fermions to basic operator types. by @brad-lackey in [3360](https://github.com/microsoft/qdk/pull/3360)
+- Simplify M to intrinsic def by @idavis in [3381](https://github.com/microsoft/qdk/pull/3381)
+- Add code fix for double literal without dot by @amcasey in [3352](https://github.com/microsoft/qdk/pull/3352)
+- Have RCA reject unsafe qubit release from dynamic context by @swernli in [3395](https://github.com/microsoft/qdk/pull/3395)
+- Add Adaptive target profile completions and OpenQASM pragma/annotation completions by @idavis in [3396](https://github.com/microsoft/qdk/pull/3396)
+- Update default profile selection. by @idavis in [3399](https://github.com/microsoft/qdk/pull/3399)
+- Increase adaptive GPU shader max registers by @orpuente-MS in [3402](https://github.com/microsoft/qdk/pull/3402)
+- Fix pauli noise on qubit registers by @orpuente-MS in [3405](https://github.com/microsoft/qdk/pull/3405)
+- Add tests for the Stim compiler by @orpuente-MS in [3376](https://github.com/microsoft/qdk/pull/3376)
+- Workspace links by @billti in [3404](https://github.com/microsoft/qdk/pull/3404)
+- Fix QIR generation panic on mutable qubit variables by @swernli in [3411](https://github.com/microsoft/qdk/pull/3411)
+- Types for target modeling (qubit, QECStrategy, Target) and tests by @msoeken in [3414](https://github.com/microsoft/qdk/pull/3414)
+- Add support for PREPARE block in stim by @joao-boechat in [3409](https://github.com/microsoft/qdk/pull/3409)
+- Allow adaptive `NeutralAtomDevice` simulation by @orpuente-MS in [3413](https://github.com/microsoft/qdk/pull/3413)
+- Syntax Highlighting for Stim Grammar by @ScottCarda-MS in [3385](https://github.com/microsoft/qdk/pull/3385)
+- Support classically controlled gates in Stim by @joao-boechat in [3417](https://github.com/microsoft/qdk/pull/3417)
+- Add loss policies to `NoiseConfig` to express different kinds of behavior on lost qubits by @orpuente-MS in [3302](https://github.com/microsoft/qdk/pull/3302)
+- Fallback to profile used in init if any during openqasm.compile @swernli in [3436](https://github.com/microsoft/qdk/pull/3436)
+
+## New Contributors
+
+- @sorin-bolos made their first contribution in [3295](https://github.com/microsoft/qdk/pull/3295)
+- @Gmin2 made their first contribution in [3289](https://github.com/microsoft/qdk/pull/3289)
+- @tzh476 made their first contribution in [3291](https://github.com/microsoft/qdk/pull/3291)
+- @yuewuo made their first contribution in [3316](https://github.com/microsoft/qdk/pull/3316)
+- @xhaidendsouza made their first contribution in [3354](https://github.com/microsoft/qdk/pull/3354)
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.29.0...v1.30.0>
+
 ## v1.29.0
 
 ### QDK Learning experience
