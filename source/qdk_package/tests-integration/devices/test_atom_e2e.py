@@ -196,11 +196,35 @@ def test_s_adj_noise_inherits_from_rz():
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 @pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
-def test_show_trace_rejects_untraceable_adaptive_program() -> None:
-    # An Adaptive-profile program with a runtime-computed rotation angle (here
-    # derived from a measurement result) cannot be traced, since tracing
-    # statically analyzes the program. It must surface a clear, actionable error
-    # rather than a low-level failure deep inside the trace pass.
+def test_show_trace_rejects_branching_control_flow() -> None:
+    # Tracing renders the program as a single, straight-line schedule, so it
+    # cannot represent control flow. A program that branches on a measurement
+    # result must be rejected rather than silently mis-visualized -- even when
+    # every gate has constant parameters.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use q = Qubit();
+            H(q);
+            let r = MResetZ(q);
+            if r == One {
+                X(q);
+            }
+            MResetZ(q)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    with pytest.raises(ValueError, match="programs with branching control flow"):
+        device.show_trace(qir)
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
+def test_show_trace_rejects_runtime_computed_values() -> None:
+    # A program whose behavior depends on runtime-computed values (here a
+    # rotation angle derived from a measurement result) cannot be traced and
+    # must surface a clear, actionable error rather than a low-level failure.
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile("""
         {
@@ -214,7 +238,7 @@ def test_show_trace_rejects_untraceable_adaptive_program() -> None:
         """)
 
     device = NeutralAtomDevice()
-    with pytest.raises(ValueError, match="could not trace this program"):
+    with pytest.raises(ValueError, match="programs with branching control flow"):
         device.show_trace(qir)
 
 

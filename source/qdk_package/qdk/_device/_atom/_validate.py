@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import QirModuleVisitor, is_entry_point
+from pyqir import QirModuleVisitor, is_entry_point, Opcode
 
 
 class ValidateAllowedIntrinsics(QirModuleVisitor):
@@ -28,3 +28,18 @@ class ValidateAllowedIntrinsics(QirModuleVisitor):
             ]
         ):
             raise ValueError(f"{name} is not a supported intrinsic")
+
+
+class ValidateNoConditionalBranches(QirModuleVisitor):
+    """
+    Ensure that the function(s) only use unconditional branches.
+    """
+
+    def _on_block(self, block):
+        if (
+            block.terminator
+            and block.terminator.opcode == Opcode.BR
+            and len(block.terminator.operands) > 1
+        ):
+            raise ValueError("programs with branching control flow are not supported")
+        super()._on_block(block)
