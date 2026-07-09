@@ -17,20 +17,27 @@ except ImportError:
 
 SKIP_REASON = "PyQIR is not available"
 
+try:
+    import qsharp_widgets  # noqa: F401
+
+    QSHARP_WIDGETS_AVAILABLE = True
+except ImportError:
+    QSHARP_WIDGETS_AVAILABLE = False
+
+WIDGETS_SKIP_REASON = "qsharp-widgets is not available"
+
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_compile() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     device = NeutralAtomDevice()
     compiled = device.compile(qir)
@@ -91,16 +98,14 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_pr
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_simulate_with_cpu() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     device = NeutralAtomDevice()
     compiled = device.compile(qir)
@@ -114,16 +119,14 @@ def test_device_simulate_with_cpu() -> None:
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_simlate_with_clifford() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     device = NeutralAtomDevice()
     compiled = device.compile(qir)
@@ -137,16 +140,14 @@ def test_device_simlate_with_clifford() -> None:
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_simulate_with_loss() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     device = NeutralAtomDevice()
     noise = NoiseConfig()
@@ -191,3 +192,25 @@ def test_s_adj_noise_inherits_from_rz():
     device = NeutralAtomDevice()
     output = device.simulate(ir, 1, noise)
     assert output == [qsharp.Result.One]
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
+def test_show_trace_rejects_adaptive_profile() -> None:
+    # `show_trace` statically analyzes the program to lay it out and schedule it,
+    # which only works for Base-profile QIR. Adaptive-profile QIR must be
+    # rejected up front with a clear, actionable error rather than failing deep
+    # inside the trace pass.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use qs = Qubit[2];
+            H(qs[0]);
+            CNOT(qs[0], qs[1]);
+            MResetEachZ(qs)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    with pytest.raises(ValueError, match="only supports Base-profile QIR"):
+        device.show_trace(qir)
