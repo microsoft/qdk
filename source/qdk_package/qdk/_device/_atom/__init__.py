@@ -15,21 +15,6 @@ if TYPE_CHECKING:
     from ...simulation._simulation import NoiseConfig
 
 
-def _get_qir_profile(qir: "str | QirInputData") -> Optional[str]:
-    """Return the value of the entry point's `qir_profiles` attribute
-    (e.g. `"base_profile"` or `"adaptive_profile"`), or `None` if the
-    program does not declare a profile."""
-    from pyqir import Module, Context, is_entry_point
-
-    module = Module.from_ir(Context(), str(qir))
-    for function in module.functions:
-        if is_entry_point(function):
-            attributes = function.attributes.func
-            if "qir_profiles" in attributes:
-                return attributes["qir_profiles"].string_value
-    return None
-
-
 class NeutralAtomDevice(Device):
     """
     Representation of a neutral atom device quantum computer.
