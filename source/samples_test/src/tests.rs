@@ -388,9 +388,7 @@ fn circuit_qasm(source: &str) -> String {
 }
 
 fn qirgen(sources: SourceMap) -> String {
-    let capabilities = TargetCapabilityFlags::Adaptive
-        | TargetCapabilityFlags::IntegerComputations
-        | TargetCapabilityFlags::FloatingPointComputations;
+    let capabilities = Profile::Adaptive.into();
     let (std_id, store) = compile::package_store_with_stdlib(capabilities);
 
     let namespace = sources
@@ -450,9 +448,7 @@ fn qirgen_qasm(source: &str) -> String {
         "Circuit has unbound input parameters\n  help: Parameters: {}",
         signature.input_params()
     );
-    let capabilities = TargetCapabilityFlags::Adaptive
-        | TargetCapabilityFlags::IntegerComputations
-        | TargetCapabilityFlags::FloatingPointComputations;
+    let capabilities = Profile::Adaptive.into();
     let package_type = PackageType::Lib;
     let language_features = LanguageFeatures::default();
     let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);
