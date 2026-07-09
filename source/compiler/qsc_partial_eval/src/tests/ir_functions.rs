@@ -1034,7 +1034,7 @@ fn operation_with_integer_input_used_in_loop_range_is_inlined() {
 }
 
 #[test]
-fn operation_without_integer_input_used_in_loop_range_is_inlined() {
+fn operation_without_integer_input_used_in_loop_range_is_emitted() {
     let program = get_rir_program_with_adaptive_profile(
         r#"
         namespace Test {
