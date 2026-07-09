@@ -998,16 +998,16 @@ fn cx_with_rec_control_crossing_prepare_boundary_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Stim.MeasurementRecordOutOfPrepareScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[3:8]
-         2 | PREPARE {
-         3 |     CX rec[-1] 1
-           :        ^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[3:8]
+             2 | PREPARE {
+             3 |     CX rec[-1] 1
+               :        ^^^^^^^
+             4 | }
+               `----
+        "#]],
     );
 }

@@ -593,17 +593,17 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Stim.MeasurementRecordOutOfPrepareScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[5:13]
-         4 |     M 1
-         5 |     REQUIRE rec[-2]
-           :             ^^^^^^^
-         6 | }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[5:13]
+             4 |     M 1
+             5 |     REQUIRE rec[-2]
+               :             ^^^^^^^
+             6 | }
+               `----
+        "#]],
     );
 }
 
@@ -904,17 +904,17 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Stim.MeasurementRecordOutOfPrepareScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[6:13]
-         5 |     }
-         6 |     REQUIRE rec[-1]
-           :             ^^^^^^^
-         7 | }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[6:13]
+             5 |     }
+             6 |     REQUIRE rec[-1]
+               :             ^^^^^^^
+             7 | }
+               `----
+        "#]],
     );
 }
 
@@ -931,17 +931,17 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Stim.MeasurementRecordOutOfPrepareScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[5:17]
-         4 |     PREPARE {
-         5 |         REQUIRE rec[-1]
-           :                 ^^^^^^^
-         6 |     }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[5:17]
+             4 |     PREPARE {
+             5 |         REQUIRE rec[-1]
+               :                 ^^^^^^^
+             6 |     }
+               `----
+        "#]],
     );
 }
 
@@ -1019,17 +1019,17 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Stim.MeasurementRecordOutOfPrepareScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[7:13]
-         6 |     M 1
-         7 |     REQUIRE rec[-2]
-           :             ^^^^^^^
-         8 | }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[7:13]
+             6 |     M 1
+             7 |     REQUIRE rec[-2]
+               :             ^^^^^^^
+             8 | }
+               `----
+        "#]],
     );
 }
 
