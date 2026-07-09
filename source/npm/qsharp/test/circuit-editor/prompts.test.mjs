@@ -6,7 +6,7 @@
 // `createConfirmPrompt`, plus the operation-specific delete/move
 // flows built on it. The text-input primitive `_createInputPrompt`
 // and the `promptForArguments` flow also live in that file but are
-// not yet unit-tested (deferred; see CIRCUIT_EDITOR_TODO.md).
+// not yet unit-tested.
 //
 // `createConfirmPrompt`:
 //   - DOM shape: `.prompt-overlay > .prompt-container >

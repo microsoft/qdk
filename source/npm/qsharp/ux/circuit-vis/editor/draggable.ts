@@ -421,7 +421,7 @@ const _dropzoneLayer = (context: Context) => {
  * as a normal drop. The `_addOp` action takes care of synthesizing the
  * new column when the target column index is one past the rightmost.
  *
- * Stage A of D4 (see CIRCUIT_EDITOR_TODO.md) — together with the
+ * Together with the
  * leading-column band that already falls out of the
  * `_populateDropzonesForGrid` loop at `colIndex=0`, this gives every
  * expanded group a one-column-of-reach extend-sideways gesture on both

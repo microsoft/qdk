@@ -114,7 +114,11 @@ ux/circuit-vis/
 │   ├── layoutMap.ts                LayoutMap value type (geometry handed to editor)
 │   ├── gateRenderData.ts           render-data shape consumed by formatters
 │   ├── constants.ts                gate sizes, paddings, SVG NS
-│   └── formatters/                 gate/wire/register/input formatters → SVG
+│   └── formatters/                 render-data → SVG
+│       ├── formatUtils.ts            low-level SVG element builders (group/line/circle/...)
+│       ├── gateFormatter.ts          gate boxes, controls, zoom buttons
+│       ├── registerFormatter.ts      qubit/classical register wire lines
+│       └── inputFormatter.ts         qubit input labels
 │
 └── state-viz/                    ← parallel subsystem (state visualization panel)
     └── ...
@@ -433,10 +437,16 @@ test/
 │   ├── location.test.mjs            (data/)
 │   ├── circuitModel.test.mjs        (data/)
 │   ├── viewState.test.mjs           (data/)
-│   ├── circuit-actions/             (actions/ — one file per topic:
-│   │                                 add/remove, move, group structure,
-│   │                                 measurement cascade, producer ordering,
-│   │                                 qubit ops)
+│   ├── circuit-actions/             (actions/ — one file per topic:)
+│   │   ├── addRemove.test.mjs         add/remove operations
+│   │   ├── groupAddRemove.test.mjs    add/remove inside expanded groups
+│   │   ├── groupAncestorRefresh.test.mjs  ancestor derived-target refresh
+│   │   ├── groupCollisionSplit.test.mjs   collision split within groups
+│   │   ├── groupMove.test.mjs         moving grouped operations
+│   │   ├── measurementCascade.test.mjs    measurement-dependency cascade
+│   │   ├── moveStamp.test.mjs         move placement / stamping
+│   │   ├── producerOrdering.test.mjs  classical producer ordering
+│   │   └── qubitOps.test.mjs          qubit add/remove/move
 │   ├── interactionActions.test.mjs  (actions/)
 │   ├── findOperation.test.mjs       (utils.ts nav helpers)
 │   ├── utils.test.mjs               (utils.ts)
@@ -451,10 +461,10 @@ test/
 │   ├── contextMenu.test.mjs         (editor/)
 │   ├── prompts.test.mjs             (editor/)
 │   ├── gateFormatter.test.mjs       (renderer/formatters)
-│   ├── angleExpression.test.mjs     (renderer/formatters)
+│   ├── angleExpression.test.mjs     (angleExpression.ts)
 │   ├── sqore.test.mjs               (entrypoint)
 │   ├── _helpers.mjs                 (shared test helpers — not a suite)
-│   └── circuitTargets.bench.mjs     (benchmark harness — not a suite)
+│   └── jsdom.d.ts                   (JSDOM type declarations — not a suite)
 │
 ├── state-viz/                     ← state-viz subsystem tests
 │   ├── stateCompute.test.mjs
@@ -470,7 +480,7 @@ test/
 `editor/` controller tests construct an `InteractionContext` from a
 tiny JSDOM and a fresh `CircuitModel`, then invoke the controller
 directly. Support files that are not suites (`_helpers.mjs`,
-`*.bench.mjs`, `jsdom.d.ts`) do not match `*.test.mjs`, so run the
+`jsdom.d.ts`) do not match `*.test.mjs`, so run the
 suite with an explicit glob:
 
 ```pwsh

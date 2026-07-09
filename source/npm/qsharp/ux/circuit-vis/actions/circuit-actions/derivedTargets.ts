@@ -15,8 +15,9 @@ import { doesOverlap } from "./gridPrimitives.js";
  * measurements) that is the deduped union of its descendants' wires.
  * This module recomputes that cache, walks it up the ancestor chain,
  * prunes emptied groups, and resolves the sibling-column collisions a
- * widened span can introduce. Rationale for the eager cache:
- * [`circuitTargets.bench.md`](../../../test/circuit-editor/circuitTargets.bench.md).
+ * widened span can introduce. The eager cache keeps `.targets`
+ * authoritative so the renderer and resolver read wire spans in O(1)
+ * instead of walking descendants on every query.
  *
  * Depends on `gridPrimitives` and the `AncestorRung` type; no DOM.
  */
