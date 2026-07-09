@@ -8,10 +8,12 @@ from .._http import fetch_github
 
 from .._native import (  # type: ignore
     compile_qasm_program_to_qir,
+    TargetProfile,
 )
 from .._types import QirInputData
 from .._interpreter import (
     get_interpreter,
+    _get_default_context,
     ipython_helper,
     python_args_to_interpreter_args,
 )
@@ -35,7 +37,8 @@ def compile(
     :param **kwargs: Additional keyword arguments for compiling the source program. Common options:
 
         - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
-        - ``target_profile`` (TargetProfile): The target profile to use for code generation. (Default: ``TargetProfile.Adaptive_RIF``)
+        - ``target_profile`` (TargetProfile): The target profile to use for code generation. The default when not
+            specified is ``TargetProfile.Adaptive_RIF`` or the value set explicitly via ``qdk.init``.
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
     :return: The compiled program. Use ``str()`` to get the QIR string.
@@ -58,15 +61,20 @@ def compile(
     ipython_helper()
     start = monotonic()
 
-    # This doesn't work the same way as the Q# compile function as it doesn't
-    # have access to the global configuration which has the target profile.
-    # Instead, we get the target profile from the kwargs and pass it to the telemetry event.
     target_profile = str(kwargs.get("target_profile", "unspecified"))
+    target_profile_from_init = _get_default_context().get_target_profile()
+    if (
+        target_profile == "unspecified"
+        and target_profile_from_init != TargetProfile.Unrestricted
+    ):
+        # The kwargs don't specify a target profile, but the QDK has been initialized with one. Use that one.
+        target_profile = str(target_profile_from_init)
+        kwargs["target_profile"] = target_profile_from_init
 
     telemetry_events.on_compile_qasm(target_profile)
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
+        args = python_args_to_interpreter_args(args)  # type: ignore
         ll_str = get_interpreter().qir(
             entry_expr=None, callable=source.__global_callable, args=args
         )
