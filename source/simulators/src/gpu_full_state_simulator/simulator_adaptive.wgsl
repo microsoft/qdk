@@ -162,6 +162,29 @@ struct BatchData {
 @group(0) @binding(7)
 var<storage, read> batch_data: BatchData;
 
+// Number of output record outputs (result / bool / int / double) emitted per
+// shot. The host assigns each such record a stable ordinal (stored in the
+// instruction's aux2 field).
+//
+// Output record values are stored in an appended region of the `results` buffer
+// (binding 4) rather than a dedicated binding, which keeps the adaptive layout
+// at 7 storage buffers (the WebGPU minimum guarantee is 8). The results buffer
+// is laid out as:
+//   [ shots_per_batch * RESULT_COUNT       ]  per-shot measurement results + error code
+//   [ shots_per_batch * OUTPUT_RECORD_COUNT ]  per-shot output record values
+// A record's slot is `output_record_base(shot_idx) + ordinal`, where the raw
+// 32-bit value is stored as-is (result 0/1/2, bool 0/1, i32 bits, or f32 bits)
+// and reinterpreted by the host according to the record's type.
+const OUTPUT_RECORD_COUNT: u32 = {{OUTPUT_RECORD_COUNT}};
+
+// Base index into the `results` buffer for shot `shot_idx`'s output records.
+// `arrayLength` recovers the batch's shot capacity so the appended region can be
+// located without threading `shots_per_batch` through as a separate constant.
+fn output_record_base(shot_idx: u32) -> u32 {
+    let shots_per_batch = arrayLength(&results) / (RESULT_COUNT + OUTPUT_RECORD_COUNT);
+    return shots_per_batch * RESULT_COUNT + shot_idx * OUTPUT_RECORD_COUNT;
+}
+
 
 /// GPU bytecode instruction.
 ///
@@ -623,6 +646,14 @@ fn initialize(
             atomicStore(&results[results_base + r], 0u);
         }
 
+        // Zero this shot's output record slots (in the appended region of the
+        // results buffer) so stale values from prior batches do not leak for
+        // shots that terminate before recording.
+        let or_base = output_record_base(u32(params.shot_idx));
+        for (var c = 0u; c < OUTPUT_RECORD_COUNT; c++) {
+            atomicStore(&results[or_base + c], 0u);
+        }
+
         // Initialize memory from constant_data
         for (var m = 0u; m < CONSTANT_DATA_SIZE; m++) {
             shots[params.shot_idx].interp.memory[m] = batch_data.program.constant_data[m];
@@ -1012,11 +1043,23 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc++;
             }
 
-            // RECORD_OUTPUT: Marker for output recording.
-            // On the GPU this is a no-op — the host reads the results buffer
-            // directly after all shots terminate. The instruction exists to
-            // maintain compatibility with the QIR adaptive profile bytecode.
+            // RECORD_OUTPUT: Capture output record values into the unified
+            // per-shot output records region of the results buffer, in record
+            // order (aux2 = ordinal). Result records (aux1 = 0) copy the
+            // measurement outcome (0/1/2) from the results buffer; classical
+            // records (bool = 3, int = 4, double = 5) store the runtime-computed
+            // value from src0. The raw 32-bit value is stored so the host can
+            // reinterpret it by type. Array/tuple records (aux1 = 1/2) are
+            // structural and reconstructed by the host, so they remain no-ops.
             case OP_RECORD_OUTPUT {
+                if instr.aux1 == 0u {
+                    let result_id = instr.src0;
+                    let rec_val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
+                    atomicStore(&results[output_record_base(shot_idx) + instr.aux2], rec_val);
+                } else if instr.aux1 >= 3u {
+                    let rec_val = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                    atomicStore(&results[output_record_base(shot_idx) + instr.aux2], rec_val);
+                }
                 pc++;
             }
 

@@ -15,7 +15,7 @@
 )]
 
 use crate::{
-    MeasurementResult, Simulator,
+    MeasurementResult, OutputRecord, Simulator,
     bytecode::{AdaptiveProgram, Instruction},
 };
 
@@ -330,7 +330,7 @@ fn dispatch_reset<S: Simulator>(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_lines)]
-pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
+pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Vec<OutputRecord> {
     const MAX_STEPS: u64 = 10_000_000;
 
     let entry_pc = program.block_table[program.entry_block as usize].instr_offset;
@@ -340,6 +340,9 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
         entry_pc,
         &program.constant_data,
     );
+
+    // Output records captured during this shot, in execution order.
+    let mut records: Vec<OutputRecord> = Vec::new();
 
     for _ in 0..MAX_STEPS {
         let instr = program.instructions[rt.pc as usize];
@@ -472,7 +475,32 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
             }
 
             OP_RECORD_OUTPUT => {
-                // No-op on CPU — results are read from the simulator directly.
+                // The record kind is encoded as an immediate in `aux1`. Every
+                // leaf record is captured into the unified `records` stream in
+                // execution order so results and classical values are handled
+                // identically:
+                //   0 = result, the value comes from the measurement buffer.
+                //   3 = bool, 4 = int, 5 = double; classical values computed
+                //       at runtime.
+                //   1 = array, 2 = tuple; structural markers reconstructed by
+                //       the host from the static QIR, so they are a no-op here.
+                match instr.aux1 {
+                    0 => {
+                        let result_id = rt.resolve_u64(instr.src0, flags, 0) as usize;
+                        let measurements = sim.measurements();
+                        let value = measurements
+                            .get(result_id)
+                            .copied()
+                            .unwrap_or(MeasurementResult::Zero);
+                        records.push(OutputRecord::Result(value));
+                    }
+                    3 => records.push(OutputRecord::Bool(
+                        rt.resolve_u64(instr.src0, flags, 0) != 0,
+                    )),
+                    4 => records.push(OutputRecord::Int(rt.resolve_i64(instr.src0, flags, 0))),
+                    5 => records.push(OutputRecord::Double(rt.resolve_f64(instr.src0, flags, 0))),
+                    _ => {}
+                }
                 rt.pc += 1;
             }
 
@@ -784,6 +812,8 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
             _ => panic!("unsupported opcode 0x{op:02X} at pc={}", rt.pc),
         }
     }
+
+    records
 }
 
 fn block_pc(program: &AdaptiveProgram<u64>, block_id: u64) -> u64 {

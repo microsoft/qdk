@@ -2384,6 +2384,71 @@ block_2:
 }
 """
 
+# =========================================================================
+# OP_RECORD_OUTPUT — output records (result / bool / int / double)
+#
+# Measurement results and classical values flow through a single ordered output
+# record stream, so a shot's recorded values (whatever their type) come back in
+# record order.
+# =========================================================================
+
+# Records a tuple of (result0, bool, int, double). Qubit 0 is flipped to |1⟩ so
+# result0 == One and the recorded bool (read from result0) is True. The double
+# value is exactly representable in f32, so the GPU agrees with the CPU/Clifford
+# simulators.
+CLASSICAL_RECORDS_TUPLE_QIR = """
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+entry:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %r = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__rt__tuple_record_output(i64 4, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+  call void @__quantum__rt__bool_record_output(i1 %r, i8* null)
+  call void @__quantum__rt__int_record_output(i64 42, i8* null)
+  call void @__quantum__rt__double_record_output(double 3.25, i8* null)
+  ret i64 0
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare i1 @__quantum__qis__read_result__body(%Result*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+declare void @__quantum__rt__bool_record_output(i1, i8*)
+declare void @__quantum__rt__int_record_output(i64, i8*)
+declare void @__quantum__rt__double_record_output(double, i8*)
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+"""
+
+CLASSICAL_RECORDS_ARRAY_QIR = """
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+entry:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %r = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__rt__array_record_output(i64 3, i8* null)
+  call void @__quantum__rt__int_record_output(i64 7, i8* null)
+  call void @__quantum__rt__int_record_output(i64 -5, i8* null)
+  call void @__quantum__rt__bool_record_output(i1 %r, i8* null)
+  ret i64 0
+}
+
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare i1 @__quantum__qis__read_result__body(%Result*)
+declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @__quantum__rt__int_record_output(i64, i8*)
+declare void @__quantum__rt__bool_record_output(i1, i8*)
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+"""
+
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_pauli_noise_with_qubit_immediates():
@@ -2412,3 +2477,35 @@ def test_pauli_noise_with_qubit_registers():
     results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
     counts = Counter(map_result_list_to_str(r) for r in results)
     assert counts == {"1": SHOTS}, f"Expected all {SHOTS} shots to be '1', got {counts}"
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_classical_record_outputs():
+    """result/bool/int/double records surface as native Python types (GPU)."""
+    # GpuSimulator (stateful) path.
+    results = _run(CLASSICAL_RECORDS_TUPLE_QIR)["shot_results"]
+    assert len(results) == SHOTS
+    for shot in results:
+        result, flag, integer, number = shot
+        assert result == Result.One
+        assert flag is True and isinstance(flag, bool)
+        assert integer == 42 and isinstance(integer, int)
+        assert number == 3.25 and isinstance(number, float)
+    # run_qir parallel-shots path.
+    for shot in run_qir(CLASSICAL_RECORDS_TUPLE_QIR, SHOTS, seed=42, type="gpu"):
+        result, flag, integer, number = shot
+        assert result == Result.One
+        assert flag is True
+        assert integer == 42
+        assert number == 3.25
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_classical_record_outputs_in_array():
+    """Negative ints and a bool record correctly inside an array (GPU)."""
+    results = _run(CLASSICAL_RECORDS_ARRAY_QIR)["shot_results"]
+    assert len(results) == SHOTS
+    for shot in results:
+        assert shot == [7, -5, False]
+    for shot in run_qir(CLASSICAL_RECORDS_ARRAY_QIR, SHOTS, seed=42, type="gpu"):
+        assert shot == [7, -5, False]

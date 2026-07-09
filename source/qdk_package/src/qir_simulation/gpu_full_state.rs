@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::interpreter::Result as QsResult;
 use crate::qir_simulation::{
     NoiseConfig, QirInstruction, QirInstructionId, adaptive_program_from_pydict,
     unbind_noise_config,
@@ -46,13 +47,22 @@ pub fn run_parallel_shots<'py>(
 ) -> PyResult<Py<PyAny>> {
     // First convert the Python objects to Rust types
     let mut ops: Vec<Op> = Vec::with_capacity(input.len());
+    // Result ids recorded via `result_record_output`, in record order. Used to
+    // build the per-shot output record stream from the raw measurement results.
+    let mut recorded_result_ids: Vec<usize> = Vec::new();
+    let mut has_output_recording = false;
     for intr in input {
         // Error if the instruction can't be converted
         let item: QirInstruction = intr
             .extract()
             .map_err(|e| PyValueError::new_err(format!("expected QirInstruction: {e}")))?;
-        // However some ops can't be mapped (e.g. OutputRecording), so skip those
-        if let Some(op) = map_instruction(&item) {
+        if let QirInstruction::OutputRecording(id, value, _tag) = &item {
+            has_output_recording = true;
+            if *id == QirInstructionId::ResultRecordOutput {
+                recorded_result_ids.push(value.parse().unwrap_or(0));
+            }
+        } else if let Some(op) = map_instruction(&item) {
+            // However some ops can't be mapped (e.g. OutputRecording), so skip those
             ops.push(op);
         }
     }
@@ -65,32 +75,31 @@ pub fn run_parallel_shots<'py>(
         qdk_simulators::run_shots_sync(qubit_count, result_count, &ops, &noise, shots, rng_seed, 0)
             .map_err(PyRuntimeError::new_err)?;
 
-    // Collect and format the results into a Python list of strings
-    let result_count: usize = result_count
-        .try_into()
-        .map_err(|e| PyValueError::new_err(format!("invalid result count {result_count}: {e}")))?;
-
-    // Turn each shot's results into a string, with '0' for 0, '1' for 1, and 'L' for lost qubits
-    // The results are a flat list of u32, with each shot's results in sequence + one error code,
-    // so we need to chunk them up accordingly
-    let str_results = sim_results
-        .shot_results
-        .iter()
-        .map(|shot_results| {
-            let mut bitstring = String::with_capacity(result_count);
-            for res in shot_results {
-                let char = match res {
-                    0 => '0',
-                    1 => '1',
-                    _ => 'L', // lost qubit
-                };
-                bitstring.push(char);
+    // Build the per-shot unified output record stream. When the program records
+    // outputs, each shot yields its recorded measurement results (as `Result`
+    // enum values) in record order; otherwise it falls back to every measurement
+    // result in order, matching the historical raw-measurement behavior.
+    let mut entries = Vec::with_capacity(sim_results.shot_results.len());
+    for shot_results in &sim_results.shot_results {
+        let mut values = Vec::new();
+        if has_output_recording {
+            for &result_id in &recorded_result_ids {
+                let raw = shot_results.get(result_id).copied().unwrap_or(0);
+                values.push(measurement_u32_to_py(py, raw)?);
             }
-            bitstring
-        })
-        .collect::<Vec<String>>();
+        } else {
+            for &raw in shot_results {
+                values.push(measurement_u32_to_py(py, raw)?);
+            }
+        }
+        entries.push(
+            PyList::new(py, values)
+                .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+                .into_py_any(py)?,
+        );
+    }
 
-    PyList::new(py, str_results)
+    PyList::new(py, entries)
         .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
         .into_py_any(py)
 }
@@ -101,6 +110,9 @@ type NativeGpuContext = gpu_context::GpuContext;
 pub struct GpuContext {
     native_context: Mutex<NativeGpuContext>,
     last_set_result_count: usize, // Needed to format results
+    // Type tag (0=result, 3=bool, 4=int, 5=double) for each output record,
+    // indexed by the record's ordinal. Used to coerce raw GPU values to Python.
+    output_record_types: Vec<u32>,
 }
 
 #[pymethods]
@@ -110,6 +122,7 @@ impl GpuContext {
         Ok(GpuContext {
             native_context: Mutex::new(NativeGpuContext::default()),
             last_set_result_count: 0,
+            output_record_types: Vec::new(),
         })
     }
 
@@ -257,15 +270,17 @@ impl GpuContext {
 
         let adaptive_program = adaptive_program_from_pydict(program)?;
         let num_results = adaptive_program.num_results;
+        let record_types = output_record_types(&adaptive_program);
 
         gpu_context
             .set_adaptive_program(adaptive_program)
             .map_err(PyValueError::new_err)?;
 
-        // Save the result count for formatting later
+        // Save the result count and output record types for formatting later
         self.last_set_result_count = num_results.try_into().map_err(|e| {
             PyValueError::new_err(format!("invalid result count {num_results}: {e}"))
         })?;
+        self.output_record_types = record_types;
 
         Ok(())
     }
@@ -291,7 +306,12 @@ impl GpuContext {
             .run_adaptive_shots_sync(shot_count, seed, 0)
             .map_err(PyRuntimeError::new_err)?;
 
-        Self::format_results(py, results, self.last_set_result_count)
+        Self::format_results(
+            py,
+            results,
+            self.last_set_result_count,
+            &self.output_record_types,
+        )
     }
 }
 
@@ -300,6 +320,7 @@ impl GpuContext {
         py: Python<'_>,
         results: gpu_context::RunResults,
         result_count: usize,
+        record_types: &[u32],
     ) -> PyResult<Py<PyAny>> {
         let str_results = results
             .shot_results
@@ -327,6 +348,12 @@ impl GpuContext {
         )
         .map_err(|e| PyValueError::new_err(format!("failed to set result codes in dict: {e}")))?;
 
+        dict.set_item(
+            "shot_output_records",
+            output_records_to_pylist(py, record_types, &results.shot_output_records)?,
+        )
+        .map_err(|e| PyValueError::new_err(format!("failed to set output records in dict: {e}")))?;
+
         if let Some(diagnostics) = results.diagnostics {
             dict.set_item("diagnostics", format!("{diagnostics:?}"))
                 .map_err(|e| {
@@ -335,6 +362,70 @@ impl GpuContext {
         }
         dict.into_py_any(py)
     }
+}
+
+/// Build the per-ordinal output record type table from an adaptive program.
+/// Each leaf `__quantum__rt__*_record_output` is emitted with a type tag in
+/// `aux1` (0=result, 3=bool, 4=int, 5=double) and a stable ordinal in `aux2`.
+/// The returned vector maps ordinal -> type tag.
+fn output_record_types(program: &qdk_simulators::bytecode::AdaptiveProgram<u32>) -> Vec<u32> {
+    const OP_RECORD_OUTPUT: u32 = 0x14;
+    let mut types: Vec<u32> = Vec::new();
+    for instr in &program.instructions {
+        if (instr.opcode & 0xFF) == OP_RECORD_OUTPUT && (instr.aux1 == 0 || instr.aux1 >= 3) {
+            let ordinal = instr.aux2 as usize;
+            if ordinal >= types.len() {
+                types.resize(ordinal + 1, 0);
+            }
+            types[ordinal] = instr.aux1;
+        }
+    }
+    types
+}
+
+/// Coerce a raw GPU measurement value (0=Zero, 1=One, else Loss) to its Python
+/// `Result` enum counterpart.
+fn measurement_u32_to_py(py: Python<'_>, value: u32) -> PyResult<Py<PyAny>> {
+    let result = match value {
+        0 => QsResult::Zero,
+        1 => QsResult::One,
+        _ => QsResult::Loss,
+    };
+    result.into_py_any(py)
+}
+
+/// Coerce one raw output record value (32-bit) to a native Python object based
+/// on its type tag (0=result, 3=bool, 4=int, 5=double). On the GPU ints are
+/// 32-bit and doubles are stored as f32, so values are reinterpreted
+/// accordingly; results are the raw measurement code (0/1/2).
+fn output_record_to_py(py: Python<'_>, type_tag: u32, bits: u32) -> PyResult<Py<PyAny>> {
+    #[allow(clippy::cast_possible_wrap)]
+    match type_tag {
+        0 => measurement_u32_to_py(py, bits),
+        3 => (bits != 0).into_py_any(py),
+        4 => i64::from(bits as i32).into_py_any(py),
+        5 => f64::from(f32::from_bits(bits)).into_py_any(py),
+        _ => i64::from(bits).into_py_any(py),
+    }
+}
+
+/// Convert the per-shot raw output record values into a Python list with one
+/// inner list of native values (`Result`/bool/int/float) per shot.
+fn output_records_to_pylist<'py>(
+    py: Python<'py>,
+    record_types: &[u32],
+    shot_output_records: &[Vec<u32>],
+) -> PyResult<Bound<'py, PyList>> {
+    let mut per_shot = Vec::with_capacity(shot_output_records.len());
+    for shot_records in shot_output_records {
+        let mut values = Vec::with_capacity(shot_records.len());
+        for (ordinal, &bits) in shot_records.iter().enumerate() {
+            let type_tag = record_types.get(ordinal).copied().unwrap_or(0);
+            values.push(output_record_to_py(py, type_tag, bits)?);
+        }
+        per_shot.push(PyList::new(py, values)?.into_py_any(py)?);
+    }
+    PyList::new(py, per_shot)
 }
 
 fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
@@ -420,33 +511,13 @@ pub fn run_adaptive_parallel_shots<'py>(
     let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
     let rng_seed = seed.unwrap_or(0xfeed_face);
     let program = adaptive_program_from_pydict(input)?;
-    let result_count: usize = program.num_results as usize;
+    let record_types = output_record_types(&program);
     let sim_results = qdk_simulators::run_adaptive_shots_sync(program, &noise, shots, rng_seed, 0)
         .map_err(PyRuntimeError::new_err)?;
 
-    // Collect and format the results into a Python list of strings
-
-    // Turn each shot's results into a string, with '0' for 0, '1' for 1, and 'L' for lost qubits
-    // The results are a flat list of u32, with each shot's results in sequence + one error code,
-    // so we need to chunk them up accordingly
-    let str_results = sim_results
-        .shot_results
-        .iter()
-        .map(|shot_results| {
-            let mut bitstring = String::with_capacity(result_count);
-            for res in shot_results {
-                let char = match res {
-                    0 => '0',
-                    1 => '1',
-                    _ => 'L', // lost qubit
-                };
-                bitstring.push(char);
-            }
-            bitstring
-        })
-        .collect::<Vec<String>>();
-
-    PyList::new(py, str_results)
-        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
-        .into_py_any(py)
+    // Format each shot as the ordered list of its recorded output values
+    // (`Result` enum values for measurement results, plus native bool/int/float
+    // for classical records), in record order.
+    let records = output_records_to_pylist(py, &record_types, &sim_results.shot_output_records)?;
+    records.into_py_any(py)
 }

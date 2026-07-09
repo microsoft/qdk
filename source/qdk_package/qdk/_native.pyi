@@ -1202,6 +1202,11 @@ class GpuShotResults(_GpuShotResultsBase, total=False):
     Results from running shots on the GPU simulator.
     """
 
+    shot_output_records: List[List[object]]
+    """Per-shot ordered output record values (``Result`` enum values for
+    measurement results, plus native ``bool``/``int``/``float`` for classical
+    records), in the order they were recorded during the shot."""
+
     diagnostics: str
     """Diagnostic information if available. (Useful primarly for debugging by the development team)"""
 

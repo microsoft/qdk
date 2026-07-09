@@ -318,17 +318,21 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
     _closers = []
     _counters = []
     _process_fn = None
+    # Running index into the per-shot ordered output record values (`v`)
+    # supplied to `process_output`. Incremented for each leaf record output
+    # (result / bool / int / double) so measurement results and classical
+    # records are addressed uniformly.
+    _record_index = 0
 
-    def process_output(self, bitstring: str):
+    def process_output(self, records):
         if self._process_fn:
-            return self._process_fn(
-                [
-                    Result.Zero if x == "0" else Result.One if x == "1" else Result.Loss
-                    for x in bitstring
-                ]
-            )
-        else:
-            return bitstring
+            return self._process_fn(records)
+        # No output recording in the program: fall back to reporting the raw
+        # measurement results as a string ('0'/'1'/'L').
+        return "".join(
+            "0" if r == Result.Zero else "1" if r == Result.One else "L"
+            for r in records
+        )
 
     def _on_function(self, function):
         if pyqir.is_entry_point(function):
@@ -337,10 +341,14 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
                 self._output_str += self._closers.pop()
                 self._counters.pop()
             if len(self._output_str) != 0:
-                self._process_fn = eval(f"lambda o: {self._output_str}")
+                # ``v`` holds every recorded output value (measurement results
+                # and classical records alike) in the order they were recorded
+                # during the shot.
+                self._process_fn = eval(f"lambda v: {self._output_str}")
 
-    def _on_rt_result_record_output(self, call, result, target):
-        self._output_str += f"o[{pyqir.ptr_id(result)}]"
+    def _record_leaf(self, expr: str):
+        """Append a leaf value expression and close any containers it completes."""
+        self._output_str += expr
         while len(self._counters) > 0:
             self._output_str += ","
             self._counters[-1] -= 1
@@ -350,6 +358,23 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
                 self._counters.pop()
             else:
                 break
+
+    def _record_next_value(self):
+        """Record the next ordered output value, whatever its type."""
+        self._record_leaf(f"v[{self._record_index}]")
+        self._record_index += 1
+
+    def _on_rt_result_record_output(self, call, result, target):
+        self._record_next_value()
+
+    def _on_rt_bool_record_output(self, call, value, target):
+        self._record_next_value()
+
+    def _on_rt_int_record_output(self, call, value, target):
+        self._record_next_value()
+
+    def _on_rt_double_record_output(self, call, value, target):
+        self._record_next_value()
 
     def _on_rt_array_record_output(self, call, value, target):
         self._output_str += "["
@@ -546,7 +571,8 @@ def run_adaptive(
     results = rust_run_adaptive_fn(program.as_dict(), shots, noise, seed)
     recorder = OutputRecordingPass()
     recorder.run(mod)
-    return list(map(recorder.process_output, results))
+    # Each shot result is the ordered list of that shot's recorded output values.
+    return [recorder.process_output(records) for records in results]
 
 
 def run_qir_clifford(
@@ -687,14 +713,14 @@ class GpuSimulator:
         seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         if self._is_adaptive:
             results = self.gpu_context.run_adaptive_shots(shots, seed=seed)
-            for i, (shot_ret_code, shot_result) in enumerate(
-                zip(results["shot_result_codes"], results["shot_results"])
-            ):
+            records = results.get("shot_output_records")
+            for i, shot_ret_code in enumerate(results["shot_result_codes"]):
                 if shot_ret_code == 0:
                     # If the ret_code was zero, we do an output recording pass
-                    # on the output.
+                    # over that shot's ordered record values.
+                    shot_records = records[i] if records is not None else []
                     results["shot_results"][i] = self._recorder.process_output(
-                        shot_result
+                        shot_records
                     )
                 else:
                     # If the shot finished with a ret_code other than zero,

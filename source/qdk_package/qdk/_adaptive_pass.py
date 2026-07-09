@@ -336,6 +336,13 @@ class AdaptiveProfilePass:
         self._global_to_address: Dict[str, int] = {}
         self._alloca_ptr: int = 0
 
+        # Running count of output record outputs (result / bool / int / double).
+        # Each leaf record is assigned a stable ordinal (emitted in the
+        # instruction's aux2 field) so the GPU shader can write its value to a
+        # fixed per-shot slot. Array and tuple records are structural and do not
+        # consume an ordinal.
+        self._output_record_count: int = 0
+
     def run(
         self,
         mod: pyqir.Module,
@@ -834,7 +841,14 @@ class AdaptiveProfilePass:
                 label_str = self._extract_label(call.args[1])
                 label_idx = len(self.labels)
                 self.labels.append(label_str)
-                self._emit(OP_RECORD_OUTPUT, src0=result_reg, aux0=label_idx)
+                self._emit(
+                    OP_RECORD_OUTPUT,
+                    src0=result_reg,
+                    aux0=label_idx,
+                    aux1=0,
+                    aux2=self._output_record_count,
+                )  # aux1=0 -> result
+                self._output_record_count += 1
             case "__quantum__rt__array_record_output":
                 # Record structure output — pass through as-is for output formatting
                 count = (
@@ -867,16 +881,39 @@ class AdaptiveProfilePass:
                 label_idx = len(self.labels)
                 self.labels.append(label_str)
                 self._emit(
-                    OP_RECORD_OUTPUT, src0=src, aux0=label_idx, aux1=3
+                    OP_RECORD_OUTPUT,
+                    src0=src,
+                    aux0=label_idx,
+                    aux1=3,
+                    aux2=self._output_record_count,
                 )  # aux1=3 -> bool
+                self._output_record_count += 1
             case "__quantum__rt__int_record_output":
                 src = self._resolve_operand(call.args[0])
                 label_str = self._extract_label(call.args[1])
                 label_idx = len(self.labels)
                 self.labels.append(label_str)
                 self._emit(
-                    OP_RECORD_OUTPUT, src0=src, aux0=label_idx, aux1=4
+                    OP_RECORD_OUTPUT,
+                    src0=src,
+                    aux0=label_idx,
+                    aux1=4,
+                    aux2=self._output_record_count,
                 )  # aux1=4 -> int
+                self._output_record_count += 1
+            case "__quantum__rt__double_record_output":
+                src = self._resolve_operand(call.args[0])
+                label_str = self._extract_label(call.args[1])
+                label_idx = len(self.labels)
+                self.labels.append(label_str)
+                self._emit(
+                    OP_RECORD_OUTPUT,
+                    src0=src,
+                    aux0=label_idx,
+                    aux1=5,
+                    aux2=self._output_record_count,
+                )  # aux1=5 -> double
+                self._output_record_count += 1
             case (
                 "__quantum__rt__initialize"
                 | "__quantum__rt__begin_parallel"
