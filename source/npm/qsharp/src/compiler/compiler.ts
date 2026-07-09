@@ -140,7 +140,7 @@ export class Compiler implements ICompiler {
       },
     );
     languageService.update_document("code", 1, code, "qsharp");
-    // Yield to let the language service background worker handle the update
+    // Yield to let the language service update loop handle the update
     await Promise.resolve();
     languageService.stop_update_loop();
     await update_loop;
