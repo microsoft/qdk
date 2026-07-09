@@ -79,14 +79,13 @@ export async function getQirForProgram(
   isLocalQirGeneration = false,
 ): Promise<string> {
   const compatible = checkCompatibility(config.profile, preferredTargetProfile);
-  if (!compatible) {
+  if (!compatible && !isLocalQirGeneration) {
     let errorMsg =
       'The current program is configured to use the target profile "' +
       config.profile +
       '", which is not compatible with the QIR target profile "' +
       preferredTargetProfile +
-      '" required by ' +
-      (isLocalQirGeneration ? "local QIR generation." : "the selected target.");
+      '" required by the selected the selected target."';
 
     if (config.packageGraphSources.hasManifest) {
       // Open the manifest file to allow the user to update the profile.
