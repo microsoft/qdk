@@ -220,7 +220,10 @@ class NeutralAtomDevice(Device):
                 "Please install it via 'pip install \"qdk[jupyter]\"' or 'pip install qsharp-widgets'."
             )
         from ._trace import Trace
-        from ._validate import ValidateNoConditionalBranches
+        from ._validate import (
+            ValidateNoConditionalBranches,
+            ValidateNoFunctionCalls,
+        )
         from ._scheduler import Schedule
         from pyqir import Module, Context
         from IPython.display import display
@@ -232,6 +235,7 @@ class NeutralAtomDevice(Device):
         compiled = self.compile(qir)
         module = Module.from_ir(Context(), str(compiled))
         ValidateNoConditionalBranches().run(module)
+        ValidateNoFunctionCalls().run(module)
         Schedule(self).run(module)
         tracer = Trace(self)
         tracer.run(module)

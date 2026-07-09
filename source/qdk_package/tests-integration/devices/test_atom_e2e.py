@@ -261,3 +261,25 @@ def test_show_trace_allows_traceable_adaptive_program() -> None:
     device = NeutralAtomDevice()
     # Must not raise: this Adaptive-profile program is fully traceable.
     device.show_trace(qir)
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
+def test_show_trace_rejects_function_calls() -> None:
+    # In some Adaptive-profile builds, gate definitions (e.g. `H`) are emitted as
+    # separate, non-inlined functions. Tracing renders a single, straight-line
+    # schedule and cannot follow a call into another function body, so those
+    # operations would be silently dropped from the visualization. Such programs
+    # must be rejected rather than mis-visualized.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qir = qsharp.compile("""
+        {
+            use q = Qubit();
+            H(q);
+            MResetZ(q)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    with pytest.raises(ValueError, match="programs with function calls"):
+        device.show_trace(qir)
