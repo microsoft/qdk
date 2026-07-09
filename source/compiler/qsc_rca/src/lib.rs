@@ -346,6 +346,18 @@ impl Display for ApplicationGeneratorSet {
 }
 
 impl ApplicationGeneratorSet {
+    /// Generates the compute kind for an application where every flattened input parameter is a runtime variable.
+    #[must_use]
+    pub fn generate_variable_parameter_compute_kind(&self) -> ComputeKind {
+        let args_compute_kinds = self
+            .dynamic_param_applications
+            .iter()
+            .map(variable_compute_kind_for_param_application)
+            .collect::<Vec<_>>();
+
+        self.generate_application_compute_kind(&args_compute_kinds)
+    }
+
     #[must_use]
     pub fn generate_application_compute_kind(
         &self,
@@ -406,6 +418,21 @@ impl ApplicationGeneratorSet {
             }
         }
         compute_kind
+    }
+}
+
+fn variable_compute_kind_for_param_application(
+    param_application: &ParamApplication,
+) -> ComputeKind {
+    match param_application {
+        ParamApplication::Element(_) => ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::empty(),
+            value_kind: ValueKind::Variable,
+        },
+        ParamApplication::Array(_) => ComputeKind::Dynamic {
+            runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
+            value_kind: ValueKind::Variable,
+        },
     }
 }
 
@@ -823,5 +850,94 @@ impl RuntimeFeatureFlags {
             | RuntimeFeatureFlags::UseOfDoubleOutput
             | RuntimeFeatureFlags::UseOfBoolOutput
             | RuntimeFeatureFlags::UseOfAdvancedOutput
+    }
+}
+
+#[cfg(test)]
+mod application_generator_set_tests {
+    use super::{ComputeKind, ComputePropertiesLookup, ItemComputeProperties, RuntimeFeatureFlags};
+    use crate::tests::{CompilationContext, PackageStoreSearch};
+    use qsc_data_structures::target::TargetCapabilityFlags;
+
+    #[test]
+    fn literal_call_site_avoids_dynamic_range_when_variable_parameter_view_reports_it() {
+        let mut context = CompilationContext::default();
+        context.update(
+            r#"
+            operation RepeatX(count : Int, q : Qubit) : Unit {
+                for _ in 1..count {
+                    X(q);
+                }
+            }
+
+            use q = Qubit();
+            RepeatX(2, q)
+            "#,
+        );
+
+        let literal_call_site_features = runtime_features(last_statement_inherent_compute_kind(
+            context.get_compute_properties(),
+        ));
+        assert!(
+            !literal_call_site_features.contains(RuntimeFeatureFlags::UseOfDynamicRange),
+            "literal call-site application should not require a dynamic range"
+        );
+
+        let callable_id = context
+            .fir_store
+            .find_callable_id_by_name("RepeatX")
+            .expect("callable should exist");
+        let ItemComputeProperties::Callable(callable_compute_properties) =
+            context.get_compute_properties().get_item(callable_id)
+        else {
+            panic!("RepeatX should be a callable");
+        };
+
+        let variable_parameter_features = runtime_features(
+            callable_compute_properties
+                .body
+                .generate_variable_parameter_compute_kind(),
+        );
+        assert!(
+            variable_parameter_features.contains(RuntimeFeatureFlags::UseOfDynamicRange),
+            "variable-parameter application should report a dynamic range"
+        );
+        assert!(
+            variable_parameter_features
+                .target_capabilities()
+                .contains(TargetCapabilityFlags::HigherLevelConstructs),
+            "dynamic range should map to higher-level construct capability requirements"
+        );
+    }
+
+    fn last_statement_inherent_compute_kind(
+        compute_properties: &super::PackageStoreComputeProperties,
+    ) -> ComputeKind {
+        let last_package_id = compute_properties
+            .iter()
+            .map(|(package_id, _)| package_id)
+            .max()
+            .expect("at least one package should exist");
+        let package_compute_properties = compute_properties.get(last_package_id);
+        let last_statement_id = package_compute_properties
+            .stmts
+            .iter()
+            .map(|(stmt_id, _)| stmt_id)
+            .max()
+            .expect("at least one statement should exist");
+        package_compute_properties
+            .stmts
+            .get(last_statement_id)
+            .expect("statement compute properties should exist")
+            .inherent
+    }
+
+    fn runtime_features(compute_kind: ComputeKind) -> RuntimeFeatureFlags {
+        match compute_kind {
+            ComputeKind::Static => RuntimeFeatureFlags::empty(),
+            ComputeKind::Dynamic {
+                runtime_features, ..
+            } => runtime_features,
+        }
     }
 }

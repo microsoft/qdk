@@ -161,6 +161,107 @@ fn scalar_and_qubit_parameters_are_threaded_as_variables() {
 }
 
 #[test]
+fn literal_call_site_repeats_x_without_emitting_dynamic_range_ir_function() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation RepeatX(count : Int, q : Qubit) : Unit {
+                for _ in 1..count {
+                    X(q);
+                }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                RepeatX(2, q);
+            }
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(1)
+                Jump(1)
+            Block 1:Block:
+                Variable(1, Boolean) = Icmp Sle, Variable(0, Integer), Integer(2)
+                Variable(2, Boolean) = Store Bool(true)
+                Branch Variable(1, Boolean), 3, 4
+            Block 2:Block:
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
+            Block 3:Block:
+                Branch Variable(2, Boolean), 5, 2
+            Block 4:Block:
+                Variable(2, Boolean) = Store Bool(false)
+                Jump(3)
+            Block 5:Block:
+                Call id(2), args( Qubit(0), )
+                Variable(4, Integer) = Add Variable(0, Integer), Integer(1)
+                Variable(0, Integer) = Store Variable(4, Integer)
+                Jump(1)
+            Block 6:Block:
+                Call id(3), args( Variable(3, Qubit), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn literal_scalar_return_remains_available_for_static_qubit_allocation_size() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation Count(a : Int, b : Int) : Int {
+                a + b
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use qs = Qubit[Count(1, 2)];
+                X(qs[2]);
+            }
+        }
+        "#,
+    );
+
+    assert_eq!(program.num_qubits, 3);
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Variable(0, Integer) = Store Integer(1)
+                Variable(0, Integer) = Store Integer(2)
+                Variable(0, Integer) = Store Integer(3)
+                Call id(2), args( Qubit(2), )
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)
+            Block 1:Block:
+                Call id(3), args( Variable(1, Qubit), )
+                Return"#]],
+    );
+}
+
+#[test]
 fn body_and_adjoint_specializations_emit_distinct_functions() {
     let program = get_rir_program_with_adaptive_profile(
         r#"

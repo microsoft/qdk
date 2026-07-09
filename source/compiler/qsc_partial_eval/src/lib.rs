@@ -41,8 +41,8 @@ use qsc_fir::{
 };
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
-    ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    RuntimeFeatureFlags, ValueKind,
+    ApplicationGeneratorSet, ComputeKind, ComputePropertiesLookup, ItemComputeProperties,
+    PackageStoreComputeProperties, RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -209,6 +209,7 @@ struct PartialEvaluator<'a> {
     /// allocation never occurs inside an emitted IR-function body while dynamic qubit allocation is
     /// disabled.
     ir_function_emission_depth: usize,
+    static_condition_eval_depth: usize,
     eval_context: EvaluationContext,
     program: Program,
     entry: Option<&'a ProgramEntry>,
@@ -315,6 +316,7 @@ impl<'a> PartialEvaluator<'a> {
             emitted_names: FxHashSet::default(),
             entry_callable_item: resolve_entry_callable_item(package_store, entry),
             ir_function_emission_depth: 0,
+            static_condition_eval_depth: 0,
             program,
             entry,
             config,
@@ -2164,16 +2166,24 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // Callables whose bodies contain calls that RCA could not
-        // statically resolve, and callables that transitively allocate qubits (unless dynamic qubit
-        // allocation is enabled) must be inlined. These are surfaced as inherent runtime features of
-        // the specialization by RCA. Unresolved-callee paths surface as
-        // `CallToUnresolvedCallee`; in all such cases the specialization is inlined.
-        let inherent_features = self.spec_inherent_runtime_features(store_item_id, functor_app);
-        if inherent_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee) {
+        let Some(generator_set) = self.spec_generator_set(store_item_id, functor_app) else {
+            return false;
+        };
+
+        let emitted_compute_kind = generator_set.generate_variable_parameter_compute_kind();
+        if callable_decl.output != Ty::UNIT && emitted_compute_kind.is_variable_value_kind() {
             return false;
         }
-        if inherent_features.contains(RuntimeFeatureFlags::QubitAllocation)
+        let emitted_features = match emitted_compute_kind {
+            ComputeKind::Dynamic {
+                runtime_features, ..
+            } => runtime_features,
+            ComputeKind::Static => RuntimeFeatureFlags::empty(),
+        };
+        if emitted_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee) {
+            return false;
+        }
+        if emitted_features.contains(RuntimeFeatureFlags::QubitAllocation)
             && !self
                 .program
                 .config
@@ -2183,33 +2193,30 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
+        if !get_missing_runtime_features(emitted_features, self.program.config.capabilities)
+            .is_empty()
+        {
+            return false;
+        }
+
         true
     }
 
-    /// Reads the inherent runtime features of a resolved callable specialization from RCA. This
-    /// mirrors the specialization selection in `get_call_compute_kind` and is used by the
-    /// IR-function eligibility predicate to detect recursion and transitive qubit allocation.
-    fn spec_inherent_runtime_features(
+    fn spec_generator_set(
         &self,
         store_item_id: StoreItemId,
         functor_app: FunctorApp,
-    ) -> RuntimeFeatureFlags {
+    ) -> Option<&ApplicationGeneratorSet> {
         let ItemComputeProperties::Callable(callable_compute_properties) =
             self.compute_properties.get_item(store_item_id)
         else {
-            return RuntimeFeatureFlags::empty();
+            return None;
         };
-        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
+        match (functor_app.adjoint, functor_app.controlled) {
             (false, 0) => Some(&callable_compute_properties.body),
             (false, _) => callable_compute_properties.ctl.as_ref(),
             (true, 0) => callable_compute_properties.adj.as_ref(),
             (true, _) => callable_compute_properties.ctl_adj.as_ref(),
-        };
-        match generator_set.map(|gen_set| gen_set.inherent) {
-            Some(ComputeKind::Dynamic {
-                runtime_features, ..
-            }) => runtime_features,
-            _ => RuntimeFeatureFlags::empty(),
         }
     }
 
@@ -2225,19 +2232,9 @@ impl<'a> PartialEvaluator<'a> {
         store_item_id: StoreItemId,
         functor_app: FunctorApp,
     ) -> bool {
-        let ItemComputeProperties::Callable(callable_compute_properties) =
-            self.compute_properties.get_item(store_item_id)
-        else {
-            return false;
-        };
-        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
-            (false, 0) => Some(&callable_compute_properties.body),
-            (false, _) => callable_compute_properties.ctl.as_ref(),
-            (true, 0) => callable_compute_properties.adj.as_ref(),
-            (true, _) => callable_compute_properties.ctl_adj.as_ref(),
-        };
         matches!(
-            generator_set.map(|gen_set| gen_set.inherent),
+            self.spec_generator_set(store_item_id, functor_app)
+                .map(|gen_set| gen_set.inherent),
             Some(ComputeKind::Dynamic { .. })
         )
     }
@@ -2920,7 +2917,8 @@ impl<'a> PartialEvaluator<'a> {
                 if let Value::Var(var) = bound_value {
                     let current_scope = self.eval_context.get_current_scope();
                     if let Some(literal) = current_scope.get_static_value(var.id.into())
-                        && (!current_scope.is_currently_evaluating_branch()
+                        && (self.static_condition_eval_depth > 0
+                            || !current_scope.is_currently_evaluating_branch()
                             || !self
                                 .program
                                 .config
@@ -2968,14 +2966,15 @@ impl<'a> PartialEvaluator<'a> {
 
         // Evaluate the block until the loop condition is false.
         let condition_expr_span = self.get_expr_package_span(condition_expr_id);
-        let mut condition_control_flow = self.try_eval_expr(condition_expr_id)?;
+        let mut condition_control_flow = self.eval_static_condition_expr(condition_expr_id)?;
         if condition_control_flow.is_return() {
             return Err(Error::Unexpected(
                 "embedded return in loop condition".to_string(),
                 condition_expr_span,
             ));
         }
-        let mut condition_boolean = condition_control_flow.into_value().unwrap_bool();
+        let condition_value = self.value_or_static_literal(condition_control_flow.into_value());
+        let mut condition_boolean = condition_value.unwrap_bool();
 
         let dbg_location_id = self.new_dbg_location(loop_expr_id);
         if let Some(dbg_location_id) = dbg_location_id {
@@ -2996,14 +2995,15 @@ impl<'a> PartialEvaluator<'a> {
             }
 
             // Re-evaluate the condition now that the block evaluation is done
-            condition_control_flow = self.try_eval_expr(condition_expr_id)?;
+            condition_control_flow = self.eval_static_condition_expr(condition_expr_id)?;
             if condition_control_flow.is_return() {
                 return Err(Error::Unexpected(
                     "embedded return in loop condition".to_string(),
                     condition_expr_span,
                 ));
             }
-            condition_boolean = condition_control_flow.into_value().unwrap_bool();
+            let condition_value = self.value_or_static_literal(condition_control_flow.into_value());
+            condition_boolean = condition_value.unwrap_bool();
         }
         if dbg_location_id.is_some() {
             self.dbg_pop_loop_iteration_scope();
@@ -3494,6 +3494,25 @@ impl<'a> PartialEvaluator<'a> {
         let expr_generator_set = self.compute_properties.get_expr(store_expr_id);
         let callable_scope = self.eval_context.get_current_scope();
         expr_generator_set.generate_application_compute_kind(&callable_scope.args_compute_kind)
+    }
+
+    fn value_or_static_literal(&self, value: Value) -> Value {
+        let Value::Var(var) = value else {
+            return value;
+        };
+
+        self.eval_context
+            .get_current_scope()
+            .get_static_value(var.id.into())
+            .and_then(|literal| map_rir_literal_to_eval_value(*literal))
+            .unwrap_or(Value::Var(var))
+    }
+
+    fn eval_static_condition_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
+        self.static_condition_eval_depth += 1;
+        let result = self.try_eval_expr(expr_id);
+        self.static_condition_eval_depth -= 1;
+        result
     }
 
     fn is_unresolved_callee_expr(&self, expr_id: ExprId) -> bool {

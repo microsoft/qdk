@@ -1766,6 +1766,91 @@ fn composite_signature_operation_inlines() {
     assert_inlined(&qir, "ApplyAll");
 }
 
+/// A helper whose range bound is literal at the call site must inline when
+/// emitting it as a standalone function would make the range bound dynamic.
+#[test]
+fn literal_bound_range_helper_inlines() {
+    let source = "namespace Test {
+            operation RepeatX(count : Int, q : Qubit) : Unit {
+                for _ in 1..count {
+                    X(q);
+                }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                RepeatX(2, q);
+            }
+        }";
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_inlined(&qir, "RepeatX");
+    assert!(
+        !qir.contains("call void @RepeatX("),
+        "expected the literal-bound helper call to inline; got:\n{qir}"
+    );
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_t\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          %var_0 = alloca i64
+          %var_2 = alloca i1
+          call void @__quantum__rt__initialize(ptr null)
+          store i64 1, ptr %var_0
+          br label %block_1
+        block_1:
+          %var_6 = load i64, ptr %var_0
+          %var_1 = icmp sle i64 %var_6, 2
+          store i1 true, ptr %var_2
+          br i1 %var_1, label %block_2, label %block_3
+        block_2:
+          %var_9 = load i1, ptr %var_2
+          br i1 %var_9, label %block_4, label %block_5
+        block_3:
+          store i1 false, ptr %var_2
+          br label %block_2
+        block_4:
+          call void @X(ptr inttoptr (i64 0 to ptr))
+          %var_10 = load i64, ptr %var_0
+          %var_4 = add i64 %var_10, 1
+          store i64 %var_4, ptr %var_0
+          br label %block_1
+        block_5:
+          call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        define void @X(ptr %var_3) {
+        block_6:
+          call void @__quantum__qis__x__body(ptr %var_3)
+          ret void
+        }
+
+        declare void @__quantum__qis__x__body(ptr)
+
+        declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
+}
+
 /// A tuple parameter whose leaves are all scalars/qubits is FLATTENED into
 /// individual scalar/qubit parameters and emitted as an IR function (the
 /// eligibility predicate rejects composite LEAVES, e.g. arrays, not
