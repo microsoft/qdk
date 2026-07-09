@@ -35,7 +35,7 @@ def compile(
     :param **kwargs: Additional keyword arguments for compiling the source program. Common options:
 
         - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
-        - ``target_profile`` (TargetProfile): The target profile to use for code generation. (Default: ``TargetProfile.Adaptive``)
+        - ``target_profile`` (TargetProfile): The target profile to use for code generation. (Default: ``TargetProfile.Adaptive_RIF``)
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
     :return: The compiled program. Use ``str()`` to get the QIR string.
