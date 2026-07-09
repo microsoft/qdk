@@ -15,6 +15,21 @@ if TYPE_CHECKING:
     from ...simulation._simulation import NoiseConfig
 
 
+def _get_qir_profile(qir: "str | QirInputData") -> Optional[str]:
+    """Return the value of the entry point's `qir_profiles` attribute
+    (e.g. `"base_profile"` or `"adaptive_profile"`), or `None` if the
+    program does not declare a profile."""
+    from pyqir import Module, Context, is_entry_point
+
+    module = Module.from_ir(Context(), str(qir))
+    for function in module.functions:
+        if is_entry_point(function):
+            attributes = function.attributes.func
+            if "qir_profiles" in attributes:
+                return attributes["qir_profiles"].string_value
+    return None
+
+
 class NeutralAtomDevice(Device):
     """
     Representation of a neutral atom device quantum computer.
@@ -211,6 +226,17 @@ class NeutralAtomDevice(Device):
 
         start_time = time.monotonic()
         telemetry_events.on_neutral_atom_trace()
+
+        # `show_trace` statically analyzes the program to lay it out and schedule
+        # it, which requires fully inlined, Base-profile QIR with constant gate
+        # parameters. Adaptive-profile QIR (dynamic rotation angles, branching,
+        # and non-inlined gate definitions) cannot be traced this way.
+        profile = _get_qir_profile(qir)
+        if profile is not None and profile != "base_profile":
+            raise ValueError(
+                "`show_trace` only supports Base-profile QIR, but the provided "
+                "program is compiled to the Adaptive profile."
+            )
 
         # Compile and visualize the trace in one step.
         compiled = self.compile(qir)
