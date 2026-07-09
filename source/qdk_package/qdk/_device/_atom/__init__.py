@@ -227,23 +227,32 @@ class NeutralAtomDevice(Device):
         start_time = time.monotonic()
         telemetry_events.on_neutral_atom_trace()
 
-        # `show_trace` statically analyzes the program to lay it out and schedule
-        # it, which requires fully inlined, Base-profile QIR with constant gate
-        # parameters. Adaptive-profile QIR (dynamic rotation angles, branching,
-        # and non-inlined gate definitions) cannot be traced this way.
-        profile = _get_qir_profile(qir)
-        if profile is not None and profile != "base_profile":
-            raise ValueError(
-                "`show_trace` only supports Base-profile QIR, but the provided "
-                "program is compiled to the Adaptive profile."
-            )
+        # Compile, schedule, and trace the program. Tracing statically analyzes
+        # the program, so it only supports constant gate parameters and a single
+        # straight-line execution path. Most programs trace fine -- including many
+        # Adaptive-profile ones -- but those with values known only
+        # at run time (e.g. rotation angles computed from measurement results) or
+        # non-inlined gate definitions cannot be traced. In that case, surface a
+        # clear, actionable error instead of a low-level failure.
+        try:
+            compiled = self.compile(qir)
+            module = Module.from_ir(Context(), str(compiled))
+            Schedule(self).run(module)
+            tracer = Trace(self)
+            tracer.run(module)
+        except (AttributeError, IndexError) as e:
+            profile = _get_qir_profile(qir)
+            if profile is not None and profile != "base_profile":
+                raise ValueError(
+                    "`show_trace` could not trace this program. This "
+                    "Adaptive-profile program contains values known only at run "
+                    "time (for example, rotation angles computed from measurement "
+                    "results) or gate definitions that are not inlined."
+                ) from e
+            # If the program is Base profile this is a bug.
+            # Re-raise the original exception.
+            raise
 
-        # Compile and visualize the trace in one step.
-        compiled = self.compile(qir)
-        module = Module.from_ir(Context(), str(compiled))
-        Schedule(self).run(module)
-        tracer = Trace(self)
-        tracer.run(module)
         display(Atoms(machine_layout=self.get_layout(), trace_data=tracer.trace))
 
         end_time = time.monotonic()

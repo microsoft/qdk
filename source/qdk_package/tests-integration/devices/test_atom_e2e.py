@@ -196,11 +196,34 @@ def test_s_adj_noise_inherits_from_rz():
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 @pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
-def test_show_trace_rejects_adaptive_profile() -> None:
-    # `show_trace` statically analyzes the program to lay it out and schedule it,
-    # which only works for Base-profile QIR. Adaptive-profile QIR must be
-    # rejected up front with a clear, actionable error rather than failing deep
-    # inside the trace pass.
+def test_show_trace_rejects_untraceable_adaptive_program() -> None:
+    # An Adaptive-profile program with a runtime-computed rotation angle (here
+    # derived from a measurement result) cannot be traced, since tracing
+    # statically analyzes the program. It must surface a clear, actionable error
+    # rather than a low-level failure deep inside the trace pass.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use q = Qubit();
+            H(q);
+            let r = MResetZ(q);
+            let angle = if r == One { 1.0 } else { 2.0 };
+            Rz(angle, q);
+            MResetZ(q)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    with pytest.raises(ValueError, match="could not trace this program"):
+        device.show_trace(qir)
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
+def test_show_trace_allows_traceable_adaptive_program() -> None:
+    # An Adaptive-profile program with only constant gate parameters and a
+    # single execution path can still be traced; `show_trace` must not reject it
+    # just because it is compiled to the Adaptive profile.
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
     qir = qsharp.compile("""
         {
@@ -212,5 +235,5 @@ def test_show_trace_rejects_adaptive_profile() -> None:
         """)
 
     device = NeutralAtomDevice()
-    with pytest.raises(ValueError, match="only supports Base-profile QIR"):
-        device.show_trace(qir)
+    # Must not raise: this Adaptive-profile program is fully traceable.
+    device.show_trace(qir)
