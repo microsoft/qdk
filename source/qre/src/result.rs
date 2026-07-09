@@ -10,11 +10,26 @@ use rustc_hash::FxHashMap;
 
 use crate::{ISA, ParetoFrontier2D, ParetoItem2D, Property};
 
+/// Controls how individual error contributions passed to
+/// [`EstimationResult::add_error`] are composed into the total error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ErrorComposition {
+    /// Union bound: contributions are summed (`Σ pᵢ`). This is the default and
+    /// preserves the historical behavior. The resulting error can exceed 1.0.
+    #[default]
+    UnionBound,
+    /// Product composition: contributions are combined as `1 − ∏(1 − pᵢ)`,
+    /// treating each contribution as an independent error event. The resulting
+    /// error is always in `[0, 1)`.
+    Product,
+}
+
 #[derive(Clone, Default)]
 pub struct EstimationResult {
     qubits: u64,
     runtime: u64,
     error: f64,
+    error_composition: ErrorComposition,
     factories: FxHashMap<u64, FactoryResult>,
     isa: ISA,
     isa_index: Option<usize>,
@@ -60,6 +75,17 @@ impl EstimationResult {
         self.error = error;
     }
 
+    /// Returns the composition mode used by [`Self::add_error`].
+    #[must_use]
+    pub fn error_composition(&self) -> ErrorComposition {
+        self.error_composition
+    }
+
+    /// Sets the composition mode used by [`Self::add_error`].
+    pub fn set_error_composition(&mut self, composition: ErrorComposition) {
+        self.error_composition = composition;
+    }
+
     /// Adds to the current qubit count and returns the new value.
     pub fn add_qubits(&mut self, qubits: u64) -> u64 {
         self.qubits += qubits;
@@ -72,9 +98,25 @@ impl EstimationResult {
         self.runtime
     }
 
-    /// Adds to the current error and returns the new value.
-    pub fn add_error(&mut self, error: f64) -> f64 {
-        self.error += error;
+    /// Composes `count` copies of an error of rate `rate` into the current total
+    /// error according to the configured [`ErrorComposition`] and returns the
+    /// new total error.
+    ///
+    /// For [`ErrorComposition::UnionBound`] the contribution `rate * count` is
+    /// summed. For [`ErrorComposition::Product`] the survival probability
+    /// `1 − error` is multiplied by `(1 − rate)^count`, i.e.
+    /// `error ← 1 − (1 − error) · (1 − rate)^count`.
+    ///
+    /// In both modes the total error is non-decreasing in `rate` and `count`.
+    pub fn add_error(&mut self, rate: f64, count: f64) -> f64 {
+        match self.error_composition {
+            ErrorComposition::UnionBound => {
+                self.error += rate * count;
+            }
+            ErrorComposition::Product => {
+                self.error = 1.0 - (1.0 - self.error) * (1.0 - rate).powf(count);
+            }
+        }
         self.error
     }
 

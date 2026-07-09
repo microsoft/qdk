@@ -5,6 +5,7 @@ mod collapsing_gates;
 mod collapsing_gates_broadcasting;
 mod control_flow;
 mod generalize_pauli_product_gates;
+mod measurement_record_targets;
 mod noise_channels;
 mod noise_channels_broadcasting;
 mod pair_measurements;

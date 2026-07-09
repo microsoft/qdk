@@ -528,18 +528,18 @@ fn depolarize2_without_probability_yields_error() {
 
 #[test]
 fn depolarize2_with_odd_number_of_targets_yields_error() {
-    let source = "DEPOLARIZE2 0";
+    let source = "DEPOLARIZE2(0.01) 0";
     check(
         source,
         &expect![[r#"
-        Stim.OddQubitCount
+            Stim.OddTargetCount
 
-          x instruction DEPOLARIZE2 requires an even number of qubit targets
-           ,----
-         1 | DEPOLARIZE2 0
-           : ^^^^^^^^^^^^^
-           `----
-    "#]],
+              x instruction DEPOLARIZE2 requires an even number of targets
+               ,----
+             1 | DEPOLARIZE2(0.01) 0
+               : ^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 

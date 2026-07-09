@@ -80,6 +80,24 @@ pub struct CallSite {
     pub call_pkg_id: PackageId,
     /// The HOF being called.
     pub hof_item_id: ItemId,
+    /// The outer input-parameter slot of the HOF this call site resolves.
+    /// Copied from the originating [`CallableParam::top_level_param`] so that
+    /// specialize and rewrite can recover the exact parameter for each row
+    /// instead of collapsing every arrow parameter onto the lowest index. Which
+    /// parameter a call site resolves is independent of the `condition`, which
+    /// selects among the branch-dispatch candidates for that one parameter.
+    pub top_level_param: usize,
+    /// The tuple-field path relative to `top_level_param`, copied from the
+    /// originating [`CallableParam::field_path`]. Empty for a separate
+    /// top-level arrow parameter; non-empty for an arrow field nested inside a
+    /// single tuple parameter.
+    pub field_path: Vec<usize>,
+    /// Whether the owning HOF's input pattern is a tuple, copied from the
+    /// originating [`CallableParam::hof_input_is_tuple`]. Distinguishes a
+    /// multi-parameter HOF, whose arrow input is a tuple of parameters, from a
+    /// single tuple-valued parameter, whose arrow input is that tuple. This
+    /// changes where a nested `field_path` indexes.
+    pub hof_input_is_tuple: bool,
     /// Resolved callable argument.
     pub callable_arg: ConcreteCallable,
     /// Expression for the callable argument.
@@ -139,15 +157,27 @@ pub struct CapturedVar {
     /// An optional initializer expression to reuse when the original local is
     /// scoped to a block that rewrite will erase.
     pub expr: Option<ExprId>,
+    /// Caller-scope substitutions to apply when `expr` is a producer-scope
+    /// compound literal (a struct/tuple/array constructor whose sub-exprs
+    /// reference the producing function's parameters).
+    ///
+    /// Each `(local, caller_expr)` entry maps a producer-parameter
+    /// [`LocalVarId`] appearing inside `expr` to the caller-scope argument
+    /// [`ExprId`] bound to that parameter at the call site. Rewrite deep-clones
+    /// `expr` and rebinds each recorded inner `Var(Res::Local(local))` leaf to
+    /// `caller_expr`, so the literal is reconstructed entirely from caller-scope
+    /// values instead of splicing unbound producer-scope locals into the
+    /// caller. Empty for scalar captures and for captures that need no remap.
+    pub caller_substitutions: Vec<(LocalVarId, ExprId)>,
 }
 
 /// Maximum number of concrete callables tracked in a `Multi` lattice element
 /// before degrading to `Dynamic`.
-pub(super) const MULTI_CAP: usize = 8;
+pub(super) const MULTI_CAP: usize = 1000;
 
 /// Reaching-definitions lattice for callable variables.
 /// Tracks the set of possible concrete callables at each program point.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CalleeLattice {
     /// No value assigned yet (before first definition).
     Bottom,
@@ -180,8 +210,8 @@ impl CalleeLattice {
     /// - `Bottom ⊔ x = x`
     /// - `Single(a) ⊔ Single(a) = Single(a)` (when equal)
     /// - `Single(a) ⊔ Single(b) = Multi([a, b])`
-    /// - `Multi(s) ⊔ Single(a) = Multi(s ∪ {a})` (cap at `MULTI_CAP` → Dynamic)
-    /// - `Multi(s1) ⊔ Multi(s2) = Multi(s1 ∪ s2)` (cap at `MULTI_CAP` → Dynamic)
+    /// - `Multi(s) ⊔ Single(a) = Multi(s ∪ {a})` (cap at `MULTI_CAP` => Dynamic)
+    /// - `Multi(s1) ⊔ Multi(s2) = Multi(s1 ∪ s2)` (cap at `MULTI_CAP` => Dynamic)
     /// - `Dynamic ⊔ _ = Dynamic`
     #[must_use]
     pub fn join(self, other: Self) -> Self {
@@ -227,7 +257,10 @@ impl CalleeLattice {
     /// `condition`.
     ///
     /// - `Single(a)` vs distinct `Single(b)`: `[(a,[condition]), (b,[])]`.
-    /// - `Single(a)` vs `Multi(s)`: prepend `(a,[condition])`; `s` unchanged.
+    /// - `Single(a)` vs `Multi(s)`: prepend `(a,[condition])` unconditionally;
+    ///   `s` unchanged. The true-branch arm is kept even when `a` already
+    ///   appears inside `s` under a different guard — collapsing it would drop
+    ///   the `condition` arm.
     /// - `Multi(s)` vs `Single(b)`: prepend `condition` onto every entry of
     ///   `s`, then append `(b,[])` as the trailing default.
     /// - `Multi(s1)` vs `Multi(s2)`: if the callable sets are identical (the
@@ -252,10 +285,13 @@ impl CalleeLattice {
             }
             (Self::Single(a), Self::Multi(mut s)) => {
                 // Prepend the conditioned true-branch entry; `s` supplies the
-                // implicit `!condition` via sequential ordering.
-                if !s.iter().any(|(cc, _)| *cc == a) {
-                    s.insert(0, (a, vec![condition]));
-                }
+                // implicit `!condition` via sequential ordering. Prepended
+                // unconditionally: even when `a` already appears inside `s`
+                // under a different guard, the true-branch arm is a distinct
+                // dispatch case — deduplicating it against the inner occurrence
+                // would drop the `condition` arm and reroute that path through
+                // `s`'s guards instead of unconditionally selecting `a`.
+                s.insert(0, (a, vec![condition]));
                 if s.len() > MULTI_CAP {
                     Self::Dynamic
                 } else {
@@ -279,15 +315,16 @@ impl CalleeLattice {
                 }
             }
             // Multi from both branches (nested dispatch on each side). Identical
-            // callable sets mean the variable was not modified in the branch —
-            // keep `s1` to stay byte-stable; otherwise merge the two chains.
+            // dispatch chains — same callables *and* same guards — mean the
+            // variable was not modified in the branch, so keep `s1` to stay
+            // byte-stable; otherwise merge the two chains. Comparing callable
+            // identity alone is unsound: two branches can reassign the local to
+            // the same set of callables under *different* inner guards (e.g.
+            // `if rb {X} else {Z}` vs `if rc {X} else {Z}`), and collapsing to
+            // `s1` would drop the outer condition and reroute the false-branch
+            // path through the true branch's guards.
             (Self::Multi(s1), Self::Multi(s2)) => {
-                let same_callables = s1.len() == s2.len()
-                    && s1
-                        .iter()
-                        .zip(s2.iter())
-                        .all(|((cc1, _), (cc2, _))| cc1 == cc2);
-                if same_callables {
+                if s1 == s2 {
                     Self::Multi(s1)
                 } else {
                     // Prepend `condition` onto every `s1` guard list; keep `s2`
@@ -360,6 +397,7 @@ pub enum ConcreteCallableKey {
     Closure {
         target: StoreItemId,
         functor: FunctorApp,
+        occurrence: Option<usize>,
     },
 }
 
@@ -400,21 +438,40 @@ pub enum Error {
     /// concrete set of callables, typically because the number of conditional
     /// branches exceeds `MULTI_CAP`, a conditional has mismatched Multi
     /// variants, or a mutable callable variable is reassigned in a loop.
+    ///
+    /// This diagnostic is also emitted when a captured compound literal — a
+    /// struct, tuple, or array — cannot be safely rebuilt in the caller's
+    /// scope. For example, a captured struct field whose value comes from an
+    /// operation call cannot be duplicated or reordered out of the scope that
+    /// produced it. Declining such a closure to a dynamic call site keeps the
+    /// original dispatch and produces this recoverable diagnostic instead of
+    /// generating incorrect code, which would be a hard error on the base
+    /// profile.
     #[error("callable argument could not be resolved statically")]
     #[diagnostic(code("Qsc.Defunctionalize.DynamicCallable"))]
     #[diagnostic(help("ensure all callable arguments are known at compile time"))]
     DynamicCallable(#[label] Span),
 
-    /// Emitted when specializing a HOF would re-enter the same
-    /// `(HOF, concrete-argument)` combination during a single pass — for
-    /// example, a HOF that calls itself with the same callable argument it
-    /// received. The recursion guard in `specialize` rejects the duplicate
-    /// entry rather than looping indefinitely.
-    #[error("specialization leads to infinite recursion")]
-    #[diagnostic(code("Qsc.Defunctionalize.RecursiveSpecialization"))]
-    RecursiveSpecialization(#[label] Span),
+    /// Emitted when a higher-order function forwards two or more distinct
+    /// arrays of callables through a single call. The callables are statically
+    /// resolved, but the combined removal models only one forwarded callable
+    /// array per call; the multiple-array shape would otherwise fall through to
+    /// the per-row path and silently collapse each multi-candidate array to a
+    /// single member. Failing closed here keeps the transform from emitting
+    /// incorrect output for a shape it does not yet support.
+    ///
+    /// Forwarding two or more callable arrays through one call is always
+    /// declined with this diagnostic rather than partially specialized, so this
+    /// unsupported shape can never turn into incorrect code.
+    #[error("higher-order function forwards more than one callable array, which is not supported")]
+    #[diagnostic(code("Qsc.Defunctionalize.UnsupportedMultipleCallableArrays"))]
+    #[diagnostic(help(
+        "pass at most one array-of-callables argument to a higher-order function; combine the \
+         arrays or specialize the callers so each forwards a single callable array"
+    ))]
+    UnsupportedMultipleCallableArrays(#[label] Span),
 
-    /// Emitted when the analysis → specialize → rewrite fixpoint loop exits
+    /// Emitted when the analysis => specialize => rewrite fixpoint loop exits
     /// without eliminating every reachable closure or arrow-typed parameter.
     /// The first field is the iteration count actually reached and the
     /// second is the number of remaining callable values. Suppressed when

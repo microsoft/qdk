@@ -4,7 +4,7 @@
 use expect_test::expect;
 use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 
-use super::compile_source_to_qir;
+use super::{compile_source_to_qir, compile_source_to_qir_result};
 static CAPABILITIES: std::sync::LazyLock<TargetCapabilityFlags> =
     std::sync::LazyLock::new(|| TargetCapabilityFlags::from(Profile::Base));
 
@@ -531,5 +531,599 @@ fn cross_package_apply_if_greater_le_generates_qir() {
     assert!(
         qir.contains("define i64 @ENTRYPOINT__main()") && qir.contains("\"entry_point\""),
         "expected valid Base-profile QIR for the cross-package ApplyIfGreaterLE program; got:\n{qir}"
+    );
+}
+
+/// Passing two producer-function-returned closures to a higher-order operation
+/// must lower to valid Base-profile QIR with both rotations present. The two
+/// `Make(angle)` calls each return a `Rotate(angle, _)` partial application; the
+/// higher-order `ApplyTwo` consumes both arrow arguments, so defunctionalize must
+/// specialize both in one pass. This is the reported regression repro.
+#[test]
+fn two_callable_args_via_producer_function() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyTwo(a : Qubit => Unit, b : Qubit => Unit) : Result {
+                use q = Qubit();
+                a(q);
+                b(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result { return ApplyTwo(Make(0.5), Make(0.3)); }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()")
+            && qir.contains("__quantum__qis__rx__body(double 0.5,")
+            && qir.contains("__quantum__qis__rx__body(double 0.3,"),
+        "expected valid Base-profile QIR with both rx(0.5) and rx(0.3) rotations; got:\n{qir}"
+    );
+}
+
+/// One inline partial application plus one producer-function-returned closure
+/// must lower to valid Base-profile QIR with both rotations present. The inline
+/// `Rotate(0.5, _)` resolves immediately while `Make(0.3)` returns a closure, so
+/// defunctionalize must specialize both arrow arguments of the single
+/// `ApplyTwo` call together rather than deferring one slot across iterations.
+#[test]
+fn two_callable_args_inline_then_producer() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyTwo(a : Qubit => Unit, b : Qubit => Unit) : Result {
+                use q = Qubit();
+                a(q);
+                b(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result { return ApplyTwo(Rotate(0.5, _), Make(0.3)); }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()")
+            && qir.contains("__quantum__qis__rx__body(double 0.5,")
+            && qir.contains("__quantum__qis__rx__body(double 0.3,"),
+        "expected valid Base-profile QIR with both rx(0.5) and rx(0.3) rotations; got:\n{qir}"
+    );
+}
+
+/// Three producer-function-returned closures sharing the same returned-closure
+/// target must lower to valid Base-profile QIR with all three rotations present.
+/// Each `Make(angle)` returns a `Rotate(angle, _)` partial application targeting
+/// the same lambda, so the combined specialization must thread each slot's
+/// distinct capture without collapsing them.
+#[test]
+fn three_callable_args_all_producers() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyThree(a : Qubit => Unit, b : Qubit => Unit, c : Qubit => Unit) : Result {
+                use q = Qubit();
+                a(q);
+                b(q);
+                c(q);
+                return MResetZ(q);
+           }
+            @EntryPoint()
+            operation Main() : Result { return ApplyThree(Make(0.1), Make(0.2), Make(0.3)); }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()")
+            && qir.contains("__quantum__qis__rx__body(double 0.1,")
+            && qir.contains("__quantum__qis__rx__body(double 0.2,")
+            && qir.contains("__quantum__qis__rx__body(double 0.3,"),
+        "expected valid Base-profile QIR with rx(0.1), rx(0.2), and rx(0.3) rotations; got:\n{qir}"
+    );
+}
+
+/// A global operation argument alongside two same-target producer closures must
+/// lower to valid Base-profile QIR with the global gate and both rotations
+/// present. The `H` argument resolves to a global while the two `Make(angle)`
+/// arguments return same-target closures, exercising mixed slot kinds in one
+/// combined specialization.
+#[test]
+fn three_callable_args_global_then_producers() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyThree(a : Qubit => Unit, b : Qubit => Unit, c : Qubit => Unit) : Result {
+                use q = Qubit();
+                a(q);
+                b(q);
+                c(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result { return ApplyThree(H, Make(0.2), Make(0.3)); }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()")
+            && qir.contains("__quantum__qis__h__body(")
+            && qir.contains("__quantum__qis__rx__body(double 0.2,")
+            && qir.contains("__quantum__qis__rx__body(double 0.3,"),
+        "expected valid Base-profile QIR with H, rx(0.2), and rx(0.3); got:\n{qir}"
+    );
+}
+
+/// Two producer-function-returned closures carried as the arrow fields of a
+/// single tuple-valued parameter must lower to valid Base-profile QIR with both
+/// rotations present. `ApplyTwoTup` destructures its `(a, b)` tuple parameter
+/// and calls each field, so defunctionalize must specialize both nested arrow
+/// fields together in one pass rather than deferring one across iterations.
+#[test]
+fn two_callable_args_tuple_param_producers() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyTwoTup(ops : (Qubit => Unit, Qubit => Unit)) : Result {
+                use q = Qubit();
+                let (a, b) = ops;
+                a(q);
+                b(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result { return ApplyTwoTup((Make(0.5), Make(0.3))); }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()")
+            && qir.contains("__quantum__qis__rx__body(double 0.5,")
+            && qir.contains("__quantum__qis__rx__body(double 0.3,"),
+        "expected valid Base-profile QIR with both rx(0.5) and rx(0.3) rotations; got:\n{qir}"
+    );
+}
+
+// A single-element tuple parameter `(Qubit => Unit,)` whose only field is a
+// producer closure routes through the per-row singular defunctionalization
+// path, because the combined path requires two or more closure members in the
+// same tuple. Removing the consumed callable field empties the parameter's
+// tuple, so its slot and destructuring are dropped while the call site supplies
+// only the appended capture. The applied-twice body must inline the producer's
+// rotation at each call site.
+#[test]
+fn callable_args_tuple_param_producer() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyTup(ops : (Qubit => Unit,)) : Result {
+                use q = Qubit();
+                let (a,) = ops;
+                a(q);
+                a(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result { return ApplyTup((Make(0.5),)); }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()")
+            && qir.contains("__quantum__qis__rx__body(double 0.5,"),
+        "expected valid Base-profile QIR with rx(0.5) rotation; got:\n{qir}"
+    );
+}
+
+/// A single-element tuple producer parameter applied exactly once still routes
+/// through the per-row singular path; dropping the consumed slot must inline the
+/// producer's rotation a single time.
+#[test]
+fn callable_args_tuple_param_producer_single_application() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyTupOnce(ops : (Qubit => Unit,)) : Result {
+                use q = Qubit();
+                let (a,) = ops;
+                a(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result { return ApplyTupOnce((Make(0.5),)); }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_eq!(
+        unitary_gate_sequence(&qir),
+        vec!["rx(0.5)"],
+        "expected a single rx(0.5) rotation; got:\n{qir}"
+    );
+}
+
+/// A single-element tuple parameter whose only field is a captureless global
+/// callable routes through the per-row path's `Bind` arm, which needs no
+/// capture threading and so does no outer tuple wrapping. The unit-typed binding
+/// it leaves behind matches the unit argument the call supplies, so this case
+/// must keep compiling correctly alongside the producer-closure fix.
+#[test]
+fn callable_args_tuple_param_global() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation ApplyTupGlobal(ops : (Qubit => Unit,)) : Result {
+                use q = Qubit();
+                let (a,) = ops;
+                a(q);
+                a(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result { return ApplyTupGlobal((H,)); }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert_eq!(
+        unitary_gate_sequence(&qir),
+        vec!["h", "h"],
+        "expected two h gates from the applied-twice global callable; got:\n{qir}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Mixed branch-dispatch: a callable parameter dispatched over several
+// candidates, called alongside single-valued callable arguments at other
+// parameter slots.
+// ---------------------------------------------------------------------------
+
+/// Extracts the ordered sequence of quantum gate intrinsics from emitted QIR,
+/// e.g. `["h", "rx(0.5)", "x", "rx(0.5)", "mz"]`. Rotation gates include their
+/// `double` angle argument so distinct rotations are distinguishable.
+fn extract_gate_sequence(qir: &str) -> Vec<String> {
+    const MARKER: &str = "__quantum__qis__";
+    let mut seq = Vec::new();
+    for line in qir.lines() {
+        // Only count actual `call` instructions, not `declare` prototypes.
+        if !line.trim_start().starts_with("call ") {
+            continue;
+        }
+        let Some(pos) = line.find(MARKER) else {
+            continue;
+        };
+        let after = &line[pos + MARKER.len()..];
+        let name: String = after.chars().take_while(|c| *c != '_').collect();
+        if let Some(paren) = after.find('(') {
+            let args = &after[paren + 1..];
+            if let Some(dpos) = args.find("double ") {
+                let angle: String = args[dpos + "double ".len()..]
+                    .chars()
+                    .take_while(|c| *c != ',' && *c != ')')
+                    .collect();
+                seq.push(format!("{name}({})", angle.trim()));
+                continue;
+            }
+        }
+        seq.push(name);
+    }
+    seq
+}
+
+/// Drops measurement/reset/result-readout intrinsics, keeping only unitary
+/// gates so the body sequence can be compared against an expected gate order.
+fn unitary_gate_sequence(qir: &str) -> Vec<String> {
+    extract_gate_sequence(qir)
+        .into_iter()
+        .filter(|g| {
+            let head = g.split('(').next().unwrap_or(g);
+            !matches!(
+                head,
+                "mz" | "mresetz" | "m" | "reset" | "read_result" | "result_record_output"
+            )
+        })
+        .collect()
+}
+
+/// The callable parameter `f` is dispatched over several candidates `[H, X]`
+/// and called alongside a single-valued global sibling `g = Y` at a different
+/// parameter slot. The rewrite must keep every dispatch candidate. Restricting
+/// the branch-split candidate set to the single dispatched parameter lets each
+/// specialized leaf thread the sibling as a runtime argument in its original
+/// slot; without that restriction the sibling is incorrectly included in the
+/// index dispatch and the call collapses to a single default, dropping `X` and
+/// emitting `h, y, h, y` instead of the expected `h, y, x, y`.
+#[test]
+fn index_dispatch_with_global_sibling_keeps_all_candidates() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation ApplyTwo(f : Qubit => Unit, g : Qubit => Unit, q : Qubit) : Unit { f(q); g(q); }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let ops = [H, X];
+                for op in ops { ApplyTwo(op, Y, q); }
+                return MResetZ(q);
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    let seq = unitary_gate_sequence(&qir);
+    assert_eq!(
+        seq,
+        vec!["h", "y", "x", "y"],
+        "expected h,y,x,y (all dispatch candidates preserved); got {seq:?}\n{qir}"
+    );
+}
+
+/// The callable parameter `f` is dispatched over several candidates `[H, X]`
+/// and called alongside a producer-closure sibling `g = Make(0.5)`, which is a
+/// `Rotate(0.5, _)` partial application, at a different parameter slot. The
+/// rewrite must keep every dispatch candidate and inline the producer closure
+/// into each leaf. Each candidate is specialized into one combined
+/// specialization formed as `[candidate] + Make(0.5)`, so the producer closure
+/// is consumed before its body could be cleared, emitting `h, rx(0.5), x,
+/// rx(0.5)`.
+#[test]
+fn index_dispatch_with_producer_closure_sibling_inlines_each_leaf() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyTwo(f : Qubit => Unit, g : Qubit => Unit, q : Qubit) : Unit { f(q); g(q); }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let ops = [H, X];
+                for op in ops { ApplyTwo(op, Make(0.5), q); }
+                return MResetZ(q);
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    let seq = unitary_gate_sequence(&qir);
+    assert_eq!(
+        seq,
+        vec!["h", "rx(0.5)", "x", "rx(0.5)"],
+        "expected h,rx(0.5),x,rx(0.5) (producer closure inlined into each leaf); got {seq:?}\n{qir}"
+    );
+}
+
+/// The callable parameter `f = [H, X]` is dispatched over several candidates at
+/// slot 0, called alongside a producer-closure sibling `g = Make(0.5)` at slot
+/// 1 and a single-valued global sibling `h = Z` at slot 2. The rewrite must keep
+/// every candidate, inline the producer closure into each leaf, and thread the
+/// global in its original slot, emitting `h, rx(0.5), z, x, rx(0.5), z`.
+#[test]
+fn index_dispatch_with_producer_and_global_siblings_inlines_each_leaf() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyThree(f : Qubit => Unit, g : Qubit => Unit, h : Qubit => Unit, q : Qubit) : Unit { f(q); g(q); h(q); }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let ops = [H, X];
+                for op in ops { ApplyThree(op, Make(0.5), Z, q); }
+                return MResetZ(q);
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    let seq = unitary_gate_sequence(&qir);
+    assert_eq!(
+        seq,
+        vec!["h", "rx(0.5)", "z", "x", "rx(0.5)", "z"],
+        "expected h,rx(0.5),z,x,rx(0.5),z (producer inlined, global threaded); got {seq:?}\n{qir}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Non-inline tuple arguments: a multi-callable HOF call whose argument tuple is
+// a pre-bound local such as `let args = (...); Apply(args)` rather than an
+// inline tuple literal. The combined rewrite projects the surviving slots
+// through the local's initializer so the reduced arguments match the reduced
+// callee.
+// ---------------------------------------------------------------------------
+
+/// The multi-parameter HOF `ApplyTwo(a, b)` is called with a pre-bound tuple
+/// local of producer closures, `let args = (Make(0.5), Make(0.3));
+/// ApplyTwo(args)`. The rewrite must reduce the non-inline argument to match the
+/// combined specialization, inlining both producer closures and emitting
+/// `rx(0.5), rx(0.3)`.
+#[test]
+fn var_bound_tuple_multi_param_hof_reduces_args() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyTwo(a : Qubit => Unit, b : Qubit => Unit) : Result {
+                use q = Qubit();
+                a(q);
+                b(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                let args = (Make(0.5), Make(0.3));
+                return ApplyTwo(args);
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    let seq = unitary_gate_sequence(&qir);
+    assert_eq!(
+        seq,
+        vec!["rx(0.5)", "rx(0.3)"],
+        "expected rx(0.5),rx(0.3) from a pre-bound tuple argument; got {seq:?}\n{qir}"
+    );
+}
+
+/// The single tuple-valued-parameter HOF `ApplyTwoTup(ops)` is called with a
+/// pre-bound tuple local of producer closures, `let ops = (Make(0.5),
+/// Make(0.3)); ApplyTwoTup(ops)`. The rewrite must reduce the non-inline
+/// argument the same way, emitting `rx(0.5), rx(0.3)`.
+#[test]
+fn var_bound_tuple_single_tuple_param_hof_reduces_args() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+            function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+            operation ApplyTwoTup(ops : (Qubit => Unit, Qubit => Unit)) : Result {
+                use q = Qubit();
+                let (a, b) = ops;
+                a(q);
+                b(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                let ops = (Make(0.5), Make(0.3));
+                return ApplyTwoTup(ops);
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    let seq = unitary_gate_sequence(&qir);
+    assert_eq!(
+        seq,
+        vec!["rx(0.5)", "rx(0.3)"],
+        "expected rx(0.5),rx(0.3) from a pre-bound single tuple-param argument; got {seq:?}\n{qir}"
+    );
+}
+
+/// The cleanest non-inline demonstrator uses captureless global callables in a
+/// pre-bound tuple, `let args = (H, X); ApplyTwo(args)`. With no producer layer
+/// the rewrite simply projects the two globals out of the bound tuple, emitting
+/// `h, x`.
+#[test]
+fn var_bound_tuple_global_callables_reduces_args() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation ApplyTwo(a : Qubit => Unit, b : Qubit => Unit) : Result {
+                use q = Qubit();
+                a(q);
+                b(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                let args = (H, X);
+                return ApplyTwo(args);
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    let seq = unitary_gate_sequence(&qir);
+    assert_eq!(
+        seq,
+        vec!["h", "x"],
+        "expected h,x from a pre-bound tuple of global callables; got {seq:?}\n{qir}"
+    );
+}
+
+/// Out of scope for the non-inline combined rewrite is a
+/// function-returning-tuple argument such as `ApplyTwoTup(MakePair())`. The
+/// analysis cannot project the arrow fields out of a `Call` result, so the
+/// callable stays dynamic and defunctionalization rejects it cleanly rather
+/// than miscompiling.
+#[test]
+fn function_returning_tuple_argument_stays_dynamic() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            function MakePair() : (Qubit => Unit, Qubit => Unit) { return (H, X); }
+            operation ApplyTwoTup(ops : (Qubit => Unit, Qubit => Unit)) : Result {
+                use q = Qubit();
+                let (a, b) = ops;
+                a(q);
+                b(q);
+                return MResetZ(q);
+            }
+            @EntryPoint()
+            operation Main() : Result { return ApplyTwoTup(MakePair()); }
+        }";
+
+    let result = compile_source_to_qir_result(source, *CAPABILITIES);
+    assert!(
+        result.is_err(),
+        "expected a clean rejection for a function-returning-tuple argument; got Ok:\n{}",
+        result.unwrap_or_default()
+    );
+}
+
+/// A partial-application closure that captures a struct with a computed field
+/// must specialize under the base profile.
+///
+/// `MakePrepOp` builds a `PrepParams` struct whose `numQubits` field is
+/// `Length(stateVector) + Length(rowMap)`, a value computed from the factory's
+/// parameters, and returns a closure capturing that struct. The closure is
+/// forwarded through the `RunOp` wrapper.
+///
+/// Under the base profile a callable that declines to a dynamic call is a hard
+/// error that aborts QIR generation, so the computed captured field must
+/// specialize. Specialization rebuilds the struct in `Main`, rebinding the
+/// parameter references inside the computed field to the caller-scope arguments
+/// `[1.0, 0.0]` and `[0]`. With `numQubits = 3`, the specialized closure emits
+/// the gated `X` gate, so the test expects base-profile QIR to generate
+/// successfully rather than fail during the FIR transform.
+#[test]
+fn computed_capture_field_specializes_base_profile() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            struct PrepParams {
+                stateVector : Double[],
+                rowMap : Int[],
+                numQubits : Int
+            }
+            operation ApplyPrep(params : PrepParams, q : Qubit) : Unit {
+                if params.numQubits != 0 {
+                    X(q);
+                }
+            }
+            function MakePrepOp(stateVector : Double[], rowMap : Int[]) : Qubit => Unit {
+                let params = new PrepParams {
+                    stateVector = stateVector,
+                    rowMap = rowMap,
+                    numQubits = Length(stateVector) + Length(rowMap)
+                };
+                ApplyPrep(params, _)
+            }
+            operation RunOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let prep = MakePrepOp([1.0, 0.0], [0]);
+                RunOp(prep, q);
+                return MResetZ(q);
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "expected the specialized computed-field closure to emit the gated X gate; got:\n{qir}"
     );
 }
