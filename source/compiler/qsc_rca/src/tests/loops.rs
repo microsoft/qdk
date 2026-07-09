@@ -354,7 +354,7 @@ fn check_rca_for_static_for_loop_with_loop_and_array_support() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicQubit | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -398,7 +398,7 @@ fn check_rca_for_static_for_loop_over_array_with_loop_and_array_support() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicIndex | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );

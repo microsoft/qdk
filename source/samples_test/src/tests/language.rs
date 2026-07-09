@@ -9,7 +9,7 @@ use expect_test::{Expect, expect};
 pub const ARITHMETICOPERATORS_EXPECT: Expect = expect!["()"];
 pub const ARITHMETICOPERATORS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const ARITHMETICOPERATORS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const ARITHMETICOPERATORS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const ARITHMETICOPERATORS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const ARRAY_EXPECT: Expect = expect![[r#"
     Integer Array: [1, 2, 3, 4] of length 4
     String Array: [a, string, array]
@@ -29,7 +29,7 @@ pub const ARRAY_EXPECT_DEBUG: Expect = expect![[r#"
     Sliced array: [1, 2, 3, 4]
     [1, 2, 3, 4]"#]];
 pub const ARRAY_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const ARRAY_EXPECT_QIR: Expect = expect!["generated QIR of length 1674"];
+pub const ARRAY_EXPECT_QIR: Expect = expect!["generated QIR of length 1465"];
 pub const BIGINT_EXPECT: Expect = expect![[r#"
     Hexadecimal BigInt: 66
     Octal BigInt: 34
@@ -86,7 +86,7 @@ pub const BITWISEOPERATORS_EXPECT_DEBUG: Expect = expect![[r#"
     Left Bit-shift: 1
     ()"#]];
 pub const BITWISEOPERATORS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const BITWISEOPERATORS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const BITWISEOPERATORS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const BOOL_EXPECT: Expect = expect![[r#"
     AND operation: true
     OR operation: true
@@ -100,11 +100,11 @@ pub const BOOL_EXPECT_DEBUG: Expect = expect![[r#"
     2 equals 2
     true"#]];
 pub const BOOL_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const BOOL_EXPECT_QIR: Expect = expect!["generated QIR of length 959"];
+pub const BOOL_EXPECT_QIR: Expect = expect!["generated QIR of length 986"];
 pub const COMMENTS_EXPECT: Expect = expect!["[]"];
 pub const COMMENTS_EXPECT_DEBUG: Expect = expect!["[]"];
 pub const COMMENTS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const COMMENTS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const COMMENTS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const COMPARISONOPERATORS_EXPECT: Expect = expect![[r#"
     Equality comparison: true
     Equality comparison: false
@@ -142,7 +142,7 @@ pub const COMPARISONOPERATORS_EXPECT_DEBUG: Expect = expect![[r#"
     Greater than or equal comparison: true
     ()"#]];
 pub const COMPARISONOPERATORS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const COMPARISONOPERATORS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const COMPARISONOPERATORS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const CONDITIONALBRANCHING_EXPECT: Expect = expect![[r#"
     Buzz
     It is livable
@@ -154,7 +154,7 @@ pub const CONDITIONALBRANCHING_EXPECT_DEBUG: Expect = expect![[r#"
     Absolute value of -40 is 40
     ()"#]];
 pub const CONDITIONALBRANCHING_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const CONDITIONALBRANCHING_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const CONDITIONALBRANCHING_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const COPYANDUPDATEOPERATOR_EXPECT: Expect = expect![[r#"
     Updated array: [10, 11, 100, 13]
     Updated array: [10, 100, 12, 200]
@@ -164,12 +164,12 @@ pub const COPYANDUPDATEOPERATOR_EXPECT_DEBUG: Expect = expect![[r#"
     Updated array: [10, 100, 12, 200]
     ()"#]];
 pub const COPYANDUPDATEOPERATOR_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const COPYANDUPDATEOPERATOR_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const COPYANDUPDATEOPERATOR_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const CUSTOMMEASUREMENTS_EXPECT: Expect = expect!["Zero"];
 pub const CUSTOMMEASUREMENTS_EXPECT_DEBUG: Expect = expect!["Zero"];
 // SimulatableIntrinsic, custom measurements are not expected to work in the circuit generation.
 pub const CUSTOMMEASUREMENTS_EXPECT_CIRCUIT: Expect = expect!["circuit error: circuit error"];
-pub const CUSTOMMEASUREMENTS_EXPECT_QIR: Expect = expect!["generated QIR of length 1297"];
+pub const CUSTOMMEASUREMENTS_EXPECT_QIR: Expect = expect!["generated QIR of length 1349"];
 pub const DATATYPES_EXPECT: Expect = expect![[r#"
     Binary BigInt: 42
     Octal BigInt: 42
@@ -185,7 +185,7 @@ pub const DATATYPES_EXPECT_DEBUG: Expect = expect![[r#"
     Complex: (real: 42.0, imaginary: 0.0)
     ()"#]];
 pub const DATATYPES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4"];
-pub const DATATYPES_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const DATATYPES_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const DIAGNOSTICS_EXPECT: Expect = expect![[r#"
     Program is starting.
     STATE:
@@ -199,15 +199,15 @@ pub const DIAGNOSTICS_EXPECT_DEBUG: Expect = expect![[r#"
     |10⟩: 0.7071+0.0000𝑖
     ()"#]];
 pub const DIAGNOSTICS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 215"];
-pub const DIAGNOSTICS_EXPECT_QIR: Expect = expect!["generated QIR of length 1463"];
+pub const DIAGNOSTICS_EXPECT_QIR: Expect = expect!["generated QIR of length 2132"];
 pub const DOUBLE_EXPECT: Expect = expect!["0.1973269804"];
 pub const DOUBLE_EXPECT_DEBUG: Expect = expect!["0.1973269804"];
 pub const DOUBLE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const DOUBLE_EXPECT_QIR: Expect = expect!["generated QIR of length 979"];
+pub const DOUBLE_EXPECT_QIR: Expect = expect!["generated QIR of length 1006"];
 pub const ENTRYPOINT_EXPECT: Expect = expect!["[]"];
 pub const ENTRYPOINT_EXPECT_DEBUG: Expect = expect!["[]"];
 pub const ENTRYPOINT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const ENTRYPOINT_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const ENTRYPOINT_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const FAILSTATEMENT_EXPECT: Expect = expect!["()"];
 pub const FAILSTATEMENT_EXPECT_DEBUG: Expect = expect!["()"];
 // Fail statements are expected to cause a circuit generation error since they cannot be executed.
@@ -217,15 +217,15 @@ pub const FAILSTATEMENT_EXPECT_QIR: Expect =
 pub const FORLOOPS_EXPECT: Expect = expect!["()"];
 pub const FORLOOPS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const FORLOOPS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const FORLOOPS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const FORLOOPS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const FUNCTIONS_EXPECT: Expect = expect!["()"];
 pub const FUNCTIONS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const FUNCTIONS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const FUNCTIONS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const FUNCTIONS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const GETTINGSTARTED_EXPECT: Expect = expect!["()"];
 pub const GETTINGSTARTED_EXPECT_DEBUG: Expect = expect!["()"];
 pub const GETTINGSTARTED_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const GETTINGSTARTED_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const GETTINGSTARTED_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const INT_EXPECT: Expect = expect![[r#"
     Hexadecimal: 66
     Octal: 34
@@ -245,7 +245,7 @@ pub const INT_EXPECT_DEBUG: Expect = expect![[r#"
     After exponentiation: 1
     1"#]];
 pub const INT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const INT_EXPECT_QIR: Expect = expect!["generated QIR of length 956"];
+pub const INT_EXPECT_QIR: Expect = expect!["generated QIR of length 983"];
 pub const LAMBDAEXPRESSION_EXPECT: Expect = expect![[r#"
     Lambda add function result: 5
     Sum of array using Fold: 15
@@ -257,11 +257,11 @@ pub const LAMBDAEXPRESSION_EXPECT_DEBUG: Expect = expect![[r#"
     Array after incrementing each element using Map: [2, 3, 4, 5, 6]
     ()"#]];
 pub const LAMBDAEXPRESSION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4"];
-pub const LAMBDAEXPRESSION_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const LAMBDAEXPRESSION_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const LOGICALOPERATORS_EXPECT: Expect = expect!["()"];
 pub const LOGICALOPERATORS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const LOGICALOPERATORS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const LOGICALOPERATORS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const LOGICALOPERATORS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const NAMESPACES_EXPECT: Expect = expect![[r#"
     STATE:
     No qubits allocated
@@ -271,7 +271,7 @@ pub const NAMESPACES_EXPECT_DEBUG: Expect = expect![[r#"
     No qubits allocated
     []"#]];
 pub const NAMESPACES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const NAMESPACES_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const NAMESPACES_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const OPERATIONS_EXPECT: Expect = expect![[r#"
     Measurement result: Zero
     Zero"#]];
@@ -279,7 +279,7 @@ pub const OPERATIONS_EXPECT_DEBUG: Expect = expect![[r#"
     Measurement result: Zero
     Zero"#]];
 pub const OPERATIONS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 187"];
-pub const OPERATIONS_EXPECT_QIR: Expect = expect!["generated QIR of length 1428"];
+pub const OPERATIONS_EXPECT_QIR: Expect = expect!["generated QIR of length 1555"];
 pub const PARTIALAPPLICATION_EXPECT: Expect = expect![[r#"
     five = incrementByOne(4) => 5
     Incremented array: [2, 3, 4, 5, 6]
@@ -289,7 +289,7 @@ pub const PARTIALAPPLICATION_EXPECT_DEBUG: Expect = expect![[r#"
     Incremented array: [2, 3, 4, 5, 6]
     ()"#]];
 pub const PARTIALAPPLICATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const PARTIALAPPLICATION_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const PARTIALAPPLICATION_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const PAULI_EXPECT: Expect = expect![[r#"
     Pauli dimension: PauliX
     Measurement result: Zero
@@ -299,11 +299,11 @@ pub const PAULI_EXPECT_DEBUG: Expect = expect![[r#"
     Measurement result: Zero
     Zero"#]];
 pub const PAULI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 223"];
-pub const PAULI_EXPECT_QIR: Expect = expect!["generated QIR of length 1502"];
+pub const PAULI_EXPECT_QIR: Expect = expect!["generated QIR of length 1710"];
 pub const QUANTUMMEMORY_EXPECT: Expect = expect!["()"];
 pub const QUANTUMMEMORY_EXPECT_DEBUG: Expect = expect!["()"];
 pub const QUANTUMMEMORY_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 40"];
-pub const QUANTUMMEMORY_EXPECT_QIR: Expect = expect!["generated QIR of length 961"];
+pub const QUANTUMMEMORY_EXPECT_QIR: Expect = expect!["generated QIR of length 988"];
 pub const QUBIT_EXPECT: Expect = expect![[r#"
     STATE:
     |1000⟩: 0.0000+0.5000𝑖
@@ -319,7 +319,7 @@ pub const QUBIT_EXPECT_DEBUG: Expect = expect![[r#"
     |1110⟩: 0.0000+0.5000𝑖
     ()"#]];
 pub const QUBIT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 449"];
-pub const QUBIT_EXPECT_QIR: Expect = expect!["generated QIR of length 1819"];
+pub const QUBIT_EXPECT_QIR: Expect = expect!["generated QIR of length 2448"];
 pub const RANGE_EXPECT: Expect = expect![[r#"
     Range: 1..3
     Range: 2..2..5
@@ -362,8 +362,7 @@ pub const REPEATUNTILLOOPS_EXPECT_DEBUG: Expect = expect!["()"];
 // RUS Loops cannot be compiled in Adaptive_RIF, so this error is expected.
 pub const REPEATUNTILLOOPS_EXPECT_CIRCUIT: Expect =
     expect!["compilation error: cannot have a loop with a dynamic condition"];
-pub const REPEATUNTILLOOPS_EXPECT_QIR: Expect =
-    expect!["compilation error: cannot have a loop with a dynamic condition"];
+pub const REPEATUNTILLOOPS_EXPECT_QIR: Expect = expect!["generated QIR of length 2059"];
 pub const RESULT_EXPECT: Expect = expect![[r#"
     Measurement: Zero
     Zero"#]];
@@ -371,15 +370,15 @@ pub const RESULT_EXPECT_DEBUG: Expect = expect![[r#"
     Measurement: Zero
     Zero"#]];
 pub const RESULT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 187"];
-pub const RESULT_EXPECT_QIR: Expect = expect!["generated QIR of length 1428"];
+pub const RESULT_EXPECT_QIR: Expect = expect!["generated QIR of length 1555"];
 pub const RETURNSTATEMENT_EXPECT: Expect = expect!["()"];
 pub const RETURNSTATEMENT_EXPECT_DEBUG: Expect = expect!["()"];
 pub const RETURNSTATEMENT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const RETURNSTATEMENT_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const RETURNSTATEMENT_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const SPECIALIZATIONS_EXPECT: Expect = expect!["()"];
 pub const SPECIALIZATIONS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const SPECIALIZATIONS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4540"];
-pub const SPECIALIZATIONS_EXPECT_QIR: Expect = expect!["generated QIR of length 3106"];
+pub const SPECIALIZATIONS_EXPECT_QIR: Expect = expect!["generated QIR of length 6274"];
 pub const STRING_EXPECT: Expect = expect![[r#"
     FooBar
     interpolated: FooBar
@@ -400,7 +399,7 @@ pub const TERNARY_EXPECT_DEBUG: Expect = expect![[r#"
     Absolute value: 40
     ()"#]];
 pub const TERNARY_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const TERNARY_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const TERNARY_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const TUPLE_EXPECT: Expect = expect![[r#"
     Tuple: (Id, 0, 1.0)
     Unpacked: Id, 0, 1.0
@@ -429,11 +428,11 @@ pub const TUPLE_EXPECT_QIR: Expect =
 pub const TYPEDECLARATIONS_EXPECT: Expect = expect!["()"];
 pub const TYPEDECLARATIONS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const TYPEDECLARATIONS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const TYPEDECLARATIONS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const TYPEDECLARATIONS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const UNIT_EXPECT: Expect = expect!["()"];
 pub const UNIT_EXPECT_DEBUG: Expect = expect!["()"];
 pub const UNIT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const UNIT_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const UNIT_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const VARIABLES_EXPECT: Expect = expect![[r#"
     Immutable Int: 42
     Mutable Int: 43
@@ -449,15 +448,15 @@ pub const VARIABLES_EXPECT_DEBUG: Expect = expect![[r#"
     Shadowed Immutable Int: 0
     ()"#]];
 pub const VARIABLES_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const VARIABLES_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const VARIABLES_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const WHILELOOPS_EXPECT: Expect = expect!["()"];
 pub const WHILELOOPS_EXPECT_DEBUG: Expect = expect!["()"];
 pub const WHILELOOPS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const WHILELOOPS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const WHILELOOPS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const WITHINAPPLY_EXPECT: Expect = expect!["()"];
 pub const WITHINAPPLY_EXPECT_DEBUG: Expect = expect!["()"];
 pub const WITHINAPPLY_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 87"];
-pub const WITHINAPPLY_EXPECT_QIR: Expect = expect!["generated QIR of length 1278"];
+pub const WITHINAPPLY_EXPECT_QIR: Expect = expect!["generated QIR of length 1520"];
 pub const CLASSCONSTRAINTS_EXPECT: Expect = expect![[r#"
     true
     false
@@ -475,8 +474,8 @@ pub const CLASSCONSTRAINTS_EXPECT_DEBUG: Expect = expect![[r#"
     true
     ()"#]];
 pub const CLASSCONSTRAINTS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const CLASSCONSTRAINTS_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const CLASSCONSTRAINTS_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];
 pub const TESTATTRIBUTE_EXPECT: Expect = expect!["()"];
 pub const TESTATTRIBUTE_EXPECT_DEBUG: Expect = expect!["()"];
 pub const TESTATTRIBUTE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
-pub const TESTATTRIBUTE_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
+pub const TESTATTRIBUTE_EXPECT_QIR: Expect = expect!["generated QIR of length 987"];

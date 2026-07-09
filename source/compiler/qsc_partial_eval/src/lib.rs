@@ -1599,38 +1599,51 @@ impl<'a> PartialEvaluator<'a> {
         // moved into the call scope; these are used to generate the `Instruction::Call` at the call
         // site instead of inlining the body. Eligible callees only have scalar/qubit leaf
         // parameters, so the operand mapping below cannot encounter composite values.
-        let ir_function_arg_operands = spec_decl
-            .filter(|spec_decl| {
-                self.is_ir_function_eligible(store_item_id, functor_app, spec_decl, callable_decl)
-            })
-            .map(|_| {
-                args.iter()
-                    .map(|arg| {
-                        let value = match arg {
-                            Arg::Discard(value) => value,
-                            Arg::Var(_, var) => &var.value,
-                        };
-                        self.map_eval_value_to_rir_operand(value)
-                    })
-                    .collect::<Vec<Operand>>()
-            })
-            .filter(|arg_operands| {
-                // Only emit the call as an IR function when it genuinely produces a runtime value.
-                // A purely-classical callable (one whose inherent compute kind is `Static`) invoked
-                // with all compile-time-constant arguments evaluates to a compile-time constant, and
-                // that constant may be required by later static control flow (for example an array
-                // length check or a `use qs = Qubit[n]` size). Emitting such a call would replace the
-                // known constant with an opaque IR variable, turning statically-decidable branches
-                // into dynamic ones and breaking constant-dependent evaluation. In that case fall
-                // through to the inline path, which constant-folds the body. The call is still
-                // emitted when the callable carries quantum/runtime content (`Dynamic` inherent) or
-                // when at least one argument is a runtime variable, so classical callables are still
-                // emitted as functions whenever they are actually invoked with runtime values.
-                self.spec_inherent_is_dynamic(store_item_id, functor_app)
-                    || arg_operands
-                        .iter()
-                        .any(|operand| matches!(operand, Operand::Variable(_)))
-            });
+        let ir_function_arg_operands = if matches!(self.get_expr_compute_kind(call_expr_id),
+            ComputeKind::Dynamic {runtime_features, ..} if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
+        {
+            // A call site that has the `MustBeInlined` runtime feature flag set is not eligible to be emitted as an IR function
+            // based on Runtime Capabilities Analysis, so we fall through to the inline path.
+            None
+        } else {
+            spec_decl
+                .filter(|spec_decl| {
+                    self.is_ir_function_eligible(
+                        store_item_id,
+                        functor_app,
+                        spec_decl,
+                        callable_decl,
+                    )
+                })
+                .map(|_| {
+                    args.iter()
+                        .map(|arg| {
+                            let value = match arg {
+                                Arg::Discard(value) => value,
+                                Arg::Var(_, var) => &var.value,
+                            };
+                            self.map_eval_value_to_rir_operand(value)
+                        })
+                        .collect::<Vec<Operand>>()
+                })
+                .filter(|arg_operands| {
+                    // Only emit the call as an IR function when it genuinely produces a runtime value.
+                    // A purely-classical callable (one whose inherent compute kind is `Static`) invoked
+                    // with all compile-time-constant arguments evaluates to a compile-time constant, and
+                    // that constant may be required by later static control flow (for example an array
+                    // length check or a `use qs = Qubit[n]` size). Emitting such a call would replace the
+                    // known constant with an opaque IR variable, turning statically-decidable branches
+                    // into dynamic ones and breaking constant-dependent evaluation. In that case fall
+                    // through to the inline path, which constant-folds the body. The call is still
+                    // emitted when the callable carries quantum/runtime content (`Dynamic` inherent) or
+                    // when at least one argument is a runtime variable, so classical callables are still
+                    // emitted as functions whenever they are actually invoked with runtime values.
+                    self.spec_inherent_is_dynamic(store_item_id, functor_app)
+                        || arg_operands
+                            .iter()
+                            .any(|operand| matches!(operand, Operand::Variable(_)))
+                })
+        };
         let call_scope = Scope::new(
             store_item_id.package,
             Some((store_item_id.item, functor_app)),
@@ -2975,7 +2988,12 @@ impl<'a> PartialEvaluator<'a> {
                 condition_expr_span,
             ));
         }
-        let mut condition_boolean = condition_control_flow.into_value().unwrap_bool();
+        let Value::Bool(mut condition_boolean) = condition_control_flow.into_value() else {
+            return Err(Error::Unexpected(
+                "unrolled loop with variable condition value".to_string(),
+                condition_expr_span,
+            ));
+        };
 
         let dbg_location_id = self.new_dbg_location(loop_expr_id);
         if let Some(dbg_location_id) = dbg_location_id {
