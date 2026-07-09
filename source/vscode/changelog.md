@@ -6,13 +6,13 @@ Below are some of the highlights for the 1.30 release of the QDK.
 
 ### Adaptive profile capabilities
 
-[QIR](https://github.com/microsoft/qdk/wiki/QIR) is the industry standard format that the QDK compiles programs into from various quantum languages (Q\#, OpenQASM, Qiskit, etc), and is how programs are sent to quantum computers for execution (such as via the Azure Quantum service). It is also the format some of the QDK simulators use, such as the Stabilizer and GPU state vector simulators.
+[QIR](https://github.com/microsoft/qdk/wiki/QIR) is the industry standard format that the QDK compiles programs into from various quantum languages (Q\#, OpenQASM, Qiskit, etc), and is how programs are sent to quantum computers for execution, such as through Azure Quantum. It is also the format some of the QDK simulators use, such as the Stabilizer and GPU state vector simulators.
 
-QIR specifies different `profiles` that dictate what instructions the QIR may contain, and the profile may contain [optional features](https://github.com/qir-alliance/qir-spec/blob/main/specification/profiles/Adaptive_Profile.md#optional-capabilities). In this release, we have added a number of these "optional" features in the code generation for the "Adaptive" profile.
+QIR specifies different `profiles` that dictate what instructions it may contain, and the profile may contain [optional features](https://github.com/qir-alliance/qir-spec/blob/main/specification/profiles/Adaptive_Profile.md#optional-capabilities). In this release, we have added a number of these "optional" features in the code generation for the "Adaptive" profile.
 
-Several of these features don't directly effect what your code can express, but they can significantly impact performance. For example, by being able to directly express loops (rather than having to unroll them) and calls (rather than having to inline them) compilation time can be significant sped up and compiled program size significantly reduced. In the most noteable cases internally, we observed both improve by orders of magnitude.
+Several of these features don't directly affect what your code can express, but they can significantly impact performance. For example, by being able to directly express loops (rather than having to unroll them) and calls (rather than having to inline them) compilation time can be greatly reduced and compiled program size significantly decreased. In the most notable cases internally, we observed both improve by orders of magnitude.
 
-One concrete example where this does allow new algorithm capabilities is in unbounded loops, such as the "repeat-until-success" pattern. The below is a contrived but minimal example of a "repeat-until-success" loop that now compiles to QIR. (Previously this would have given an "cannot have a loop with a dynamic condition" error).
+One concrete example of a newly supported capability is unbounded loops, such as the "repeat-until-success" pattern. The below is a contrived but minimal example of a "repeat-until-success" loop that now compiles to QIR. (Previously, this would have given a "cannot have a loop with a dynamic condition" error).
 
 ```qsharp
 @EntryPoint(Adaptive)
@@ -46,7 +46,7 @@ For example, the code `Controlled SX(qs[0], qs[1]);` gives an error of "type err
 
 The [noise model](https://learn.microsoft.com/en-us/azure/quantum/qdk-simulator-noise-models) that can be applied to quantum simulations now support specifying a "loss policy", which describes the behavior of a two-qubit gate when one of the qubits is lost.
 
-Previously the behavior was always to skip the two-qubit operation if one qubit is marked as "lost". This makes sense for example if mathematically you treat a lost qubit as being in the $\ket{0}$ state, then gates such as CX and CZ are effectively no-ops if one qubit is lost. On some quantum machines the effect of a 2-qubit gate may differ. The "loss policy" can now specify the desired behavior, for example:
+Previously the behavior was always to skip the two-qubit operation if one qubit is marked as "lost". This makes sense, for example, if mathematically you treat a lost qubit as being in the $\ket{0}$ state, then gates such as CX and CZ are effectively no-ops if one qubit is lost. On some quantum machines, the effect of a two-qubit gate may differ. The "loss policy" can now specify the desired behavior, for example:
 
 ```python
 from qdk.simulation import NoiseConfig, LossPolicy, run_qir
@@ -57,7 +57,7 @@ noise.cz.on_loss   = LossPolicy.SKIP               # if one of the qubits is los
 noise.cx.on_loss   = LossPolicy.PROPAGATE          # if one of the qubits is lost, lose the other one also
 noise.rxx.on_loss  = LossPolicy.DEGRADE            # degrade to a single qubit gate, i.e. rx on the remaining qubit
 noise.ryy.on_loss  = LossPolicy.RESIDUAL_S_DAGGER  # apply an S_DAG to the remaining qubits
-noise.swap.on_loss = LossPolicy.APPLY_ANYWAY       # if swap is implemented as a relabel, this is still applies
+noise.swap.on_loss = LossPolicy.APPLY_ANYWAY       # if swap is implemented as a relabel, then it still applies
 
 # Works with all simulator types, in any profile.
 run_qir(qir, shots=100, noise=noise, type="clifford")
