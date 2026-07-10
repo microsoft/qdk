@@ -286,7 +286,7 @@ PREPARE(0.5) {
 
               x unsupported argument in instruction: PREPARE
                ,-[2:1]
-             1 | 
+             1 |
              2 | PREPARE(0.5) {
                : ^^^^^^^^^^^^
              3 |     M 0
@@ -310,7 +310,7 @@ PREPARE 0 1 {
 
               x unsupported target in instruction: PREPARE
                ,-[2:9]
-             1 | 
+             1 |
              2 | PREPARE 0 1 {
                :         ^
              3 |     M 0
@@ -502,7 +502,7 @@ REQUIRE rec[-1]
 
               x require must appear inside a PREPARE block
                ,-[2:1]
-             1 | 
+             1 |
              2 | REQUIRE rec[-1]
                : ^^^^^^^^^^^^^^^
                `----
@@ -1019,7 +1019,7 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+        Qdk.Stim.MeasurementRecordOutOfScope
 
           x measurement record refers to a measurement outside the enclosing PREPARE
           | block
@@ -1043,7 +1043,7 @@ M 0
     check(
         source,
         &expect![[r#"
-            Stim.PrepareWithoutBlock
+            Qdk.Stim.PrepareWithoutBlock
 
               x prepare instruction must start a block
                ,-[3:1]

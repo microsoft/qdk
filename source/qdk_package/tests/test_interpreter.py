@@ -414,7 +414,7 @@ def test_qirgen_compile_error() -> None:
 def test_error_spans_from_multiple_lines() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
 
-    # Qsc.Resolve.Ambiguous is chosen as a test case
+    # Qdk.Qsc.Resolve.Ambiguous is chosen as a test case
     # because it contains multiple spans which can be from different lines
     e.interpret("namespace Other { operation DumpMachine() : Unit { } }")
     e.interpret("open Other;")

@@ -389,7 +389,7 @@ pub enum Error {
         span: Span,
     },
     #[error("prepare instruction must start a block")]
-    #[diagnostic(code("Stim.PrepareWithoutBlock"))]
+    #[diagnostic(code("Qdk.Stim.PrepareWithoutBlock"))]
     PrepareWithoutBlock {
         #[label]
         span: Span,

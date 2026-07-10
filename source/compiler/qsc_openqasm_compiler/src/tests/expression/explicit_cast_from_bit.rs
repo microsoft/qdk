@@ -144,7 +144,7 @@ fn bitarray_to_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type BitArray(32, false) to type Int(None,
               | false)
@@ -152,7 +152,7 @@ fn bitarray_to_int_fails() {
              2 |         bit[32] a;
              3 |         int(a);
                :             ^
-             4 |     
+             4 |
                `----
         "#]],
     );
@@ -264,7 +264,7 @@ fn bitarray_to_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type BitArray(32, false) to type UInt(None,
               | false)
@@ -272,7 +272,7 @@ fn bitarray_to_uint_fails() {
              2 |         bit[32] a;
              3 |         uint(a);
                :              ^
-             4 |     
+             4 |
                `----
         "#]],
     );
