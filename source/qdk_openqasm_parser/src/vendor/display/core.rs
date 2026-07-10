@@ -21,8 +21,8 @@ where
 /// Takes an `indenter::Indented` and changes its indentation level.
 ///
 /// Note: This function is a very low level primitive. It's only
-///       public to maintain backwards compatibility with existing code.
-///       Prefer using the functions in the `display` module instead.
+///       public to mantain backwards compatibility with existing code.
+///       Prefer using the functions in [`crate::display`] instead.
 #[must_use]
 pub fn set_indentation<T>(
     indent: indenter::Indented<'_, T>,

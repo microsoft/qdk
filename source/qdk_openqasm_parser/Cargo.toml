@@ -3,6 +3,7 @@ name = "qdk_openqasm_parser"
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true
+autobenches = false
 edition.workspace = true
 license.workspace = true
 version.workspace = true
@@ -28,8 +29,17 @@ rustc-hash = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true, features = ["cargo_bench_support"] }
 expect-test = { workspace = true }
 miette = { workspace = true, features = ["fancy-no-syscall"] }
+
+[[bin]]
+name = "qasm_memtest"
+path = "src/bin/qasm_memtest.rs"
+
+[[bench]]
+name = "qasm_pipeline"
+harness = false
 
 [lints]
 workspace = true
