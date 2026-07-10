@@ -1311,6 +1311,52 @@ mod given_interpreter {
         }
 
         #[test]
+        fn qirgen_from_callable_with_nested_closure_arg_generates_inner_effect() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation InvokeOne(op : Qubit => Unit) : Unit {
+                        use q = Qubit();
+                        op(q);
+                    }
+
+                    function MakeRz(theta : Double) : Qubit => Unit {
+                        Rz(theta, _)
+                    }
+
+                    function MakeOuter(inner : Qubit => Unit) : Qubit => Unit {
+                        inner(_)
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let invoke_one = user_global(&interpreter, "InvokeOne");
+
+            let (closure_result, closure_output) = line(
+                &mut interpreter,
+                "let inner = MakeRz(4.0); MakeOuter(inner)",
+            );
+            assert!(
+                closure_output.is_empty(),
+                "unexpected output while creating nested closure: {closure_output}"
+            );
+            let outer = closure_result.expect("expected nested closure value");
+
+            let qir = interpreter
+                .qirgen_from_callable(&invoke_one, outer)
+                .expect("expected success");
+
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__rz__body(double 4.0,")
+                    .count(),
+                1,
+                "expected one inner captured rotation in QIR:\n{qir}"
+            );
+        }
+
+        #[test]
         fn qirgen_from_callable_with_arrow_input_reports_runtime_capability_errors() {
             let mut interpreter = get_interpreter_with_capabilities(
                 TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
@@ -2314,6 +2360,7 @@ mod given_interpreter {
         };
         use qsc_data_structures::source::SourceMap;
         use qsc_data_structures::span::Span;
+        use qsc_data_structures::target::Profile;
         use qsc_passes::PackageType;
 
         #[test]
@@ -2396,6 +2443,245 @@ mod given_interpreter {
                            [test] [x]
                     "#]],
                 ),
+            }
+        }
+
+        #[test]
+        fn restricted_profile_struct_output_runs_after_fir_transforms() {
+            // A struct/UDT output is only a valid restricted-profile output after
+            // the FIR transform pipeline erases the UDT and decomposes it into a
+            // tuple. The construction-time gate now validates the transformed
+            // program (as codegen does), so this program must construct and run
+            // without a false-positive `UseOfAdvancedOutput` rejection.
+            let source = indoc! { r#"
+            namespace Test {
+                import Std.Intrinsic.*;
+                import Std.Measurement.*;
+
+                struct Data {
+                    a : Result,
+                    b : Int,
+                }
+
+                @EntryPoint()
+                operation Main() : Data {
+                    use q = Qubit();
+                    H(q);
+                    new Data { a = MResetZ(q), b = 3 }
+                }
+            }"#};
+
+            let sources = SourceMap::new([("test".into(), source.into())], None);
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let mut interpreter = Interpreter::new(
+                sources,
+                PackageType::Exe,
+                Profile::AdaptiveRI.into(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+            )
+            .expect("interpreter should be created without a false-positive capability rejection");
+
+            let (result, _output) = entry(&mut interpreter);
+            match result {
+                Ok(_) => {}
+                Err(errors) => {
+                    panic!("expected entry to run without a capability error, got {errors:?}")
+                }
+            }
+        }
+
+        #[test]
+        fn restricted_profile_string_output_still_rejected() {
+            // A String output is genuinely advanced and remains so after the FIR
+            // transforms, so the construction-time gate must still reject it.
+            let source = indoc! { r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : String {
+                    "hello"
+                }
+            }"#};
+
+            let sources = SourceMap::new([("test".into(), source.into())], None);
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let result = Interpreter::new(
+                sources,
+                PackageType::Exe,
+                Profile::AdaptiveRI.into(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+            );
+
+            match result {
+                Ok(_) => panic!("expected a capability rejection for advanced String output"),
+                Err(errors) => {
+                    assert!(
+                        errors
+                            .iter()
+                            .all(|error| matches!(error, crate::interpret::Error::Pass(_))),
+                        "expected capability-check pass errors, got {errors:?}"
+                    );
+                    assert!(
+                        errors
+                            .iter()
+                            .any(|error| format!("{error:?}").contains("UseOfAdvancedOutput")),
+                        "expected an advanced-output capability diagnostic, got {errors:?}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn restricted_profile_fatal_transform_error_reported_as_fir_transform() {
+            // A local callable forced to `Dynamic` by a loop reassignment cannot be
+            // resolved statically, so the defunctionalize stage of the FIR transform
+            // pipeline emits a fatal diagnostic. The construction-time gate must
+            // surface this as `Error::FirTransform` (mirroring codegen), not as a
+            // capability `Error::Pass`.
+            let source = indoc! { r#"
+            namespace Test {
+                operation Foo(q : Qubit) : Unit {}
+                operation Bar(q : Qubit) : Unit {}
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    mutable f = Foo;
+                    for _ in 0..2 {
+                        f = Bar;
+                    }
+                    f(q);
+                }
+            }"#};
+
+            let sources = SourceMap::new([("test".into(), source.into())], None);
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let result = Interpreter::new(
+                sources,
+                PackageType::Exe,
+                Profile::AdaptiveRI.into(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+            );
+
+            match result {
+                Ok(_) => panic!("expected a fatal FIR transform error for a dynamic callable"),
+                Err(errors) => {
+                    assert!(
+                        errors
+                            .iter()
+                            .all(|error| matches!(error, crate::interpret::Error::FirTransform(_))),
+                        "expected FIR transform errors, got {errors:?}"
+                    );
+                    assert!(
+                        errors
+                            .iter()
+                            .any(|error| format!("{error:?}").contains("DynamicCallable")),
+                        "expected a dynamic-callable transform diagnostic, got {errors:?}"
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn restricted_profile_entryless_library_does_not_panic() {
+            // A PackageType::Lib package with no @EntryPoint/Main has no entry
+            // expression. The FIR transform pipeline asserts (panics) on a missing
+            // entry, so the construction-time gate must skip transforms and run RCA
+            // on the original store. This path is reachable via the Python interop
+            // layer, which constructs library interpreters under restricted targets.
+            let source = indoc! { r#"
+            namespace Test {
+                import Std.Intrinsic.*;
+
+                operation DoNothing() : Unit {
+                    use q = Qubit();
+                    H(q);
+                }
+            }"#};
+
+            let sources = SourceMap::new([("test".into(), source.into())], None);
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let interpreter = Interpreter::new(
+                sources,
+                PackageType::Lib,
+                Profile::AdaptiveRI.into(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+            );
+
+            assert!(
+                interpreter.is_ok(),
+                "entry-less library construction should not panic and should pass RCA, got {:?}",
+                interpreter.err()
+            );
+        }
+
+        #[test]
+        fn restricted_profile_entryless_library_reports_transform_removable_violation() {
+            // Documents a known limitation of the entry-less path. An early `return`
+            // inside a measurement-conditioned scope is a profile violation
+            // (`ReturnWithinDynamicScope`) only before return-unification runs; once
+            // an entry expression reaches this operation, the FIR transform pipeline
+            // removes the violation and codegen accepts it. But an entry-less library
+            // has no entry expression, so the construction-time gate cannot run the
+            // transforms and instead runs RCA on the original store. The violation is
+            // therefore reported as `Error::Pass` even though it would be removed once
+            // the code is actually reachable.
+            let source = indoc! { r#"
+            namespace Test {
+                import Std.Intrinsic.*;
+                import Std.Measurement.*;
+
+                operation DynBranch(q : Qubit) : Int {
+                    use a = Qubit();
+                    H(a);
+                    if MResetZ(a) == One {
+                        return 1;
+                    }
+                    return 2;
+                }
+            }"#};
+
+            let sources = SourceMap::new([("test".into(), source.into())], None);
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let result = Interpreter::new(
+                sources,
+                PackageType::Lib,
+                Profile::AdaptiveRI.into(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+            );
+
+            match result {
+                Ok(_) => panic!(
+                    "expected the entry-less library to report the untransformed RCA violation"
+                ),
+                Err(errors) => {
+                    assert!(
+                        errors
+                            .iter()
+                            .all(|error| matches!(error, crate::interpret::Error::Pass(_))),
+                        "expected capability-check pass errors, got {errors:?}"
+                    );
+                    assert!(
+                        errors
+                            .iter()
+                            .any(|error| format!("{error:?}").contains("ReturnWithinDynamicScope")),
+                        "expected a return-within-dynamic-scope diagnostic, got {errors:?}"
+                    );
+                }
             }
         }
 

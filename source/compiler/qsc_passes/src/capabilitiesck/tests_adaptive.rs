@@ -530,6 +530,12 @@ fn return_within_dynamic_scope_yields_errors() {
         RETURN_WITHIN_DYNAMIC_SCOPE,
         &expect![[r#"
             [
+                UseOfDynamicQubitRelease(
+                    Span {
+                        lo: 66,
+                        hi: 82,
+                    },
+                ),
                 ReturnWithinDynamicScope(
                     Span {
                         lo: 128,

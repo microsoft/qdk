@@ -73,4 +73,39 @@ define_properties! {
     FEASIBILITY,
     TARGET_YEAR,
     BLOCK_SIZE,
+    BASE_SYSTEM_COST,
+    SHOT_COST,
+    COST_PER_QUBIT,
+    COST_PER_HOUR,
+    COST_PER_QUBIT_PER_HOUR,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        BASE_SYSTEM_COST, COST_PER_HOUR, COST_PER_QUBIT, COST_PER_QUBIT_PER_HOUR, DISTANCE,
+        SHOT_COST, property_name, property_name_to_key,
+    };
+
+    #[test]
+    fn cost_property_keys_round_trip() {
+        let keys = [
+            ("BASE_SYSTEM_COST", BASE_SYSTEM_COST),
+            ("SHOT_COST", SHOT_COST),
+            ("COST_PER_QUBIT", COST_PER_QUBIT),
+            ("COST_PER_HOUR", COST_PER_HOUR),
+            ("COST_PER_QUBIT_PER_HOUR", COST_PER_QUBIT_PER_HOUR),
+        ];
+
+        for (name, key) in keys {
+            assert_eq!(property_name(key), Some(name));
+            assert_eq!(property_name_to_key(name), Some(key));
+        }
+
+        assert_ne!(BASE_SYSTEM_COST, DISTANCE);
+        assert_ne!(SHOT_COST, DISTANCE);
+        assert_ne!(COST_PER_QUBIT, DISTANCE);
+        assert_ne!(COST_PER_HOUR, DISTANCE);
+        assert_ne!(COST_PER_QUBIT_PER_HOUR, DISTANCE);
+    }
 }

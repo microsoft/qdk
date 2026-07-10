@@ -39,11 +39,11 @@ import {
   getQuantumOsJobLink,
   getJobFiles,
   getPythonCodeForWorkspace,
-  getTenantIdForSubscription,
   parseConnectionString,
   queryWorkspaces,
   submitJob,
   uploadBlob,
+  queryWorkspace,
 } from "./workspaceActions";
 import { UriRouteHandler } from "../uriHandler.js";
 
@@ -68,21 +68,6 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
     log.debug("Loading workspaces: ", savedWorkspaces);
     const workspaces: WorkspaceConnection[] = JSON.parse(savedWorkspaces);
     for (const workspace of workspaces) {
-      // Backfill tenant ID for workspaces saved before tenant discovery was added,
-      // or for connection-string/deep-link workspaces that didn't have it populated.
-      if (!workspace.tenantId && !workspace.apiKey) {
-        // AAD workspace with missing tenant ID — shouldn't normally happen,
-        // but recover gracefully.
-        log.warn("AAD workspace loaded without a tenant ID:", workspace.id);
-      } else if (!workspace.tenantId) {
-        const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
-        const subscriptionId =
-          workspace.id.match(idRegex)?.groups?.subscriptionId;
-        if (subscriptionId) {
-          workspace.tenantId =
-            (await getTenantIdForSubscription(subscriptionId)) ?? "";
-        }
-      }
       workspaceTreeProvider.updateWorkspace(workspace);
       // Start refreshing each workspace until pending jobs are complete
       startRefreshCycle(workspaceTreeProvider, workspace);
@@ -491,8 +476,15 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         const treeItem = arg || currentTreeItem;
         if (treeItem?.type !== "job") return;
         const job = treeItem.itemData as Job;
-        const link = getQuantumOsJobLink(treeItem.workspace, job.id);
-        vscode.env.openExternal(vscode.Uri.parse(link));
+        try {
+          const link = await getQuantumOsJobLink(treeItem.workspace, job.id);
+          vscode.env.openExternal(vscode.Uri.parse(link));
+        } catch (e) {
+          log.error("Failed to build job portal link", e);
+          vscode.window.showErrorMessage(
+            "Unable to open the job in the portal because the tenant ID for this workspace could not be determined. Try removing and re-adding the workspace.",
+          );
+        }
       },
     ),
   );
@@ -506,8 +498,16 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         if (treeItem?.type !== "workspace") return;
         const workspace = treeItem.itemData as WorkspaceConnection;
 
-        const link = getWorkspacePortalLink(workspace);
-        vscode.env.openExternal(vscode.Uri.parse(link));
+        try {
+          const link = await getWorkspacePortalLink(workspace);
+          vscode.env.openExternal(vscode.Uri.parse(link));
+        } catch (e) {
+          const errorMsg = e instanceof Error ? ` Details: ${e.message}` : "";
+          log.error("Failed to build workspace portal link", e);
+          vscode.window.showErrorMessage(
+            `Unable to open a link to the workspace portal.${errorMsg}`,
+          );
+        }
       },
     ),
   );
@@ -530,6 +530,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
     }
 
     const workspace = parseConnectionString(connStr);
+
     if (!workspace) {
       vscode.window.showErrorMessage(
         "The workspace URI contained an invalid connection string.",
@@ -543,17 +544,25 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       "Add Workspace",
     );
     if (confirmed === "Add Workspace") {
-      // Discover the tenant ID before saving, so portal deep links work correctly.
-      const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
-      const subscriptionId =
-        workspace.id.match(idRegex)?.groups?.subscriptionId;
-      if (subscriptionId) {
-        workspace.tenantId =
-          (await getTenantIdForSubscription(subscriptionId)) ?? "";
+      // Verify if the connection can be made
+      try {
+        await queryWorkspace(workspace);
+        workspaceTreeProvider.updateWorkspace(workspace);
+        await saveWorkspaceList();
+
+        // Locate and reveal the newly added workspace in the tree view
+        const workspaceItems = await workspaceTreeProvider.getChildren();
+        workspaceItems?.forEach((item) => {
+          if ((item.itemData as WorkspaceConnection).id == workspace.id) {
+            treeView.reveal(item, { focus: true, expand: true });
+          }
+        });
+        startRefreshCycle(workspaceTreeProvider, workspace);
+      } catch (e: any) {
+        // On failure, not much the user can do. Just report the error and exit
+        const errorText = e.message || "An unexpected error occurred";
+        await vscode.window.showErrorMessage(errorText, { modal: true });
       }
-      workspaceTreeProvider.updateWorkspace(workspace);
-      await saveWorkspaceList();
-      startRefreshCycle(workspaceTreeProvider, workspace);
     }
   };
 

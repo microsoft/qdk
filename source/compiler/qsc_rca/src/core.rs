@@ -355,6 +355,11 @@ impl<'a> Analyzer<'a> {
             self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
         };
 
+        // Cache the `MustBeInlined` runtime feature flag if it was set on the compute kind of the call expression.
+        // This allows it to be added again later after aggregating the runtime features of the callee and arguments expressions,
+        // which may have cleared that flag.
+        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
+
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
         let application_instance = self.get_current_application_instance();
         if !application_instance.active_dynamic_scopes.is_empty() {
@@ -395,6 +400,15 @@ impl<'a> Analyzer<'a> {
             compute_kind.aggregate_runtime_features(callee_expr_compute_kind, ValueKind::Constant);
         compute_kind =
             compute_kind.aggregate_runtime_features(args_expr_compute_kind, ValueKind::Constant);
+
+        if must_inline
+            && let ComputeKind::Dynamic {
+                runtime_features, ..
+            } = &mut compute_kind
+        {
+            *runtime_features |= RuntimeFeatureFlags::MustBeInlined;
+        }
+
         compute_kind
     }
 
@@ -450,6 +464,19 @@ impl<'a> Analyzer<'a> {
         };
         let mut compute_kind =
             application_generator_set.generate_application_compute_kind(&arg_compute_kinds);
+        let ir_function_compute_kind =
+            application_generator_set.generate_ir_function_application_compute_kind();
+
+        // If the target capabitlies allow for emitting IR functions, we need to check if the callable can be emitted or must be inlined.
+        let must_inline = self
+            .target_capabilities
+            .contains(TargetCapabilityFlags::CallSupport)
+            && self.check_must_inline(
+                callable_decl,
+                &arg_compute_kinds,
+                &mut compute_kind,
+                ir_function_compute_kind,
+            );
 
         // Aggregate the runtime features of the qubit controls expressions.
         let mut has_variable_controls = false;
@@ -469,7 +496,91 @@ impl<'a> Analyzer<'a> {
             compute_kind.aggregate_value_kind(value_kind);
         }
 
+        if !self.target_capabilities.is_empty()
+            && callable_decl.name.name.as_ref() == "__quantum__rt__qubit_release"
+        {
+            // If the analysis is for a target non-empty capabilities, we need to check if this is
+            // a non-deterministic qubit release, which requires the dynamic qubit allocation feature.
+            // (We ignore this check for Base Profile as other dynamism will already be flagged and this
+            // specific case does not come up in isolation).
+            // We know that only one intrinsic callable named "__quantum__rt__qubit_release" is allowed by the compiler
+            // and that the argument is a local variable of type "Qubit" so we unwrap to it and check its scoping.
+            // It is valid to release a qubit from a dynamic scope as long as it is the same scope the qubit was allocated in.
+            // If it is not the same scope, that means we will not be able to unconditional perform a single release during
+            // partial evaluation and would need to emit a dynamic call to a release function. Without the dynamic qubit release
+            // feature, this manifests as a double release during codegen, which we want to avoid. Adding the dynamic qubit release
+            // feature to the compute kind will flag this as requiring the dynamic qubit release feature.
+            let args_expr = self.get_expr(args_expr_id);
+            let ExprKind::Var(res, _) = args_expr.kind else {
+                panic!("expected a variable expression for qubit release arguments");
+            };
+            let Res::Local(local_var_id) = res else {
+                panic!("expected a local variable for qubit release arguments");
+            };
+            let local_var_compute_kind = application_instance
+                .locals_map
+                .find_local_compute_kind(local_var_id)
+                .expect("local compute kind should be defined before update");
+            let in_matching_dynamic_scope = matches!(
+                local_var_compute_kind.local.kind,
+                LocalKind::Immutable(_, dynamic_scope) | LocalKind::Mutable(dynamic_scope) if dynamic_scope.as_ref() == application_instance.active_dynamic_scopes.last()
+            );
+            if !in_matching_dynamic_scope {
+                compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicQubitRelease,
+                    value_kind: ValueKind::Constant,
+                });
+            }
+        }
+
+        if must_inline
+            && let ComputeKind::Dynamic {
+                runtime_features, ..
+            } = &mut compute_kind
+        {
+            *runtime_features |= RuntimeFeatureFlags::MustBeInlined;
+        }
+
         compute_kind
+    }
+
+    fn check_must_inline(
+        &self,
+        callable_decl: &'a CallableDecl,
+        arg_compute_kinds: &[ComputeKind],
+        compute_kind: &mut ComputeKind,
+        ir_function_compute_kind: ComputeKind,
+    ) -> bool {
+        // We should not try to emit the body of a function that has all static or constant arguments as an IR function.
+        // These can be fully computed at partial eval time, and may contribute unnecessary advanced runtime features to the program.
+        // We do emit operations, as those may have side effects separate from their capabilities, such as gate calls.
+        let is_operation_or_dynamic_function_invocation = callable_decl.kind
+            == CallableKind::Operation
+            || arg_compute_kinds.iter().any(|k| k.is_variable_value_kind());
+
+        // If the the callable is an operation (or a function with variable arguments)...
+        is_operation_or_dynamic_function_invocation
+            // ...and the computed runtime features of the resulting IR function is dynamic...
+            && if let ComputeKind::Dynamic {
+                runtime_features, ..
+            } = &ir_function_compute_kind
+            // ...and those computed runtime features are all supported by the target capabilities...
+            && get_missing_runtime_features(*runtime_features, self.target_capabilities)
+                .is_empty()
+                // ...and the callable's output type is a primitive type that can be returned from an IR function...
+                && (matches!(
+                    &callable_decl.output,
+                    Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
+                ) || matches!(&callable_decl.output, Ty::Tuple(inner) if inner.is_empty()))
+            {
+                // ...then we can emit the callable as an IR function, and we update the compute kind of the call expression to reflect the
+                // capabilities of that IR function.
+                *compute_kind = compute_kind.aggregate(ir_function_compute_kind);
+                false
+            } else {
+                // Otherwise, the callable must be inlined.
+                true
+            }
     }
 
     fn analyze_expr_call_with_static_callee(
@@ -1362,7 +1473,9 @@ impl<'a> Analyzer<'a> {
         match &pat.kind {
             PatKind::Bind(ident) => {
                 let local_kind = match mutability {
-                    Mutability::Immutable => LocalKind::Immutable(expr_id),
+                    Mutability::Immutable => {
+                        LocalKind::Immutable(expr_id, self.get_current_dynamic_scope())
+                    }
                     Mutability::Mutable => LocalKind::Mutable(self.get_current_dynamic_scope()),
                 };
                 let application_instance = self.get_current_application_instance();
@@ -1395,7 +1508,9 @@ impl<'a> Analyzer<'a> {
         match &pat.kind {
             PatKind::Bind(ident) => {
                 let local_kind = match mutability {
-                    Mutability::Immutable => LocalKind::Immutable(expr_id),
+                    Mutability::Immutable => {
+                        LocalKind::Immutable(expr_id, self.get_current_dynamic_scope())
+                    }
                     Mutability::Mutable => LocalKind::Mutable(self.get_current_dynamic_scope()),
                 };
                 let application_instance = self.get_current_application_instance();

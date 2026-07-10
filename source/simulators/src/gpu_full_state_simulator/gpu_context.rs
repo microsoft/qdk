@@ -10,7 +10,7 @@ use crate::bytecode::AdaptiveProgram;
 use crate::correlated_noise::NoiseTables;
 use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
-use crate::noise_mapping::{expand_correlated_loss_commits, get_noise_ops};
+use crate::noise_mapping::{expand_correlated_loss_commits, get_noise_ops, loss_policy_u32};
 use crate::shader_types::{
     self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
     MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS,
@@ -931,8 +931,14 @@ fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op>
     let mut noisy_ops: Vec<Op> = Vec::with_capacity(ops.len() + 1);
 
     for op in ops {
-        let mut add_ops: Vec<Op> = vec![*op];
-        // If there's a NoiseConfig, and we get noise for this op, append it.
+        // Stamp the configured loss policy onto the gate op so the shader can
+        // decide how to handle the gate when one of its operands is lost.
+        let mut gate_op = *op;
+        if let Some(policy) = loss_policy_u32(op, noise) {
+            gate_op.policy = policy;
+        }
+        let mut add_ops: Vec<Op> = vec![gate_op];
+        // If there's a NoiseConfig, and we get noise for this op, append it
         // The base path dispatches ops linearly, so it needs explicit
         // loss-commit ops to perform any deferred qubit loss.
         if let Some(noise_ops) = get_noise_ops(op, noise, true) {
@@ -989,7 +995,13 @@ fn add_noise_to_adaptive_ops(
         let new_idx = noisy_ops.len() as u32;
         index_map.push(new_idx);
 
-        noisy_ops.push(*op);
+        // Stamp the configured loss policy onto the gate op so the shader can
+        // decide how to handle the gate when one of its operands is lost.
+        let mut gate_op = *op;
+        if let Some(policy) = loss_policy_u32(op, noise) {
+            gate_op.policy = policy;
+        }
+        noisy_ops.push(gate_op);
 
         // Append the Pauli/loss sampler op (no loss-commit ops; see above).
         if let Some(noise_ops) = get_noise_ops(op, noise, false) {

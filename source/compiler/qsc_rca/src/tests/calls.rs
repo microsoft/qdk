@@ -3,6 +3,7 @@
 
 use super::{CompilationContext, check_last_statement_compute_properties};
 use expect_test::expect;
+use qsc_data_structures::target::Profile;
 
 #[test]
 fn check_rca_for_call_to_cyclic_function_with_classical_argument() {
@@ -222,7 +223,7 @@ fn check_rca_for_call_to_operation_with_one_classical_return_and_one_dynamic_ret
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | ReturnWithinDynamicScope | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | ReturnWithinDynamicScope | QubitAllocation | UseOfDynamicQubitRelease)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -370,6 +371,59 @@ fn check_rca_for_call_to_lambda_passed_single_tuple_variable_for_multiple_args()
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | QubitAllocation)
                     value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_adaptive_call_to_operation_using_integer_for_range_has_mustbeinlined() {
+    let mut compilation_context = CompilationContext::new(Profile::Adaptive.into());
+    compilation_context.update(
+        r#"
+        operation RepeatX(numTimes : Int, q : Qubit) : Unit {
+            for i in 1..numTimes {
+                X(q);
+            }
+        }
+        use q = Qubit();
+        RepeatX(3, q)
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicQubit | QubitAllocation | MustBeInlined)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_adaptive_rif_call_to_operation_using_integer_for_range_does_not_have_mustbeinlined()
+ {
+    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIF.into());
+    compilation_context.update(
+        r#"
+        operation RepeatX(numTimes : Int, q : Qubit) : Unit {
+            for i in 1..numTimes {
+                X(q);
+            }
+        }
+        use q = Qubit();
+        RepeatX(3, q)
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
