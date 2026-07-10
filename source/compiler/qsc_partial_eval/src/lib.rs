@@ -1281,7 +1281,7 @@ impl<'a> PartialEvaluator<'a> {
     fn eval_dynamic_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let expr = self.get_expr(expr_id);
         let expr_package_span = self.get_expr_package_span(expr_id);
-        match &expr.kind {
+        let expr_control_flow = match &expr.kind {
             ExprKind::Array(exprs) => self.eval_expr_array(exprs),
             ExprKind::ArrayLit(_) => Err(Error::Unexpected(
                 "array literal should have been classically evaluated".to_string(),
@@ -1368,6 +1368,11 @@ impl<'a> PartialEvaluator<'a> {
             ExprKind::While(condition_expr_id, body_block_id) => {
                 self.eval_expr_while(expr_id, *condition_expr_id, *body_block_id)
             }
+        }?;
+        if self.is_variable_expr(expr_id) {
+            Ok(expr_control_flow)
+        } else {
+            Ok(expr_control_flow.map_value(|value| self.value_into_static_mapping(value)))
         }
     }
 
@@ -2184,15 +2189,6 @@ impl<'a> PartialEvaluator<'a> {
         // `CallToUnresolvedCallee`; in all such cases the specialization is inlined.
         let inherent_features = self.spec_inherent_runtime_features(store_item_id, functor_app);
         if inherent_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee) {
-            return false;
-        }
-        if inherent_features.contains(RuntimeFeatureFlags::QubitAllocation)
-            && !self
-                .program
-                .config
-                .capabilities
-                .contains(TargetCapabilityFlags::DynamicQubitAllocation)
-        {
             return false;
         }
 
@@ -4135,6 +4131,20 @@ impl<'a> PartialEvaluator<'a> {
             _ => unreachable!("unassignable pattern should be disallowed by compiler"),
         }
         Ok(())
+    }
+
+    fn value_into_static_mapping(&self, value: Value) -> Value {
+        match value {
+            Value::Var(var) => {
+                let current_scope = self.eval_context.get_current_scope();
+                if let Some(literal) = current_scope.get_static_value(var.id.into()) {
+                    map_rir_literal_to_eval_value(*literal).unwrap_or(Value::Var(var))
+                } else {
+                    value
+                }
+            }
+            _ => value,
+        }
     }
 
     fn generate_output_recording_instructions(

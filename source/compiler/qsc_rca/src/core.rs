@@ -564,6 +564,8 @@ impl<'a> Analyzer<'a> {
             && if let ComputeKind::Dynamic {
                 runtime_features, ..
             } = &ir_function_compute_kind
+            // ...and the computed runtime features of the resulting IR function does not require qubit allocation when the target doesn't support it...
+            && (!runtime_features.contains(RuntimeFeatureFlags::QubitAllocation) || self.target_capabilities.contains(TargetCapabilityFlags::DynamicQubitAllocation))
             // ...and those computed runtime features are all supported by the target capabilities...
             && get_missing_runtime_features(*runtime_features, self.target_capabilities)
                 .is_empty()
