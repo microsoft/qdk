@@ -417,10 +417,16 @@ impl AllowedRecPosition {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    TopLevel,
+    Prepare(u32), // The u32 is a unique id for the prepare scope
+}
+
 struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
-    record_map: Vec<Option<u32>>, // index = result id, value = owning scope (if none then the result is not in a block)
-    scope_stack: Vec<u32>,        // active nested scopes; last() = current
+    record_scopes: Vec<Scope>,                   // indexed by result id
+    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
 }
 
@@ -428,7 +434,7 @@ impl IdMap {
     fn new() -> Self {
         Self {
             qubit_map: FxHashMap::default(),
-            record_map: Vec::new(),
+            record_scopes: Vec::new(),
             scope_stack: Vec::new(),
             name_counters: FxHashMap::default(),
         }
@@ -441,36 +447,32 @@ impl IdMap {
         format!("{prefix}_{id}")
     }
 
-    fn enter_scope(&mut self) {
-        let counter = self.name_counters.entry("scope").or_insert(0);
+    fn enter_prepare_scope(&mut self) {
+        let counter = self.name_counters.entry("prepare_scope").or_insert(0);
         let id = *counter;
         *counter += 1;
-        self.scope_stack.push(id);
+        self.scope_stack.push(Scope::Prepare(id));
     }
 
-    fn exit_scope(&mut self) {
+    fn exit_prepare_scope(&mut self) {
         self.scope_stack.pop();
     }
 
-    fn current_scope(&self) -> Option<u32> {
-        self.scope_stack.last().copied()
+    fn current_scope(&self) -> Scope {
+        self.scope_stack.last().copied().unwrap_or(Scope::TopLevel)
     }
 
-    fn in_prepare_block(&self) -> bool {
-        !self.scope_stack.is_empty()
-    }
-
-    fn scope_of(&self, id: u32) -> Option<u32> {
-        match self.record_map.get(id as usize) {
+    fn scope_of_record(&self, id: u32) -> Scope {
+        match self.record_scopes.get(id as usize) {
             Some(&scope) => scope,
             None => unreachable!("record id not found"), // this is a compiler invariant
         }
     }
 
     fn allocate_record(&mut self) -> u32 {
-        let id = self.record_map.len() as u32;
-        let current_scope = self.current_scope();
-        self.record_map.push(current_scope);
+        let id = self.record_scopes.len() as u32;
+        let scope = self.current_scope();
+        self.record_scopes.push(scope);
         id
     }
 
@@ -480,7 +482,7 @@ impl IdMap {
     }
 
     fn num_results(&self) -> u32 {
-        self.record_map.len() as u32
+        self.record_scopes.len() as u32
     }
 
     fn num_qubits(&self) -> u32 {
@@ -533,12 +535,12 @@ impl<'noise> Compiler<'noise> {
             ..
         } = block;
 
-        self.id_map.enter_scope();
+        self.id_map.enter_prepare_scope();
         self.compile_instruction(block_instruction);
         for item in items {
             self.compile_item(item);
         }
-        self.id_map.exit_scope();
+        self.id_map.exit_prepare_scope();
     }
 
     fn compile_line(&mut self, line: &Line) {
@@ -1104,7 +1106,7 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        let Some(scope) = self.id_map.current_scope() else {
+        let Scope::Prepare(scope) = self.id_map.current_scope() else {
             self.push_error(Error::PrepareWithoutBlock {
                 span: instruction.span,
             });
@@ -1117,7 +1119,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {
-        if !self.id_map.in_prepare_block() {
+        if matches!(self.id_map.current_scope(), Scope::TopLevel) {
             self.push_error(Error::RequireOutsidePrepareBlock {
                 span: instruction.span,
             });
@@ -1165,7 +1167,7 @@ impl<'noise> Compiler<'noise> {
             parity = temp;
         }
 
-        let Some(scope) = self.id_map.current_scope() else {
+        let Scope::Prepare(scope) = self.id_map.current_scope() else {
             unreachable!("REQUIRE runs inside a prepare block");
         };
         let restart_label = prepare_label(scope);
@@ -1182,7 +1184,7 @@ impl<'noise> Compiler<'noise> {
             return None;
         };
 
-        if self.id_map.scope_of(result_id) != self.id_map.current_scope() {
+        if self.id_map.scope_of_record(result_id) != self.id_map.current_scope() {
             self.push_error(Error::MeasurementRecordOutOfScope { span: target.span });
             return None;
         }
