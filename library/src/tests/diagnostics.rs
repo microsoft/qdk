@@ -1,11 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::tests::test_expression_fails;
+use crate::tests::{
+    test_expression_fails, test_expression_fails_with_lib_and_profile_and_sim,
+    test_expression_with_lib_and_profile_and_sim,
+};
 
 use super::test_expression;
 use expect_test::expect;
-use qsc::interpret::Value;
+use qsc::{interpret::Value, target::Profile};
 
 #[test]
 fn check_operations_are_equal() {
@@ -536,6 +539,24 @@ fn check_post_select_collapses_superposition_to_zero() {
 }
 
 #[test]
+fn check_post_select_collapses_superposition_to_zero_on_clifford() {
+    test_expression_with_lib_and_profile_and_sim(
+        "{
+            import Std.Diagnostics.PostSelectZ;
+            import Std.Diagnostics.CheckZero;
+            use q = Qubit();
+            H(q);
+            PostSelectZ(Zero, q);
+            // Qubit must be zero on release.
+        }",
+        "",
+        Profile::Unrestricted,
+        &mut qsc::CliffordSim::new(1),
+        &Value::unit(),
+    );
+}
+
+#[test]
 fn check_post_select_collapses_superposition_to_one() {
     test_expression(
         "{
@@ -553,6 +574,24 @@ fn check_post_select_collapses_superposition_to_one() {
 }
 
 #[test]
+fn check_post_select_collapses_superposition_to_one_on_clifford() {
+    test_expression_with_lib_and_profile_and_sim(
+        "{
+            import Std.Diagnostics.PostSelectZ;
+            import Std.Diagnostics.CheckZero;
+            use q = Qubit();
+            H(q);
+            PostSelectZ(One, q);
+            X(q); // Resets the qubit back to zero for release.
+        }",
+        "",
+        Profile::Unrestricted,
+        &mut qsc::CliffordSim::new(1),
+        &Value::unit(),
+    );
+}
+
+#[test]
 fn check_post_select_fails_with_non_existent_state() {
     let err = test_expression_fails(
         "{
@@ -561,6 +600,25 @@ fn check_post_select_fails_with_non_existent_state() {
             use q = Qubit();
             PostSelectZ(One, q);
         }",
+    );
+    expect![
+        "intrinsic callable `PostSelectZ` failed: post-selection condition has zero probability"
+    ]
+    .assert_eq(&err);
+}
+
+#[test]
+fn check_post_select_fails_with_non_existent_state_on_clifford() {
+    let err = test_expression_fails_with_lib_and_profile_and_sim(
+        "{
+            import Std.Diagnostics.PostSelectZ;
+            import Std.Diagnostics.CheckZero;
+            use q = Qubit();
+            PostSelectZ(One, q);
+        }",
+        "",
+        Profile::Unrestricted,
+        &mut qsc::CliffordSim::new(1),
     );
     expect![
         "intrinsic callable `PostSelectZ` failed: post-selection condition has zero probability"
