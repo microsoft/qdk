@@ -43,7 +43,7 @@ pub(super) fn ident(s: &mut ParserContext) -> Result<Ident> {
     s.expect(WordKinds::PathExpr);
     let peek = s.peek();
     if peek.kind == TokenKind::Identifier {
-        let name = s.read().into();
+        let name = s.intern(s.read());
         s.advance();
         Ok(Ident {
             span: peek.span,
@@ -62,7 +62,7 @@ pub(super) fn ident_or_kw_as_ident(s: &mut ParserContext) -> Result<Ident> {
     s.expect(WordKinds::PathExpr);
     let peek = s.peek();
     if matches!(peek.kind, TokenKind::Identifier | TokenKind::Keyword(..)) {
-        let name = s.read().into();
+        let name = s.intern(s.read());
         s.advance();
         Ok(Ident {
             span: peek.span,
@@ -93,9 +93,16 @@ pub(super) fn opt<T>(s: &mut ParserContext, mut p: impl Parser<T>) -> Result<Opt
 pub(super) fn many<T>(s: &mut ParserContext, mut p: impl Parser<T>) -> Result<Vec<T>> {
     let mut xs = Vec::new();
     while let Some(x) = opt(s, &mut p)? {
-        xs.push(x);
+        push_with_initial_capacity(&mut xs, x);
     }
     Ok(xs)
+}
+
+fn push_with_initial_capacity<T>(xs: &mut Vec<T>, value: T) {
+    if xs.capacity() == 0 {
+        xs.reserve_exact(1);
+    }
+    xs.push(value);
 }
 
 /// Parses a sequence of items separated by commas.
@@ -110,17 +117,17 @@ where
         let mut span = s.peek().span;
         span.hi = span.lo;
         s.push_error(Error::new(ErrorKind::MissingSeqEntry(span)));
-        xs.push(T::default().with_span(span));
+        push_with_initial_capacity(&mut xs, T::default().with_span(span));
         s.advance();
     }
     while let Some(x) = opt(s, &mut p)? {
-        xs.push(x);
+        push_with_initial_capacity(&mut xs, x);
         if token(s, TokenKind::Comma).is_ok() {
             while s.peek().kind == TokenKind::Comma {
                 let mut span = s.peek().span;
                 span.hi = span.lo;
                 s.push_error(Error::new(ErrorKind::MissingSeqEntry(span)));
-                xs.push(T::default().with_span(span));
+                push_with_initial_capacity(&mut xs, T::default().with_span(span));
                 s.advance();
             }
             final_sep = FinalSep::Present;
@@ -179,17 +186,17 @@ pub(super) fn seq_item<T>(
         let mut span = s.peek().span;
         span.hi = span.lo;
         s.push_error(Error::new(ErrorKind::MissingSeqEntry(span)));
-        xs.push(SeqItem::Missing(span));
+        push_with_initial_capacity(&mut xs, SeqItem::Missing(span));
         s.advance();
     }
     while let Some(x) = opt(s, &mut p)? {
-        xs.push(SeqItem::Item(x));
+        push_with_initial_capacity(&mut xs, SeqItem::Item(x));
         if token(s, TokenKind::Comma).is_ok() {
             while s.peek().kind == TokenKind::Comma {
                 let mut span = s.peek().span;
                 span.hi = span.lo;
                 s.push_error(Error::new(ErrorKind::MissingSeqEntry(span)));
-                xs.push(SeqItem::Missing(span));
+                push_with_initial_capacity(&mut xs, SeqItem::Missing(span));
                 s.advance();
             }
             final_sep = FinalSep::Present;

@@ -6,6 +6,8 @@ use crate::{
     parser::completion::{collector::ValidWordCollector, word_kinds::WordKinds},
 };
 use qsc_data_structures::span::Span;
+use rustc_hash::FxHashMap;
+use std::sync::Arc;
 
 use super::Error;
 use super::error::ErrorKind;
@@ -25,12 +27,15 @@ pub(crate) struct ParserContext<'a> {
 pub(super) struct Scanner<'a> {
     input: &'a str,
     tokens: Lexer<'a>,
+    interned_strings: InternedStrings<'a>,
     barriers: Vec<&'a [TokenKind]>,
     errors: Vec<Error>,
     recovered_eof: bool,
     peek: Token,
     offset: u32,
 }
+
+type InternedStrings<'a> = FxHashMap<&'a str, Arc<str>>;
 
 impl<'a> ParserContext<'a> {
     pub fn new(input: &'a str) -> Self {
@@ -65,6 +70,10 @@ impl<'a> ParserContext<'a> {
 
     pub(super) fn read_from(&self, from: u32) -> &'a str {
         self.scanner.read_from(from)
+    }
+
+    pub(super) fn intern(&mut self, value: &'a str) -> Arc<str> {
+        self.scanner.intern(value)
     }
 
     /// Advances the scanner to start of the the next valid token.
@@ -126,6 +135,7 @@ impl<'a> Scanner<'a> {
         Self {
             input,
             tokens,
+            interned_strings: InternedStrings::default(),
             barriers: Vec::new(),
             peek: peek.unwrap_or_else(|| eof(input.len())),
             errors: errors
@@ -147,6 +157,16 @@ impl<'a> Scanner<'a> {
 
     pub(super) fn read_from(&self, from: u32) -> &'a str {
         &self.input[self.span(from)]
+    }
+
+    pub(super) fn intern(&mut self, value: &'a str) -> Arc<str> {
+        if let Some(interned) = self.interned_strings.get(value) {
+            return interned.clone();
+        }
+
+        let interned: Arc<str> = Arc::from(value);
+        self.interned_strings.insert(value, interned.clone());
+        interned
     }
 
     pub(super) fn span(&self, from: u32) -> Span {

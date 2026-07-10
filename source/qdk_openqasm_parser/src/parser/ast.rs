@@ -17,14 +17,16 @@ use std::{
 
 use super::prim::SeqItem;
 
-/// An alternative to `Vec<T>` that uses less stack space.
-pub type List<T> = Box<[Box<T>]>;
+/// A boxed slice used in place of `Vec<T>`: a thin (pointer + length) handle that
+/// stores its elements inline, avoiding `Vec`'s capacity word and the per-element
+/// heap allocation a `Box<[Box<T>]>` would incur.
+pub type List<T> = Box<[T]>;
 
 pub fn list_from_iter<T>(vals: impl IntoIterator<Item = T>) -> List<T> {
-    vals.into_iter().map(Box::new).collect()
+    vals.into_iter().collect()
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Program {
     pub span: Span,
     pub statements: List<Stmt>,

@@ -261,7 +261,7 @@ fn disambiguate_ident(
             kind: Box::new(ExprKind::FunctionCall(FunctionCall {
                 span: s.span(lo),
                 name: ident,
-                args: args.into_iter().map(Box::new).collect(),
+                args: args.into_iter().collect(),
             })),
         };
 
@@ -290,7 +290,7 @@ fn disambiguate_ident(
                     },
                     // Index expressions are not allowed to have multi-bracket indices.
                     // i.e.: a[1][2] is disallowed in IndexExpr, instead you must do a[1, 2].
-                    index: *indexed_ident.indices[0].clone(),
+                    index: indexed_ident.indices[0].clone(),
                 })
             }
         };
@@ -1693,7 +1693,7 @@ fn reinterpret_index_expr(
     if let Index::IndexList(set) = index
         && set.values.len() == 1
     {
-        let first_elt: IndexListItem = (*set.values[0]).clone();
+        let first_elt: IndexListItem = set.values[0].clone();
         if let IndexListItem::Expr(expr) = first_elt
             && duration.is_none()
         {
