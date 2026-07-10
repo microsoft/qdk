@@ -31,7 +31,6 @@ noisy_simulator = { path = "../noisy_simulator" }
 expect-test = { workspace = true }
 criterion = { workspace = true }
 
-
 [lints]
 workspace = true
 
@@ -39,7 +38,7 @@ workspace = true
 doctest = false
 
 [target.'cfg(target_os="linux")'.dev-dependencies]
-iai-callgrind = { workspace = true }
+gungraun = { workspace = true }
 
 [[bench]]
 name = "sim_time"

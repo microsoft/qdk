@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#[cfg(target_os = "linux")]
+// #[cfg(target_os = "linux")]
 mod bench {
     #![allow(clippy::unit_arg)]
 
-    use iai_callgrind::{library_benchmark, library_benchmark_group};
+    use gungraun::{library_benchmark, library_benchmark_group};
     use qdk_simulators::{
         Simulator as _,
         noise_config::{CumulativeNoiseConfig, NoiseConfig},
@@ -65,9 +65,9 @@ mod bench {
 use bench::bench_gates;
 
 #[cfg(target_os = "linux")]
-iai_callgrind::main!(
-    config = iai_callgrind::LibraryBenchmarkConfig::default()
-        .tool(iai_callgrind::Callgrind::default().flamegraph(iai_callgrind::FlamegraphConfig::default()));
+gungraun::main!(
+    config = gungraun::LibraryBenchmarkConfig::default()
+        .tool(gungraun::Callgrind::default().flamegraph(gungraun::FlamegraphConfig::default()));
     library_benchmark_groups = bench_gates
 );
 
