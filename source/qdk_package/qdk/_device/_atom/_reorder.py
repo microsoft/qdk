@@ -35,7 +35,7 @@ class Reorder(QirModuleVisitor):
 
     def instr_key(self, instr: Instruction):
         gate = as_qis_gate(instr)
-        if gate != {}:
+        if gate != {} and gate["qubit_args"]:
             qubits = sorted(map(self.device.get_ordering, gate["qubit_args"]))
             return qubits[0]
         return 0
@@ -70,7 +70,7 @@ class Reorder(QirModuleVisitor):
                 # depends on. We want to insert the current instruction on the earliest possible
                 # step without violating dependencies.
                 last_dependent_step_idx = len(steps) - 1
-                (used_values, used_results) = get_used_values(instr)
+                used_values, used_results = get_used_values(instr)
                 while last_dependent_step_idx >= 0:
                     if uses_any_value(
                         used_values, values_used_in_step[last_dependent_step_idx]
