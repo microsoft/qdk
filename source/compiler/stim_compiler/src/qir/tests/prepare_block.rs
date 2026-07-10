@@ -286,7 +286,7 @@ PREPARE(0.5) {
 
               x unsupported argument in instruction: PREPARE
                ,-[2:1]
-             1 |
+             1 | 
              2 | PREPARE(0.5) {
                : ^^^^^^^^^^^^
              3 |     M 0
@@ -310,7 +310,7 @@ PREPARE 0 1 {
 
               x unsupported target in instruction: PREPARE
                ,-[2:9]
-             1 |
+             1 | 
              2 | PREPARE 0 1 {
                :         ^
              3 |     M 0
@@ -502,7 +502,7 @@ REQUIRE rec[-1]
 
               x require must appear inside a PREPARE block
                ,-[2:1]
-             1 |
+             1 | 
              2 | REQUIRE rec[-1]
                : ^^^^^^^^^^^^^^^
                `----

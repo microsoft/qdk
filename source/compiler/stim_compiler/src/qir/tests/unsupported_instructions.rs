@@ -63,7 +63,7 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
              2 | # does nothing
              3 | I_ERROR 0
                : ^^^^^^^^^
-             4 |
+             4 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -73,7 +73,7 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
              5 | # does nothing with probability 0.1, else does nothing
              6 | I_ERROR(0.1) 0
                : ^^^^^^^^^^^^^^
-             7 |
+             7 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -83,7 +83,7 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
               8 | # doesn't require a probability argument
               9 | I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
                 : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-             10 |
+             10 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -123,7 +123,7 @@ II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
              2 | # does nothing
              3 | II_ERROR 0 1
                : ^^^^^^^^^^^^
-             4 |
+             4 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -133,7 +133,7 @@ II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
              5 | # does nothing with probability 0.1, else does nothing
              6 | II_ERROR(0.1) 0 1
                : ^^^^^^^^^^^^^^^^^
-             7 |
+             7 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -143,7 +143,7 @@ II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
               8 | # checks for you that the targets are two-qubit pairs
               9 | II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
                 : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-             10 |
+             10 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -217,7 +217,7 @@ MPP(0.001) Z1*Z2 X1*X2
              2 | # Measure the two-body +X1*Y2 observable.
              3 | MPP X1*Y2
                : ^^^^^^^^^
-             4 |
+             4 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -227,7 +227,7 @@ MPP(0.001) Z1*Z2 X1*X2
              5 | # Measure the one-body -Z5 observable.
              6 | MPP !Z5
                : ^^^^^^^
-             7 |
+             7 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -237,7 +237,7 @@ MPP(0.001) Z1*Z2 X1*X2
               8 | # Measure the two-body +X1*Y2 observable and also the three-body -Z3*Z4*Z5 observable.
               9 | MPP X1*Y2 !Z3*Z4*Z5
                 : ^^^^^^^^^^^^^^^^^^^
-             10 |
+             10 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -283,7 +283,7 @@ SPP !X1*Y2*Z3
              2 | # Perform an S gate on qubit 1.
              3 | SPP Z1
                : ^^^^^^
-             4 |
+             4 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -293,7 +293,7 @@ SPP !X1*Y2*Z3
              5 | # Perform a SQRT_X gate on qubit 1.
              6 | SPP X1
                : ^^^^^^
-             7 |
+             7 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -303,7 +303,7 @@ SPP !X1*Y2*Z3
               8 | # Perform a SQRT_X_DAG gate on qubit 1.
               9 | SPP !X1
                 : ^^^^^^^
-             10 |
+             10 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -313,7 +313,7 @@ SPP !X1*Y2*Z3
              11 | # Perform a SQRT_XX gate between qubit 1 and qubit 2.
              12 | SPP X1*X2
                 : ^^^^^^^^^
-             13 |
+             13 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -323,7 +323,7 @@ SPP !X1*Y2*Z3
              14 | # Perform a SQRT_YY gate between qubit 1 and 2, and a SQRT_ZZ_DAG between qubit 3 and 4.
              15 | SPP Y1*Y2 !Z1*Z2
                 : ^^^^^^^^^^^^^^^^
-             16 |
+             16 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -369,7 +369,7 @@ SPP_DAG !X1*Y2*Z3
              2 | # Perform an S_DAG gate on qubit 1.
              3 | SPP_DAG Z1
                : ^^^^^^^^^^
-             4 |
+             4 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -379,7 +379,7 @@ SPP_DAG !X1*Y2*Z3
              5 | # Perform a SQRT_X_DAG gate on qubit 1.
              6 | SPP_DAG X1
                : ^^^^^^^^^^
-             7 |
+             7 | 
                `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -389,7 +389,7 @@ SPP_DAG !X1*Y2*Z3
               8 | # Perform a SQRT_X gate on qubit 1.
               9 | SPP_DAG !X1
                 : ^^^^^^^^^^^
-             10 |
+             10 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -399,7 +399,7 @@ SPP_DAG !X1*Y2*Z3
              11 | # Perform a SQRT_XX_DAG gate between qubit 1 and qubit 2.
              12 | SPP_DAG X1*X2
                 : ^^^^^^^^^^^^^
-             13 |
+             13 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -409,7 +409,7 @@ SPP_DAG !X1*Y2*Z3
              14 | # Perform a SQRT_YY_DAG gate between qubit 1 and 2, and a SQRT_ZZ between qubit 3 and 4.
              15 | SPP_DAG Y1*Y2 !Z1*Z2
                 : ^^^^^^^^^^^^^^^^^^^^
-             16 |
+             16 | 
                 `----
 
             Qdk.Stim.Compiler.UnsupportedInstruction
@@ -440,7 +440,7 @@ REPEAT 10 {
 
               x unsupported instruction: REPEAT
                ,-[2:1]
-             1 |
+             1 | 
              2 | REPEAT 10 {
                : ^^^^^^^^^
              3 |     CNOT 0 1
