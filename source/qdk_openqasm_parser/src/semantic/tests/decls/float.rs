@@ -480,7 +480,7 @@ fn init_float_with_int_value_greater_than_safely_representable_values() {
                                 ty: const int
                                 kind: Lit: Int(9007199254740993)
 
-            [Qasm.Lowerer.InvalidCastValueRange
+            [Qdk.Qasm.Lowerer.InvalidCastValueRange
 
               x assigning const int values to float must be in a range that can be
               | converted to float

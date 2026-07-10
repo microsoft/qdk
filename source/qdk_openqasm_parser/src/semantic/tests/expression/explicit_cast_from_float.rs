@@ -115,7 +115,7 @@ fn float_to_duration_fails() {
                                 ty: float
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type float to type duration
                ,-[test:3:9]
@@ -161,7 +161,7 @@ fn sized_float_to_duration_fails() {
                                 ty: float[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type float[32] to type duration
                ,-[test:3:9]
@@ -1301,7 +1301,7 @@ fn float_to_bitarray_fails() {
                                 ty: float
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type float to type bit[32]
                ,-[test:3:9]
@@ -1381,7 +1381,7 @@ fn sized_float_to_bitarray_fails() {
                                 ty: float[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type float[32] to type bit[32]
                ,-[test:3:9]
@@ -1427,7 +1427,7 @@ fn sized_float_to_bitarray_truncating_fails() {
                                 ty: float[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type float[32] to type bit[16]
                ,-[test:3:9]
@@ -1473,7 +1473,7 @@ fn sized_float_to_bitarray_expanding_fails() {
                                 ty: float[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type float[32] to type bit[64]
                ,-[test:3:9]

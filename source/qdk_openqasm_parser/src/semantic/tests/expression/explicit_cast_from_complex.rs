@@ -47,7 +47,7 @@ fn complex_to_bool_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type bool
                ,-[test:3:9]
@@ -93,7 +93,7 @@ fn sized_complex_to_bool_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bool
                ,-[test:3:9]
@@ -139,7 +139,7 @@ fn complex_to_duration_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type duration
                ,-[test:3:9]
@@ -185,7 +185,7 @@ fn sized_complex_to_duration_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type duration
                ,-[test:3:9]
@@ -231,7 +231,7 @@ fn complex_to_int_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type int
                ,-[test:3:9]
@@ -273,7 +273,7 @@ fn complex_to_sized_int_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type int[32]
                ,-[test:3:9]
@@ -319,7 +319,7 @@ fn sized_complex_to_int_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type int
                ,-[test:3:9]
@@ -365,7 +365,7 @@ fn sized_complex_to_sized_int_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type int[32]
                ,-[test:3:9]
@@ -411,7 +411,7 @@ fn sized_complex_to_sized_int_truncating_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type int[16]
                ,-[test:3:9]
@@ -457,7 +457,7 @@ fn sized_complex_to_sized_int_expanding_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type int[64]
                ,-[test:3:9]
@@ -503,7 +503,7 @@ fn complex_to_uint_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type uint
                ,-[test:3:9]
@@ -545,7 +545,7 @@ fn complex_to_sized_uint_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type uint[32]
                ,-[test:3:9]
@@ -591,7 +591,7 @@ fn sized_complex_to_uint_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type uint
                ,-[test:3:9]
@@ -637,7 +637,7 @@ fn sized_complex_to_sized_uint_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type uint[32]
                ,-[test:3:9]
@@ -683,7 +683,7 @@ fn sized_complex_to_sized_uint_truncating_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type uint[16]
                ,-[test:3:9]
@@ -729,7 +729,7 @@ fn sized_complex_to_sized_uint_expanding_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type uint[64]
                ,-[test:3:9]
@@ -775,7 +775,7 @@ fn complex_to_float_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type float
                ,-[test:3:9]
@@ -817,7 +817,7 @@ fn complex_to_sized_float_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type float[32]
                ,-[test:3:9]
@@ -863,7 +863,7 @@ fn sized_complex_to_float_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type float
                ,-[test:3:9]
@@ -909,7 +909,7 @@ fn sized_complex_to_sized_float_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type float[32]
                ,-[test:3:9]
@@ -955,7 +955,7 @@ fn sized_complex_to_sized_float_truncating_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type float[16]
                ,-[test:3:9]
@@ -1001,7 +1001,7 @@ fn sized_complex_to_sized_float_expanding_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type float[64]
                ,-[test:3:9]
@@ -1047,7 +1047,7 @@ fn complex_to_angle_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type angle
                ,-[test:3:9]
@@ -1089,7 +1089,7 @@ fn complex_to_sized_angle_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type angle[32]
                ,-[test:3:9]
@@ -1135,7 +1135,7 @@ fn sized_complex_to_angle_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type angle
                ,-[test:3:9]
@@ -1181,7 +1181,7 @@ fn sized_complex_to_sized_angle_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type angle[32]
                ,-[test:3:9]
@@ -1227,7 +1227,7 @@ fn sized_complex_to_sized_angle_truncating_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type angle[16]
                ,-[test:3:9]
@@ -1273,7 +1273,7 @@ fn sized_complex_to_sized_angle_expanding_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type angle[64]
                ,-[test:3:9]
@@ -1509,7 +1509,7 @@ fn complex_to_bit_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type bit
                ,-[test:3:9]
@@ -1551,7 +1551,7 @@ fn complex_to_bitarray_fails() {
                                 ty: complex[float]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type bit[32]
                ,-[test:3:9]
@@ -1597,7 +1597,7 @@ fn sized_complex_to_bit_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bit
                ,-[test:3:9]
@@ -1643,7 +1643,7 @@ fn sized_complex_to_bitarray_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bit[32]
                ,-[test:3:9]
@@ -1689,7 +1689,7 @@ fn sized_complex_to_bitarray_truncating_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bit[16]
                ,-[test:3:9]
@@ -1735,7 +1735,7 @@ fn sized_complex_to_bitarray_expanding_fails() {
                                 ty: complex[float[32]]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bit[64]
                ,-[test:3:9]

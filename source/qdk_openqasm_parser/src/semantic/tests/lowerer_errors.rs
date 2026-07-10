@@ -20,7 +20,7 @@ fn check_lowerer_error_spans_are_correct() {
              22 | 
                 `----
 
-            Qasm.Lowerer.UnsupportedVersion
+            Qdk.Qasm.Lowerer.UnsupportedVersion
 
               x unsupported version: '4.0'
                ,-[Test.qasm:4:10]
@@ -30,7 +30,7 @@ fn check_lowerer_error_spans_are_correct() {
              5 | 
                `----
 
-            Qasm.Lowerer.IncludeNotInGlobalScope
+            Qdk.Qasm.Lowerer.IncludeNotInGlobalScope
 
               x include stdgates.inc must be declared in global scope
                 ,-[Test.qasm:16:5]
@@ -40,7 +40,7 @@ fn check_lowerer_error_spans_are_correct() {
              17 | }
                 `----
 
-            Qasm.Lowerer.StdGateCalledButNotIncluded
+            Qdk.Qasm.Lowerer.StdGateCalledButNotIncluded
 
               x A standard gate was called but not included
                 ,-[Test.qasm:24:1]
@@ -51,7 +51,7 @@ fn check_lowerer_error_spans_are_correct() {
                 `----
               help: Did you mean to include the standard gate library 'stdgates.inc'?
 
-            Qasm.Lowerer.RedefinedSymbol
+            Qdk.Qasm.Lowerer.RedefinedSymbol
 
               x redefined symbol: x
                 ,-[Test.qasm:28:5]
@@ -61,7 +61,7 @@ fn check_lowerer_error_spans_are_correct() {
              29 | 
                 `----
 
-            Qasm.Lowerer.RedefinedSymbol
+            Qdk.Qasm.Lowerer.RedefinedSymbol
 
               x redefined symbol: rxx
                 ,-[Test.qasm:32:5]
@@ -71,7 +71,7 @@ fn check_lowerer_error_spans_are_correct() {
              33 | 
                 `----
 
-            Qasm.Lowerer.UndefinedSymbol
+            Qdk.Qasm.Lowerer.UndefinedSymbol
 
               x undefined symbol: undefined_symbol
                 ,-[Test.qasm:35:1]
@@ -81,7 +81,7 @@ fn check_lowerer_error_spans_are_correct() {
              36 | 
                 `----
 
-            Qasm.Lowerer.InconsistentTypesInAlias
+            Qdk.Qasm.Lowerer.InconsistentTypesInAlias
 
               x inconsistent types in alias expression: qubit[2], bit[5]
                 ,-[Test.qasm:40:15]
@@ -91,7 +91,7 @@ fn check_lowerer_error_spans_are_correct() {
              41 | 
                 `----
 
-            Qasm.Lowerer.InvalidTypeInAlias
+            Qdk.Qasm.Lowerer.InvalidTypeInAlias
 
               x invalid type in alias expression: int
                 ,-[Test.qasm:45:36]
@@ -102,7 +102,7 @@ fn check_lowerer_error_spans_are_correct() {
                 `----
               help: aliases can only be applied to quantum bits and registers
 
-            Qasm.Lowerer.CannotUpdateConstVariable
+            Qdk.Qasm.Lowerer.CannotUpdateConstVariable
 
               x cannot update const variable const_variable
                 ,-[Test.qasm:49:1]
@@ -113,7 +113,7 @@ fn check_lowerer_error_spans_are_correct() {
                 `----
               help: mutable variables must be declared without the keyword `const`
 
-            Qasm.Lowerer.CannotUpdateConstVariable
+            Qdk.Qasm.Lowerer.CannotUpdateConstVariable
 
               x cannot update const variable const_bitarray
                 ,-[Test.qasm:53:1]
@@ -124,7 +124,7 @@ fn check_lowerer_error_spans_are_correct() {
                 `----
               help: mutable variables must be declared without the keyword `const`
 
-            Qasm.Lowerer.CannotUpdateConstVariable
+            Qdk.Qasm.Lowerer.CannotUpdateConstVariable
 
               x cannot update const variable const_variable
                 ,-[Test.qasm:56:1]
@@ -135,7 +135,7 @@ fn check_lowerer_error_spans_are_correct() {
                 `----
               help: mutable variables must be declared without the keyword `const`
 
-            Qasm.Lowerer.CannotUpdateConstVariable
+            Qdk.Qasm.Lowerer.CannotUpdateConstVariable
 
               x cannot update const variable const_bitarray
                 ,-[Test.qasm:59:1]
@@ -146,7 +146,7 @@ fn check_lowerer_error_spans_are_correct() {
                 `----
               help: mutable variables must be declared without the keyword `const`
 
-            Qasm.Lowerer.ExprMustBeConst
+            Qdk.Qasm.Lowerer.ExprMustBeConst
 
               x a captured variable must be a const expression
                 ,-[Test.qasm:64:13]
@@ -156,7 +156,7 @@ fn check_lowerer_error_spans_are_correct() {
              65 | }
                 `----
 
-            Qasm.Lowerer.ArrayDeclarationTypeError
+            Qdk.Qasm.Lowerer.ArrayDeclarationTypeError
 
               x expected an array of size 2 but found one of size 3
                 ,-[Test.qasm:68:51]
@@ -166,7 +166,7 @@ fn check_lowerer_error_spans_are_correct() {
              69 | 
                 `----
 
-            Qasm.Lowerer.ArrayDeclarationTypeError
+            Qdk.Qasm.Lowerer.ArrayDeclarationTypeError
 
               x expected an array of size 2 but found Int(2)
                 ,-[Test.qasm:71:54]
@@ -176,7 +176,7 @@ fn check_lowerer_error_spans_are_correct() {
              72 | 
                 `----
 
-            Qasm.Lowerer.CannotCastLiteral
+            Qdk.Qasm.Lowerer.CannotCastLiteral
 
               x cannot cast literal expression of type const int to type array[int, 2]
                 ,-[Test.qasm:71:1]
@@ -186,7 +186,7 @@ fn check_lowerer_error_spans_are_correct() {
              72 | 
                 `----
 
-            Qasm.Lowerer.NotSupported
+            Qdk.Qasm.Lowerer.NotSupported
 
               x string literals are not supported
                 ,-[Test.qasm:74:1]
@@ -196,7 +196,7 @@ fn check_lowerer_error_spans_are_correct() {
              75 | 
                 `----
 
-            Qasm.Lowerer.TypeDoesNotSupportedUnaryNegation
+            Qdk.Qasm.Lowerer.TypeDoesNotSupportedUnaryNegation
 
               x unary negation is not allowed for instances of bool
                 ,-[Test.qasm:79:2]
@@ -206,7 +206,7 @@ fn check_lowerer_error_spans_are_correct() {
              80 | 
                 `----
 
-            Qasm.Lowerer.NotSupported
+            Qdk.Qasm.Lowerer.NotSupported
 
               x arrays with more than 7 dimensions are not supported
                 ,-[Test.qasm:82:1]
@@ -216,7 +216,7 @@ fn check_lowerer_error_spans_are_correct() {
              83 | 
                 `----
 
-            Qasm.Lowerer.ClassicalStmtInBox
+            Qdk.Qasm.Lowerer.ClassicalStmtInBox
 
               x invalid classical statement in box
                 ,-[Test.qasm:86:5]
@@ -226,7 +226,7 @@ fn check_lowerer_error_spans_are_correct() {
              87 | }
                 `----
 
-            Qasm.Lowerer.InvalidScope
+            Qdk.Qasm.Lowerer.InvalidScope
 
               x break can only appear in loop scopes
                 ,-[Test.qasm:90:1]
@@ -236,7 +236,7 @@ fn check_lowerer_error_spans_are_correct() {
              91 | 
                 `----
 
-            Qasm.Lowerer.InvalidScope
+            Qdk.Qasm.Lowerer.InvalidScope
 
               x continue can only appear in loop scopes
                 ,-[Test.qasm:93:1]
@@ -246,7 +246,7 @@ fn check_lowerer_error_spans_are_correct() {
              94 | 
                 `----
 
-            Qasm.Lowerer.InvalidScope
+            Qdk.Qasm.Lowerer.InvalidScope
 
               x return statements can only appear in subroutine scopes
                 ,-[Test.qasm:96:1]
@@ -256,7 +256,7 @@ fn check_lowerer_error_spans_are_correct() {
              97 | 
                 `----
 
-            Qasm.Lowerer.MissingTargetExpressionInReturnStmt
+            Qdk.Qasm.Lowerer.MissingTargetExpressionInReturnStmt
 
               x return statements on a non-void subroutine should have a target expression
                  ,-[Test.qasm:100:5]
@@ -266,7 +266,7 @@ fn check_lowerer_error_spans_are_correct() {
              101 | }
                  `----
 
-            Qasm.Lowerer.ReturningExpressionFromVoidSubroutine
+            Qdk.Qasm.Lowerer.ReturningExpressionFromVoidSubroutine
 
               x cannot return an expression from a void subroutine
                  ,-[Test.qasm:105:12]
@@ -276,7 +276,7 @@ fn check_lowerer_error_spans_are_correct() {
              106 | }
                  `----
 
-            Qasm.Lowerer.ExprMustBeConst
+            Qdk.Qasm.Lowerer.ExprMustBeConst
 
               x const decl init expr must be a const expression
                  ,-[Test.qasm:116:23]
@@ -294,7 +294,7 @@ fn check_lowerer_error_spans_are_correct() {
              121 | }
                  `----
 
-            Qasm.Lowerer.DefDeclarationInNonGlobalScope
+            Qdk.Qasm.Lowerer.DefDeclarationInNonGlobalScope
 
               x def declarations must be done in global scope
                  ,-[Test.qasm:125:5]
@@ -304,7 +304,7 @@ fn check_lowerer_error_spans_are_correct() {
              126 | }
                  `----
 
-            Qasm.Lowerer.GateDeclarationInNonGlobalScope
+            Qdk.Qasm.Lowerer.GateDeclarationInNonGlobalScope
 
               x gate declarations must be done in global scope
                  ,-[Test.qasm:130:5]
@@ -314,7 +314,7 @@ fn check_lowerer_error_spans_are_correct() {
              131 | }
                  `----
 
-            Qasm.Lowerer.QubitDeclarationInNonGlobalScope
+            Qdk.Qasm.Lowerer.QubitDeclarationInNonGlobalScope
 
               x qubit declarations must be done in global scope
                  ,-[Test.qasm:135:5]
@@ -324,7 +324,7 @@ fn check_lowerer_error_spans_are_correct() {
              136 | }
                  `----
 
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                  ,-[Test.qasm:139:37]
@@ -334,7 +334,7 @@ fn check_lowerer_error_spans_are_correct() {
              140 | 
                  `----
 
-            Qasm.Lowerer.ExternDeclarationInNonGlobalScope
+            Qdk.Qasm.Lowerer.ExternDeclarationInNonGlobalScope
 
               x extern declarations must be done in global scope
                  ,-[Test.qasm:149:5]
@@ -344,7 +344,7 @@ fn check_lowerer_error_spans_are_correct() {
              150 | }
                  `----
 
-            Qasm.Lowerer.InvalidNumberOfClassicalArgs
+            Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
               x gate expects 2 classical arguments, but 1 were provided
                  ,-[Test.qasm:154:1]
@@ -354,7 +354,7 @@ fn check_lowerer_error_spans_are_correct() {
              155 | 
                  `----
 
-            Qasm.Lowerer.GateCalledLikeFunc
+            Qdk.Qasm.Lowerer.GateCalledLikeFunc
 
               x gate called like function: gate(0, 1)
                  ,-[Test.qasm:157:1]
@@ -365,7 +365,7 @@ fn check_lowerer_error_spans_are_correct() {
                  `----
               help: ensure that qubit arguments are provided to the gate call
 
-            Qasm.Lowerer.InvalidNumberOfClassicalArgs
+            Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
               x gate expects 1 classical arguments, but 2 were provided
                  ,-[Test.qasm:160:1]
@@ -375,7 +375,7 @@ fn check_lowerer_error_spans_are_correct() {
              161 | 
                  `----
 
-            Qasm.Lowerer.InvalidNumberOfQubitArgs
+            Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
               x gate expects 1 qubit arguments, but 2 were provided
                  ,-[Test.qasm:163:1]
@@ -385,7 +385,7 @@ fn check_lowerer_error_spans_are_correct() {
              164 | 
                  `----
 
-            Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
+            Qdk.Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
 
               x first quantum register is of type qubit[1] but found an argument of type
               | qubit[2]
@@ -396,7 +396,7 @@ fn check_lowerer_error_spans_are_correct() {
              167 | 
                  `----
 
-            Qasm.Lowerer.ExprMustFitInU32
+            Qdk.Qasm.Lowerer.ExprMustFitInU32
 
               x ctrl modifier argument must fit in a u32
                  ,-[Test.qasm:174:6]
@@ -406,7 +406,7 @@ fn check_lowerer_error_spans_are_correct() {
              175 | 
                  `----
 
-            Qasm.Lowerer.CannotCastLiteral
+            Qdk.Qasm.Lowerer.CannotCastLiteral
 
               x cannot cast literal expression of type const float to type const uint
                  ,-[Test.qasm:181:12]
@@ -416,7 +416,7 @@ fn check_lowerer_error_spans_are_correct() {
              182 | 
                  `----
 
-            Qasm.Lowerer.ExprMustBeNonNegativeInt
+            Qdk.Qasm.Lowerer.ExprMustBeNonNegativeInt
 
               x array size must be a non-negative integer
                  ,-[Test.qasm:184:12]
@@ -426,7 +426,7 @@ fn check_lowerer_error_spans_are_correct() {
              185 | 
                  `----
 
-            Qasm.Lowerer.DesignatorTooLarge
+            Qdk.Qasm.Lowerer.DesignatorTooLarge
 
               x designator is too large
                  ,-[Test.qasm:187:12]
@@ -436,7 +436,7 @@ fn check_lowerer_error_spans_are_correct() {
              188 | 
                  `----
 
-            Qasm.Lowerer.CannotCastLiteral
+            Qdk.Qasm.Lowerer.CannotCastLiteral
 
               x cannot cast literal expression of type const float to type const uint
                  ,-[Test.qasm:190:5]
@@ -446,7 +446,7 @@ fn check_lowerer_error_spans_are_correct() {
              191 | 
                  `----
 
-            Qasm.Lowerer.ExprMustBePositiveInt
+            Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
               x type width must be a positive integer
                  ,-[Test.qasm:193:5]
@@ -456,7 +456,7 @@ fn check_lowerer_error_spans_are_correct() {
              194 | int[-2] negative_width;
                  `----
 
-            Qasm.Lowerer.ExprMustBePositiveInt
+            Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
               x type width must be a positive integer
                  ,-[Test.qasm:194:5]
@@ -466,7 +466,7 @@ fn check_lowerer_error_spans_are_correct() {
              195 | 
                  `----
 
-            Qasm.Lowerer.DesignatorTooLarge
+            Qdk.Qasm.Lowerer.DesignatorTooLarge
 
               x designator is too large
                  ,-[Test.qasm:197:5]
@@ -476,7 +476,7 @@ fn check_lowerer_error_spans_are_correct() {
              198 | 
                  `----
 
-            Qasm.Lowerer.TypeMaxWidthExceeded
+            Qdk.Qasm.Lowerer.TypeMaxWidthExceeded
 
               x float max width is 64 but 65 was provided
                  ,-[Test.qasm:200:1]
@@ -486,7 +486,7 @@ fn check_lowerer_error_spans_are_correct() {
              201 | angle[65] angle_width_too_large;
                  `----
 
-            Qasm.Lowerer.TypeMaxWidthExceeded
+            Qdk.Qasm.Lowerer.TypeMaxWidthExceeded
 
               x angle max width is 64 but 65 was provided
                  ,-[Test.qasm:201:1]
@@ -496,7 +496,7 @@ fn check_lowerer_error_spans_are_correct() {
              202 | 
                  `----
 
-            Qasm.Lowerer.CannotCastLiteral
+            Qdk.Qasm.Lowerer.CannotCastLiteral
 
               x cannot cast literal expression of type const float to type int
                  ,-[Test.qasm:204:1]
@@ -506,7 +506,7 @@ fn check_lowerer_error_spans_are_correct() {
              205 | 
                  `----
 
-            Qasm.Lowerer.QuantumTypesInBinaryExpression
+            Qdk.Qasm.Lowerer.QuantumTypesInBinaryExpression
 
               x quantum typed values cannot be used in binary expressions
                  ,-[Test.qasm:213:5]
@@ -516,7 +516,7 @@ fn check_lowerer_error_spans_are_correct() {
              214 | q + 1;
                  `----
 
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type qubit to type const float
                  ,-[Test.qasm:213:5]
@@ -526,7 +526,7 @@ fn check_lowerer_error_spans_are_correct() {
              214 | q + 1;
                  `----
 
-            Qasm.Lowerer.QuantumTypesInBinaryExpression
+            Qdk.Qasm.Lowerer.QuantumTypesInBinaryExpression
 
               x quantum typed values cannot be used in binary expressions
                  ,-[Test.qasm:214:1]
@@ -536,7 +536,7 @@ fn check_lowerer_error_spans_are_correct() {
              215 | 
                  `----
 
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type qubit to type const float
                  ,-[Test.qasm:214:1]
@@ -546,7 +546,7 @@ fn check_lowerer_error_spans_are_correct() {
              215 | 
                  `----
 
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type float
                  ,-[Test.qasm:218:1]
@@ -556,7 +556,7 @@ fn check_lowerer_error_spans_are_correct() {
              219 | 3 + uncastable_to_int;
                  `----
 
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type const float
                  ,-[Test.qasm:219:5]
@@ -566,7 +566,7 @@ fn check_lowerer_error_spans_are_correct() {
              220 | 
                  `----
 
-            Qasm.Lowerer.OperatorNotAllowedForComplexValues
+            Qdk.Qasm.Lowerer.OperatorNotAllowedForComplexValues
 
               x the operator OrB is not allowed for complex values
                  ,-[Test.qasm:222:1]
@@ -576,7 +576,7 @@ fn check_lowerer_error_spans_are_correct() {
              223 | 
                  `----
 
-            Qasm.Lowerer.IndexSetOnlyAllowedInAliasStmt
+            Qdk.Qasm.Lowerer.IndexSetOnlyAllowedInAliasStmt
 
               x index sets are only allowed in alias statements
                  ,-[Test.qasm:225:8]
@@ -586,7 +586,7 @@ fn check_lowerer_error_spans_are_correct() {
              226 | 
                  `----
 
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type const angle to type const int
                  ,-[Test.qasm:229:13]
@@ -596,7 +596,7 @@ fn check_lowerer_error_spans_are_correct() {
              230 | 
                  `----
 
-            Qasm.Lowerer.ZeroStepInRange
+            Qdk.Qasm.Lowerer.ZeroStepInRange
 
               x range step cannot be zero
                  ,-[Test.qasm:232:13]
@@ -606,7 +606,7 @@ fn check_lowerer_error_spans_are_correct() {
              233 | 
                  `----
 
-            Qasm.Lowerer.ZeroSizeArrayAccess
+            Qdk.Qasm.Lowerer.ZeroSizeArrayAccess
 
               x zero size array access is not allowed
                  ,-[Test.qasm:236:1]
@@ -617,7 +617,7 @@ fn check_lowerer_error_spans_are_correct() {
                  `----
               help: array size must be a positive integer const expression
 
-            Qasm.Lowerer.CannotIndexType
+            Qdk.Qasm.Lowerer.CannotIndexType
 
               x cannot index variables of type bit
                  ,-[Test.qasm:240:15]
@@ -627,7 +627,7 @@ fn check_lowerer_error_spans_are_correct() {
              241 | 
                  `----
 
-            Qasm.Lowerer.CannotIndexType
+            Qdk.Qasm.Lowerer.CannotIndexType
 
               x cannot index variables of type qubit
                  ,-[Test.qasm:243:11]
@@ -637,7 +637,7 @@ fn check_lowerer_error_spans_are_correct() {
              244 | 
                  `----
 
-            Qasm.Lowerer.UndefinedSymbol
+            Qdk.Qasm.Lowerer.UndefinedSymbol
 
               x undefined symbol: missing_symbol
                  ,-[Test.qasm:246:1]
@@ -647,7 +647,7 @@ fn check_lowerer_error_spans_are_correct() {
              247 | 
                  `----
 
-            Qasm.Lowerer.CannotIndexType
+            Qdk.Qasm.Lowerer.CannotIndexType
 
               x cannot index variables of type unknown
                  ,-[Test.qasm:246:16]
@@ -657,7 +657,7 @@ fn check_lowerer_error_spans_are_correct() {
              247 | 
                  `----
 
-            Qasm.Lowerer.EmptyIndexOperator
+            Qdk.Qasm.Lowerer.EmptyIndexOperator
 
               x index operator must contain at least one index
                  ,-[Test.qasm:250:13]
@@ -667,7 +667,7 @@ fn check_lowerer_error_spans_are_correct() {
              251 | 
                  `----
 
-            Qasm.Lowerer.CannotCallNonFunction
+            Qdk.Qasm.Lowerer.CannotCallNonFunction
 
               x cannot call an expression that is not a function
                  ,-[Test.qasm:253:1]
@@ -677,7 +677,7 @@ fn check_lowerer_error_spans_are_correct() {
              254 | 
                  `----
 
-            Qasm.Lowerer.FuncCalledLikeGate
+            Qdk.Qasm.Lowerer.FuncCalledLikeGate
 
               x function called like gate: def (qubit) -> void
                  ,-[Test.qasm:256:5]
@@ -688,7 +688,7 @@ fn check_lowerer_error_spans_are_correct() {
                  `----
               help: function parameters must be in parentheses
 
-            Qasm.Lowerer.GateCallMissingParams
+            Qdk.Qasm.Lowerer.GateCallMissingParams
 
               x gate call missing parameters: gate(0, 1)
                  ,-[Test.qasm:260:1]
@@ -700,7 +700,7 @@ fn check_lowerer_error_spans_are_correct() {
               help: ensure that any classical and quantum arguments are provided to the
                     gate call
 
-            Qasm.Lowerer.FuncMissingParams
+            Qdk.Qasm.Lowerer.FuncMissingParams
 
               x function call missing parameters: def (qubit) -> void
                  ,-[Test.qasm:263:1]
@@ -712,7 +712,7 @@ fn check_lowerer_error_spans_are_correct() {
               help: a function call must use parentheses, with any parameters inside those
                     parentheses.
 
-            Qasm.Lowerer.ExternDeclarationCannotReturnStretch
+            Qdk.Qasm.Lowerer.ExternDeclarationCannotReturnStretch
 
               x extern declarations cannot return stretches
                  ,-[Test.qasm:266:52]
@@ -722,7 +722,7 @@ fn check_lowerer_error_spans_are_correct() {
              267 | 
                  `----
 
-            Qasm.Lowerer.InvalidConcatenationPosition
+            Qdk.Qasm.Lowerer.InvalidConcatenationPosition
 
               x concatenation expressions are not allowed in the rhs of assignment
               | operation statements
@@ -733,7 +733,7 @@ fn check_lowerer_error_spans_are_correct() {
              273 | 
                  `----
 
-            Qasm.Lowerer.InvalidConcatenationPosition
+            Qdk.Qasm.Lowerer.InvalidConcatenationPosition
 
               x concatenation expressions are not allowed in return statements
                  ,-[Test.qasm:275:12]
@@ -743,7 +743,7 @@ fn check_lowerer_error_spans_are_correct() {
              276 | }
                  `----
 
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                  ,-[Test.qasm:274:48]
@@ -753,7 +753,7 @@ fn check_lowerer_error_spans_are_correct() {
              275 |     return a ++ a;
                  `----
 
-            Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: array[int[8], 4],
               | array[int[16], 4]
@@ -764,7 +764,7 @@ fn check_lowerer_error_spans_are_correct() {
              282 | 
                  `----
 
-            Qasm.Lowerer.InvalidTypeInArrayConcatenation
+            Qdk.Qasm.Lowerer.InvalidTypeInArrayConcatenation
 
               x invalid type in array concatenation expression: bit[8]
                  ,-[Test.qasm:286:17]
@@ -774,7 +774,7 @@ fn check_lowerer_error_spans_are_correct() {
                  `----
               help: array concatenation can only be applied to arrays
 
-            Qasm.Lowerer.InvalidTypeInArrayConcatenation
+            Qdk.Qasm.Lowerer.InvalidTypeInArrayConcatenation
 
               x invalid type in array concatenation expression: bit[8]
                  ,-[Test.qasm:286:37]

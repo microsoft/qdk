@@ -86,7 +86,7 @@ fn popcount_unsized_type_error() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `popcount` for inputs: (const int)
               | Overloads available are:

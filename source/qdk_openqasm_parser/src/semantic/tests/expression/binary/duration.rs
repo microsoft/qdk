@@ -119,7 +119,7 @@ fn addition_of_duration_and_int_errors() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.CannotApplyOperatorToTypes
+            [Qdk.Qasm.Lowerer.CannotApplyOperatorToTypes
 
               x cannot apply operator Add to types duration and int
                ,-[test:4:22]
@@ -171,7 +171,7 @@ fn addition_assign_op_errors_when_duration_is_const() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.CannotUpdateConstVariable
+            [Qdk.Qasm.Lowerer.CannotUpdateConstVariable
 
               x cannot update const variable a
                ,-[test:4:9]
@@ -366,7 +366,7 @@ fn subtraction_assign_op_errors_when_duration_is_const() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.CannotUpdateConstVariable
+            [Qdk.Qasm.Lowerer.CannotUpdateConstVariable
 
               x cannot update const variable a
                ,-[test:4:9]
@@ -423,7 +423,7 @@ fn multiplication_by_duration_is_not_supported() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.CannotApplyOperatorToTypes
+            [Qdk.Qasm.Lowerer.CannotApplyOperatorToTypes
 
               x cannot apply operator Mul to types duration and duration
                ,-[test:4:22]
@@ -655,7 +655,7 @@ fn multiplication_assign_op_not_support() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.CannotApplyOperatorToTypes
+            [Qdk.Qasm.Lowerer.CannotApplyOperatorToTypes
 
               x cannot apply operator Mul to types duration and duration
                ,-[test:4:9]
@@ -707,7 +707,7 @@ fn multiplication_assign_op_errors_when_duration_is_const() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.CannotUpdateConstVariable
+            [Qdk.Qasm.Lowerer.CannotUpdateConstVariable
 
               x cannot update const variable a
                ,-[test:4:9]
@@ -935,7 +935,7 @@ fn division_assign_op_errors_when_duration_is_const() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.CannotUpdateConstVariable
+            [Qdk.Qasm.Lowerer.CannotUpdateConstVariable
 
               x cannot update const variable a
                ,-[test:4:9]

@@ -103,7 +103,7 @@ fn arccos_negative_domain_error() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.DomainError
+            [Qdk.Qasm.Lowerer.DomainError
 
               x arccos input should be in the range [-1.0, 1.0]
                ,-[test:2:9]
@@ -133,7 +133,7 @@ fn arccos_positive_domain_error() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.DomainError
+            [Qdk.Qasm.Lowerer.DomainError
 
               x arccos input should be in the range [-1.0, 1.0]
                ,-[test:2:9]

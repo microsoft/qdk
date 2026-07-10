@@ -115,7 +115,7 @@ fn int_to_duration_fails() {
                                 ty: int
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int to type duration
                ,-[test:3:9]
@@ -161,7 +161,7 @@ fn sized_int_to_duration_fails() {
                                 ty: int[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int[32] to type duration
                ,-[test:3:9]
@@ -839,7 +839,7 @@ fn int_to_angle_fails() {
                                 ty: int
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int to type angle
                ,-[test:3:9]
@@ -881,7 +881,7 @@ fn int_to_sized_angle_fails() {
                                 ty: int
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int to type angle[32]
                ,-[test:3:9]
@@ -927,7 +927,7 @@ fn sized_int_to_angle_fails() {
                                 ty: int[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int[32] to type angle
                ,-[test:3:9]
@@ -973,7 +973,7 @@ fn sized_int_to_sized_angle_fails() {
                                 ty: int[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int[32] to type angle[32]
                ,-[test:3:9]
@@ -1019,7 +1019,7 @@ fn sized_int_to_sized_angle_truncating_fails() {
                                 ty: int[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int[32] to type angle[16]
                ,-[test:3:9]
@@ -1065,7 +1065,7 @@ fn sized_int_to_sized_angle_expanding_fails() {
                                 ty: int[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int[32] to type angle[64]
                ,-[test:3:9]
@@ -1357,7 +1357,7 @@ fn int_to_bitarray_fails() {
                                 ty: int
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int to type bit[32]
                ,-[test:3:9]
@@ -1475,7 +1475,7 @@ fn sized_int_to_bitarray_truncating_fails() {
                                 ty: int[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int[32] to type bit[16]
                ,-[test:3:9]
@@ -1521,7 +1521,7 @@ fn sized_int_to_bitarray_expanding_fails() {
                                 ty: int[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type int[32] to type bit[64]
                ,-[test:3:9]

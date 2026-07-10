@@ -153,12 +153,12 @@ pub enum PipelineError {
 
     /// A pinned item requested by a caller was not present in the FIR store.
     #[error("pinned item {0} does not exist")]
-    #[diagnostic(code("Qsc.FirTransform.MissingPinnedItem"))]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.MissingPinnedItem"))]
     MissingPinnedItem(StoreItemId),
 
     /// A pinned item requested by a caller was present but was not a callable.
     #[error("pinned item {0} is not a callable")]
-    #[diagnostic(code("Qsc.FirTransform.PinnedItemNotCallable"))]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.PinnedItemNotCallable"))]
     PinnedItemNotCallable(StoreItemId),
 
     /// The tuple-decompose <-> argument-promotion fixed-point loop did not converge within
@@ -167,7 +167,7 @@ pub enum PipelineError {
     #[error(
         "tuple-decompose/argument-promotion fixed-point loop did not converge within {0} rounds"
     )]
-    #[diagnostic(code("Qsc.FirTransform.TupleDecomposeArgPromoteFixpointNotReached"))]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.TupleDecomposeArgPromoteFixpointNotReached"))]
     #[diagnostic(severity(Warning))]
     TupleDecomposeArgPromoteFixpointNotReached(usize),
 }

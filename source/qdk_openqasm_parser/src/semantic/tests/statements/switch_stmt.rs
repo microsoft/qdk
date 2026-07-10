@@ -31,7 +31,7 @@ fn not_supported_before_version_3_1() {
                                     block: Block [43-45]: <empty>
                             default_case: <none>
 
-            [Qasm.Lowerer.NotSupportedInThisVersion
+            [Qdk.Qasm.Lowerer.NotSupportedInThisVersion
 
               x switch statements were introduced in version 3.1
                ,-[test:3:5]

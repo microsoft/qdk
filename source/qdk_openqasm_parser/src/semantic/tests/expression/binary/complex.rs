@@ -463,7 +463,7 @@ fn modulo_fails() {
                                 ty: complex[float]
                                 kind: Err
 
-            [Qasm.Lowerer.OperatorNotAllowedForComplexValues
+            [Qdk.Qasm.Lowerer.OperatorNotAllowedForComplexValues
 
               x the operator Mod is not allowed for complex values
                ,-[test:4:21]
@@ -511,7 +511,7 @@ fn modulo_non_complex_type_fails() {
                                 ty: complex[float]
                                 kind: Err
 
-            [Qasm.Lowerer.OperatorNotAllowedForComplexValues
+            [Qdk.Qasm.Lowerer.OperatorNotAllowedForComplexValues
 
               x the operator Mod is not allowed for complex values
                ,-[test:4:21]

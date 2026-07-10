@@ -309,7 +309,7 @@ fn array_slice_with_zero_step_errors() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.ZeroStepInRange
+            [Qdk.Qasm.Lowerer.ZeroStepInRange
 
               x range step cannot be zero
                ,-[test:3:11]

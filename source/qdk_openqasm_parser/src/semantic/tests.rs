@@ -294,7 +294,7 @@ fn semantic_errors_map_to_their_corresponding_file_specific_spans() {
                                 ty: unknown
                                 kind: SymbolId(44)
 
-            [Qasm.Lowerer.UndefinedSymbol
+            [Qdk.Qasm.Lowerer.UndefinedSymbol
 
               x undefined symbol: v
                ,-[source2.qasm:2:14]
@@ -302,7 +302,7 @@ fn semantic_errors_map_to_their_corresponding_file_specific_spans() {
              2 |     bool l = v && l; // undefined y, redefine l
                :              ^
                `----
-            , Qasm.Lowerer.RedefinedSymbol
+            , Qdk.Qasm.Lowerer.RedefinedSymbol
 
               x redefined symbol: l
                ,-[source2.qasm:2:10]
@@ -310,7 +310,7 @@ fn semantic_errors_map_to_their_corresponding_file_specific_spans() {
              2 |     bool l = v && l; // undefined y, redefine l
                :          ^
                `----
-            , Qasm.Lowerer.CannotCast
+            , Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type float
                ,-[source1.qasm:3:15]
@@ -318,7 +318,7 @@ fn semantic_errors_map_to_their_corresponding_file_specific_spans() {
              3 |     float k = j + false; // invalid cast
                :               ^
                `----
-            , Qasm.Lowerer.UndefinedSymbol
+            , Qdk.Qasm.Lowerer.UndefinedSymbol
 
               x undefined symbol: r
                ,-[source0.qasm:4:13]

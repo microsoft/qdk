@@ -90,7 +90,7 @@ fn box_cannot_have_a_negative_duration() {
                                 kind: SymbolId(8)
                             body: <empty>
 
-            [Qasm.Lowerer.DesignatorMustBePositiveDuration
+            [Qdk.Qasm.Lowerer.DesignatorMustBePositiveDuration
 
               x designator must be a positive duration
                ,-[test:3:18]
@@ -326,7 +326,7 @@ fn with_invalid_instruction_fails() {
                                                     ty: const int
                                                     kind: Lit: Int(4)
 
-            [Qasm.Lowerer.ClassicalStmtInBox
+            [Qdk.Qasm.Lowerer.ClassicalStmtInBox
 
               x invalid classical statement in box
                ,-[test:2:9]

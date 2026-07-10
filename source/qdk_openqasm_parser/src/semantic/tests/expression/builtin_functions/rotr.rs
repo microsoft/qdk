@@ -287,7 +287,7 @@ fn rotr_unsized_type_error() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `rotr` for inputs: (const int, const int)
               | Overloads available are:

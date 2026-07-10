@@ -20,19 +20,19 @@ pub enum Error {
     #[diagnostic(help(
         "assignments, repeat-loops, while-loops, and returns cannot be used in blocks that require generated adjoint"
     ))]
-    #[diagnostic(code("Qsc.LogicSeparation.ExprFobidden"))]
+    #[diagnostic(code("Qdk.Qsc.LogicSeparation.ExprFobidden"))]
     ExprForbidden(#[label] Span),
 
     #[error("cannot generate adjoint of block with {0} type")]
     #[diagnostic(help("adjoint generation can only be performed with blocks of type Unit"))]
-    #[diagnostic(code("Qsc.LogicSeparation.NonUnitBlock"))]
+    #[diagnostic(code("Qdk.Qsc.LogicSeparation.NonUnitBlock"))]
     NonUnitBlock(String, #[label] Span),
 
     #[error("cannot generate adjoint with operation call in this position")]
     #[diagnostic(help(
         "in blocks that require generated adjoint, operation calls can only appear as top-level statements or in a qubit allocation block, conjugate block, for-loop block, or conditional block"
     ))]
-    #[diagnostic(code("Qsc.LogicSeparation.OpCallForbidden"))]
+    #[diagnostic(code("Qdk.Qsc.LogicSeparation.OpCallForbidden"))]
     OpCallForbidden(#[label] Span),
 }
 

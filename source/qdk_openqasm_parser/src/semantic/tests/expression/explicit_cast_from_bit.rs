@@ -115,7 +115,7 @@ fn bit_to_duration_fails() {
                                 ty: bit
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit to type duration
                ,-[test:3:9]
@@ -161,7 +161,7 @@ fn bitarray_to_duration_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type duration
                ,-[test:3:9]
@@ -270,7 +270,7 @@ fn bitarray_to_int_fails() {
                                 ty: BitArray(32, false)
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type BitArray(32, false) to type Int(None,
               | false)
@@ -278,7 +278,7 @@ fn bitarray_to_int_fails() {
              2 |         bit[32] a;
              3 |         int(a);
                :             ^
-             4 |     
+             4 |
                `----
             ]"#]],
     );
@@ -355,7 +355,7 @@ fn bitarray_to_sized_int_truncating_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type int[16]
                ,-[test:3:9]
@@ -401,7 +401,7 @@ fn bitarray_to_sized_int_expanding_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type int[64]
                ,-[test:3:9]
@@ -510,7 +510,7 @@ fn bitarray_to_uint_fails() {
                                 ty: BitArray(32, false)
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type BitArray(32, false) to type UInt(None,
               | false)
@@ -518,7 +518,7 @@ fn bitarray_to_uint_fails() {
              2 |         bit[32] a;
              3 |         uint(a);
                :              ^
-             4 |     
+             4 |
                `----
             ]"#]],
     );
@@ -595,7 +595,7 @@ fn bitarray_to_sized_uint_truncating_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type uint[16]
                ,-[test:3:9]
@@ -641,7 +641,7 @@ fn bitarray_to_sized_uint_expanding_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type uint[64]
                ,-[test:3:9]
@@ -755,7 +755,7 @@ fn bitarray_to_float_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type float
                ,-[test:3:9]
@@ -801,7 +801,7 @@ fn bitarray_to_sized_float_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type float[32]
                ,-[test:3:9]
@@ -847,7 +847,7 @@ fn bitarray_to_sized_float_truncating_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type float[16]
                ,-[test:3:9]
@@ -893,7 +893,7 @@ fn bitarray_to_sized_float_expanding_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type float[64]
                ,-[test:3:9]
@@ -939,7 +939,7 @@ fn bit_to_angle_fails() {
                                 ty: bit
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit to type angle
                ,-[test:3:9]
@@ -981,7 +981,7 @@ fn bit_to_sized_angle_fails() {
                                 ty: bit
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit to type angle[32]
                ,-[test:3:9]
@@ -1027,7 +1027,7 @@ fn bitarray_to_angle_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type angle
                ,-[test:3:9]
@@ -1111,7 +1111,7 @@ fn bitarray_to_sized_angle_truncating_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type angle[16]
                ,-[test:3:9]
@@ -1157,7 +1157,7 @@ fn bitarray_to_sized_angle_expanding_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type angle[64]
                ,-[test:3:9]
@@ -1203,7 +1203,7 @@ fn bit_to_complex_fails() {
                                 ty: bit
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit to type complex[float]
                ,-[test:3:9]
@@ -1245,7 +1245,7 @@ fn bit_to_sized_complex_fails() {
                                 ty: bit
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit to type complex[float[32]]
                ,-[test:3:9]
@@ -1291,7 +1291,7 @@ fn bitarray_to_complex_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type complex[float]
                ,-[test:3:9]
@@ -1337,7 +1337,7 @@ fn bitarray_to_sized_complex_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type complex[float[32]]
                ,-[test:3:9]
@@ -1383,7 +1383,7 @@ fn bitarray_to_sized_complex_truncating_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type complex[float[16]]
                ,-[test:3:9]
@@ -1429,7 +1429,7 @@ fn bitarray_to_sized_complex_expanding_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type complex[float[64]]
                ,-[test:3:9]
@@ -1599,7 +1599,7 @@ fn bitarray_to_bitarray_truncating_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type bit[16]
                ,-[test:3:9]
@@ -1645,7 +1645,7 @@ fn bitarray_to_bitarray_expanding_fails() {
                                 ty: bit[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bit[32] to type bit[64]
                ,-[test:3:9]

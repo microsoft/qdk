@@ -97,14 +97,14 @@ fn missing_newline_after_open_brace_is_error() {
     check(
         "REPEAT 5 { H 0 }",
         &expect![[r#"
-        Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected newline, found instruction_name
-           ,----
-         1 | REPEAT 5 { H 0 }
-           :            ^
-           `----
-    "#]],
+              x expected newline, found instruction_name
+               ,----
+             1 | REPEAT 5 { H 0 }
+               :            ^
+               `----
+        "#]],
     );
 }
 
@@ -113,14 +113,14 @@ fn unclosed_block_is_error() {
     check(
         "REPEAT 5 {\n    H 0",
         &expect![[r#"
-        Stim.Parser.UnexpectedEof
+            Qdk.Stim.Parser.UnexpectedEof
 
-          x unexpected end of input
-           ,-[2:8]
-         1 | REPEAT 5 {
-         2 |     H 0
-           `----
-    "#]],
+              x unexpected end of input
+               ,-[2:8]
+             1 | REPEAT 5 {
+             2 |     H 0
+               `----
+        "#]],
     );
 }
 
@@ -129,15 +129,15 @@ fn content_after_close_brace_is_error() {
     check(
         "REPEAT 5 {\n} H 0",
         &expect![[r#"
-        Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected newline, found instruction_name
-           ,-[2:3]
-         1 | REPEAT 5 {
-         2 | } H 0
-           :   ^
-           `----
-    "#]],
+              x expected newline, found instruction_name
+               ,-[2:3]
+             1 | REPEAT 5 {
+             2 | } H 0
+               :   ^
+               `----
+        "#]],
     );
 }
 
@@ -146,14 +146,14 @@ fn stray_close_brace_is_error() {
     check(
         "}",
         &expect![[r#"
-        Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected instruction_name, found close(brace)
-           ,----
-         1 | }
-           : ^
-           `----
-    "#]],
+              x expected instruction_name, found close(brace)
+               ,----
+             1 | }
+               : ^
+               `----
+        "#]],
     );
 }
 

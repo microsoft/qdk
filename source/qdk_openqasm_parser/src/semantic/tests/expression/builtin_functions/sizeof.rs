@@ -27,7 +27,7 @@ fn sizeof_no_args_errors() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `sizeof` for inputs: ()
               | Overloads available are:
@@ -66,7 +66,7 @@ fn sizeof_too_many_args_errors() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `sizeof` for inputs: (const int, const int,
               | const int)
@@ -106,7 +106,7 @@ fn sizeof_non_array_errors() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `sizeof` for inputs: (const int)
               | Overloads available are:
@@ -250,7 +250,7 @@ fn sizeof_array_invalid_dimension_errors() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.SizeofInvalidDimension
+            [Qdk.Qasm.Lowerer.SizeofInvalidDimension
 
               x requested dimension 2 but array has 2 dimensions
                ,-[test:3:31]
@@ -364,7 +364,7 @@ fn sizeof_static_array_ref_invalid_dimension_errors() {
     check_err(
         source,
         &expect![[r#"
-            [Qasm.Lowerer.SizeofInvalidDimension
+            [Qdk.Qasm.Lowerer.SizeofInvalidDimension
 
               x requested dimension 2 but array has 2 dimensions
                ,-[test:5:35]

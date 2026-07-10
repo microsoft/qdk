@@ -112,7 +112,7 @@ fn omitted_start_in_for_range_fails() {
     check_qasm(
         source,
         &expect![[r#"
-            Qasm.Lowerer.RangeExpressionsMustHaveStart
+            Qdk.Qasm.Lowerer.RangeExpressionsMustHaveStart
 
               x range expressions must have a start when used in for loops
                ,-[Test.qasm:2:22]
@@ -134,7 +134,7 @@ fn omitted_end_in_for_range_fails() {
     check_qasm(
         source,
         &expect![[r#"
-            Qasm.Lowerer.RangeExpressionsMustHaveStop
+            Qdk.Qasm.Lowerer.RangeExpressionsMustHaveStop
 
               x range expressions must have a stop when used in for loops
                ,-[Test.qasm:2:22]

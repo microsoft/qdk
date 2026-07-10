@@ -73,7 +73,7 @@ fn concatenating_static_and_dynamic_array_refs_errors() {
                                                         ty: readonly array[int, #dim = 1]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly array[int,
               | 3], readonly array[int, #dim = 1]
@@ -159,7 +159,7 @@ fn concantenation_in_assign_op_errors() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.InvalidConcatenationPosition
+            [Qdk.Qasm.Lowerer.InvalidConcatenationPosition
 
               x concatenation expressions are not allowed in the rhs of assignment
               | operation statements

@@ -51,7 +51,7 @@ fn mod_int_divide_by_zero_error() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.DivisionByZero
+            [Qdk.Qasm.Lowerer.DivisionByZero
 
               x division by zero error during const evaluation
                ,-[test:2:9]
@@ -111,7 +111,7 @@ fn mod_float_divide_by_zero_error() {
                         annotations: <empty>
                         kind: Err
 
-            [Qasm.Lowerer.DivisionByZero
+            [Qdk.Qasm.Lowerer.DivisionByZero
 
               x division by zero error during const evaluation
                ,-[test:2:9]

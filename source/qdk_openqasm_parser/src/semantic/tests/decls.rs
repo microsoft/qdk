@@ -73,7 +73,7 @@ fn scalar_ty_designator_must_be_positive() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.ExprMustBePositiveInt
+            [Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
               x type width must be a positive integer
                ,-[test:1:5]
@@ -113,14 +113,14 @@ fn scalar_ty_designator_must_be_castable_to_const_int() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type const angle to type const uint
                ,-[test:1:29]
              1 | const angle size = 2.0; int[size] i;
                :                             ^^^^
                `----
-            , Qasm.Lowerer.ExprMustBeInt
+            , Qdk.Qasm.Lowerer.ExprMustBeInt
 
               x type width must be an integer
                ,-[test:1:29]

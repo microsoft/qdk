@@ -189,7 +189,7 @@ fn array_concatenation_with_different_widths_errors() {
                                                         ty: readonly array[int[16], #dim = 1]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly
               | array[int[8], #dim = 1], readonly array[int[16], #dim = 1]
@@ -277,7 +277,7 @@ fn array_concatenation_with_different_types_errors() {
                                                         ty: readonly array[uint[8], #dim = 1]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly
               | array[int[8], #dim = 1], readonly array[uint[8], #dim = 1]
@@ -476,7 +476,7 @@ fn multidimensional_array_concatenation_with_different_widths_errors() {
                                                         ty: readonly array[int[16], #dim = 2]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly
               | array[int[8], #dim = 2], readonly array[int[16], #dim = 2]
@@ -564,7 +564,7 @@ fn multidimensional_array_concatenation_with_different_types_errors() {
                                                         ty: readonly array[uint[8], #dim = 2]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly
               | array[int[8], #dim = 2], readonly array[uint[8], #dim = 2]

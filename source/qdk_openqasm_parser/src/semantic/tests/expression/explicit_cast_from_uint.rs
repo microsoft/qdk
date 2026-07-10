@@ -115,7 +115,7 @@ fn uint_to_duration_fails() {
                                 ty: uint
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint to type duration
                ,-[test:3:9]
@@ -161,7 +161,7 @@ fn sized_uint_to_duration_fails() {
                                 ty: uint[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint[32] to type duration
                ,-[test:3:9]
@@ -839,7 +839,7 @@ fn uint_to_angle_fails() {
                                 ty: uint
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint to type angle
                ,-[test:3:9]
@@ -881,7 +881,7 @@ fn uint_to_sized_angle_fails() {
                                 ty: uint
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint to type angle[32]
                ,-[test:3:9]
@@ -927,7 +927,7 @@ fn sized_uint_to_angle_fails() {
                                 ty: uint[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint[32] to type angle
                ,-[test:3:9]
@@ -973,7 +973,7 @@ fn sized_uint_to_sized_angle_fails() {
                                 ty: uint[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint[32] to type angle[32]
                ,-[test:3:9]
@@ -1019,7 +1019,7 @@ fn sized_uint_to_sized_angle_truncating_fails() {
                                 ty: uint[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint[32] to type angle[16]
                ,-[test:3:9]
@@ -1065,7 +1065,7 @@ fn sized_uint_to_sized_angle_expanding_fails() {
                                 ty: uint[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint[32] to type angle[64]
                ,-[test:3:9]
@@ -1357,7 +1357,7 @@ fn uint_to_bitarray_fails() {
                                 ty: uint
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint to type bit[32]
                ,-[test:3:9]
@@ -1475,7 +1475,7 @@ fn sized_uint_to_bitarray_truncating_fails() {
                                 ty: uint[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint[32] to type bit[16]
                ,-[test:3:9]
@@ -1521,7 +1521,7 @@ fn sized_uint_to_bitarray_expanding_fails() {
                                 ty: uint[32]
                                 kind: SymbolId(8)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type uint[32] to type bit[64]
                ,-[test:3:9]

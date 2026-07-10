@@ -189,7 +189,7 @@ fn array_concatenation_with_different_widths_errors() {
                                                         ty: readonly array[int[16], 4]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly
               | array[int[8], 3], readonly array[int[16], 4]
@@ -277,7 +277,7 @@ fn array_concatenation_with_different_types_errors() {
                                                         ty: readonly array[uint[8], 4]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly
               | array[int[8], 3], readonly array[uint[8], 4]
@@ -510,7 +510,7 @@ fn multidimensional_array_concatenation_with_different_widths_errors() {
                                                         ty: readonly array[int[16], 5, 2]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly
               | array[int[8], 4, 2], readonly array[int[16], 5, 2]
@@ -611,7 +611,7 @@ fn multidimensional_array_concatenation_with_different_types_errors() {
                                                         ty: readonly array[uint[8], 5, 2]
                                                         kind: SymbolId(10)
 
-            [Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            [Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: readonly
               | array[int[8], 4, 2], readonly array[uint[8], 5, 2]

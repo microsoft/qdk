@@ -282,7 +282,7 @@ PREPARE(0.5) {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: PREPARE
                ,-[2:1]
@@ -306,7 +306,7 @@ PREPARE 0 1 {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: PREPARE
                ,-[2:9]
@@ -429,16 +429,16 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
-          x unsupported target in instruction: REQUIRE
-           ,-[4:13]
-         3 |     M 0
-         4 |     REQUIRE 0
-           :             ^
-         5 | }
-           `----
-    "#]],
+              x unsupported target in instruction: REQUIRE
+               ,-[4:13]
+             3 |     M 0
+             4 |     REQUIRE 0
+               :             ^
+             5 | }
+               `----
+        "#]],
     );
 }
 
@@ -453,16 +453,16 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
-          x unsupported target in instruction: REQUIRE
-           ,-[4:13]
-         3 |     M 0
-         4 |     REQUIRE X0
-           :             ^^
-         5 | }
-           `----
-    "#]],
+              x unsupported target in instruction: REQUIRE
+               ,-[4:13]
+             3 |     M 0
+             4 |     REQUIRE X0
+               :             ^^
+             5 | }
+               `----
+        "#]],
     );
 }
 
@@ -477,16 +477,16 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
-          x unsupported target in instruction: REQUIRE
-           ,-[4:5]
-         3 |     M 0
-         4 |     REQUIRE
-           :     ^^^^^^^
-         5 | }
-           `----
-    "#]],
+              x unsupported target in instruction: REQUIRE
+               ,-[4:5]
+             3 |     M 0
+             4 |     REQUIRE
+               :     ^^^^^^^
+             5 | }
+               `----
+        "#]],
     );
 }
 
@@ -498,7 +498,7 @@ REQUIRE rec[-1]
     check(
         source,
         &expect![[r#"
-            Stim.RequireOutsidePrepareBlock
+            Qdk.Stim.Compiler.RequireOutsidePrepareBlock
 
               x require must appear inside a PREPARE block
                ,-[2:1]
@@ -520,16 +520,16 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfBounds
+            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[3:13]
-         2 | PREPARE {
-         3 |     REQUIRE rec[-1]
-           :             ^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,-[3:13]
+             2 | PREPARE {
+             3 |     REQUIRE rec[-1]
+               :             ^^^^^^^
+             4 | }
+               `----
+        "#]],
     );
 }
 
@@ -544,16 +544,16 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfBounds
+            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[3:13]
-         2 | PREPARE {
-         3 |     REQUIRE rec[-1]
-           :             ^^^^^^^
-         4 |     M 0
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,-[3:13]
+             2 | PREPARE {
+             3 |     REQUIRE rec[-1]
+               :             ^^^^^^^
+             4 |     M 0
+               `----
+        "#]],
     );
 }
 
@@ -568,16 +568,16 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfBounds
+            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[4:13]
-         3 |     M 0
-         4 |     REQUIRE rec[-2]
-           :             ^^^^^^^
-         5 | }
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,-[4:13]
+             3 |     M 0
+             4 |     REQUIRE rec[-2]
+               :             ^^^^^^^
+             5 | }
+               `----
+        "#]],
     );
 }
 
@@ -593,17 +593,17 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[5:13]
-         4 |     M 1
-         5 |     REQUIRE rec[-2]
-           :             ^^^^^^^
-         6 | }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[5:13]
+             4 |     M 1
+             5 |     REQUIRE rec[-2]
+               :             ^^^^^^^
+             6 | }
+               `----
+        "#]],
     );
 }
 
@@ -619,16 +619,16 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfBounds
+            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[4:13]
-         3 |     R 0
-         4 |     REQUIRE rec[-1]
-           :             ^^^^^^^
-         5 | }
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,-[4:13]
+             3 |     R 0
+             4 |     REQUIRE rec[-1]
+               :             ^^^^^^^
+             5 | }
+               `----
+        "#]],
     );
 }
 
@@ -747,16 +747,16 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfBounds
+            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
-          x measurement record is out of bounds
-           ,-[4:21]
-         3 |     MZZ 0 1
-         4 |     REQUIRE rec[-1] rec[-2]
-           :                     ^^^^^^^
-         5 | }
-           `----
-    "#]],
+              x measurement record is out of bounds
+               ,-[4:21]
+             3 |     MZZ 0 1
+             4 |     REQUIRE rec[-1] rec[-2]
+               :                     ^^^^^^^
+             5 | }
+               `----
+        "#]],
     );
 }
 
@@ -904,17 +904,17 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[6:13]
-         5 |     }
-         6 |     REQUIRE rec[-1]
-           :             ^^^^^^^
-         7 | }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[6:13]
+             5 |     }
+             6 |     REQUIRE rec[-1]
+               :             ^^^^^^^
+             7 | }
+               `----
+        "#]],
     );
 }
 
@@ -931,17 +931,17 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[5:17]
-         4 |     PREPARE {
-         5 |         REQUIRE rec[-1]
-           :                 ^^^^^^^
-         6 |     }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[5:17]
+             4 |     PREPARE {
+             5 |         REQUIRE rec[-1]
+               :                 ^^^^^^^
+             6 |     }
+               `----
+        "#]],
     );
 }
 
@@ -1019,17 +1019,17 @@ PREPARE {
     check(
         source,
         &expect![[r#"
-        Stim.MeasurementRecordOutOfScope
+            Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-          x measurement record refers to a measurement outside the enclosing PREPARE
-          | block
-           ,-[7:13]
-         6 |     M 1
-         7 |     REQUIRE rec[-2]
-           :             ^^^^^^^
-         8 | }
-           `----
-    "#]],
+              x measurement record refers to a measurement outside the enclosing PREPARE
+              | block
+               ,-[7:13]
+             6 |     M 1
+             7 |     REQUIRE rec[-2]
+               :             ^^^^^^^
+             8 | }
+               `----
+        "#]],
     );
 }
 
@@ -1043,7 +1043,7 @@ M 0
     check(
         source,
         &expect![[r#"
-            Stim.PrepareWithoutBlock
+            Qdk.Stim.Compiler.PrepareWithoutBlock
 
               x prepare instruction must start a block
                ,-[3:1]

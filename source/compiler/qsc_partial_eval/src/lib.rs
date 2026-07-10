@@ -107,7 +107,7 @@ pub enum Error {
     CapabilityError(CapabilityError),
 
     #[error("cannot use a dynamic value returned from a runtime-resolved callable")]
-    #[diagnostic(code("Qsc.PartialEval.UnexpectedDynamicValue"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnexpectedDynamicValue"))]
     #[diagnostic(help("try invoking the desired callable directly"))]
     UnexpectedDynamicValue(#[label] PackageSpan),
 
@@ -115,40 +115,40 @@ pub enum Error {
     #[diagnostic(help(
         "variables of type `{0}` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures"
     ))]
-    #[diagnostic(code("Qsc.PartialEval.UnsupportedType"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedType"))]
     UnsupportedCustomIntrinsicType(String, #[label] PackageSpan),
 
     #[error("partial evaluation failed with error: {0}")]
-    #[diagnostic(code("Qsc.PartialEval.EvaluationFailed"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.EvaluationFailed"))]
     EvaluationFailed(String, #[label] PackageSpan),
 
     #[error("unsupported Result literal in output")]
     #[diagnostic(help(
         "Result literals `One` and `Zero` cannot be included in generated QIR output recording."
     ))]
-    #[diagnostic(code("Qsc.PartialEval.OutputResultLiteral"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.OutputResultLiteral"))]
     OutputResultLiteral(#[label] PackageSpan),
 
     #[error("an unexpected error occurred related to: {0}")]
-    #[diagnostic(code("Qsc.PartialEval.Unexpected"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.Unexpected"))]
     #[diagnostic(help(
         "this is probably a bug, please consider reporting this as an issue to the development team"
     ))]
     Unexpected(String, #[label] PackageSpan),
 
     #[error("failed to evaluate: {0} is not supported")]
-    #[diagnostic(code("Qsc.PartialEval.Unimplemented"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.Unimplemented"))]
     Unimplemented(String, #[label] PackageSpan),
 
     #[error("unsupported call into test callable")]
-    #[diagnostic(code("Qsc.PartialEval.UnsupportedTestCallable"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedTestCallable"))]
     #[diagnostic(help(
         "callables with the `@Test` annotation should not be called from non-test code."
     ))]
     UnsupportedTestCallable(#[label] PackageSpan),
 
     #[error("unsupported use of simulation-only intrinsic `{0}`")]
-    #[diagnostic(code("Qsc.PartialEval.UnsupportedSimulationIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedSimulationIntrinsic"))]
     UnsupportedSimulationIntrinsic(String, #[label] PackageSpan),
 }
 

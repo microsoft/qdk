@@ -437,7 +437,7 @@ fn const_lit_decl_signed_int_lit_cast_neg_fails() {
                                         ty: const int
                                         kind: Lit: Int(7)
 
-            [Qasm.Lowerer.CannotCast
+            [Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type const int to type const angle
                ,-[test:1:18]
@@ -467,7 +467,7 @@ fn explicit_zero_width_fails() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.ExprMustBePositiveInt
+            [Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
               x type width must be a positive integer
                ,-[test:1:7]
@@ -497,7 +497,7 @@ fn explicit_width_over_64_fails() {
                                 ty: unknown
                                 kind: Err
 
-            [Qasm.Lowerer.TypeMaxWidthExceeded
+            [Qdk.Qasm.Lowerer.TypeMaxWidthExceeded
 
               x angle max width is 64 but 65 was provided
                ,-[test:1:7]
