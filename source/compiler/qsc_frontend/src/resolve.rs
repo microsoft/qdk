@@ -208,11 +208,12 @@ pub(super) enum Error {
     #[diagnostic(code("Qdk.Qsc.Resolve.NotFound"))]
     NotFound(String, #[label] Span),
 
-    #[error("`{0}` not found")]
+    #[error("`{0}` not available")]
     #[diagnostic(help(
-        "found a matching item `{1}` that is not available for the current compilation configuration"
+        "found a matching item `{1}` that is not available in the current QIR profile"
     ))]
-    #[diagnostic(code("Qdk.Qsc.Resolve.NotFound"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.NotAvailable"))]
+    #[diagnostic(url("https://aka.ms/qdk.qir"))]
     NotAvailable(String, String, #[label] Span),
 
     #[error("`Qubit` not found")]
