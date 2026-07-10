@@ -66,7 +66,7 @@ fn depolarize1_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
               x missing probability argument in instruction: DEPOLARIZE1
                ,----
@@ -163,7 +163,7 @@ fn depolarize2_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
               x missing probability argument in instruction: DEPOLARIZE2
                ,----
@@ -180,7 +180,7 @@ fn depolarize2_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.OddTargetCount
+            Qdk.Stim.Compiler.OddTargetCount
 
               x instruction DEPOLARIZE2 requires an even number of targets
                ,----

@@ -60,7 +60,7 @@ fn mxx_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: MXX
                ,----
@@ -77,7 +77,7 @@ fn mxx_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: MXX
                ,----
@@ -156,7 +156,7 @@ fn myy_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: MYY
                ,----
@@ -173,7 +173,7 @@ fn myy_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: MYY
                ,----
@@ -235,7 +235,7 @@ fn mzz_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: MZZ
                ,----
@@ -252,7 +252,7 @@ fn mzz_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: MZZ
                ,----
@@ -269,7 +269,7 @@ fn mzz_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.QirEmitter.OddTargetCount
+            Qdk.Stim.Compiler.OddTargetCount
 
               x instruction MZZ requires an even number of targets
                ,----
