@@ -2,8 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-import builtins
-from typing import Any, Callable, Union
+from typing import Any, Callable, Dict, Optional, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
 
@@ -74,12 +73,10 @@ def compile(
 
     telemetry_events.on_compile_qasm(target_profile)
 
-    if builtins.callable(source) and hasattr(source, "__global_callable"):
+    if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)  # type: ignore
         ll_str = get_interpreter().qir(
-            entry_expr=None,
-            callable=source.__global_callable,
-            args=python_args_to_interpreter_args(args),
+            entry_expr=None, callable=source.__global_callable, args=args
         )
     elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value
