@@ -34,13 +34,12 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// characters.
 fn is_valid_diagnostic_code(code: &str) -> bool {
     let parts: Vec<&str> = code.split('.').collect();
-    parts.len() >= 2
-        && matches!(parts[0], "Qsc" | "Qasm" | "Stim" | "Qre")
-        && parts[1..].iter().all(|part| {
+    parts.len() >= 3
+        && matches!(parts[0], "Qdk")
+        && matches!(parts[1], "Qsc" | "Qasm" | "Stim" | "Qre")
+        && parts[2..].iter().all(|part| {
             let mut chars = part.chars();
-            chars
-                .next()
-                .is_some_and(|c| c.is_ascii_uppercase())
+            chars.next().is_some_and(|c| c.is_ascii_uppercase())
                 && chars.all(|c| c.is_ascii_alphanumeric())
         })
 }
@@ -104,12 +103,12 @@ fn all_diagnostic_codes_follow_naming_convention() {
 #[test]
 fn diagnostic_code_validation_helper_works() {
     // Valid codes
-    assert!(is_valid_diagnostic_code("Qsc.Resolve.NotFound"));
-    assert!(is_valid_diagnostic_code("Qasm.Lowerer.CannotCast"));
-    assert!(is_valid_diagnostic_code("Stim.UnrecognizedCharacter"));
-    assert!(is_valid_diagnostic_code("Qre.MaximumErrorExceeded"));
+    assert!(is_valid_diagnostic_code("Qdk.Qsc.Resolve.NotFound"));
+    assert!(is_valid_diagnostic_code("Qdk.Qasm.Lowerer.CannotCast"));
+    assert!(is_valid_diagnostic_code("Qdk.Stim.UnrecognizedCharacter"));
+    assert!(is_valid_diagnostic_code("Qdk.Qre.MaximumErrorExceeded"));
     assert!(is_valid_diagnostic_code(
-        "Qsc.Estimates.IOError.CannotOpenFile"
+        "Qdk.Qsc.Estimates.IOError.CannotOpenFile"
     ));
 
     // Invalid codes
