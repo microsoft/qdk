@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// #[cfg(target_os = "linux")]
+#[cfg(target_os = "linux")]
 mod bench {
     #![allow(clippy::unit_arg)]
 

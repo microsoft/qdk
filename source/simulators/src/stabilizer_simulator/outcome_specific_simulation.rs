@@ -216,13 +216,33 @@ impl OutcomeSpecificSimulation {
             // hint is not true
             self.measure(observable);
         } else {
-            let mut pauli = observable.clone();
-            pauli.mul_assign_right(hint);
-            pauli.add_assign_phase_exp(3u8.wrapping_sub(preimage.xz_phase_exponent().raw_value()));
-            self.clifford.left_mul_pauli_exp(&pauli);
-            self.allocate_random_bit();
-            self.apply_conditional_pauli_generic(hint, &[self.outcome_count() - 1], true);
+            self.apply_random_measurement(
+                observable,
+                hint,
+                preimage.xz_phase_exponent().raw_value(),
+            );
         }
+    }
+
+    /// Update the stabilizer frame for a random measurement whose anti-commuting `hint`
+    /// has a `preimage` with empty X-support and the given raw phase exponent.
+    ///
+    /// `preimage_phase_raw` is the raw phase exponent of `preimage(hint)`. Callers that
+    /// already know this value (see [`Simulation::measure`], where `hint = image_z(pos)`
+    /// implies `preimage(hint) == Z_pos` with phase exponent `0`) can pass it directly to
+    /// avoid recomputing the dense preimage.
+    fn apply_random_measurement<HintBits: PauliBits, HintPhase: PhaseExponent>(
+        &mut self,
+        observable: &SparsePauli,
+        hint: &PauliUnitary<HintBits, HintPhase>,
+        preimage_phase_raw: u8,
+    ) {
+        let mut pauli = observable.clone();
+        pauli.mul_assign_right(hint);
+        pauli.add_assign_phase_exp(3u8.wrapping_sub(preimage_phase_raw));
+        self.clifford.left_mul_pauli_exp(&pauli);
+        self.allocate_random_bit();
+        self.apply_conditional_pauli_generic(hint, &[self.outcome_count() - 1], true);
     }
 
     fn measure_deterministic<Bits: PauliBits, Phase: PhaseExponent>(
@@ -344,8 +364,22 @@ impl Simulation for OutcomeSpecificSimulation {
         let non_zero_pos = preimage.x_bits().support().next();
         match non_zero_pos {
             Some(pos) => {
+                // `pos` lies in the X-support of `preimage(observable)`, so `hint =
+                // image_z(pos)` necessarily anti-commutes with `observable`. Moreover,
+                // `preimage(hint) = preimage(image_z(pos)) = Z_pos`, which always has empty
+                // X-support and phase exponent 0. We can therefore skip the redundant dense
+                // `preimage(hint)` computed by `measure_with_hint_generic` and update the
+                // stabilizer frame directly.
                 let hint = self.clifford.image_z(pos);
-                self.measure_with_hint_generic(observable, &hint);
+                debug_assert!(
+                    {
+                        let preimage_hint = self.clifford.preimage(&hint);
+                        preimage_hint.x_bits().support().next().is_none()
+                            && preimage_hint.xz_phase_exponent().raw_value() == 0
+                    },
+                    "preimage(image_z(pos)) must be Z_pos with phase exponent 0"
+                );
+                self.apply_random_measurement(observable, &hint, 0);
             }
             None => {
                 self.measure_deterministic(&preimage);
@@ -418,6 +452,100 @@ fn init_test() {
     let outcome_specific_simulation = OutcomeSpecificSimulation::new(2);
     // Verify it initializes correctly with just qubit count
     assert_eq!(outcome_specific_simulation.outcome_vector().len(), 0);
+}
+
+#[cfg(test)]
+mod measure_tests {
+    use super::OutcomeSpecificSimulation;
+    use paulimer::UnitaryOp;
+    use pauliverse::Simulation;
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    type SparsePauli = paulimer::pauli::SparsePauli;
+
+    fn z_obs(qubit: usize) -> SparsePauli {
+        [paulimer::core::z(qubit)].into()
+    }
+
+    /// Exercises many random Clifford circuits with interleaved random measurements.
+    ///
+    /// The debug assertion inside `OutcomeSpecificSimulation::measure` verifies that
+    /// `preimage(image_z(pos)) == Z_pos` (empty X-support, phase exponent 0). Those are
+    /// exactly the two facts that make the fast measurement path equivalent to the general
+    /// `measure_with_hint_generic` path, so if this test passes in a debug build the
+    /// optimization is behavior-preserving.
+    #[test]
+    fn fast_measure_path_matches_general_path() {
+        let mut rng = StdRng::seed_from_u64(0x0DDB_A11);
+        for trial in 0..300 {
+            let n = 9;
+            let mut sim = OutcomeSpecificSimulation::new_with_seeded_random_outcomes(n, trial);
+            for _ in 0..80 {
+                match rng.random_range(0..6) {
+                    0 => sim.unitary_op(UnitaryOp::Hadamard, &[rng.random_range(0..n)]),
+                    1 => sim.unitary_op(UnitaryOp::SqrtZ, &[rng.random_range(0..n)]),
+                    2 => sim.unitary_op(UnitaryOp::X, &[rng.random_range(0..n)]),
+                    3 => sim.unitary_op(UnitaryOp::Z, &[rng.random_range(0..n)]),
+                    4 => {
+                        let a = rng.random_range(0..n);
+                        let mut b = rng.random_range(0..n);
+                        while b == a {
+                            b = rng.random_range(0..n);
+                        }
+                        sim.unitary_op(UnitaryOp::ControlledX, &[a, b]);
+                    }
+                    _ => {
+                        sim.measure(&z_obs(rng.random_range(0..n)));
+                    }
+                }
+            }
+        }
+    }
+
+    /// End-to-end correctness check independent of the internal fast-path assumption:
+    /// a Bell state `(H0, CX01)` must yield perfectly correlated `Z0`/`Z1` outcomes.
+    #[test]
+    fn bell_state_outcomes_are_correlated() {
+        for seed in 0..200 {
+            let mut sim = OutcomeSpecificSimulation::new_with_seeded_random_outcomes(2, seed);
+            sim.unitary_op(UnitaryOp::Hadamard, &[0]);
+            sim.unitary_op(UnitaryOp::ControlledX, &[0, 1]);
+            let m0 = sim.measure(&z_obs(0));
+            let m1 = sim.measure(&z_obs(1));
+            assert_eq!(
+                sim.outcome_vector()[m0],
+                sim.outcome_vector()[m1],
+                "Bell-state Z0/Z1 outcomes must match (seed={seed})"
+            );
+        }
+    }
+
+    /// End-to-end correctness check: an `n`-qubit GHZ state must yield identical outcomes
+    /// on every qubit, and re-measuring the same qubit must be deterministic.
+    #[test]
+    fn ghz_state_outcomes_agree_and_are_repeatable() {
+        for seed in 0..100 {
+            let n = 6;
+            let mut sim = OutcomeSpecificSimulation::new_with_seeded_random_outcomes(n, seed);
+            sim.unitary_op(UnitaryOp::Hadamard, &[0]);
+            for q in 1..n {
+                sim.unitary_op(UnitaryOp::ControlledX, &[0, q]);
+            }
+            let first = sim.measure(&z_obs(0));
+            let first_val = sim.outcome_vector()[first];
+            for q in 1..n {
+                let m = sim.measure(&z_obs(q));
+                assert_eq!(
+                    sim.outcome_vector()[m],
+                    first_val,
+                    "GHZ qubit {q} outcome must match qubit 0 (seed={seed})"
+                );
+            }
+            // Re-measuring qubit 0 is now deterministic and must reproduce the value.
+            let again = sim.measure(&z_obs(0));
+            assert_eq!(sim.outcome_vector()[again], first_val);
+        }
+    }
 }
 
 pub struct RandomBitIterator {
