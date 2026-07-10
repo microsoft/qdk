@@ -4,7 +4,7 @@
 //! This test validates that all `#[diagnostic(code("..."))]` attributes in the
 //! source tree follow the naming convention: the first segment must be a known
 //! prefix (`Qsc`, `Qasm`, `Stim`, or `Qre`), followed by one or more
-//! PascalCase segments containing only ASCII alphanumeric characters.
+//! `PascalCase` segments containing only ASCII alphanumeric characters.
 //!
 //! For example: `Qsc.Resolve.NotFound`, `Qasm.Lowerer.CannotCast`.
 
@@ -13,9 +13,8 @@ use std::path::{Path, PathBuf};
 
 /// Recursively collect all `.rs` files under `dir`.
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
