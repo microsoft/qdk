@@ -37,6 +37,33 @@ pub fn check_for_exe(source: &str, expect: &Expect, capabilities: TargetCapabili
     expect.assert_debug_eq(&errors);
 }
 
+/// Returns the sorted capability-check error variant names, with spans dropped,
+/// for `source`. Comparing the kind lists of two programs shows they are flagged
+/// the same way regardless of their differing source spans.
+pub fn capability_error_kinds(source: &str, capabilities: TargetCapabilityFlags) -> Vec<String> {
+    let compilation_context = CompilationContext::new(source, capabilities);
+    let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
+    let errors = check_supported_capabilities(
+        package,
+        compute_properties,
+        capabilities,
+        &compilation_context.fir_store,
+    );
+    let mut kinds: Vec<String> = errors
+        .iter()
+        .map(|error| {
+            let debug = format!("{error:?}");
+            debug
+                .split('(')
+                .next()
+                .unwrap_or(debug.as_str())
+                .to_string()
+        })
+        .collect();
+    kinds.sort();
+    kinds
+}
+
 fn lower_hir_package_store(
     lowerer: &mut Lowerer,
     hir_package_store: &HirPackageStore,
@@ -176,7 +203,7 @@ pub const USE_DYNAMIC_QUBIT: &str = r#"
         operation Foo() : Unit {
             use control = Qubit();
             if M(control) == Zero {
-                    use q = Qubit();
+                use q = Qubit();
             }
         }
     }"#;
@@ -438,6 +465,52 @@ pub const LOOP_WITH_DYNAMIC_CONDITION: &str = r#"
             use q = Qubit();
             let end = M(q) == Zero ? 5 | 10;
             for _ in 0..end {}
+        }
+    }"#;
+
+// A measurement-dependent `break` makes the desugared `while` condition
+// dynamic, so the existing `LoopWithDynamicCondition` -> `BackwardsBranching`
+// analysis flags it with no break-specific capability machinery. Uses a `while`
+// so the desugar is directly comparable to the hand-written flag loop below.
+pub const DYNAMIC_BREAK_IN_LOOP: &str = r#"
+    namespace Test {
+        operation Foo() : Unit {
+            use q = Qubit();
+            while true {
+                if M(q) == One {
+                    break;
+                }
+            }
+        }
+    }"#;
+
+// The hand-written flag loop the desugar mirrors; it must be flagged the same
+// way as `DYNAMIC_BREAK_IN_LOOP`.
+pub const HAND_WRITTEN_DYNAMIC_STOP_LOOP: &str = r#"
+    namespace Test {
+        operation Foo() : Unit {
+            use q = Qubit();
+            mutable stop = false;
+            while not stop {
+                if M(q) == One {
+                    stop = true;
+                }
+            }
+        }
+    }"#;
+
+// A classically-conditioned `break` keeps the desugared `while` condition
+// static, so it must not over-trigger the dynamic-condition analysis.
+pub const CLASSICAL_BREAK_IN_LOOP: &str = r#"
+    namespace Test {
+        operation Foo() : Unit {
+            use q = Qubit();
+            for i in 0..10 {
+                if i == 5 {
+                    break;
+                }
+                X(q);
+            }
         }
     }"#;
 

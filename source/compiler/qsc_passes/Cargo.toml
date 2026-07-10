@@ -10,6 +10,7 @@ license.workspace = true
 
 [dependencies]
 miette = { workspace = true }
+num-bigint = { workspace = true }
 qsc_data_structures = { path = "../qsc_data_structures" }
 qsc_eval = { path = "../qsc_eval" }
 qsc_fir = { path = "../qsc_fir" }
@@ -25,6 +26,7 @@ expect-test = { workspace = true }
 indoc = { workspace = true }
 qsc = { path = "../qsc" }
 qsc_eval = { path = "../qsc_eval" }
+qsc_formatter = { path = "../qsc_formatter" }
 
 [lints]
 workspace = true

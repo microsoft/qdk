@@ -171,8 +171,8 @@ fn use_of_dynamic_qubit_yields_errors() {
                 ),
                 UseOfDynamicQubit(
                     Span {
-                        lo: 146,
-                        hi: 162,
+                        lo: 142,
+                        hi: 158,
                     },
                 ),
             ]

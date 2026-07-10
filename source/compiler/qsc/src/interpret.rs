@@ -41,7 +41,7 @@ use qsc_data_structures::{
     error::WithSource,
     functors::FunctorApp,
     language_features::LanguageFeatures,
-    line_column::{Encoding, Range},
+    line_column::{Encoding, Position, Range},
     source::{Source, SourceMap},
     span::Span,
     target::{Profile, TargetCapabilityFlags},
@@ -2068,7 +2068,7 @@ pub struct BreakpointSpan {
 }
 
 struct BreakpointCollector<'a> {
-    statements: FxHashMap<Range, BreakpointSpan>,
+    statements: FxHashMap<Position, BreakpointSpan>,
     sources: &'a SourceMap,
     offset: u32,
     package: &'a Package,
@@ -2107,13 +2107,17 @@ impl<'a> BreakpointCollector<'a> {
                     id: stmt.id.into(),
                     range,
                 };
-                // Keep the first statement seen for a source range so UI clients get
-                // one stable, hittable breakpoint per visual location.
-                // Multiple HIR passes (ReplaceQubitAllocation, LoopUni,
-                // conjugate_invert, spec_gen) generate statements sharing the same
-                // source span. The lowerer maps these 1:1 into FIR, so deduplication
-                // is needed here.
-                self.statements.entry(range).or_insert(bps);
+                // Keep the first statement seen for a given start position so UI
+                // clients get one stable, hittable breakpoint per visual location.
+                // Multiple HIR passes, including ReplaceQubitAllocation, LoopUni,
+                // conjugate_invert, and spec_gen, generate statements that share a
+                // start position but differ in span. For example, the qubit-release
+                // desugar wraps `return e;` in a block whose inner `return e` keeps
+                // the return-expression span, one column shorter than the outer
+                // statement's `return e;` span. Keying on the start position
+                // collapses such overlapping locations onto the outer statement
+                // seen first, so a single source line maps to a single breakpoint.
+                self.statements.entry(range.start).or_insert(bps);
             }
         }
     }
@@ -2123,11 +2127,21 @@ impl<'a> Visitor<'a> for BreakpointCollector<'a> {
     fn visit_stmt(&mut self, stmt: StmtId) {
         let stmt_res = self.get_stmt(stmt);
         match stmt_res.kind {
-            fir::StmtKind::Expr(expr) | fir::StmtKind::Local(_, _, expr) => {
+            // Recurse into the statement's expression so that nested statements
+            // become individually breakpointable. `Semi` is included alongside
+            // `Expr`/`Local` because block-like statements written with a
+            // trailing semicolon, notably a desugared `repeat ... until cond;`
+            // that is always a `Semi`, carry their loop body inside this
+            // expression. Recursing into a simple `Semi` such as `foo();` or
+            // `set x = 1;` adds no breakpoints, since `walk_expr` only surfaces
+            // breakpoints when it re-enters a nested statement.
+            fir::StmtKind::Expr(expr)
+            | fir::StmtKind::Local(_, _, expr)
+            | fir::StmtKind::Semi(expr) => {
                 self.add_stmt(stmt_res);
                 visit::walk_expr(self, expr);
             }
-            fir::StmtKind::Item(_) | fir::StmtKind::Semi(_) => {
+            fir::StmtKind::Item(_) => {
                 self.add_stmt(stmt_res);
             }
         }

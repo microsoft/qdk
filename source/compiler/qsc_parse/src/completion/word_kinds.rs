@@ -86,6 +86,8 @@ bitflags! {
         const Auto = keyword_bit(Keyword::Auto);
         const Body = keyword_bit(Keyword::Body);
         const Borrow = keyword_bit(Keyword::Borrow);
+        const Break = keyword_bit(Keyword::Break);
+        const Continue = keyword_bit(Keyword::Continue);
         const Controlled = keyword_bit(Keyword::Controlled);
         const ControlledUpper = keyword_bit(Keyword::ControlledUpper);
         const Ctl = keyword_bit(Keyword::Ctl);

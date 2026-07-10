@@ -57,7 +57,7 @@ fn if_then_return_else_return_at_end_records_flag_lowered_shape() {
                     [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
                     [1] Local(Mutable, _.ret_val: Int): Lit(Int(0))
                     [2] Local(Immutable, q: Qubit): Call[ty=Qubit]
-                    [3] Local(Immutable, @generated_ident_59: Unit): If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
+                    [3] Local(Immutable, .generated_ident_59: Unit): If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
                     [4] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
                     [5] Expr Var[ty=Int]"#]],
     );

@@ -388,6 +388,95 @@ fn generate_ctl_auto() {
     );
 }
 
+// Controlled generation distributes control qubits to operation calls; it never
+// reverses the body. So `break`/`continue` in an operand position of a
+// controlled-only (`is Ctl`) operation is allowed and must generate
+// successfully, unlike adjoint generation which reverses the body and rejects
+// such control flow.
+#[test]
+fn generate_ctl_with_operand_break() {
+    check(
+        indoc! {"
+            namespace test {
+                operation A(q : Qubit) : Unit is Ctl {
+                    body ... {}
+                    controlled (ctls, ...) {}
+                }
+                operation B(q : Qubit) : Unit is Ctl {
+                    for i in 0..1 {
+                        A(if true { break } else { q });
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-249] (Public):
+                    Namespace (Ident 37 [10-14] "test"): Item 1, Item 2
+                Item 1 [21-119] (Internal):
+                    Parent: 0
+                    Callable 0 [21-119] (operation):
+                        name: Ident 1 [31-32] "A"
+                        input: Pat 2 [33-42] [Type Qubit]: Bind: Ident 3 [33-34] "q"
+                        output: Unit
+                        functors: Ctl
+                        body: SpecDecl 4 [68-79]: Impl:
+                            Block 5 [77-79]: <empty>
+                        adj: <none>
+                        ctl: SpecDecl 6 [88-113]: Impl:
+                            Pat 7 [100-104] [Type Qubit[]]: Bind: Ident 8 [100-104] "ctls"
+                            Block 9 [111-113]: <empty>
+                        ctl-adj: <none>
+                Item 2 [124-247] (Internal):
+                    Parent: 0
+                    Callable 10 [124-247] (operation):
+                        name: Ident 11 [134-135] "B"
+                        input: Pat 12 [136-145] [Type Qubit]: Bind: Ident 13 [136-137] "q"
+                        output: Unit
+                        functors: Ctl
+                        body: SpecDecl 14 [124-247]: Impl:
+                            Block 15 [161-247] [Type Unit]:
+                                Stmt 16 [171-241]: Expr: Expr 17 [171-241] [Type Unit]: For:
+                                    Pat 18 [175-176] [Type Int]: Bind: Ident 19 [175-176] "i"
+                                    Expr 20 [180-184] [Type Range]: Range:
+                                        Expr 21 [180-181] [Type Int]: Lit: Int(0)
+                                        <no step>
+                                        Expr 22 [183-184] [Type Int]: Lit: Int(1)
+                                    Block 23 [185-241] [Type Unit]:
+                                        Stmt 24 [199-231]: Semi: Expr 25 [199-230] [Type Unit]: Call:
+                                            Expr 26 [199-200] [Type (Qubit => Unit is Ctl)]: Var: Item 1 (Package 1)
+                                            Expr 27 [201-229] [Type Qubit]: If:
+                                                Expr 28 [204-208] [Type Bool]: Lit: Bool(true)
+                                                Expr 29 [209-218] [Type Qubit]: Expr Block: Block 30 [209-218] [Type Qubit]:
+                                                    Stmt 31 [211-216]: Expr: Expr 32 [211-216] [Type Unit]: Break
+                                                Expr 33 [219-229] [Type Qubit]: Expr Block: Block 34 [224-229] [Type Qubit]:
+                                                    Stmt 35 [226-227]: Expr: Expr 36 [226-227] [Type Qubit]: Var: Local 13
+                        adj: <none>
+                        ctl: SpecDecl 40 [124-247]: Impl:
+                            Pat 41 [124-247] [Type Qubit[]]: Bind: Ident 42 [124-247] "ctls"
+                            Block 43 [161-247] [Type Unit]:
+                                Stmt 44 [171-241]: Expr: Expr 45 [171-241] [Type Unit]: For:
+                                    Pat 46 [175-176] [Type Int]: Bind: Ident 47 [175-176] "i"
+                                    Expr 48 [180-184] [Type Range]: Range:
+                                        Expr 49 [180-181] [Type Int]: Lit: Int(0)
+                                        <no step>
+                                        Expr 50 [183-184] [Type Int]: Lit: Int(1)
+                                    Block 51 [185-241] [Type Unit]:
+                                        Stmt 52 [199-231]: Semi: Expr 53 [199-230] [Type Unit]: Call:
+                                            Expr 54 [199-200] [Type ((Qubit[], Qubit) => Unit is Ctl)]: UnOp (Functor Ctl):
+                                                Expr 55 [199-200] [Type (Qubit => Unit is Ctl)]: Var: Item 1 (Package 1)
+                                            Expr 56 [201-229] [Type (Qubit[], Qubit)]: Tuple:
+                                                Expr 57 [201-229] [Type Qubit[]]: Var: Local 42
+                                                Expr 58 [201-229] [Type Qubit]: If:
+                                                    Expr 59 [204-208] [Type Bool]: Lit: Bool(true)
+                                                    Expr 60 [209-218] [Type Qubit]: Expr Block: Block 61 [209-218] [Type Qubit]:
+                                                        Stmt 62 [211-216]: Expr: Expr 63 [211-216] [Type Unit]: Break
+                                                    Expr 64 [219-229] [Type Qubit]: Expr Block: Block 65 [224-229] [Type Qubit]:
+                                                        Stmt 66 [226-227]: Expr: Expr 67 [226-227] [Type Qubit]: Var: Local 13
+                        ctl-adj: <none>"#]],
+    );
+}
+
 #[test]
 fn generate_ctladj_distrib() {
     check(
@@ -1180,7 +1269,7 @@ fn generate_adj_invert_with_range_loop() {
                             Block 35 [104-181] [Type Unit]:
                                 Stmt 36 [114-175]: Expr: Expr 37 [0-0] [Type Unit]: Expr Block: Block 38 [0-0] [Type Unit]:
                                     Stmt 39 [0-0]: Local (Immutable):
-                                        Pat 40 [0-0] [Type Range]: Bind: Ident 41 [0-0] "@range"
+                                        Pat 40 [0-0] [Type Range]: Bind: Ident 41 [0-0] ".range"
                                         Expr 42 [123-127] [Type Range]: Range:
                                             Expr 43 [123-124] [Type Int]: Lit: Int(0)
                                             <no step>
@@ -1285,13 +1374,13 @@ fn generate_adj_invert_with_array_loop() {
                             Block 37 [104-188] [Type Unit]:
                                 Stmt 38 [114-182]: Expr: Expr 39 [0-0] [Type Unit]: Expr Block: Block 40 [0-0] [Type Unit]:
                                     Stmt 41 [0-0]: Local (Immutable):
-                                        Pat 42 [0-0] [Type Int[]]: Bind: Ident 43 [0-0] "@array"
+                                        Pat 42 [0-0] [Type Int[]]: Bind: Ident 43 [0-0] ".array"
                                         Expr 44 [125-134] [Type Int[]]: Array:
                                             Expr 45 [126-127] [Type Int]: Lit: Int(0)
                                             Expr 46 [129-130] [Type Int]: Lit: Int(1)
                                             Expr 47 [132-133] [Type Int]: Lit: Int(2)
                                     Stmt 48 [0-0]: Expr: Expr 49 [0-0] [Type Unit]: For:
-                                        Pat 50 [0-0] [Type Int]: Bind: Ident 51 [0-0] "@index"
+                                        Pat 50 [0-0] [Type Int]: Bind: Ident 51 [0-0] ".index"
                                         Expr 52 [0-0] [Type Range]: Range:
                                             Expr 53 [0-0] [Type Int]: BinOp (Sub):
                                                 Expr 54 [0-0] [Type Int]: Call:
@@ -1400,13 +1489,13 @@ fn generate_adj_invert_with_nested_loops() {
                             Block 60 [104-318] [Type Unit]:
                                 Stmt 61 [114-312]: Expr: Expr 62 [0-0] [Type Unit]: Expr Block: Block 63 [0-0] [Type Unit]:
                                     Stmt 64 [0-0]: Local (Immutable):
-                                        Pat 65 [0-0] [Type Int[]]: Bind: Ident 66 [0-0] "@array"
+                                        Pat 65 [0-0] [Type Int[]]: Bind: Ident 66 [0-0] ".array"
                                         Expr 67 [125-134] [Type Int[]]: Array:
                                             Expr 68 [126-127] [Type Int]: Lit: Int(0)
                                             Expr 69 [129-130] [Type Int]: Lit: Int(1)
                                             Expr 70 [132-133] [Type Int]: Lit: Int(2)
                                     Stmt 71 [0-0]: Expr: Expr 72 [0-0] [Type Unit]: For:
-                                        Pat 73 [0-0] [Type Int]: Bind: Ident 74 [0-0] "@index"
+                                        Pat 73 [0-0] [Type Int]: Bind: Ident 74 [0-0] ".index"
                                         Expr 75 [0-0] [Type Range]: Range:
                                             Expr 76 [0-0] [Type Int]: BinOp (Sub):
                                                 Expr 77 [0-0] [Type Int]: Call:
@@ -1436,10 +1525,10 @@ fn generate_adj_invert_with_nested_loops() {
                                                 Expr 101 [299-300] [Type Int]: Lit: Int(4)
                                             Stmt 102 [210-284]: Expr: Expr 103 [0-0] [Type Unit]: Expr Block: Block 104 [0-0] [Type Unit]:
                                                 Stmt 105 [0-0]: Local (Immutable):
-                                                    Pat 106 [0-0] [Type Bool[]]: Bind: Ident 107 [0-0] "@array"
+                                                    Pat 106 [0-0] [Type Bool[]]: Bind: Ident 107 [0-0] ".array"
                                                     Expr 108 [221-224] [Type Bool[]]: Var: Local 92
                                                 Stmt 109 [0-0]: Expr: Expr 110 [0-0] [Type Unit]: For:
-                                                    Pat 111 [0-0] [Type Int]: Bind: Ident 112 [0-0] "@index"
+                                                    Pat 111 [0-0] [Type Int]: Bind: Ident 112 [0-0] ".index"
                                                     Expr 113 [0-0] [Type Range]: Range:
                                                         Expr 114 [0-0] [Type Int]: BinOp (Sub):
                                                             Expr 115 [0-0] [Type Int]: Call:

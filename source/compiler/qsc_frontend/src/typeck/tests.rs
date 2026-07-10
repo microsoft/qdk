@@ -2393,6 +2393,144 @@ fn return_in_lambda_args_alone_diverges() {
 }
 
 #[test]
+fn break_diverges() {
+    check(
+        "",
+        indoc! {"
+            if true {
+                break
+            } else {
+                4
+            }
+        "},
+        &expect![[r##"
+            #1 0-36 "if true {\n    break\n} else {\n    4\n}" : Int
+            #2 3-7 "true" : Bool
+            #3 8-21 "{\n    break\n}" : Int
+            #5 14-19 "break" : Unit
+            #6 22-36 "else {\n    4\n}" : Int
+            #7 27-36 "{\n    4\n}" : Int
+            #9 33-34 "4" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn continue_diverges() {
+    check(
+        "",
+        indoc! {"
+            if true {
+                continue
+            } else {
+                false
+            }
+        "},
+        &expect![[r##"
+            #1 0-43 "if true {\n    continue\n} else {\n    false\n}" : Bool
+            #2 3-7 "true" : Bool
+            #3 8-24 "{\n    continue\n}" : Bool
+            #5 14-22 "continue" : Unit
+            #6 25-43 "else {\n    false\n}" : Bool
+            #7 30-43 "{\n    false\n}" : Bool
+            #9 36-41 "false" : Bool
+        "##]],
+    );
+}
+
+#[test]
+fn break_in_let_binding_infers_from_other_branch() {
+    check(
+        "",
+        indoc! {"
+            {
+                let x = if true {
+                    break
+                } else {
+                    3
+                };
+                x
+            }
+        "},
+        &expect![[r##"
+            #1 0-75 "{\n    let x = if true {\n        break\n    } else {\n        3\n    };\n    x\n}" : Int
+            #2 0-75 "{\n    let x = if true {\n        break\n    } else {\n        3\n    };\n    x\n}" : Int
+            #4 10-11 "x" : Int
+            #6 14-66 "if true {\n        break\n    } else {\n        3\n    }" : Int
+            #7 17-21 "true" : Bool
+            #8 22-43 "{\n        break\n    }" : Int
+            #10 32-37 "break" : Unit
+            #11 44-66 "else {\n        3\n    }" : Int
+            #12 49-66 "{\n        3\n    }" : Int
+            #14 59-60 "3" : Int
+            #16 72-73 "x" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn continue_in_let_binding_infers_from_other_branch() {
+    check(
+        "",
+        indoc! {"
+            {
+                let y = if true {
+                    continue
+                } else {
+                    true
+                };
+                y
+            }
+        "},
+        &expect![[r##"
+            #1 0-81 "{\n    let y = if true {\n        continue\n    } else {\n        true\n    };\n    y\n}" : Bool
+            #2 0-81 "{\n    let y = if true {\n        continue\n    } else {\n        true\n    };\n    y\n}" : Bool
+            #4 10-11 "y" : Bool
+            #6 14-72 "if true {\n        continue\n    } else {\n        true\n    }" : Bool
+            #7 17-21 "true" : Bool
+            #8 22-46 "{\n        continue\n    }" : Bool
+            #10 32-40 "continue" : Unit
+            #11 47-72 "else {\n        true\n    }" : Bool
+            #12 52-72 "{\n        true\n    }" : Bool
+            #14 62-66 "true" : Bool
+            #16 78-79 "y" : Bool
+        "##]],
+    );
+}
+
+#[test]
+fn break_in_array_operand_type_checks() {
+    check(
+        "",
+        indoc! {"
+            [1, break, 3]
+        "},
+        &expect![[r##"
+            #1 0-13 "[1, break, 3]" : Int[]
+            #2 1-2 "1" : Int
+            #3 4-9 "break" : Int
+            #4 11-12 "3" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn continue_in_array_operand_type_checks() {
+    check(
+        "",
+        indoc! {"
+            [continue, 2, 3]
+        "},
+        &expect![[r##"
+            #1 0-16 "[continue, 2, 3]" : Int[]
+            #2 1-9 "continue" : Int
+            #3 11-12 "2" : Int
+            #4 14-15 "3" : Int
+        "##]],
+    );
+}
+
+#[test]
 fn return_mismatch() {
     check(
         indoc! {"

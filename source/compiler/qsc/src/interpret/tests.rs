@@ -3668,4 +3668,1370 @@ mod given_interpreter {
             }
         }
     }
+
+    // End-to-end evaluation of `break`/`continue` in every loop form, plus qubit
+    // release regressions. These run the full default-pass pipeline, which
+    // includes the loop normalization and unification desugar, and then simulate
+    // the program, so each test exercises the flag desugar all the way to a
+    // concrete runtime value. The qubit tests confirm that the desugar, which
+    // introduces no real early exit, leaves natural end-of-block qubit release
+    // intact for every `break`/`continue` configuration.
+    mod loops_with_break_continue {
+        use super::*;
+        use expect_test::expect;
+        use indoc::indoc;
+
+        #[test]
+        fn break_in_qubit_initializer_skips_later_initializers() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation BreakInQubitInitializer() : Int {
+                        mutable effects = 0;
+                        for _ in 0..1 {
+                            use (first, second) = (
+                                Qubit[if true { break } else { 1 }],
+                                Qubit[{ effects += 1; 1 }]
+                            );
+                        }
+                        effects
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "BreakInQubitInitializer()");
+            is_only_value(&result, &output, &Value::Int(0));
+        }
+
+        #[test]
+        fn continue_in_borrow_initializer_skips_later_initializers() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation ContinueInBorrowInitializer() : Int {
+                        mutable effects = 0;
+                        for i in 0..2 {
+                            borrow (first, second) = (
+                                Qubit[if i == 1 { continue } else { 1 }],
+                                Qubit[{ effects += 1; 1 }]
+                            );
+                        }
+                        effects
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "ContinueInBorrowInitializer()");
+            is_only_value(&result, &output, &Value::Int(2));
+        }
+
+        #[test]
+        fn for_range_accumulates_until_break() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation ForRangeBreak() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            if i == 5 {
+                                break;
+                            }
+                            total += i;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // Iterations i = 0..4 run before `break` at i == 5: 0+1+2+3+4 = 10.
+            let (result, output) = run(&mut interpreter, "ForRangeBreak()");
+            is_only_value(&result, &output, &Value::Int(10));
+        }
+
+        #[test]
+        fn descending_for_range_break_stops_without_stepping() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation DescendingRangeBreak() : Int {
+                        mutable total = 0;
+                        for i in 5..-1..0 {
+                            if i == 3 {
+                                break;
+                            }
+                            total = total * 10 + i;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "DescendingRangeBreak()");
+            is_only_value(&result, &output, &Value::Int(54));
+        }
+
+        #[test]
+        fn descending_for_range_continue_still_steps() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation DescendingRangeContinue() : Int {
+                        mutable total = 0;
+                        for i in 5..-1..0 {
+                            if i == 3 {
+                                continue;
+                            }
+                            total = total * 10 + i;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "DescendingRangeContinue()");
+            is_only_value(&result, &output, &Value::Int(54_210));
+        }
+
+        #[test]
+        fn for_array_skips_with_continue() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation ForArrayContinue() : Int {
+                        mutable total = 0;
+                        for x in [1, 2, 3, 4, 5] {
+                            if x % 2 == 0 {
+                                continue;
+                            }
+                            total += x;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `continue` skips the even elements: 1 + 3 + 5 = 9.
+            let (result, output) = run(&mut interpreter, "ForArrayContinue()");
+            is_only_value(&result, &output, &Value::Int(9));
+        }
+
+        #[test]
+        fn for_array_stops_with_break() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation ForArrayBreak() : Int {
+                        mutable total = 0;
+                        for x in [1, 2, 3, 4, 5] {
+                            if x == 3 {
+                                break;
+                            }
+                            total += x;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "ForArrayBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn while_counter_with_break() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation WhileBreak() : Int {
+                        mutable i = 0;
+                        mutable total = 0;
+                        while i < 100 {
+                            if total > 10 {
+                                break;
+                            }
+                            total += i;
+                            i += 1;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // total grows 0,1,3,6,10,15; once it exceeds 10, at 15, the loop breaks.
+            let (result, output) = run(&mut interpreter, "WhileBreak()");
+            is_only_value(&result, &output, &Value::Int(15));
+        }
+
+        #[test]
+        fn while_continue_rechecks_condition() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation WhileContinue() : Int {
+                        mutable i = 0;
+                        mutable total = 0;
+                        while i < 5 {
+                            i += 1;
+                            if i % 2 == 0 {
+                                continue;
+                            }
+                            total += i;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "WhileContinue()");
+            is_only_value(&result, &output, &Value::Int(9));
+        }
+
+        #[test]
+        fn repeat_until_with_continue_is_do_while() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation RepeatContinue() : Int {
+                        mutable i = 0;
+                        mutable total = 0;
+                        repeat {
+                            i += 1;
+                            if i % 2 == 0 {
+                                continue;
+                            }
+                            total += i;
+                        } until i >= 5;
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `continue` in `repeat` proceeds to the `until` check, like a do-while.
+            // The odd values 1, 3, 5 accumulate before `until i >= 5` is satisfied.
+            let (result, output) = run(&mut interpreter, "RepeatContinue()");
+            is_only_value(&result, &output, &Value::Int(9));
+        }
+
+        #[test]
+        fn repeat_break_skips_condition_and_fixup() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation RepeatBreak() : Int {
+                        mutable i = 0;
+                        mutable fixups = 0;
+                        repeat {
+                            i += 1;
+                            if i == 3 {
+                                break;
+                            }
+                        } until false
+                        fixup {
+                            fixups += 1;
+                        }
+                        i * 10 + fixups
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "RepeatBreak()");
+            is_only_value(&result, &output, &Value::Int(32));
+        }
+
+        #[test]
+        fn nested_loops_break_affects_inner_only() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation NestedBreakInner() : Int {
+                        mutable total = 0;
+                        for i in 1..3 {
+                            for j in 1..10 {
+                                if j == 3 {
+                                    break;
+                                }
+                                total += j;
+                            }
+                            total += 100;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The inner `break` exits only the inner loop: each of the 3 outer
+            // iterations adds (1 + 2) + 100 = 103, so 3 * 103 = 309.
+            let (result, output) = run(&mut interpreter, "NestedBreakInner()");
+            is_only_value(&result, &output, &Value::Int(309));
+        }
+
+        #[test]
+        fn mixed_nested_loops_keep_independent_control_targets() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation MixedNestedControl() : Int {
+                        mutable outer = 0;
+                        mutable total = 0;
+                        while outer < 3 {
+                            outer += 1;
+                            for inner in 1..4 {
+                                if inner == 2 {
+                                    continue;
+                                }
+                                if inner == 4 {
+                                    break;
+                                }
+                                total += inner;
+                            }
+                            if outer == 2 {
+                                continue;
+                            }
+                            total += 10;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "MixedNestedControl()");
+            is_only_value(&result, &output, &Value::Int(32));
+        }
+
+        #[test]
+        fn outer_break_after_inner_loop_exits_outer_loop() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation OuterBreakAfterInner() : Int {
+                        mutable outer = 0;
+                        mutable total = 0;
+                        while outer < 5 {
+                            outer += 1;
+                            for inner in 1..3 {
+                                if inner == 2 {
+                                    break;
+                                }
+                                total += inner;
+                            }
+                            if outer == 2 {
+                                break;
+                            }
+                            total += 10;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "OuterBreakAfterInner()");
+            is_only_value(&result, &output, &Value::Int(12));
+        }
+
+        #[test]
+        fn nested_repeat_control_preserves_until_and_fixup_semantics() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation NestedRepeatControl() : Int {
+                        mutable total = 0;
+                        mutable fixups = 0;
+                        for outer in 1..2 {
+                            mutable inner = 0;
+                            repeat {
+                                inner += 1;
+                                if outer == 1 and inner == 2 {
+                                    continue;
+                                }
+                                if outer == 2 and inner == 2 {
+                                    break;
+                                }
+                                total += 1;
+                            } until inner >= 3
+                            fixup {
+                                fixups += 1;
+                            }
+                        }
+                        total * 10 + fixups
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "NestedRepeatControl()");
+            is_only_value(&result, &output, &Value::Int(33));
+        }
+
+        #[test]
+        fn nested_array_loops_keep_independent_indices_and_flags() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation NestedArrayControl() : Int {
+                        mutable total = 0;
+                        for outer in [1, 2, 3] {
+                            for inner in [1, 2, 3, 4] {
+                                if inner == 2 {
+                                    continue;
+                                }
+                                if inner == 4 {
+                                    break;
+                                }
+                                total += inner;
+                            }
+                            if outer == 2 {
+                                break;
+                            }
+                            total += 100;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "NestedArrayControl()");
+            is_only_value(&result, &output, &Value::Int(108));
+        }
+
+        #[test]
+        fn three_level_nested_control_targets_each_owning_loop() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation ThreeLevelNestedControl() : Int {
+                        mutable outer = 0;
+                        mutable total = 0;
+                        while outer < 4 {
+                            outer += 1;
+                            for middle in 1..3 {
+                                mutable inner = 0;
+                                repeat {
+                                    inner += 1;
+                                    if inner == 2 {
+                                        continue;
+                                    }
+                                    if inner == 3 {
+                                        break;
+                                    }
+                                    total += 1;
+                                } until false;
+                                if middle == 2 {
+                                    continue;
+                                }
+                                if middle == 3 {
+                                    break;
+                                }
+                                total += 10;
+                            }
+                            if outer == 2 {
+                                continue;
+                            }
+                            if outer == 3 {
+                                break;
+                            }
+                            total += 100;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "ThreeLevelNestedControl()");
+            is_only_value(&result, &output, &Value::Int(139));
+        }
+
+        #[test]
+        fn loop_mixing_return_and_break() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation ReturnAndBreak(threshold : Int) : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            if i == 8 {
+                                break;
+                            }
+                            total += i;
+                            if total > threshold {
+                                return total;
+                            }
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // High threshold: `return` never fires, `break` at i == 8 leaves
+            // total = 0+1+...+7 = 28, returned by the trailing expression.
+            let (result, output) = run(&mut interpreter, "ReturnAndBreak(100)");
+            is_only_value(&result, &output, &Value::Int(28));
+            // Low threshold: `return` fires first, with total = 6 > 5 at i == 3.
+            let (result, output) = run(&mut interpreter, "ReturnAndBreak(5)");
+            is_only_value(&result, &output, &Value::Int(6));
+        }
+
+        #[test]
+        fn break_skips_remaining_body_statements() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation BreakSkipsRest() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += 1;
+                            if i == 3 {
+                                break;
+                            }
+                            total += 100;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // i = 0,1,2 each add 1 + 100 = 101; i = 3 adds 1 then breaks before the
+            // guarded `set total += 100`, so 3*101 + 1 = 304.
+            let (result, output) = run(&mut interpreter, "BreakSkipsRest()");
+            is_only_value(&result, &output, &Value::Int(304));
+        }
+
+        #[test]
+        fn continue_runs_loop_step_and_skips_rest() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation ContinueSkipsRest() : Int {
+                        mutable total = 0;
+                        for i in 0..4 {
+                            total += 1;
+                            if i % 2 == 0 {
+                                continue;
+                            }
+                            total += 100;
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // All 5 iterations run `set total += 1`, since the loop step always
+            // advances, but `continue` on even i skips `set total += 100`; it runs
+            // only for i = 1 and i = 3: 5 + 2*100 = 205.
+            let (result, output) = run(&mut interpreter, "ContinueSkipsRest()");
+            is_only_value(&result, &output, &Value::Int(205));
+        }
+
+        #[test]
+        fn qubit_use_inside_loop_body_with_break_releases() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation UseQInLoopBreak() : Int {
+                        mutable count = 0;
+                        for i in 0..5 {
+                            use q = Qubit();
+                            X(q);
+                            Reset(q);
+                            if i == 2 {
+                                break;
+                            }
+                            count += 1;
+                        }
+                        count
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // Each iteration allocates, uses, resets, and releases its own qubit.
+            // A clean run to 2 proves no double-release and no leak across `break`.
+            let (result, output) = run(&mut interpreter, "UseQInLoopBreak()");
+            is_only_value(&result, &output, &Value::Int(2));
+        }
+
+        #[test]
+        fn qubit_use_inside_loop_body_with_continue_releases() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation UseQInLoopContinue() : Int {
+                        mutable count = 0;
+                        for i in 0..5 {
+                            use q = Qubit();
+                            X(q);
+                            Reset(q);
+                            if i % 2 == 0 {
+                                continue;
+                            }
+                            count += 1;
+                        }
+                        count
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // All 6 iterations allocate/reset/release their qubit; `continue` skips
+            // only the counter bump, incremented for odd i = 1,3,5 -> 3.
+            let (result, output) = run(&mut interpreter, "UseQInLoopContinue()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn qubit_use_outside_loop_with_break_releases() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation UseQOutsideLoopBreak() : Int {
+                        use q = Qubit();
+                        mutable steps = 0;
+                        for x in 0..10 {
+                            if x == 3 {
+                                break;
+                            }
+                            steps += 1;
+                        }
+                        X(q);
+                        let r = MResetZ(q);
+                        steps + (r == One ? 100 | 0)
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The loop breaks at x == 3, with steps = 3, and falls through to the
+            // enclosing block; the outer qubit is used and released only after the
+            // loop. Clean run: 3 + 100 = 103.
+            let (result, output) = run(&mut interpreter, "UseQOutsideLoopBreak()");
+            is_only_value(&result, &output, &Value::Int(103));
+        }
+
+        #[test]
+        fn qubit_borrow_inside_loop_with_break_releases() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation BorrowInLoopBreak() : Int {
+                        mutable count = 0;
+                        for i in 0..5 {
+                            borrow b = Qubit();
+                            if i == 2 {
+                                break;
+                            }
+                            count += 1;
+                        }
+                        count
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The borrowed qubit is returned at the end of each loop body even on
+            // the `break` iteration. Clean run to 2.
+            let (result, output) = run(&mut interpreter, "BorrowInLoopBreak()");
+            is_only_value(&result, &output, &Value::Int(2));
+        }
+
+        #[test]
+        fn break_path_still_releases_qubit() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation BreakLeavesQubitDirty() : Unit {
+                        for i in 0..5 {
+                            use q = Qubit();
+                            X(q);
+                            if i == 2 {
+                                break;
+                            }
+                            Reset(q);
+                        }
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // On the `break` iteration the guarded `Reset(q)` is skipped, so the
+            // qubit is still in |1> when end-of-block release fires. The release
+            // therefore reports a non-zero qubit, proving release runs on the
+            // `break` path rather than leaking the qubit.
+            let (result, output) = run(&mut interpreter, "BreakLeavesQubitDirty()");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    runtime error: Qubit0 released while not in |0⟩ state
+                      Qubit0 [line_0] [use q = Qubit();]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn runtime_error_in_guarded_statement_points_at_user_statement() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation GuardedRuntimeError() : Int {
+                        let data = [1, 2, 3];
+                        mutable total = 0;
+                        for i in 0..10 {
+                            if i == 0 {
+                                continue;
+                            }
+                            total = total + data[i];
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `set total = total + data[i]` runs guarded after `continue`. At i == 3
+            // the index is out of range; the runtime error points at the user
+            // expression `data[i]`, not at the synthetic guard, which has no span.
+            let (result, output) = run(&mut interpreter, "GuardedRuntimeError()");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    runtime error: index out of range: 3
+                      out of range [line_0] [i]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn operand_block_break_qubit_array_backed_is_sound() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation Foo(q : Qubit) : Int { 5 }
+                    operation OperandBreakQubit() : Int {
+                        use q = Qubit();
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += Foo(if i == 2 { break } else { q });
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The operand `if i == 2 { break } else { q }` is `Qubit`-typed and has
+            // no classical default, so it is array-backed as `Qubit[]`. On i = 0, 1
+            // it yields `q`, so `Foo(q) = 5` accumulates to 10. On i == 2 the break
+            // fires: the temp holds the empty-array default `[]`, but the guarded
+            // read `.operand_tmp_<id>[0]` is never evaluated, so no index-out-of-range
+            // error occurs and the loop exits with total = 10. An unsound, unguarded
+            // read would instead fault on `[][0]`.
+            let (result, output) = run(&mut interpreter, "OperandBreakQubit()");
+            is_only_value(&result, &output, &Value::Int(10));
+        }
+
+        #[test]
+        fn operand_block_break_arrow_array_backed_is_sound() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation Flip(q : Qubit) : Unit { X(q); }
+                    operation OperandBreakArrow() : Int {
+                        use q = Qubit();
+                        mutable count = 0;
+                        for i in 0..10 {
+                            (if i == 3 { break } else { Flip })(q);
+                            Reset(q);
+                            count += 1;
+                        }
+                        count
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The callee operand `if i == 3 { break } else { Flip }` is arrow-typed
+            // (`Qubit => Unit`), which has no classical default; it is array-backed
+            // as `(Qubit => Unit)[]`. Previously such operands were rejected by the
+            // desugar. On i = 0, 1, 2 the operation runs and count reaches 3; on
+            // i == 3 the break fires and the guarded call `.operand_tmp_<id>[0](q)`
+            // on the empty-array temp is never evaluated, so the loop exits with count = 3.
+            let (result, output) = run(&mut interpreter, "OperandBreakArrow()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_block_break_udt_array_backed_is_sound() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    struct Boxed { Value : Int }
+                    function Unbox(b : Boxed) : Int { b.Value }
+                    operation OperandBreakUdt() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += Unbox(if i == 2 { break } else { new Boxed { Value = i + 1 } });
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The operand `if i == 2 { break } else { new Boxed { Value = i + 1 } }`
+            // is a user-defined type with no classical default; it is array-backed as
+            // `Boxed[]`. Previously the two passes disagreed and it was rejected. On
+            // i = 0, 1 it unwraps to 1 and 2, so total = 3; on i == 2 the break fires
+            // and the guarded read `.operand_tmp_<id>[0]` on the empty-array temp is never
+            // evaluated, so the loop exits with total = 3.
+            let (result, output) = run(&mut interpreter, "OperandBreakUdt()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_bare_break_skips_eager_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation Sink(x : Int) : Int { Message("BUG"); x }
+                    operation BareOperandBreak() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += i;
+                            if i == 2 {
+                                total += Sink(break);
+                            }
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The divergent operand `break` is hoisted out of `Sink(break)`, so the
+            // eager consumer `Sink` never runs: iterations i = 0, 1, 2 accumulate
+            // 0 + 1 + 2 = 3 before the break at i == 2 fires, and the guarded
+            // `set total += Sink(...)`, which would emit "BUG", is skipped. An
+            // unguarded rewrite would instead call `Sink(0)`, printing "BUG", and
+            // leave total = 3 + 0. The empty output asserts `Sink` did not run.
+            let (result, output) = run(&mut interpreter, "BareOperandBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_bare_continue_skips_eager_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation Sink(x : Int) : Int { Message("BUG"); x }
+                    operation BareOperandContinue() : Int {
+                        mutable total = 0;
+                        for i in 0..3 {
+                            if i == 2 {
+                                total += Sink(continue);
+                            }
+                            total += i;
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The divergent operand `continue` is hoisted out of `Sink(continue)`,
+            // so `Sink` never runs. The inclusive range `0..3` iterates i = 0, 1,
+            // 2, 3. On i == 2 the continue skips the rest of that iteration, both
+            // the guarded `set total += Sink(...)` and the trailing `set total +=
+            // i`, but does not exit the loop, so `set total += i` runs for i = 0,
+            // 1, 3 -> 0 + 1 + 3 = 4. Unlike the break analogue, which would stop
+            // the loop at total = 1, the loop continues. The empty output asserts
+            // `Sink` did not run.
+            let (result, output) = run(&mut interpreter, "BareOperandContinue()");
+            is_only_value(&result, &output, &Value::Int(4));
+        }
+
+        #[test]
+        fn operand_tuple_element_break_skips_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation Sink(x : Int) : Int { Message("BUG"); x }
+                    operation TupleOperandBreak() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += i;
+                            if i == 2 {
+                                let (a, _) = (Sink(break), 0);
+                                total += a;
+                            }
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The `break` is buried in a tuple-element operand, `(Sink(break),
+            // 0)`, whose value is destructured. The N-ary tuple lift hoists the
+            // divergent operand, so the eager consumer `Sink` never runs and the
+            // tuple is never built: iterations i = 0, 1, 2 accumulate 0 + 1 + 2 =
+            // 3 before the break fires, and the guarded binding and its use are
+            // skipped. The empty output asserts `Sink` did not run.
+            let (result, output) = run(&mut interpreter, "TupleOperandBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_array_element_continue_skips_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation Sink(x : Int) : Int { Message("BUG"); x }
+                    operation ArrayOperandContinue() : Int {
+                        mutable total = 0;
+                        for i in 0..3 {
+                            if i == 2 {
+                                total += [Sink(continue), 0][0];
+                            }
+                            total += i;
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The `continue` is buried in an array-element operand nested inside
+            // an index, `[Sink(continue), 0][0]`. The N-ary array lift hoists the
+            // divergent operand, so `Sink` never runs and the array is never
+            // built. On i == 2 the continue skips the rest of that iteration but
+            // does not exit the loop, so `set total += i` runs for i = 0, 1, 3 ->
+            // 0 + 1 + 3 = 4. The empty output asserts `Sink` did not run.
+            let (result, output) = run(&mut interpreter, "ArrayOperandContinue()");
+            is_only_value(&result, &output, &Value::Int(4));
+        }
+
+        #[test]
+        fn operand_assign_break_retains_prior_value() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation AssignOperandBreak() : Int {
+                        mutable x = 0;
+                        for i in 0..10 {
+                            x = i * 10;
+                            if i == 2 {
+                                x = break;
+                            }
+                        }
+                        x
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `set x = break` is hoisted so the assignment is guarded away on the
+            // break iteration: x holds its pre-break value 20, from `set x = i * 10`
+            // at i == 2, when the loop exits. An unguarded rewrite would assign the
+            // classical default `set x = 0`, yielding 0 instead of 20.
+            let (result, output) = run(&mut interpreter, "AssignOperandBreak()");
+            is_only_value(&result, &output, &Value::Int(20));
+        }
+
+        #[test]
+        fn operand_index_break_avoids_out_of_range() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation IndexOperandBreak() : Int {
+                        let arr = [10, 20, 30];
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += i;
+                            if i == 2 {
+                                total += arr[break];
+                            }
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `arr[break]` is only reached at i == 2, where the divergent index
+            // `break` is hoisted so the array is never indexed: no out-of-range
+            // read occurs regardless of `arr`'s contents. Iterations i = 0, 1, 2
+            // accumulate 0 + 1 + 2 = 3 before the break, and the guarded
+            // `set total += arr[break]` is skipped. (A bare `let y = arr[break];`
+            // is instead an `AmbiguousTy` type error because the divergent index
+            // result is unconstrained, so the index is exercised in a typed operand
+            // slot here.)
+            let (result, output) = run(&mut interpreter, "IndexOperandBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_short_circuit_or_rhs_break_skips_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation SinkB(x : Int) : Bool { Message("BUG"); true }
+                    operation ShortCircuitOrBreak() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += i;
+                            if i == 2 {
+                                if false or SinkB(break) {
+                                    total += 1000;
+                                }
+                            }
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The `or` left operand is `false`, so the short-circuit reaches the
+            // right operand `SinkB(break)`. The buried `break` is hoisted, since the
+            // compound RHS is reshaped from `false or rhs` to `if false { true } else
+            // { rhs }`, so it fires before `SinkB` runs. Iterations i = 0, 1, 2
+            // accumulate 0 + 1 + 2 = 3, and the guarded `set total += 1000` is
+            // skipped. A rewrite that evaluated the RHS eagerly would call `SinkB`,
+            // printing "BUG"; the empty output asserts it did not run.
+            let (result, output) = run(&mut interpreter, "ShortCircuitOrBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_short_circuit_and_rhs_continue_skips_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation SinkB(x : Int) : Bool { Message("BUG"); true }
+                    operation ShortCircuitAndContinue() : Int {
+                        mutable total = 0;
+                        for i in 0..3 {
+                            if i == 2 {
+                                if true and SinkB(continue) {
+                                    total += 1000;
+                                }
+                            }
+                            total += i;
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The `and` left operand is `true`, so the short-circuit reaches the
+            // right operand `SinkB(continue)`. The buried `continue` is hoisted,
+            // since the compound RHS is reshaped from `true and rhs` to
+            // `if true { rhs } else { false }`, so it fires before `SinkB` runs. The
+            // inclusive range `0..3` iterates i = 0, 1, 2, 3. On i == 2 the continue
+            // skips the rest of that iteration, both the guarded `set total += 1000`
+            // and the trailing `set total += i`, but does not exit the loop, so
+            // `set total += i` runs for i = 0, 1, 3 -> 0 + 1 + 3 = 4. The empty
+            // output asserts `SinkB` did not run.
+            let (result, output) = run(&mut interpreter, "ShortCircuitAndContinue()");
+            is_only_value(&result, &output, &Value::Int(4));
+        }
+
+        #[test]
+        fn operand_return_nested_break_exits_loop() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation ReturnNestedBreak() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += i;
+                            if i == 2 {
+                                return { if i == 2 { break } else { 999 } };
+                            }
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The `break` is buried in a `return` operand. It is hoisted so it exits
+            // the loop and falls through to the trailing `total`, rather than the
+            // operation returning the block's else value 999. Iterations i = 0, 1, 2
+            // accumulate 0 + 1 + 2 = 3 before the break at i == 2, so the operation
+            // returns the post-loop total 3, not 999.
+            let (result, output) = run(&mut interpreter, "ReturnNestedBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_for_iterable_break_binds_to_outer_loop() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation SinkArr() : Int { Message("BUG"); 0 }
+                    function Combine(head : Int[], tag : Int) : Int[] { head }
+                    operation ForIterableBreak() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += i;
+                            if i == 2 {
+                                for j in Combine(if i == 2 { break } else { [10, 20, 30] }, SinkArr()) {
+                                    total += 1000;
+                                }
+                            }
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The `break` is buried in the inner `for`'s iterable, which is evaluated
+            // in the outer loop's scope, so the break binds to the outer loop. The
+            // iterable's operands evaluate left to right: the hoisted `break` fires
+            // before the sibling `SinkArr()` operand runs, so `SinkArr` (which would
+            // print "BUG") never executes and the inner loop body never runs.
+            // Iterations i = 0, 1, 2 accumulate 0 + 1 + 2 = 3 before the break exits
+            // the outer loop. The empty output asserts `SinkArr` did not run.
+            let (result, output) = run(&mut interpreter, "ForIterableBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_core_udt_break_array_backed() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    function Fields(c : Complex) : Int {
+                        (c.Real == 1.0 and c.Imag == 2.0) ? 1 | 0
+                    }
+                    operation CoreUdtOperandBreak() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            total += Fields(if i == 2 { break } else { Complex(1.0, 2.0) });
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `Complex` is a core-library UDT defined in a different package, read
+            // via the `c.Real` and `c.Imag` fields. The call-argument operand
+            // `if i == 2 { break } else { Complex(1.0, 2.0) }` has no classical
+            // default and is array-backed as `Complex[]`; array-backing needs only
+            // the universal `[]` default, never a default of the foreign type, so
+            // the cross-package operand is representable rather than rejected with
+            // `UnsupportedType`. On i = 0, 1 the operand is `Complex(1.0, 2.0)`, so
+            // `Fields` returns 1 and total reaches 2; on i == 2 the break fires
+            // before the operand value is read and the guarded read of the temp
+            // (`.operand_tmp_<id>[0]`) is skipped, so the loop exits with total = 2.
+            // (A bare `let c = if i == 2 { break } else { Complex(1.0, 2.0) };` is
+            // instead rejected, because that binding is handled in place by the loop
+            // desugar, which needs a classical default of the foreign `Complex`
+            // type; the array-backing that avoids the default only applies to a
+            // call-argument operand, so the break is exercised in that slot here.)
+            let (result, output) = run(&mut interpreter, "CoreUdtOperandBreak()");
+            is_only_value(&result, &output, &Value::Int(2));
+        }
+
+        #[test]
+        fn operand_compound_and_assign_break_skips_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation Sink(x : Bool) : Bool { Message("BUG: Sink ran"); x }
+                    operation AndAssignBreak() : Int {
+                        mutable total = 0;
+                        mutable b = true;
+                        for i in 0..10 {
+                            total += i;
+                            if i == 2 {
+                                b and= Sink(break);
+                            }
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // The `break` is buried in the bare operand `Sink(break)` of a compound
+            // short-circuit assignment `set b and= ...`. It is reshaped so the
+            // assignment, along with `Sink`, is guarded by the divergence: the break
+            // fires before `Sink` is called, so `Sink`, which would print "BUG",
+            // never runs. Iterations i = 0, 1, 2 accumulate 0 + 1 + 2 = 3 before the
+            // break exits the loop. The empty output asserts the eager consumer was
+            // skipped.
+            let (result, output) = run(&mut interpreter, "AndAssignBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn operand_compound_or_assign_continue_skips_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation Sink(x : Bool) : Bool { Message("BUG: Sink ran"); x }
+                    operation OrAssignContinue() : Int {
+                        mutable total = 0;
+                        mutable b = false;
+                        for i in 0..3 {
+                            if i == 1 {
+                                b or= Sink(continue);
+                            }
+                            total += i;
+                        }
+                        total
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `set b or= Sink(continue)` reaches its right operand because `b` is
+            // false; the `continue` buried in the bare operand `Sink(continue)` is
+            // reshaped so `Sink` is guarded and never runs, and the `continue` skips
+            // the rest of the i = 1 iteration, `set total += 1`. Iterations i = 0, 2,
+            // 3 accumulate 0 + 2 + 3 = 5. The empty output asserts `Sink` was skipped.
+            let (result, output) = run(&mut interpreter, "OrAssignContinue()");
+            is_only_value(&result, &output, &Value::Int(5));
+        }
+
+        #[test]
+        fn let_rhs_break_core_udt_binding_supported() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    function Fields(c : Complex) : Int {
+                        (c.Real == 1.0 and c.Imag == 2.0) ? 1 | 0
+                    }
+                    operation LetRhsBreakUdt() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            let c = if i == 2 { break } else { Complex(1.0, 2.0) };
+                            total += Fields(c);
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `let c : Complex = if i == 2 { break } else { Complex(1.0, 2.0) }`
+            // binds a non-defaultable core-library UDT directly from an `if` whose
+            // `then` branch is a `break`. The initializer is array-backed, stored as
+            // `Complex[]` whose default is `[]`, and the binding is relocated into
+            // the fall-through branch, so no `Complex` default is needed. On i = 0, 1
+            // the binding is `Complex(1.0, 2.0)` and `Fields` returns 1, so total = 2;
+            // on i == 2 the break exits the loop before `c` is bound.
+            let (result, output) = run(&mut interpreter, "LetRhsBreakUdt()");
+            is_only_value(&result, &output, &Value::Int(2));
+        }
+
+        #[test]
+        fn let_rhs_break_qubit_binding_supported() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation Op(q : Qubit) : Unit { X(q); }
+                    operation LetRhsBreakQubit() : Int {
+                        use q = Qubit();
+                        mutable count = 0;
+                        for i in 0..10 {
+                            let target = if i == 3 { break } else { q };
+                            Op(target);
+                            Reset(target);
+                            count += 1;
+                        }
+                        count
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // `let target : Qubit = if i == 3 { break } else { q }` binds a
+            // non-defaultable `Qubit` directly. The initializer is array-backed as
+            // `Qubit[]` and the binding is relocated into the fall-through branch, so
+            // on i = 0, 1, 2 `target` aliases `q`, `Op` runs, and count reaches 3; on
+            // i == 3 the break exits before `target` is bound.
+            let (result, output) = run(&mut interpreter, "LetRhsBreakQubit()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn break_before_non_defaultable_let_binding_supported() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    function Fields(c : Complex) : Int { (c.Real == 1.0) ? 1 | 0 }
+                    operation BreakBeforeLet() : Int {
+                        mutable total = 0;
+                        for i in 0..10 {
+                            if i == 2 { break; }
+                            let c = Complex(1.0, 2.0);
+                            total += Fields(c);
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // A non-defaultable `let c : Complex` that follows a break in the same
+            // block is relocated, along with the rest of the block, into the
+            // fall-through branch, so it needs no `Complex` default. On i = 0, 1
+            // `Fields` returns 1, so total = 2; on i == 2 the break exits before
+            // `c` is bound.
+            let (result, output) = run(&mut interpreter, "BreakBeforeLet()");
+            is_only_value(&result, &output, &Value::Int(2));
+        }
+
+        #[test]
+        fn discarded_value_block_break_supported() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation DiscardedValueBlockBreak() : Int {
+                        mutable total = 0;
+                        for i in 0..5 {
+                            total += i;
+                            { if i == 2 { break } else { Complex(1.0, 2.0) } };
+                        }
+                        total
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            // A non-Unit block used as a statement with its result discarded, whose
+            // `then` branch is a `break`, has no `Complex` default. Because the value
+            // is discarded, its type is array-backed to `Complex[]` in place, so the
+            // break desugars with the universal `[]` default and the block compiles.
+            // On i = 0, 1 the discarded value is `Complex(1.0, 2.0)`; total reaches
+            // 0 + 1 + 2 = 3 before the break at i == 2 exits the loop.
+            let (result, output) = run(&mut interpreter, "DiscardedValueBlockBreak()");
+            is_only_value(&result, &output, &Value::Int(3));
+        }
+    }
 }

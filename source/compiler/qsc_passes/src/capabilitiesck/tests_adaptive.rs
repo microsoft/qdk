@@ -5,18 +5,20 @@ use super::tests_common::{
     CALL_DYNAMIC_FUNCTION, CALL_DYNAMIC_OPERATION, CALL_TO_CYCLIC_FUNCTION_WITH_CLASSICAL_ARGUMENT,
     CALL_TO_CYCLIC_FUNCTION_WITH_DYNAMIC_ARGUMENT,
     CALL_TO_CYCLIC_OPERATION_WITH_CLASSICAL_ARGUMENT,
-    CALL_TO_CYCLIC_OPERATION_WITH_DYNAMIC_ARGUMENT, CALL_UNRESOLVED_FUNCTION, CUSTOM_MEASUREMENT,
+    CALL_TO_CYCLIC_OPERATION_WITH_DYNAMIC_ARGUMENT, CALL_UNRESOLVED_FUNCTION,
+    CLASSICAL_BREAK_IN_LOOP, CUSTOM_MEASUREMENT,
     CUSTOM_MEASUREMENT_WITH_SIMULATABLE_INTRINSIC_ATTR, CUSTOM_RESET,
-    CUSTOM_RESET_WITH_SIMULATABLE_INTRINSIC_ATTR, DYNAMIC_ARRAY_BINARY_OP,
-    LOOP_WITH_DYNAMIC_CONDITION, MEASUREMENT_WITHIN_DYNAMIC_SCOPE, MINIMAL,
-    RETURN_WITHIN_DYNAMIC_SCOPE, USE_CLOSURE_FUNCTION, USE_DYNAMIC_BIG_INT, USE_DYNAMIC_BOOLEAN,
-    USE_DYNAMIC_DOUBLE, USE_DYNAMIC_FUNCTION, USE_DYNAMIC_INDEX, USE_DYNAMIC_INT,
-    USE_DYNAMIC_LHS_EXP_BINOP, USE_DYNAMIC_OPERATION, USE_DYNAMIC_PAULI, USE_DYNAMIC_QUBIT,
-    USE_DYNAMIC_RANGE, USE_DYNAMIC_RHS_EXP_BINOP, USE_DYNAMIC_STRING, USE_DYNAMIC_UDT,
-    USE_DYNAMICALLY_SIZED_ARRAY, USE_ENTRY_POINT_INT_ARRAY_IN_TUPLE,
+    CUSTOM_RESET_WITH_SIMULATABLE_INTRINSIC_ATTR, DYNAMIC_ARRAY_BINARY_OP, DYNAMIC_BREAK_IN_LOOP,
+    HAND_WRITTEN_DYNAMIC_STOP_LOOP, LOOP_WITH_DYNAMIC_CONDITION, MEASUREMENT_WITHIN_DYNAMIC_SCOPE,
+    MINIMAL, RETURN_WITHIN_DYNAMIC_SCOPE, USE_CLOSURE_FUNCTION, USE_DYNAMIC_BIG_INT,
+    USE_DYNAMIC_BOOLEAN, USE_DYNAMIC_DOUBLE, USE_DYNAMIC_FUNCTION, USE_DYNAMIC_INDEX,
+    USE_DYNAMIC_INT, USE_DYNAMIC_LHS_EXP_BINOP, USE_DYNAMIC_OPERATION, USE_DYNAMIC_PAULI,
+    USE_DYNAMIC_QUBIT, USE_DYNAMIC_RANGE, USE_DYNAMIC_RHS_EXP_BINOP, USE_DYNAMIC_STRING,
+    USE_DYNAMIC_UDT, USE_DYNAMICALLY_SIZED_ARRAY, USE_ENTRY_POINT_INT_ARRAY_IN_TUPLE,
     USE_ENTRY_POINT_STATIC_BIG_INT, USE_ENTRY_POINT_STATIC_BOOL, USE_ENTRY_POINT_STATIC_DOUBLE,
     USE_ENTRY_POINT_STATIC_INT, USE_ENTRY_POINT_STATIC_INT_IN_TUPLE, USE_ENTRY_POINT_STATIC_PAULI,
-    USE_ENTRY_POINT_STATIC_RANGE, USE_ENTRY_POINT_STATIC_STRING, check, check_for_exe,
+    USE_ENTRY_POINT_STATIC_RANGE, USE_ENTRY_POINT_STATIC_STRING, capability_error_kinds, check,
+    check_for_exe,
 };
 use expect_test::{Expect, expect};
 use qsc_data_structures::target::TargetCapabilityFlags;
@@ -137,8 +139,8 @@ fn use_of_dynamic_qubit_yields_errors() {
             [
                 UseOfDynamicQubit(
                     Span {
-                        lo: 146,
-                        hi: 162,
+                        lo: 142,
+                        hi: 158,
                     },
                 ),
             ]
@@ -590,6 +592,76 @@ fn loop_with_dynamic_condition_yields_errors() {
                     },
                 ),
             ]
+        "#]],
+    );
+}
+
+#[test]
+fn dynamic_break_in_loop_yields_loop_with_dynamic_condition() {
+    // A measurement-dependent `break` desugars to a `while` whose condition is
+    // dynamic, so the existing `LoopWithDynamicCondition` analysis flags it,
+    // which requires `BackwardsBranching`, with no break-specific capability code.
+    check_profile(
+        DYNAMIC_BREAK_IN_LOOP,
+        &expect![[r#"
+            [
+                LoopWithDynamicCondition(
+                    Span {
+                        lo: 96,
+                        hi: 200,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn hand_written_dynamic_stop_loop_yields_loop_with_dynamic_condition() {
+    // The hand-written flag loop the desugar mirrors is flagged the same way.
+    check_profile(
+        HAND_WRITTEN_DYNAMIC_STOP_LOOP,
+        &expect![[r#"
+            [
+                LoopWithDynamicCondition(
+                    Span {
+                        lo: 130,
+                        hi: 244,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn dynamic_break_matches_hand_written_flag_loop_capability_kinds() {
+    // A measurement-dependent `break` is flagged with exactly the same
+    // capability-error kinds as the equivalent hand-written
+    // `mutable stop = false; while not stop { ... }` loop, so no new
+    // RCA runtime feature is introduced for `break`/`continue`.
+    let break_kinds =
+        capability_error_kinds(DYNAMIC_BREAK_IN_LOOP, TargetCapabilityFlags::Adaptive);
+    let hand_written_kinds = capability_error_kinds(
+        HAND_WRITTEN_DYNAMIC_STOP_LOOP,
+        TargetCapabilityFlags::Adaptive,
+    );
+    assert_eq!(break_kinds, hand_written_kinds);
+    assert!(
+        break_kinds.iter().any(|k| k == "LoopWithDynamicCondition"),
+        "expected LoopWithDynamicCondition, got {break_kinds:?}"
+    );
+}
+
+#[test]
+fn classical_break_in_loop_does_not_over_trigger() {
+    // A classically-conditioned `break` keeps the desugared loop condition
+    // static, so it must not trigger the dynamic-condition backwards-branching
+    // analysis.
+    check_profile(
+        CLASSICAL_BREAK_IN_LOOP,
+        &expect![[r#"
+            []
         "#]],
     );
 }

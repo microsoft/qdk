@@ -797,7 +797,9 @@ impl Lowerer {
                 let args = args.iter().map(|arg| self.lower_generic_arg(arg)).collect();
                 fir::ExprKind::Var(res, args)
             }
+            hir::ExprKind::Break => panic!("break should be eliminated by passes"),
             hir::ExprKind::Conjugate(..) => panic!("conjugate should be eliminated by passes"),
+            hir::ExprKind::Continue => panic!("continue should be eliminated by passes"),
             hir::ExprKind::Err => panic!("error expr should not be present"),
             hir::ExprKind::For(..) => panic!("for-loop should be eliminated by passes"),
             hir::ExprKind::Hole => fir::ExprKind::Hole, // allowed for discards

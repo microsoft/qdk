@@ -18,6 +18,8 @@ pub enum Keyword {
     Auto,
     Body,
     Borrow,
+    Break,
+    Continue,
     Controlled,
     ControlledUpper,
     Ctl,
@@ -77,6 +79,8 @@ impl Keyword {
             Self::Auto => "auto",
             Self::Body => "body",
             Self::Borrow => "borrow",
+            Self::Break => "break",
+            Self::Continue => "continue",
             Self::Controlled => "controlled",
             Self::ControlledUpper => "Controlled",
             Self::Ctl => "Ctl",
@@ -189,10 +193,12 @@ impl FromStr for Keyword {
             "until" => Ok(Self::Until),
             "repeat" => Ok(Self::Repeat),
             "fixup" => Ok(Self::Fixup),
-            // The next two are new keywords and their
+            // The next four are new keywords and their
             // usage has yet to be measured.
             "new" => Ok(Self::New),
             "struct" => Ok(Self::Struct),
+            "break" => Ok(Self::Break),
+            "continue" => Ok(Self::Continue),
             // The next three were not found or measured
             // in the standard library for priority order.
             "PauliY" => Ok(Self::PauliY),

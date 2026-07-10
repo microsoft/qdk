@@ -18,7 +18,7 @@ use thiserror::Error;
 pub enum Error {
     #[error("cannot generate adjoint with this expression")]
     #[diagnostic(help(
-        "assignments, repeat-loops, while-loops, and returns cannot be used in blocks that require generated adjoint"
+        "assignments, repeat-loops, while-loops, returns, and break/continue expressions cannot be used in blocks that require generated adjoint"
     ))]
     #[diagnostic(code("Qdk.Qsc.LogicSeparation.ExprFobidden"))]
     ExprForbidden(#[label] Span),
@@ -104,10 +104,25 @@ impl<'a> Visitor<'a> for SepCheck {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
-        if let ExprKind::Call(callee, _) = &expr.kind
-            && matches!(&callee.ty, Ty::Arrow(arrow) if arrow.kind == CallableKind::Operation)
-        {
-            self.errors.push(Error::OpCallForbidden(expr.span));
+        // `visit_expr` is reached for expressions in operand positions: call
+        // arguments, `if`/`for`/`while` conditions, array and tuple elements,
+        // binary-operator sides, and so on. Statement-position control flow is
+        // rejected in `handle_expr`, but forbidden control flow can also be
+        // buried inside an operand and would otherwise slip past this
+        // separability check. Adjoint generation reverses a separable block, and
+        // `break`/`continue`/`return` cannot be reversed, so accepting one in an
+        // operand could turn an `is Adj` body into a wrong adjoint. Reject it
+        // here as well. This closes a pre-existing gap that affected `return`
+        // just as much as `break`/`continue`.
+        match &expr.kind {
+            ExprKind::Call(callee, _) if matches!(&callee.ty, Ty::Arrow(arrow) if arrow.kind == CallableKind::Operation) =>
+            {
+                self.errors.push(Error::OpCallForbidden(expr.span));
+            }
+            ExprKind::Break | ExprKind::Continue | ExprKind::Return(_) => {
+                self.errors.push(Error::ExprForbidden(expr.span));
+            }
+            _ => {}
         }
         walk_expr(self, expr);
     }
@@ -207,6 +222,8 @@ impl SepCheck {
             | ExprKind::AssignOp(..)
             | ExprKind::AssignField(..)
             | ExprKind::AssignIndex(..)
+            | ExprKind::Break
+            | ExprKind::Continue
             | ExprKind::Repeat(..)
             | ExprKind::Return(..)
             | ExprKind::While(..) => {

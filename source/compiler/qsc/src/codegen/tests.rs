@@ -5388,3 +5388,235 @@ fn chemistry_like_iqpe_with_udt_capture_closure_generates_base_profile_qir() {
         "expected threaded Controlled X capture in QIR:\n{qir}"
     );
 }
+
+// `break`/`continue` are desugared to flags in HIR, so codegen sees only
+// ordinary `while` loops. These tests confirm the desugared programs lower all
+// the way to QIR/RIR with no residual early-exit constructs, and that
+// classically-conditioned `break`/`continue` needs no capability beyond the
+// Base profile.
+
+#[test]
+fn break_and_continue_in_for_loop_generates_qir_on_base_profile() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for i in 0..10 {
+                    if i == 5 {
+                        break;
+                    }
+                    if i % 2 == 0 {
+                        continue;
+                    }
+                    X(q);
+                }
+                Reset(q);
+            }
+        }
+    "#;
+
+    // Classical conditions keep the loop static, so the most restrictive Base
+    // profile suffices: no new capability is required for `break`/`continue`.
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+
+    // `continue` skips even i and `break` stops at i == 5, so X is applied for
+    // i = 1 and i = 3 only. Match call sites, not the trailing `declare`.
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        2,
+        "expected exactly two X gates from odd i < 5:\n{qir}"
+    );
+}
+
+#[test]
+fn while_and_repeat_with_break_continue_generate_qir_on_base_profile() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                mutable i = 0;
+                while i < 100 {
+                    set i += 1;
+                    if i == 3 {
+                        break;
+                    }
+                    X(q);
+                }
+                mutable j = 0;
+                repeat {
+                    set j += 1;
+                    if j % 2 == 0 {
+                        continue;
+                    }
+                    H(q);
+                } until j >= 5;
+                Reset(q);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+
+    // while: X for i = 1, 2 then break at i == 3 -> 2 X gates.
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        2,
+        "expected two X gates before the while `break`:\n{qir}"
+    );
+    // repeat: `continue` skips even j, so H fires for odd j = 1, 3, 5 -> 3 H gates.
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        3,
+        "expected three H gates for odd j via repeat `continue`:\n{qir}"
+    );
+}
+
+#[test]
+fn return_and_break_in_loop_composes_with_return_unify() {
+    // A loop containing both a `return` and a `break`. The `break` desugar in HIR
+    // `loop_unification` rewrites the loop condition to `(not .broke_<id>) and cond`;
+    // `return_unify` in FIR then wraps it again as
+    // `(not __has_returned) and ((not .broke_<id>) and cond)`. Because the synthetic
+    // break flag `.broke_<id>` uses a distinct name from the return flags, the
+    // `check_no_flag_writes_in_operand_position` invariant, which scans only the
+    // return-flag names, never fires on it. Successful QIR generation therefore
+    // demonstrates the two flag lowerings compose cleanly with no invariant
+    // conflict and no residual early exit.
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                mutable total = 0;
+                for i in 0..20 {
+                    if i == 10 {
+                        break;
+                    }
+                    X(q);
+                    set total += i;
+                    if total > 15 {
+                        return total;
+                    }
+                }
+                Reset(q);
+                total
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(
+        source,
+        TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+    );
+
+    // The early `return` fires at i == 6, where total = 21 > 15, after X on i = 0..6.
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        7,
+        "expected seven X gates before the early return:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__rt__int_record_output(i64 21"),
+        "expected the composed return value 21 to be recorded:\n{qir}"
+    );
+}
+
+#[test]
+fn break_continue_loops_lower_to_rir_without_early_exit() {
+    // Exercises the RIR lowering path, a superset of the checks QIR relies on,
+    // for every loop form carrying `break`/`continue`, confirming no residual
+    // `break`/`continue`/early-exit construct survives into RIR.
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for i in 0..6 {
+                    if i == 4 {
+                        break;
+                    }
+                    if i == 1 {
+                        continue;
+                    }
+                    X(q);
+                }
+                mutable k = 0;
+                repeat {
+                    set k += 1;
+                    if k == 2 {
+                        continue;
+                    }
+                    if k == 5 {
+                        break;
+                    }
+                    Y(q);
+                } until k >= 8;
+                Reset(q);
+            }
+        }
+    "#;
+
+    let rir = compile_source_to_rir(source, TargetCapabilityFlags::empty());
+    let rir_text = rir.join("\n");
+    // Both loop bodies' quantum ops survive into the RIR callable table, and the
+    // fully-desugared program lowers to a clean single-return body; no residual
+    // early-exit construct could survive, because the lowerer panics on any
+    // leftover `break`/`continue` and `return_unify` asserts no leftover `Return`.
+    assert!(
+        rir_text.contains("name: __quantum__qis__x__body"),
+        "expected the X gate callable to survive into RIR:\n{rir_text}"
+    );
+    assert!(
+        rir_text.contains("name: __quantum__qis__y__body"),
+        "expected the Y gate callable to survive into RIR:\n{rir_text}"
+    );
+    assert!(
+        rir_text.contains("Return Integer(0)"),
+        "expected the desugared program to lower to a single clean return:\n{rir_text}"
+    );
+}
+
+#[test]
+fn bare_operand_break_lowers_to_qir_and_skips_eager_consumer() {
+    // A bare-operand `break` buried in a call argument such as `Sink(q, break)` is
+    // hoisted to statement position and desugared to flags, so the whole
+    // HIR -> FIR -> RIR -> QIR pipeline lowers with no residual early-exit node,
+    // since the lowerer panics on any leftover `break`. The eager consumer `Sink`
+    // applies an `H` gate, so a successful lowering with no `H` in the QIR
+    // proves the break fires before the argument is consumed. Previously the
+    // buried break was left in operand position, which would instead run
+    // `Sink`, emitting `H`, on the break iteration.
+    let source = r#"
+        namespace Test {
+            operation Sink(q : Qubit, x : Int) : Int { H(q); x }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for i in 0..10 {
+                    if i == 3 {
+                        let _ = Sink(q, break);
+                    }
+                    X(q);
+                }
+                Reset(q);
+            }
+        }
+    "#;
+
+    // Classical loop and condition keep the program static, so the Base profile
+    // suffices. `X(q)` runs for i = 0, 1, 2 before the guard; on i == 3 the break
+    // fires first, so the trailing `X(q)` is skipped and the loop exits. That
+    // gives exactly three X gates, and no H gate because `Sink` never runs.
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        3,
+        "expected exactly three X gates before the operand-position break:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__h__body"),
+        "expected no H gate: the eager consumer must not run on the break path:\n{qir}"
+    );
+}

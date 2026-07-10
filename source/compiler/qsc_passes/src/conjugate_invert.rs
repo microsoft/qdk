@@ -45,6 +45,13 @@ pub enum Error {
     #[error("return expressions are not allowed in apply-blocks")]
     #[diagnostic(code("Qdk.Qsc.ConjugateInvert.ReturnForbidden"))]
     ReturnForbidden(#[label] Span),
+
+    #[error("break and continue expressions cannot escape an apply-block")]
+    #[diagnostic(help(
+        "a break or continue in an apply-block must be contained in a loop within that apply-block; one that binds to a loop outside the conjugate expression cannot be reversed"
+    ))]
+    #[diagnostic(code("Qsc.ConjugateInvert.BreakContinueForbidden"))]
+    BreakContinueForbidden(#[label] Span),
 }
 
 /// Generates adjoint inverted blocks for within-blocks across all conjugate expressions,
@@ -84,7 +91,10 @@ impl MutVisitor for ConjugateElim<'_> {
                 assign_check.visit_block(&apply);
                 self.errors.extend(assign_check.errors);
 
-                let mut return_check = ReturnCheck { errors: Vec::new() };
+                let mut return_check = ReturnCheck {
+                    errors: Vec::new(),
+                    loop_depth: 0,
+                };
                 return_check.visit_block(&apply);
                 self.errors.extend(return_check.errors);
 
@@ -233,14 +243,49 @@ impl AssignmentCheck {
 
 struct ReturnCheck {
     errors: Vec<Error>,
+    loop_depth: u32,
 }
 
 impl<'a> Visitor<'a> for ReturnCheck {
     fn visit_expr(&mut self, expr: &'a Expr) {
-        if matches!(&expr.kind, ExprKind::Return(..)) {
-            self.errors.push(Error::ReturnForbidden(expr.span));
-        } else {
-            visit::walk_expr(self, expr);
+        match &expr.kind {
+            ExprKind::Return(..) => {
+                self.errors.push(Error::ReturnForbidden(expr.span));
+            }
+            // A break or continue that is not enclosed by a loop body within the
+            // apply-block binds to a loop outside the conjugate expression, so it
+            // would escape the generated adjoint of the within-block. One that is
+            // contained in a loop inside the apply-block is fine and desugars later.
+            ExprKind::Break | ExprKind::Continue if self.loop_depth == 0 => {
+                self.errors.push(Error::BreakContinueForbidden(expr.span));
+            }
+            // A loop iterable or condition is evaluated in the enclosing context, so
+            // only a loop body increases the depth that keeps a break/continue
+            // contained within this apply-block.
+            ExprKind::For(_, iter, body) => {
+                self.visit_expr(iter);
+                self.visit_loop_body(body);
+            }
+            ExprKind::While(cond, body) => {
+                self.visit_expr(cond);
+                self.visit_loop_body(body);
+            }
+            ExprKind::Repeat(body, until, fixup) => {
+                self.visit_loop_body(body);
+                self.visit_expr(until);
+                if let Some(fixup) = fixup {
+                    self.visit_block(fixup);
+                }
+            }
+            _ => visit::walk_expr(self, expr),
         }
+    }
+}
+
+impl ReturnCheck {
+    fn visit_loop_body(&mut self, body: &Block) {
+        self.loop_depth += 1;
+        self.visit_block(body);
+        self.loop_depth -= 1;
     }
 }

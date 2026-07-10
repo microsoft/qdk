@@ -7,7 +7,7 @@
 // `cargo clippy` won't trigger the failure. If you want to reproduce the failure
 // with the minimal command possible, you can run `cargo clippy --test -- -D warnings`.
 //
-// We tried to track down the error, but it is non-deterministic. Our assumpution
+// We tried to track down the error, but it is non-deterministic. Our assumption
 // is that clippy is running out of stack memory because of how many and how large
 // the static strings in the test modules are.
 //
@@ -155,16 +155,16 @@ impl Default for CompilerConfig {
     }
 }
 
-/// Represents the type of compilation output to create
+/// Represents the type of compilation output to create.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgramType {
     /// Creates an operation in a namespace as if the program is a standalone
-    /// file. Inputs are lifted to the operation params. Output are lifted to
+    /// file. Inputs are lifted to the operation parameters. Outputs are lifted to
     /// the operation return type. The operation is marked as `@EntryPoint`
     /// as long as there are no input parameters.
     File,
-    /// Programs are compiled to a standalone function. Inputs are lifted to
-    /// the operation params. Output are lifted to the operation return type.
+    /// Programs are compiled to a standalone operation. Inputs are lifted to
+    /// the operation parameters. Outputs are lifted to the operation return type.
     Operation,
     /// Creates a list of statements from the program. This is useful for
     /// interactive environments where the program is a list of statements
@@ -176,7 +176,7 @@ pub enum ProgramType {
 /// Represents the signature of an operation.
 /// This is used to create a function signature for the
 /// operation that is created from the QASM source code.
-/// This is the human readable form of the operation.
+/// This is the human-readable form of the operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperationSignature {
     pub name: String,
