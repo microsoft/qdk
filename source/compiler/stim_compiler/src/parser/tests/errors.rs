@@ -25,7 +25,7 @@ fn lexer_error_is_surfaced() {
     check(
         "H @0",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----

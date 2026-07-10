@@ -9,7 +9,7 @@ fn common_symbols_are_unrecognized() {
     check(
         "@",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----
@@ -21,7 +21,7 @@ fn common_symbols_are_unrecognized() {
     check(
         "$",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----
@@ -33,7 +33,7 @@ fn common_symbols_are_unrecognized() {
     check(
         "%",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----
@@ -45,7 +45,7 @@ fn common_symbols_are_unrecognized() {
     check(
         "?",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----
@@ -63,7 +63,7 @@ fn leading_underscore_is_unrecognized() {
     check(
         "_foo",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----
@@ -80,7 +80,7 @@ fn lexing_recovers_after_unrecognized_character() {
     check(
         "@H",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----
@@ -93,7 +93,7 @@ fn lexing_recovers_after_unrecognized_character() {
     check(
         "@1",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----

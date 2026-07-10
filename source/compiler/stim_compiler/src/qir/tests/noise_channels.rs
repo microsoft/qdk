@@ -102,7 +102,7 @@ fn correlated_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.MissingProbability
+            Qdk.Stim.QirEmitter.MissingProbability
 
               x missing probability argument in instruction: CORRELATED_ERROR
                ,----
@@ -325,7 +325,7 @@ fn else_correlated_error_by_itself_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.OrphanedElseCorrelatedError
+            Qdk.Stim.QirEmitter.OrphanedElseCorrelatedError
 
               x else_correlated_error must be preceded by a correlated_error or
               | else_correlated_error instruction
@@ -347,7 +347,7 @@ ELSE_CORRELATED_ERROR(0.02) X0
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.OrphanedElseCorrelatedError
+            Qdk.Stim.QirEmitter.OrphanedElseCorrelatedError
 
               x else_correlated_error must be preceded by a correlated_error or
               | else_correlated_error instruction
@@ -371,7 +371,7 @@ ELSE_CORRELATED_ERROR(0.02) Z0
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.OrphanedElseCorrelatedError
+            Qdk.Stim.QirEmitter.OrphanedElseCorrelatedError
 
               x else_correlated_error must be preceded by a correlated_error or
               | else_correlated_error instruction
@@ -438,7 +438,7 @@ fn depolarize1_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.MissingProbability
+            Qdk.Stim.QirEmitter.MissingProbability
 
               x missing probability argument in instruction: DEPOLARIZE1
                ,----
@@ -515,7 +515,7 @@ fn depolarize2_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.MissingProbability
+            Qdk.Stim.QirEmitter.MissingProbability
 
               x missing probability argument in instruction: DEPOLARIZE2
                ,----
@@ -532,7 +532,7 @@ fn depolarize2_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.OddTargetCount
+            Qdk.Stim.QirEmitter.OddTargetCount
 
               x instruction DEPOLARIZE2 requires an even number of targets
                ,----
@@ -675,7 +675,7 @@ fn x_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.MissingProbability
+            Qdk.Stim.QirEmitter.MissingProbability
 
               x missing probability argument in instruction: X_ERROR
                ,----
@@ -738,7 +738,7 @@ fn y_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.MissingProbability
+            Qdk.Stim.QirEmitter.MissingProbability
 
               x missing probability argument in instruction: Y_ERROR
                ,----
@@ -801,7 +801,7 @@ fn z_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.MissingProbability
+            Qdk.Stim.QirEmitter.MissingProbability
 
               x missing probability argument in instruction: Z_ERROR
                ,----
@@ -864,7 +864,7 @@ fn loss_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.MissingProbability
+            Qdk.Stim.QirEmitter.MissingProbability
 
               x missing probability argument in instruction: LOSS_ERROR
                ,----

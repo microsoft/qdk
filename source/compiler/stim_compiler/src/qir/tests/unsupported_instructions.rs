@@ -10,7 +10,7 @@ fn heralded_erase_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: HERALDED_ERASE
                ,----
@@ -27,7 +27,7 @@ fn heralded_pauli_channel_1_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: HERALDED_PAULI_CHANNEL_1
                ,----
@@ -56,7 +56,7 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: I_ERROR
                ,-[3:1]
@@ -66,7 +66,7 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
              4 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: I_ERROR
                ,-[6:1]
@@ -76,7 +76,7 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
              7 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: I_ERROR
                 ,-[9:1]
@@ -86,7 +86,7 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
              10 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: I_ERROR
                 ,-[12:1]
@@ -116,7 +116,7 @@ II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: II_ERROR
                ,-[3:1]
@@ -126,7 +126,7 @@ II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
              4 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: II_ERROR
                ,-[6:1]
@@ -136,7 +136,7 @@ II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
              7 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: II_ERROR
                 ,-[9:1]
@@ -146,7 +146,7 @@ II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
              10 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: II_ERROR
                 ,-[12:1]
@@ -164,7 +164,7 @@ fn pauli_channel_1_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: PAULI_CHANNEL_1
                ,----
@@ -181,7 +181,7 @@ fn pauli_channel_2_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: PAULI_CHANNEL_2
                ,----
@@ -210,7 +210,7 @@ MPP(0.001) Z1*Z2 X1*X2
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: MPP
                ,-[3:1]
@@ -220,7 +220,7 @@ MPP(0.001) Z1*Z2 X1*X2
              4 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: MPP
                ,-[6:1]
@@ -230,7 +230,7 @@ MPP(0.001) Z1*Z2 X1*X2
              7 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: MPP
                 ,-[9:1]
@@ -240,7 +240,7 @@ MPP(0.001) Z1*Z2 X1*X2
              10 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: MPP
                 ,-[12:1]
@@ -276,7 +276,7 @@ SPP !X1*Y2*Z3
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP
                ,-[3:1]
@@ -286,7 +286,7 @@ SPP !X1*Y2*Z3
              4 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP
                ,-[6:1]
@@ -296,7 +296,7 @@ SPP !X1*Y2*Z3
              7 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP
                 ,-[9:1]
@@ -306,7 +306,7 @@ SPP !X1*Y2*Z3
              10 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP
                 ,-[12:1]
@@ -316,7 +316,7 @@ SPP !X1*Y2*Z3
              13 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP
                 ,-[15:1]
@@ -326,7 +326,7 @@ SPP !X1*Y2*Z3
              16 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP
                 ,-[18:1]
@@ -362,7 +362,7 @@ SPP_DAG !X1*Y2*Z3
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
                ,-[3:1]
@@ -372,7 +372,7 @@ SPP_DAG !X1*Y2*Z3
              4 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
                ,-[6:1]
@@ -382,7 +382,7 @@ SPP_DAG !X1*Y2*Z3
              7 | 
                `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
                 ,-[9:1]
@@ -392,7 +392,7 @@ SPP_DAG !X1*Y2*Z3
              10 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
                 ,-[12:1]
@@ -402,7 +402,7 @@ SPP_DAG !X1*Y2*Z3
              13 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
                 ,-[15:1]
@@ -412,7 +412,7 @@ SPP_DAG !X1*Y2*Z3
              16 | 
                 `----
 
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
                 ,-[18:1]
@@ -436,7 +436,7 @@ REPEAT 10 {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.UnsupportedInstruction
+            Qdk.Stim.QirEmitter.UnsupportedInstruction
 
               x unsupported instruction: REPEAT
                ,-[2:1]

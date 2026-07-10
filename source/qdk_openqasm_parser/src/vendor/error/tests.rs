@@ -14,10 +14,10 @@ use thiserror::Error;
 #[derive(Clone, Debug, Diagnostic, Error)]
 enum TestError {
     #[error("Error: {0}")]
-    #[diagnostic(code("Qsc.Test.Error.NoSpans"))]
+    #[diagnostic(code("Qdk.Qsc.Test.Error.NoSpans"))]
     NoSpans(String),
     #[error("Error: {0}")]
-    #[diagnostic(code("Qsc.Test.Error.TwoSpans"))]
+    #[diagnostic(code("Qdk.Qsc.Test.Error.TwoSpans"))]
     TwoSpans(
         String,
         #[label("first label")] Span,

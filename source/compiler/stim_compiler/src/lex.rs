@@ -18,21 +18,21 @@ use thiserror::Error;
 pub enum Error {
     /// A character that does not start any valid token, e.g. `@` or `$`.
     #[error("unrecognized character")]
-    #[diagnostic(code("Qdk.Stim.UnrecognizedCharacter"))]
+    #[diagnostic(code("Qdk.Stim.Lex.UnrecognizedCharacter"))]
     UnrecognizedCharacter {
         #[label]
         span: Span,
     },
     /// A sign (`+` or `-`) that is not followed by any digits, e.g. `+` or `-`.
     #[error("expected digits after sign")]
-    #[diagnostic(code("Qdk.Stim.MissingDigitsAfterSign"))]
+    #[diagnostic(code("Qdk.Stim.Lex.MissingDigitsAfterSign"))]
     MissingDigitsAfterSign {
         #[label]
         span: Span,
     },
     /// A decimal point that is not followed by any digits, e.g. `3.`.
     #[error("expected digits after decimal point")]
-    #[diagnostic(code("Qdk.Stim.MissingFractionalDigits"))]
+    #[diagnostic(code("Qdk.Stim.Lex.MissingFractionalDigits"))]
     MissingFractionalDigits {
         #[label]
         span: Span,
@@ -40,7 +40,7 @@ pub enum Error {
     /// An exponent marker (`e`/`E`, optionally signed) that is not followed by
     /// any digits, e.g. `1e` or `1e-`.
     #[error("expected digits in exponent")]
-    #[diagnostic(code("Qdk.Stim.MissingExponentDigits"))]
+    #[diagnostic(code("Qdk.Stim.Lex.MissingExponentDigits"))]
     MissingExponentDigits {
         #[label]
         span: Span,

@@ -56,7 +56,7 @@ fn lone_sign_is_error() {
     check(
         "+",
         &expect![[r#"
-            Qdk.Stim.MissingDigitsAfterSign
+            Qdk.Stim.Lex.MissingDigitsAfterSign
 
               x expected digits after sign
                ,----
@@ -68,7 +68,7 @@ fn lone_sign_is_error() {
     check(
         "-",
         &expect![[r#"
-            Qdk.Stim.MissingDigitsAfterSign
+            Qdk.Stim.Lex.MissingDigitsAfterSign
 
               x expected digits after sign
                ,----
@@ -84,7 +84,7 @@ fn trailing_decimal_point_is_error() {
     check(
         "3.",
         &expect![[r#"
-            Qdk.Stim.MissingFractionalDigits
+            Qdk.Stim.Lex.MissingFractionalDigits
 
               x expected digits after decimal point
                ,----
@@ -96,7 +96,7 @@ fn trailing_decimal_point_is_error() {
     check(
         "0.",
         &expect![[r#"
-            Qdk.Stim.MissingFractionalDigits
+            Qdk.Stim.Lex.MissingFractionalDigits
 
               x expected digits after decimal point
                ,----
@@ -108,7 +108,7 @@ fn trailing_decimal_point_is_error() {
     check(
         "12.",
         &expect![[r#"
-            Qdk.Stim.MissingFractionalDigits
+            Qdk.Stim.Lex.MissingFractionalDigits
 
               x expected digits after decimal point
                ,----
@@ -124,7 +124,7 @@ fn signed_trailing_decimal_point_is_error() {
     check(
         "+5.",
         &expect![[r#"
-            Qdk.Stim.MissingFractionalDigits
+            Qdk.Stim.Lex.MissingFractionalDigits
 
               x expected digits after decimal point
                ,----
@@ -136,7 +136,7 @@ fn signed_trailing_decimal_point_is_error() {
     check(
         "-5.",
         &expect![[r#"
-            Qdk.Stim.MissingFractionalDigits
+            Qdk.Stim.Lex.MissingFractionalDigits
 
               x expected digits after decimal point
                ,----
@@ -152,7 +152,7 @@ fn decimal_point_followed_by_non_digit_is_error() {
     check(
         "3.e5",
         &expect![[r#"
-            Qdk.Stim.MissingFractionalDigits
+            Qdk.Stim.Lex.MissingFractionalDigits
 
               x expected digits after decimal point
                ,----
@@ -169,7 +169,7 @@ fn bare_exponent_marker_is_error() {
     check(
         "1e",
         &expect![[r#"
-            Qdk.Stim.MissingExponentDigits
+            Qdk.Stim.Lex.MissingExponentDigits
 
               x expected digits in exponent
                ,----
@@ -181,7 +181,7 @@ fn bare_exponent_marker_is_error() {
     check(
         "1E",
         &expect![[r#"
-            Qdk.Stim.MissingExponentDigits
+            Qdk.Stim.Lex.MissingExponentDigits
 
               x expected digits in exponent
                ,----
@@ -197,7 +197,7 @@ fn exponent_sign_without_digits_is_error() {
     check(
         "1e+",
         &expect![[r#"
-            Qdk.Stim.MissingExponentDigits
+            Qdk.Stim.Lex.MissingExponentDigits
 
               x expected digits in exponent
                ,----
@@ -209,7 +209,7 @@ fn exponent_sign_without_digits_is_error() {
     check(
         "1e-",
         &expect![[r#"
-            Qdk.Stim.MissingExponentDigits
+            Qdk.Stim.Lex.MissingExponentDigits
 
               x expected digits in exponent
                ,----
@@ -225,7 +225,7 @@ fn fractional_then_bare_exponent_is_error() {
     check(
         "2.5e",
         &expect![[r#"
-            Qdk.Stim.MissingExponentDigits
+            Qdk.Stim.Lex.MissingExponentDigits
 
               x expected digits in exponent
                ,----
@@ -237,7 +237,7 @@ fn fractional_then_bare_exponent_is_error() {
     check(
         "3.0E+",
         &expect![[r#"
-            Qdk.Stim.MissingExponentDigits
+            Qdk.Stim.Lex.MissingExponentDigits
 
               x expected digits in exponent
                ,----
@@ -253,7 +253,7 @@ fn signed_then_bare_exponent_is_error() {
     check(
         "+1e",
         &expect![[r#"
-            Qdk.Stim.MissingExponentDigits
+            Qdk.Stim.Lex.MissingExponentDigits
 
               x expected digits in exponent
                ,----
@@ -271,7 +271,7 @@ fn leading_decimal_point_is_not_a_double() {
     check(
         ".5",
         &expect![[r#"
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----
@@ -291,7 +291,7 @@ fn second_decimal_point_ends_the_double() {
         "1.2.3",
         &expect![[r#"
             double(1.2) [0-3]
-            Qdk.Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
               x unrecognized character
                ,----
@@ -309,7 +309,7 @@ fn double_sign_recovers_to_a_double() {
     check(
         "++1",
         &expect![[r#"
-            Qdk.Stim.MissingDigitsAfterSign
+            Qdk.Stim.Lex.MissingDigitsAfterSign
 
               x expected digits after sign
                ,----

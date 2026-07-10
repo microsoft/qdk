@@ -298,42 +298,42 @@ struct CorrelatedGroup {
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub enum Error {
     #[error("unsupported instruction: {name}")]
-    #[diagnostic(code("Qdk.Stim.UnsupportedInstruction"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.UnsupportedInstruction"))]
     UnsupportedInstruction {
         name: String,
         #[label]
         span: Span,
     },
     #[error("unknown instruction: {name}")]
-    #[diagnostic(code("Qdk.Stim.UnknownInstruction"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.UnknownInstruction"))]
     UnknownInstruction {
         name: String,
         #[label]
         span: Span,
     },
     #[error("unsupported argument in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.UnsupportedArgument"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.UnsupportedArgument"))]
     UnsupportedArgument {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("unsupported target in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.UnsupportedTarget"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.UnsupportedTarget"))]
     UnsupportedTarget {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("measurement record target in an unsupported position in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.MisplacedMeasurementRecord"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.MisplacedMeasurementRecord"))]
     MisplacedMeasurementRecord {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("measurement record control cannot be negated in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.NegatedMeasurementRecord"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.NegatedMeasurementRecord"))]
     NegatedMeasurementRecord {
         instruction: String,
         #[label]
@@ -342,21 +342,21 @@ pub enum Error {
     #[error(
         "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
     )]
-    #[diagnostic(code("Qdk.Stim.MeasurementRecordWithoutQubit"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.MeasurementRecordWithoutQubit"))]
     MeasurementRecordWithoutQubit {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("missing probability argument in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.MissingProbability"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.MissingProbability"))]
     MissingProbability {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("instruction {instruction} requires an even number of targets")]
-    #[diagnostic(code("Qdk.Stim.OddTargetCount"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.OddTargetCount"))]
     OddTargetCount {
         instruction: String,
         #[label]
@@ -365,31 +365,31 @@ pub enum Error {
     #[error(
         "else_correlated_error must be preceded by a correlated_error or else_correlated_error instruction"
     )]
-    #[diagnostic(code("Qdk.Stim.OrphanedElseCorrelatedError"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.OrphanedElseCorrelatedError"))]
     OrphanedElseCorrelatedError {
         #[label]
         span: Span,
     },
     #[error("measurement record is out of bounds")]
-    #[diagnostic(code("Qdk.Stim.MeasurementRecordOutOfBounds"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.MeasurementRecordOutOfBounds"))]
     MeasurementRecordOutOfBounds {
         #[label]
         span: Span,
     },
     #[error("measurement record refers to a measurement outside the enclosing PREPARE block")]
-    #[diagnostic(code("Qdk.Stim.MeasurementRecordOutOfScope"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.MeasurementRecordOutOfScope"))]
     MeasurementRecordOutOfScope {
         #[label]
         span: Span,
     },
     #[error("require must appear inside a PREPARE block")]
-    #[diagnostic(code("Qdk.Stim.RequireOutsidePrepareBlock"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.RequireOutsidePrepareBlock"))]
     RequireOutsidePrepareBlock {
         #[label]
         span: Span,
     },
     #[error("prepare instruction must start a block")]
-    #[diagnostic(code("Qdk.Stim.PrepareWithoutBlock"))]
+    #[diagnostic(code("Qdk.Stim.QirEmitter.PrepareWithoutBlock"))]
     PrepareWithoutBlock {
         #[label]
         span: Span,
