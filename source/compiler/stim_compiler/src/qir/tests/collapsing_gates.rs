@@ -448,7 +448,9 @@ fn ry_gate_yields_expected_qir() {
 #[test]
 fn m_gate_with_negated_target_yields_expected_qir() {
     let source = "M !0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
@@ -480,13 +482,16 @@ fn m_gate_with_negated_target_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn mx_gate_with_negated_target_yields_expected_qir() {
     let source = "MX !0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -521,13 +526,16 @@ fn mx_gate_with_negated_target_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn my_gate_with_negated_target_yields_expected_qir() {
     let source = "MY !0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
@@ -566,13 +574,16 @@ fn my_gate_with_negated_target_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn mr_gate_with_negated_target_yields_expected_qir() {
     let source = "MR !0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
@@ -603,13 +614,16 @@ fn mr_gate_with_negated_target_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn mrx_gate_with_negated_target_yields_expected_qir() {
     let source = "MRX !0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -643,13 +657,16 @@ fn mrx_gate_with_negated_target_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn mry_gate_with_negated_target_yields_expected_qir() {
     let source = "MRY !0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
@@ -687,7 +704,8 @@ fn mry_gate_with_negated_target_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
