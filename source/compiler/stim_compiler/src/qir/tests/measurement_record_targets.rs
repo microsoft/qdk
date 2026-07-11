@@ -1011,3 +1011,57 @@ fn cx_with_rec_control_crossing_prepare_boundary_yields_error() {
         "#]],
     );
 }
+
+#[test]
+fn top_level_classical_control_reaches_into_prepare() {
+    let source = "PREPARE {\n    M 0\n}\nCX rec[-1] 1";
+    check(
+        source,
+        &expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          br label %prepare_0
+        prepare_0:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__rt__array_record_output(i64 1, ptr null)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+          ret i64 0
+        }
+
+        define void @classical_control_cx(ptr %result, ptr %qubit) {
+        block_cx_entry:
+          %result_val = call i1 @__quantum__rt__read_result(ptr %result)
+          br i1 %result_val, label %block_cx_apply, label %block_cx_exit
+        block_cx_apply:
+          call void @__quantum__qis__x__body(ptr %qubit)
+          br label %block_cx_exit
+        block_cx_exit:
+          ret void
+        }
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__qis__x__body(ptr)
+        declare i1 @__quantum__rt__read_result(ptr)
+        declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__qis__m__body(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
+}
