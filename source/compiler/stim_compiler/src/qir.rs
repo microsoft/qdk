@@ -332,9 +332,9 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("measurement record control cannot be negated in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.NegatedMeasurementRecord"))]
-    NegatedMeasurementRecord {
+    #[error("target cannot be negated in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.NegatedTarget"))]
+    NegatedTarget {
         instruction: String,
         #[label]
         span: Span,
@@ -944,7 +944,7 @@ impl<'noise> Compiler<'noise> {
     fn broadcast(&mut self, instruction: &Instruction, mut f: impl FnMut(&mut Self, u32)) {
         self.unsupported_args(instruction); // Temporary error
         for target in &instruction.targets {
-            let Some(q) = self.expect_qubit(instruction, target) else {
+            let Some(q) = self.expect_qubit(instruction, target, false) else {
                 continue;
             };
             f(self, q);
@@ -961,10 +961,10 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for pair in pairs {
-            let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
+            let Some(q0) = self.expect_qubit(instruction, &pair[0], false) else {
                 continue;
             };
-            let Some(q1) = self.expect_qubit(instruction, &pair[1]) else {
+            let Some(q1) = self.expect_qubit(instruction, &pair[1], false) else {
                 continue;
             };
             f(self, q0, q1);
@@ -985,10 +985,10 @@ impl<'noise> Compiler<'noise> {
         for pair in pairs {
             match (&pair[0].kind, &pair[1].kind) {
                 (TargetKind::Qubit { .. }, TargetKind::Qubit { .. }) => {
-                    let Some(control) = self.expect_qubit(instruction, &pair[0]) else {
+                    let Some(control) = self.expect_qubit(instruction, &pair[0], false) else {
                         continue;
                     };
-                    let Some(target) = self.expect_qubit(instruction, &pair[1]) else {
+                    let Some(target) = self.expect_qubit(instruction, &pair[1], false) else {
                         continue;
                     };
                     quantum(self, control, target);
@@ -1045,7 +1045,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         if negated {
-            self.push_error(Error::NegatedMeasurementRecord {
+            self.push_error(Error::NegatedTarget {
                 instruction: instruction.name.clone(),
                 span: rec_target.span,
             });
@@ -1054,7 +1054,7 @@ impl<'noise> Compiler<'noise> {
         let Some(result_id) = self.resolve_record_offset(rec_target, offset) else {
             return;
         };
-        let Some(target) = self.expect_qubit(instruction, qubit_target) else {
+        let Some(target) = self.expect_qubit(instruction, qubit_target, false) else {
             return;
         };
         let qubit = self.id_map.allocate_qubit(target);
@@ -1201,7 +1201,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for target in &instruction.targets {
-            let Some(value) = self.expect_qubit(instruction, target) else {
+            let Some(value) = self.expect_qubit(instruction, target, false) else {
                 continue;
             };
             self.current_correlated_group
@@ -1221,7 +1221,7 @@ impl<'noise> Compiler<'noise> {
         };
         let each = probability / 3.0;
         for target in &instruction.targets {
-            let Some(value) = self.expect_qubit(instruction, target) else {
+            let Some(value) = self.expect_qubit(instruction, target, false) else {
                 continue;
             };
             {
@@ -1249,10 +1249,10 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for pair in pairs {
-            let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
+            let Some(q0) = self.expect_qubit(instruction, &pair[0], false) else {
                 continue;
             };
-            let Some(q1) = self.expect_qubit(instruction, &pair[1]) else {
+            let Some(q1) = self.expect_qubit(instruction, &pair[1], false) else {
                 continue;
             };
             {
@@ -1384,19 +1384,28 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_noise_intrinsic(&name, &column_ids);
     }
 
-    fn expect_qubit(&mut self, instruction: &Instruction, target: &Target) -> Option<u32> {
+    fn expect_qubit(
+        &mut self,
+        instruction: &Instruction,
+        target: &Target,
+        allow_negated: bool,
+    ) -> Option<u32> {
         // TODO: lacks support for negated qubits and pauli targets
-        let TargetKind::Qubit {
-            value,
-            negated: false,
-        } = target.kind
-        else {
+        let TargetKind::Qubit { value, negated } = target.kind else {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
             });
             return None;
         };
+
+        if negated && !allow_negated {
+            self.push_error(Error::NegatedTarget {
+                instruction: instruction.name.clone(),
+                span: target.span,
+            });
+            return None;
+        }
         Some(value)
     }
 

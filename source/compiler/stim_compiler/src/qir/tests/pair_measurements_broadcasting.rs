@@ -60,9 +60,9 @@ fn mxx_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x unsupported target in instruction: MXX
+              x target cannot be negated in instruction: MXX
                ,----
              1 | MXX !0 1 2 3
                :     ^^
@@ -156,9 +156,9 @@ fn myy_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x unsupported target in instruction: MYY
+              x target cannot be negated in instruction: MYY
                ,----
              1 | MYY !0 1 2 3
                :     ^^
@@ -235,9 +235,9 @@ fn mzz_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedTarget
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x unsupported target in instruction: MZZ
+              x target cannot be negated in instruction: MZZ
                ,----
              1 | MZZ !0 1 2 3
                :     ^^
