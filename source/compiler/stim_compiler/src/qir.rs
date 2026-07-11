@@ -7,6 +7,7 @@ mod tests;
 use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
 
 use crate::parser::*;
+use crate::qir::Scope::{Prepare, TopLevel};
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
@@ -426,7 +427,8 @@ enum Scope {
 struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
     record_scopes: Vec<Scope>,                   // indexed by result id
-    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
+    scope_parents: Vec<Scope>, // indexed by prepare scope id, value = parent scope
+    scope_stack: Vec<Scope>,   // active nested scopes; last() = current, empty = top level
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
 }
 
@@ -435,6 +437,7 @@ impl IdMap {
         Self {
             qubit_map: FxHashMap::default(),
             record_scopes: Vec::new(),
+            scope_parents: Vec::new(),
             scope_stack: Vec::new(),
             name_counters: FxHashMap::default(),
         }
@@ -448,9 +451,9 @@ impl IdMap {
     }
 
     fn enter_prepare_scope(&mut self) {
-        let counter = self.name_counters.entry("prepare_scope").or_insert(0);
-        let id = *counter;
-        *counter += 1;
+        let parent = self.current_scope();
+        let id = self.scope_parents.len() as u32;
+        self.scope_parents.push(parent);
         self.scope_stack.push(Scope::Prepare(id));
     }
 
@@ -467,6 +470,28 @@ impl IdMap {
             Some(&scope) => scope,
             None => unreachable!("record id not found"), // this is a compiler invariant
         }
+    }
+
+    fn parent_of(&self, scope: Scope) -> Scope {
+        let Prepare(id) = scope else { return TopLevel };
+        self.scope_parents
+            .get(id as usize)
+            .copied()
+            .expect("cannot get the parent of a scope that has not been entered")
+    }
+
+    fn is_descendant_or_equal(&self, scope: Scope, ancestor: Scope) -> bool {
+        if scope == ancestor {
+            return true;
+        }
+        match scope {
+            Prepare(_) => self.is_descendant_or_equal(self.parent_of(scope), ancestor),
+            TopLevel => false,
+        }
+    }
+
+    fn record_in_scope(&self, record_id: u32) -> bool {
+        self.is_descendant_or_equal(self.scope_of_record(record_id), self.current_scope())
     }
 
     fn allocate_record(&mut self) -> u32 {
@@ -1184,7 +1209,7 @@ impl<'noise> Compiler<'noise> {
             return None;
         };
 
-        if self.id_map.scope_of_record(result_id) != self.id_map.current_scope() {
+        if !self.id_map.record_in_scope(result_id) {
             self.push_error(Error::MeasurementRecordOutOfScope { span: target.span });
             return None;
         }
