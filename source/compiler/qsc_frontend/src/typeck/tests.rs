@@ -378,8 +378,8 @@ fn call_generic_length() {
             #9 45-54 "xs : 'T[]" : ?
             #18 84-111 "Length([true, false, true])" : Int
             #19 84-90 "Length" : (Bool[] -> Int)
-            #22 90-111 "([true, false, true])" : Bool[]
-            #23 91-110 "[true, false, true]" : Bool[]
+            #22 90-111 "([true, false, true])" : Bool[3]
+            #23 91-110 "[true, false, true]" : Bool[3]
             #24 92-96 "true" : Bool
             #25 98-103 "false" : Bool
             #26 105-109 "true" : Bool
@@ -460,9 +460,9 @@ fn add_wrong_types() {
             #10 40-52 "{ 1 + [2]; }" : Unit
             #12 42-49 "1 + [2]" : Int
             #13 42-43 "1" : Int
-            #14 46-49 "[2]" : Int[]
+            #14 46-49 "[2]" : Int[1]
             #15 47-48 "2" : Int
-            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Array(Prim(Int)), display: "Int[]" }, Span { lo: 46, hi: 49 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Array(Prim(Int), Some(1)), display: "Int[1]" }, Span { lo: 46, hi: 49 }))))
         "##]],
     );
 }
@@ -632,7 +632,7 @@ fn length_type_error() {
             #24 92-93 "1" : Int
             #25 95-96 "2" : Int
             #26 98-99 "3" : Int
-            Error(Type(Error(TyMismatch(TyInfo { kind: Array(Infer(InferTyId(0))), display: "?[]" }, TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int)" }, Span { lo: 91, hi: 100 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Array(Infer(InferTyId(0)), None), display: "?[]" }, TyInfo { kind: Tuple([Prim(Int), Prim(Int), Prim(Int)]), display: "(Int, Int, Int)" }, Span { lo: 91, hi: 100 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 84, hi: 90 }))))
         "##]],
     );
@@ -673,16 +673,16 @@ fn array_index_error() {
     check(
         "",
         "[1, 2, 3][false]",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-16 "[1, 2, 3][false]" : ?0
-            #2 0-9 "[1, 2, 3]" : Int[]
+            #2 0-9 "[1, 2, 3]" : Int[3]
             #3 1-2 "1" : Int
             #4 4-5 "2" : Int
             #5 7-8 "3" : Int
             #6 10-15 "false" : Bool
-            Error(Type(Error(MissingClassHasIndex("Int[]", "Bool", Span { lo: 0, hi: 16 }))))
+            Error(Type(Error(MissingClassHasIndex("Int[3]", "Bool", Span { lo: 0, hi: 16 }))))
             Error(Type(Error(AmbiguousTy(Span { lo: 0, hi: 16 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -1056,12 +1056,12 @@ fn qubit_tuple_arity_error() {
             #4 6-13 "(q, q1)" : (Qubit[], Qubit)
             #5 7-8 "q" : Qubit[]
             #7 10-12 "q1" : Qubit
-            #9 16-44 "(Qubit[3], Qubit(), Qubit())" : (Qubit[], Qubit, Qubit)
-            #10 17-25 "Qubit[3]" : Qubit[]
+            #9 16-44 "(Qubit[3], Qubit(), Qubit())" : (Qubit[3], Qubit, Qubit)
+            #10 17-25 "Qubit[3]" : Qubit[3]
             #11 23-24 "3" : Int
             #12 27-34 "Qubit()" : Qubit
             #13 36-43 "Qubit()" : Qubit
-            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Array(Prim(Qubit)), Prim(Qubit), Prim(Qubit)]), display: "(Qubit[], Qubit, Qubit)" }, TyInfo { kind: Tuple([Infer(InferTyId(0)), Infer(InferTyId(1))]), display: "(?, ?)" }, Span { lo: 6, hi: 13 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([Array(Prim(Qubit), Some(3)), Prim(Qubit), Prim(Qubit)]), display: "(Qubit[3], Qubit, Qubit)" }, TyInfo { kind: Tuple([Infer(InferTyId(0)), Infer(InferTyId(1))]), display: "(?, ?)" }, Span { lo: 6, hi: 13 }))))
         "##]],
     );
 }
@@ -1093,7 +1093,7 @@ fn for_loop_body_should_be_unit_error() {
         &expect![[r##"
             #1 0-24 "for i in [1, 2, 3] { 4 }" : Unit
             #2 4-5 "i" : Int
-            #4 9-18 "[1, 2, 3]" : Int[]
+            #4 9-18 "[1, 2, 3]" : Int[3]
             #5 10-11 "1" : Int
             #6 13-14 "2" : Int
             #7 16-17 "3" : Int
@@ -1241,7 +1241,7 @@ fn if_else_fail() {
             #2 3-8 "false" : Bool
             #3 9-14 "{ 5 }" : Int
             #5 11-12 "5" : Int
-            #6 15-37 "else { fail \"error\"; }" : Int
+            #6 15-37 "else { fail \"error\"; }" : Unit
             #7 20-37 "{ fail \"error\"; }" : Unit
             #9 22-34 "fail \"error\"" : Unit
             #10 27-34 "\"error\"" : String
@@ -1349,16 +1349,16 @@ fn ternop_update_invalid_index() {
     check(
         "",
         "[1, 2, 3] w/ false <- 4",
-        &expect![[r#"
-            #1 0-23 "[1, 2, 3] w/ false <- 4" : Int[]
-            #2 0-9 "[1, 2, 3]" : Int[]
+        &expect![[r##"
+            #1 0-23 "[1, 2, 3] w/ false <- 4" : Int[3]
+            #2 0-9 "[1, 2, 3]" : Int[3]
             #3 1-2 "1" : Int
             #4 4-5 "2" : Int
             #5 7-8 "3" : Int
             #6 13-18 "false" : Bool
             #7 22-23 "4" : Int
-            Error(Type(Error(MissingClassHasIndex("Int[]", "Bool", Span { lo: 0, hi: 23 }))))
-        "#]],
+            Error(Type(Error(MissingClassHasIndex("Int[3]", "Bool", Span { lo: 0, hi: 23 }))))
+        "##]],
     );
 }
 
@@ -1375,20 +1375,20 @@ fn ternop_update_array_index_var() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 30-32 "()" : Unit
             #8 38-117 "{\n        let xs = [2];\n        let i = 0;\n        let ys = xs w/ i <- 3;\n    }" : Unit
-            #10 52-54 "xs" : Int[]
-            #12 57-60 "[2]" : Int[]
+            #10 52-54 "xs" : Int[1]
+            #12 57-60 "[2]" : Int[1]
             #13 58-59 "2" : Int
             #15 74-75 "i" : Int
             #17 78-79 "0" : Int
             #19 93-95 "ys" : Int[]
             #21 98-110 "xs w/ i <- 3" : Int[]
-            #22 98-100 "xs" : Int[]
+            #22 98-100 "xs" : Int[1]
             #25 104-105 "i" : Int
             #28 109-110 "3" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -1405,22 +1405,22 @@ fn ternop_update_array_index_expr() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 30-32 "()" : Unit
             #8 38-121 "{\n        let xs = [2];\n        let i = 0;\n        let ys = xs w/ i + 1 <- 3;\n    }" : Unit
-            #10 52-54 "xs" : Int[]
-            #12 57-60 "[2]" : Int[]
+            #10 52-54 "xs" : Int[1]
+            #12 57-60 "[2]" : Int[1]
             #13 58-59 "2" : Int
             #15 74-75 "i" : Int
             #17 78-79 "0" : Int
             #19 93-95 "ys" : Int[]
             #21 98-114 "xs w/ i + 1 <- 3" : Int[]
-            #22 98-100 "xs" : Int[]
+            #22 98-100 "xs" : Int[1]
             #25 104-109 "i + 1" : Int
             #26 104-105 "i" : Int
             #29 108-109 "1" : Int
             #30 113-114 "3" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -1573,24 +1573,24 @@ fn ternop_update_array_range_takes_array() {
             }
         "},
         "",
-        &expect![[r#"
+        &expect![[r##"
             #6 30-32 "()" : Unit
             #8 38-112 "{\n        let xs = [0, 1, 2];\n        let ys = xs w/ 0..1 <- [3, 4];\n    }" : Unit
-            #10 52-54 "xs" : Int[]
-            #12 57-66 "[0, 1, 2]" : Int[]
+            #10 52-54 "xs" : Int[3]
+            #12 57-66 "[0, 1, 2]" : Int[3]
             #13 58-59 "0" : Int
             #14 61-62 "1" : Int
             #15 64-65 "2" : Int
             #17 80-82 "ys" : Int[]
             #19 85-105 "xs w/ 0..1 <- [3, 4]" : Int[]
-            #20 85-87 "xs" : Int[]
+            #20 85-87 "xs" : Int[3]
             #23 91-95 "0..1" : Range
             #24 91-92 "0" : Int
             #25 94-95 "1" : Int
-            #26 99-105 "[3, 4]" : Int[]
+            #26 99-105 "[3, 4]" : Int[2]
             #27 100-101 "3" : Int
             #28 103-104 "4" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -1609,19 +1609,19 @@ fn ternop_update_array_range_with_non_array_error() {
         &expect![[r##"
             #6 30-32 "()" : Unit
             #8 38-107 "{\n        let xs = [0, 1, 2];\n        let ys = xs w/ 0..1 <- 3;\n    }" : Unit
-            #10 52-54 "xs" : Int[]
-            #12 57-66 "[0, 1, 2]" : Int[]
+            #10 52-54 "xs" : Int[3]
+            #12 57-66 "[0, 1, 2]" : Int[3]
             #13 58-59 "0" : Int
             #14 61-62 "1" : Int
             #15 64-65 "2" : Int
             #17 80-82 "ys" : Int[]
             #19 85-100 "xs w/ 0..1 <- 3" : Int[]
-            #20 85-87 "xs" : Int[]
+            #20 85-87 "xs" : Int[3]
             #23 91-95 "0..1" : Range
             #24 91-92 "0" : Int
             #25 94-95 "1" : Int
             #26 99-100 "3" : Int
-            Error(Type(Error(TyMismatch(TyInfo { kind: Array(Prim(Int)), display: "Int[]" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 85, hi: 100 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Array(Prim(Int), None), display: "Int[]" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 85, hi: 100 }))))
         "##]],
     );
 }
@@ -1763,7 +1763,7 @@ fn call_controlled() {
                 Controlled A.Foo([q1], q2);
             }
         "},
-        &expect![[r#"
+        &expect![[r##"
             #6 31-42 "(q : Qubit)" : Qubit
             #7 32-41 "q : Qubit" : Qubit
             #17 72-75 "..." : Qubit
@@ -1781,11 +1781,11 @@ fn call_controlled() {
             #36 169-195 "Controlled A.Foo([q1], q2)" : Unit
             #37 169-185 "Controlled A.Foo" : ((Qubit[], Qubit) => Unit is Ctl)
             #38 180-185 "A.Foo" : (Qubit => Unit is Ctl)
-            #42 185-195 "([q1], q2)" : (Qubit[], Qubit)
-            #43 186-190 "[q1]" : Qubit[]
+            #42 185-195 "([q1], q2)" : (Qubit[1], Qubit)
+            #43 186-190 "[q1]" : Qubit[1]
             #44 187-189 "q1" : Qubit
             #47 192-194 "q2" : Qubit
-        "#]],
+        "##]],
     );
 }
 
@@ -1808,7 +1808,7 @@ fn call_controlled_nested() {
                 Controlled Controlled A.Foo([q1], ([q2], q3));
             }
         "},
-        &expect![[r#"
+        &expect![[r##"
             #6 31-42 "(q : Qubit)" : Qubit
             #7 32-41 "q : Qubit" : Qubit
             #17 72-75 "..." : Qubit
@@ -1829,14 +1829,14 @@ fn call_controlled_nested() {
             #41 191-218 "Controlled Controlled A.Foo" : ((Qubit[], (Qubit[], Qubit)) => Unit is Ctl)
             #42 202-218 "Controlled A.Foo" : ((Qubit[], Qubit) => Unit is Ctl)
             #43 213-218 "A.Foo" : (Qubit => Unit is Ctl)
-            #47 218-236 "([q1], ([q2], q3))" : (Qubit[], (Qubit[], Qubit))
-            #48 219-223 "[q1]" : Qubit[]
+            #47 218-236 "([q1], ([q2], q3))" : (Qubit[1], (Qubit[1], Qubit))
+            #48 219-223 "[q1]" : Qubit[1]
             #49 220-222 "q1" : Qubit
-            #52 225-235 "([q2], q3)" : (Qubit[], Qubit)
-            #53 226-230 "[q2]" : Qubit[]
+            #52 225-235 "([q2], q3)" : (Qubit[1], Qubit)
+            #53 226-230 "[q2]" : Qubit[1]
             #54 227-229 "q2" : Qubit
             #57 232-234 "q3" : Qubit
-        "#]],
+        "##]],
     );
 }
 
@@ -1873,8 +1873,8 @@ fn call_controlled_error() {
             #32 146-170 "Controlled A.Foo([1], q)" : Unit
             #33 146-162 "Controlled A.Foo" : ((Qubit[], Qubit) => Unit is Ctl)
             #34 157-162 "A.Foo" : (Qubit => Unit is Ctl)
-            #38 162-170 "([1], q)" : (Int[], Qubit)
-            #39 163-166 "[1]" : Int[]
+            #38 162-170 "([1], q)" : (Int[1], Qubit)
+            #39 163-166 "[1]" : Int[1]
             #40 164-165 "1" : Int
             #41 168-169 "q" : Qubit
             Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Qubit), display: "Qubit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 163, hi: 166 }))))
@@ -2023,7 +2023,7 @@ fn fail_in_array_does_not_diverge_entire_array() {
             [1, fail "true", 3]
         "#},
         &expect![[r##"
-            #1 0-19 "[1, fail \"true\", 3]" : Int[]
+            #1 0-19 "[1, fail \"true\", 3]" : Int[3]
             #2 1-2 "1" : Int
             #3 4-15 "fail \"true\"" : Int
             #4 9-15 "\"true\"" : String
@@ -2040,7 +2040,7 @@ fn fail_in_array_still_checks_other_array_elements() {
             [1, fail "true", 3.0]
         "#},
         &expect![[r##"
-            #1 0-21 "[1, fail \"true\", 3.0]" : Int[]
+            #1 0-21 "[1, fail \"true\", 3.0]" : Int[3]
             #2 1-2 "1" : Int
             #3 4-15 "fail \"true\"" : Int
             #4 9-15 "\"true\"" : String
@@ -2816,13 +2816,13 @@ fn interpolate_int_array() {
     check(
         "",
         r#"$"{[1, 2, 3]}""#,
-        &expect![[r#"
+        &expect![[r##"
             #1 0-14 "$\"{[1, 2, 3]}\"" : String
-            #2 3-12 "[1, 2, 3]" : Int[]
+            #2 3-12 "[1, 2, 3]" : Int[3]
             #3 4-5 "1" : Int
             #4 7-8 "2" : Int
             #5 10-11 "3" : Int
-        "#]],
+        "##]],
     );
 }
 
@@ -2836,17 +2836,17 @@ fn interpolate_function_array() {
             }
         "},
         r#"$"{[A.Foo, A.Bar]}""#,
-        &expect![[r#"
+        &expect![[r##"
             #6 30-32 "()" : Unit
             #8 38-40 "{}" : Unit
             #12 57-59 "()" : Unit
             #14 65-67 "{}" : Unit
             #15 70-89 "$\"{[A.Foo, A.Bar]}\"" : String
-            #16 73-87 "[A.Foo, A.Bar]" : (Unit -> Unit)[]
+            #16 73-87 "[A.Foo, A.Bar]" : (Unit -> Unit)[2]
             #17 74-79 "A.Foo" : (Unit -> Unit)
             #21 81-86 "A.Bar" : (Unit -> Unit)
             Error(Type(Error(MissingClassShow("(Unit -> Unit)", Span { lo: 73, hi: 87 }))))
-        "#]],
+        "##]],
     );
 }
 
@@ -3690,10 +3690,10 @@ fn infinite() {
             #8 38-97 "{\n        let x = invalid;\n        let xs = [x, [x]];\n    }" : Unit
             #10 52-53 "x" : ?0
             #12 56-63 "invalid" : ?
-            #16 77-79 "xs" : ?0[]
-            #18 82-90 "[x, [x]]" : ?0[]
+            #16 77-79 "xs" : ?0[2]
+            #18 82-90 "[x, [x]]" : ?0[2]
             #19 83-84 "x" : ?0
-            #22 86-89 "[x]" : ?0[]
+            #22 86-89 "[x]" : ?0[1]
             #23 87-88 "x" : ?0
             Error(Resolve(NotFound("invalid", Span { lo: 56, hi: 63 })))
             Error(Type(Error(RecursiveTypeConstraint(Span { lo: 86, hi: 89 }))))
@@ -3722,7 +3722,7 @@ fn lambda_inner_return() {
             #12 54-55 "f" : (Unit -> Int)
             #14 58-98 "() -> {\n            return 42;\n        }" : (Unit -> Int)
             #15 58-60 "()" : Unit
-            #16 64-98 "{\n            return 42;\n        }" : Int
+            #16 64-98 "{\n            return 42;\n        }" : Unit
             #17 64-98 "{\n            return 42;\n        }" : Unit
             #19 78-87 "return 42" : Unit
             #20 85-87 "42" : Int
@@ -3755,7 +3755,7 @@ fn lambda_inner_return_without_call_ambiguous() {
             #15 58-64 "(a, b)" : (?2, ?2)
             #16 59-60 "a" : ?2
             #18 62-63 "b" : ?2
-            #20 68-105 "{\n            return a + b;\n        }" : ?2
+            #20 68-105 "{\n            return a + b;\n        }" : Unit
             #21 68-105 "{\n            return a + b;\n        }" : Unit
             #23 82-94 "return a + b" : Unit
             #24 89-94 "a + b" : ?2
@@ -4422,7 +4422,7 @@ fn functors_in_arg_array_superset_of_adj() {
             operation Bar(q : Qubit) : () is Adj + Ctl {}
             Foo([Bar]);
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-157 "{\n            operation Foo(ops : (Qubit => () is Adj)[]) : () {}\n            operation Bar(q : Qubit) : () is Adj + Ctl {}\n            Foo([Bar]);\n        }" : Unit
             #2 0-157 "{\n            operation Foo(ops : (Qubit => () is Adj)[]) : () {}\n            operation Bar(q : Qubit) : () is Adj + Ctl {}\n            Foo([Bar]);\n        }" : Unit
             #7 27-57 "(ops : (Qubit => () is Adj)[])" : (Qubit => Unit is Adj)[]
@@ -4433,10 +4433,10 @@ fn functors_in_arg_array_superset_of_adj() {
             #34 121-123 "{}" : Unit
             #36 136-146 "Foo([Bar])" : Unit
             #37 136-139 "Foo" : ((Qubit => Unit is Adj + Ctl)[] => Unit)
-            #40 139-146 "([Bar])" : (Qubit => Unit is Adj + Ctl)[]
-            #41 140-145 "[Bar]" : (Qubit => Unit is Adj + Ctl)[]
+            #40 139-146 "([Bar])" : (Qubit => Unit is Adj + Ctl)[1]
+            #41 140-145 "[Bar]" : (Qubit => Unit is Adj + Ctl)[1]
             #42 141-144 "Bar" : (Qubit => Unit is Adj + Ctl)
-        "#]],
+        "##]],
     );
 }
 
@@ -4460,8 +4460,8 @@ fn functors_in_arg_array_subset_of_adj() {
             #31 108-110 "{}" : Unit
             #33 123-133 "Foo([Bar])" : Unit
             #34 123-126 "Foo" : ((Qubit => Unit)[] => Unit)
-            #37 126-133 "([Bar])" : (Qubit => Unit)[]
-            #38 127-132 "[Bar]" : (Qubit => Unit)[]
+            #37 126-133 "([Bar])" : (Qubit => Unit)[1]
+            #38 127-132 "[Bar]" : (Qubit => Unit)[1]
             #39 128-131 "Bar" : (Qubit => Unit)
             Error(Type(Error(MissingFunctor(Value(Adj), Value(Empty), Span { lo: 127, hi: 132 }))))
         "##]],
@@ -4476,18 +4476,18 @@ fn functors_in_array_all_same() {
             operation Foo(q : Qubit) : () is Adj {}
             let ops = [Foo, Foo, Foo];
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-102 "{\n            operation Foo(q : Qubit) : () is Adj {}\n            let ops = [Foo, Foo, Foo];\n        }" : Unit
             #2 0-102 "{\n            operation Foo(q : Qubit) : () is Adj {}\n            let ops = [Foo, Foo, Foo];\n        }" : Unit
             #7 27-38 "(q : Qubit)" : Qubit
             #8 28-37 "q : Qubit" : Qubit
             #15 51-53 "{}" : Unit
-            #17 70-73 "ops" : (Qubit => Unit is Adj)[]
-            #19 76-91 "[Foo, Foo, Foo]" : (Qubit => Unit is Adj)[]
+            #17 70-73 "ops" : (Qubit => Unit is Adj)[3]
+            #19 76-91 "[Foo, Foo, Foo]" : (Qubit => Unit is Adj)[3]
             #20 77-80 "Foo" : (Qubit => Unit is Adj)
             #23 82-85 "Foo" : (Qubit => Unit is Adj)
             #26 87-90 "Foo" : (Qubit => Unit is Adj)
-        "#]],
+        "##]],
     );
 }
 
@@ -4501,7 +4501,7 @@ fn functors_in_array_mixed() {
             operation Baz(q : Qubit) : () is Adj + Ctl {}
             let ops = [Foo, Bar, Baz];
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-205 "{\n            operation Foo(q : Qubit) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            operation Baz(q : Qubit) : () is Adj + Ctl {}\n            let ops = [Foo, Bar, Baz];\n        }" : Unit
             #2 0-205 "{\n            operation Foo(q : Qubit) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            operation Baz(q : Qubit) : () is Adj + Ctl {}\n            let ops = [Foo, Bar, Baz];\n        }" : Unit
             #7 27-38 "(q : Qubit)" : Qubit
@@ -4513,12 +4513,12 @@ fn functors_in_array_mixed() {
             #32 124-135 "(q : Qubit)" : Qubit
             #33 125-134 "q : Qubit" : Qubit
             #42 154-156 "{}" : Unit
-            #44 173-176 "ops" : (Qubit => Unit)[]
-            #46 179-194 "[Foo, Bar, Baz]" : (Qubit => Unit)[]
+            #44 173-176 "ops" : (Qubit => Unit)[3]
+            #46 179-194 "[Foo, Bar, Baz]" : (Qubit => Unit)[3]
             #47 180-183 "Foo" : (Qubit => Unit)
             #50 185-188 "Bar" : (Qubit => Unit is Adj)
             #53 190-193 "Baz" : (Qubit => Unit is Adj + Ctl)
-        "#]],
+        "##]],
     );
 }
 
@@ -4532,7 +4532,7 @@ fn functors_in_array_mixed_lambda_all_empty() {
             operation Baz(q : Qubit) : () is Adj + Ctl {}
             let ops = [Foo, q => Bar(q), q => Baz(q)];
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-221 "{\n            operation Foo(q : Qubit) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            operation Baz(q : Qubit) : () is Adj + Ctl {}\n            let ops = [Foo, q => Bar(q), q => Baz(q)];\n        }" : Unit
             #2 0-221 "{\n            operation Foo(q : Qubit) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            operation Baz(q : Qubit) : () is Adj + Ctl {}\n            let ops = [Foo, q => Bar(q), q => Baz(q)];\n        }" : Unit
             #7 27-38 "(q : Qubit)" : Qubit
@@ -4544,8 +4544,8 @@ fn functors_in_array_mixed_lambda_all_empty() {
             #32 124-135 "(q : Qubit)" : Qubit
             #33 125-134 "q : Qubit" : Qubit
             #42 154-156 "{}" : Unit
-            #44 173-176 "ops" : (Qubit => Unit)[]
-            #46 179-210 "[Foo, q => Bar(q), q => Baz(q)]" : (Qubit => Unit)[]
+            #44 173-176 "ops" : (Qubit => Unit)[3]
+            #46 179-210 "[Foo, q => Bar(q), q => Baz(q)]" : (Qubit => Unit)[3]
             #47 180-183 "Foo" : (Qubit => Unit)
             #50 185-196 "q => Bar(q)" : (Qubit => Unit)
             #51 185-186 "q" : Qubit
@@ -4559,7 +4559,7 @@ fn functors_in_array_mixed_lambda_all_empty() {
             #65 203-206 "Baz" : (Qubit => Unit is Adj + Ctl)
             #68 206-209 "(q)" : Qubit
             #69 207-208 "q" : Qubit
-        "#]],
+        "##]],
     );
 }
 
@@ -4573,7 +4573,7 @@ fn functors_in_array_mixed_lambda_all_ctl_adj() {
             operation Baz(q : Qubit) : () is Adj + Ctl {}
             let ops = [q => Foo(q), q => Bar(q), Baz];
         }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-221 "{\n            operation Foo(q : Qubit) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            operation Baz(q : Qubit) : () is Adj + Ctl {}\n            let ops = [q => Foo(q), q => Bar(q), Baz];\n        }" : Unit
             #2 0-221 "{\n            operation Foo(q : Qubit) : () {}\n            operation Bar(q : Qubit) : () is Adj {}\n            operation Baz(q : Qubit) : () is Adj + Ctl {}\n            let ops = [q => Foo(q), q => Bar(q), Baz];\n        }" : Unit
             #7 27-38 "(q : Qubit)" : Qubit
@@ -4585,8 +4585,8 @@ fn functors_in_array_mixed_lambda_all_ctl_adj() {
             #32 124-135 "(q : Qubit)" : Qubit
             #33 125-134 "q : Qubit" : Qubit
             #42 154-156 "{}" : Unit
-            #44 173-176 "ops" : (Qubit => Unit is Adj + Ctl)[]
-            #46 179-210 "[q => Foo(q), q => Bar(q), Baz]" : (Qubit => Unit is Adj + Ctl)[]
+            #44 173-176 "ops" : (Qubit => Unit is Adj + Ctl)[3]
+            #46 179-210 "[q => Foo(q), q => Bar(q), Baz]" : (Qubit => Unit is Adj + Ctl)[3]
             #47 180-191 "q => Foo(q)" : (Qubit => Unit is Adj + Ctl)
             #48 180-181 "q" : Qubit
             #50 185-191 "Foo(q)" : Unit
@@ -4600,7 +4600,7 @@ fn functors_in_array_mixed_lambda_all_ctl_adj() {
             #65 201-204 "(q)" : Qubit
             #66 202-203 "q" : Qubit
             #69 206-209 "Baz" : (Qubit => Unit is Adj + Ctl)
-        "#]],
+        "##]],
     );
 }
 
@@ -4721,7 +4721,7 @@ fn ambiguous_generic() {
             function Bar() : () { let x = Foo([]); }
         }",
         "",
-        &expect![[r#"
+        &expect![[r##"
             #7 45-52 "(x: 'T)" : Param<"'T": 0>
             #8 46-51 "x: 'T" : Param<"'T": 0>
             #14 58-63 "{ x }" : Param<"'T": 0>
@@ -4731,10 +4731,10 @@ fn ambiguous_generic() {
             #26 102-103 "x" : ?2[]
             #28 106-113 "Foo([])" : ?2[]
             #29 106-109 "Foo" : (?2[] -> ?2[])
-            #32 109-113 "([])" : ?2[]
-            #33 110-112 "[]" : ?2[]
+            #32 109-113 "([])" : ?2[0]
+            #33 110-112 "[]" : ?2[0]
             Error(Type(Error(AmbiguousTy(Span { lo: 110, hi: 112 }))))
-        "#]],
+        "##]],
     );
 }
 #[test]
@@ -4881,7 +4881,7 @@ fn inference_infinite_recursion_should_fail() {
             #50 180-187 "A and B" : (((?2, ?3) -> ?2) -> ?2[])
             #51 180-181 "A" : (((?2, ?3) -> ?2) -> ?2[])
             #54 186-187 "B" : (((?2, ?3) -> ?2) -> ?2)
-            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Array(Param), display: "'U1[]" }, Span { lo: 62, hi: 67 }))))
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Array(Param, None), display: "'U1[]" }, Span { lo: 62, hi: 67 }))))
             Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T2" }, Span { lo: 129, hi: 132 }))))
             Error(Type(Error(RecursiveTypeConstraint(Span { lo: 186, hi: 187 }))))
             Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Bool), display: "Bool" }, TyInfo { kind: Arrow, display: "(((?, ?) -> ?) -> ?[])" }, Span { lo: 180, hi: 181 }))))
@@ -5274,7 +5274,7 @@ fn type_exceeding_size_limit_is_not_propaged_and_generates_error() {
             #6 30-32 "()" : Unit
             #10 40-610 "{\n        let tooBig : ((((((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))) -> (((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ())))) -> ((((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))) -> (((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))))) -> (((((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))) -> (((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ())))) -> ((((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))) -> (((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))))))[] = [];\n        let x = tooBig[0];\n    }" : Unit
             #12 54-571 "tooBig : ((((((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))) -> (((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ())))) -> ((((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))) -> (((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))))) -> (((((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))) -> (((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ())))) -> ((((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))) -> (((() -> ()) -> (() -> ())) -> ((() -> ()) -> (() -> ()))))))[]" : ((((((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))) -> (((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit)))) -> ((((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))) -> (((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))))) -> (((((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))) -> (((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit)))) -> ((((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))) -> (((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))))))[]
-            #205 574-576 "[]" : ?0[]
+            #205 574-576 "[]" : ?0[0]
             #207 590-591 "x" : ?2
             #209 594-603 "tooBig[0]" : ?2
             #210 594-600 "tooBig" : ((((((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))) -> (((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit)))) -> ((((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))) -> (((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))))) -> (((((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))) -> (((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit)))) -> ((((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))) -> (((Unit -> Unit) -> (Unit -> Unit)) -> ((Unit -> Unit) -> (Unit -> Unit))))))[]
@@ -5637,14 +5637,14 @@ fn call_expr_unit_arg_assignupdate() {
             #15 47-54 "{\n    }" : Unit
             #16 57-102 "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }" : Unit
             #17 57-102 "{ let arr = [1]; A.Foo(set arr w/= 0 <- 10) }" : Unit
-            #19 63-66 "arr" : Int[]
-            #21 69-72 "[1]" : Int[]
+            #19 63-66 "arr" : Int[1]
+            #21 69-72 "[1]" : Int[1]
             #22 70-71 "1" : Int
             #24 74-100 "A.Foo(set arr w/= 0 <- 10)" : Unit
             #25 74-79 "A.Foo" : (Unit -> Unit)
             #29 79-100 "(set arr w/= 0 <- 10)" : Unit
             #30 80-99 "set arr w/= 0 <- 10" : Unit
-            #31 84-87 "arr" : Int[]
+            #31 84-87 "arr" : Int[1]
             #34 92-93 "0" : Int
             #35 97-99 "10" : Int
         "##]],

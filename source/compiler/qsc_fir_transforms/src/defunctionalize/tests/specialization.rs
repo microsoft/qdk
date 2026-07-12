@@ -4681,19 +4681,19 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let ops : (Qubit => Unit is Adj + Ctl)[] = [H, X];
-                let _generated_ident_84 : Unit = {
+                let _generated_ident_82 : Unit = {
                     let _array_id_51 : (Qubit => Unit is Adj + Ctl)[] = ops;
-                    let _len_id_55 : Int = Length(_array_id_51);
-                    mutable _index_id_60 : Int = 0;
-                    while _index_id_60 < _len_id_55 {
-                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_51[_index_id_60];
+                    let _len_id_54 : Int = 2;
+                    mutable _index_id_58 : Int = 0;
+                    while _index_id_58 < _len_id_54 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_51[_index_id_58];
                         ApplyTwo_AdjCtl__AdjCtl_(op, Y, q);
-                        _index_id_60 += 1;
+                        _index_id_58 += 1;
                     }
 
                 };
                 __quantum__rt__qubit_release(q);
-                _generated_ident_84
+                _generated_ident_82
             }
             operation ApplyTwo_AdjCtl__AdjCtl_(f : (Qubit => Unit is Adj + Ctl), g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 f(q);
@@ -4710,22 +4710,22 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let ops : (Qubit => Unit is Adj + Ctl)[] = [H, X];
-                let _generated_ident_84 : Unit = {
+                let _generated_ident_82 : Unit = {
                     let _array_id_51 : (Qubit => Unit is Adj + Ctl)[] = ops;
-                    let _len_id_55 : Int = Length(_array_id_51);
-                    mutable _index_id_60 : Int = 0;
-                    while _index_id_60 < _len_id_55 {
-                        if _index_id_60 == 0 {
+                    let _len_id_54 : Int = 2;
+                    mutable _index_id_58 : Int = 0;
+                    while _index_id_58 < _len_id_54 {
+                        if _index_id_58 == 0 {
                             ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
                         } else {
                             ApplyTwo_AdjCtl__AdjCtl__X__Y_(q)
                         };
-                        _index_id_60 += 1;
+                        _index_id_58 += 1;
                     }
 
                 };
                 __quantum__rt__qubit_release(q);
-                _generated_ident_84
+                _generated_ident_82
             }
             operation ApplyTwo_AdjCtl__AdjCtl_(f : (Qubit => Unit is Adj + Ctl), g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 f(q);
@@ -4792,9 +4792,9 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
             operation RunEach(ops : (Qubit => Unit)[], q : Qubit) : Unit {
                 {
                     let _array_id_55 : (Qubit => Unit)[] = ops;
-                    let _len_id_59 : Int = Length(_array_id_55);
+                    let _len_id_60 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while _index_id_64 < _len_id_60 {
                         let op : (Qubit => Unit) = _array_id_55[_index_id_64];
                         Run_Empty_(op, q);
                         _index_id_64 += 1;
@@ -4814,9 +4814,9 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
             operation RunEach_AdjCtl_(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit {
                 {
                     let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = ops;
-                    let _len_id_59 : Int = Length(_array_id_55);
+                    let _len_id_60 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while _index_id_64 < _len_id_60 {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
                         Run_Empty_(op, q);
                         _index_id_64 += 1;
@@ -4835,9 +4835,9 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
             operation RunEach(ops : (Qubit => Unit)[], q : Qubit) : Unit {
                 {
                     let _array_id_55 : (Qubit => Unit)[] = ops;
-                    let _len_id_59 : Int = Length(_array_id_55);
+                    let _len_id_60 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while _index_id_64 < _len_id_60 {
                         let op : (Qubit => Unit) = _array_id_55[_index_id_64];
                         Run_Empty_(op, q);
                         _index_id_64 += 1;
@@ -4857,9 +4857,9 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
             operation RunEach_AdjCtl_(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit {
                 {
                     let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = ops;
-                    let _len_id_59 : Int = Length(_array_id_55);
+                    let _len_id_60 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while _index_id_64 < _len_id_60 {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
                         Run_Empty_(op, q);
                         _index_id_64 += 1;
@@ -4871,9 +4871,9 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
             operation RunEach_AdjCtl__H__X_(q : Qubit) : Unit {
                 {
                     let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = [H, X];
-                    let _len_id_59 : Int = Length(_array_id_55);
+                    let _len_id_60 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while _index_id_64 < _len_id_60 {
                         if _index_id_64 == 0 {
                             Run_Empty__H_(q)
                         } else {

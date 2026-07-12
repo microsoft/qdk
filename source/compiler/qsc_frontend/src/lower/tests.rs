@@ -2232,7 +2232,7 @@ fn partial_app_hole_as_callee() {
                                     Expr 14 [106-110] [Type Result]: Call:
                                         Expr 15 [106-107] [Type ?3]: Var: Local 7
                                         Expr 16 [108-109] [Type Int]: Lit: Int(4)
-                                Stmt 17 [120-133]: Semi: Expr 18 [120-132] [Type Unit]: Return: Expr 19 [127-132] [Type Result[]]: Array:
+                                Stmt 17 [120-133]: Semi: Expr 18 [120-132] [Type Unit]: Return: Expr 19 [127-132] [Type Result[1]]: Array:
                                     Expr 20 [128-131] [Type Result]: Var: Local 13
                         adj: <none>
                         ctl: <none>

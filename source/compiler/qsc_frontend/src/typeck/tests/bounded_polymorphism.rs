@@ -174,8 +174,8 @@ fn iter() {
             #42 239-240 "x" : Bool
             #44 243-254 "Foo([true])" : Bool
             #45 243-246 "Foo" : (Bool[] -> Bool)
-            #48 246-254 "([true])" : Bool[]
-            #49 247-253 "[true]" : Bool[]
+            #48 246-254 "([true])" : Bool[1]
+            #49 247-253 "[true]" : Bool[1]
             #50 248-252 "true" : Bool
             Error(Type(Error(UnrecognizedClass { span: Span { lo: 112, hi: 113 }, name: "Iterable" })))
         "##]],

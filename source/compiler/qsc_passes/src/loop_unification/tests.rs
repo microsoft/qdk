@@ -63,20 +63,20 @@ fn convert_for_array() {
                                         Pat 19 [75-78] [Type Int[]]: Bind: Ident 17 [75-78] "@array_id_17"
                                         Expr 10 [75-78] [Type Int[]]: Var: Local 3
                                     Stmt 24 [0-0]: Local (Immutable):
-                                        Pat 25 [75-78] [Type Int]: Bind: Ident 21 [75-78] "@len_id_21"
-                                        Expr 22 [75-78] [Type Int]: Call:
+                                        Pat 25 [75-78] [Type Int]: Bind: Ident 22 [75-78] "@len_id_22"
+                                        Expr 23 [75-78] [Type Int]: Call:
                                             Expr 20 [75-78] [Type (Int[] -> Int)]: Var:
                                                 res: Item 1 (Package 0)
                                                 generics:
                                                     Int
-                                            Expr 23 [75-78] [Type Int[]]: Var: Local 17
+                                            Expr 21 [75-78] [Type Int[]]: Var: Local 17
                                     Stmt 28 [75-78]: Local (Mutable):
                                         Pat 29 [75-78] [Type Int]: Bind: Ident 26 [75-78] "@index_id_26"
                                         Expr 27 [75-78] [Type Int]: Lit: Int(0)
                                     Stmt 41 [0-0]: Expr: Expr 42 [66-125] [Type Unit]: While:
                                         Expr 38 [75-78] [Type Bool]: BinOp (Lt):
                                             Expr 39 [75-78] [Type Int]: Var: Local 26
-                                            Expr 40 [75-78] [Type Int]: Var: Local 21
+                                            Expr 40 [75-78] [Type Int]: Var: Local 22
                                         Block 11 [79-125] [Type Unit]:
                                             Stmt 30 [70-71]: Local (Immutable):
                                                 Pat 8 [70-71] [Type Int]: Bind: Ident 9 [70-71] "i"
@@ -126,20 +126,20 @@ fn convert_for_array_deconstruct() {
                                         Pat 22 [90-93] [Type (Int, Double)[]]: Bind: Ident 20 [90-93] "@array_id_20"
                                         Expr 13 [90-93] [Type (Int, Double)[]]: Var: Local 3
                                     Stmt 27 [0-0]: Local (Immutable):
-                                        Pat 28 [90-93] [Type Int]: Bind: Ident 24 [90-93] "@len_id_24"
-                                        Expr 25 [90-93] [Type Int]: Call:
+                                        Pat 28 [90-93] [Type Int]: Bind: Ident 25 [90-93] "@len_id_25"
+                                        Expr 26 [90-93] [Type Int]: Call:
                                             Expr 23 [90-93] [Type ((Int, Double)[] -> Int)]: Var:
                                                 res: Item 1 (Package 0)
                                                 generics:
                                                     (Int, Double)
-                                            Expr 26 [90-93] [Type (Int, Double)[]]: Var: Local 20
+                                            Expr 24 [90-93] [Type (Int, Double)[]]: Var: Local 20
                                     Stmt 31 [90-93]: Local (Mutable):
                                         Pat 32 [90-93] [Type Int]: Bind: Ident 29 [90-93] "@index_id_29"
                                         Expr 30 [90-93] [Type Int]: Lit: Int(0)
                                     Stmt 44 [0-0]: Expr: Expr 45 [76-140] [Type Unit]: While:
                                         Expr 41 [90-93] [Type Bool]: BinOp (Lt):
                                             Expr 42 [90-93] [Type Int]: Var: Local 29
-                                            Expr 43 [90-93] [Type Int]: Var: Local 24
+                                            Expr 43 [90-93] [Type Int]: Var: Local 25
                                         Block 14 [94-140] [Type Unit]:
                                             Stmt 33 [80-86]: Local (Immutable):
                                                 Pat 8 [80-86] [Type (Int, Double)]: Tuple:
@@ -197,20 +197,20 @@ fn convert_for_slice() {
                                                     Expr 15 [83-84] [Type Int]: Lit: Int(2)
                                                 Expr 16 [86-87] [Type Int]: Lit: Int(2)
                                     Stmt 30 [0-0]: Local (Immutable):
-                                        Pat 31 [75-88] [Type Int]: Bind: Ident 27 [75-88] "@len_id_27"
-                                        Expr 28 [75-88] [Type Int]: Call:
+                                        Pat 31 [75-88] [Type Int]: Bind: Ident 28 [75-88] "@len_id_28"
+                                        Expr 29 [75-88] [Type Int]: Call:
                                             Expr 26 [75-88] [Type (Int[] -> Int)]: Var:
                                                 res: Item 1 (Package 0)
                                                 generics:
                                                     Int
-                                            Expr 29 [75-88] [Type Int[]]: Var: Local 23
+                                            Expr 27 [75-88] [Type Int[]]: Var: Local 23
                                     Stmt 34 [75-88]: Local (Mutable):
                                         Pat 35 [75-88] [Type Int]: Bind: Ident 32 [75-88] "@index_id_32"
                                         Expr 33 [75-88] [Type Int]: Lit: Int(0)
                                     Stmt 47 [0-0]: Expr: Expr 48 [66-135] [Type Unit]: While:
                                         Expr 44 [75-88] [Type Bool]: BinOp (Lt):
                                             Expr 45 [75-88] [Type Int]: Var: Local 32
-                                            Expr 46 [75-88] [Type Int]: Var: Local 27
+                                            Expr 46 [75-88] [Type Int]: Var: Local 28
                                         Block 17 [89-135] [Type Unit]:
                                             Stmt 36 [70-71]: Local (Immutable):
                                                 Pat 8 [70-71] [Type Int]: Bind: Ident 9 [70-71] "i"
@@ -626,20 +626,20 @@ fn convert_treats_for_loop_with_short_circuit_expression_explicit_int() {
                                             Expr 11 [52-59] [Type Unit]: Fail: Expr 12 [57-59] [Type String]: String:
                                                 Lit: ""
                                         Stmt 22 [0-0]: Local (Immutable):
-                                            Pat 23 [52-59] [Type Int]: Bind: Ident 19 [52-59] "@len_id_19"
-                                            Expr 20 [52-59] [Type Int]: Call:
+                                            Pat 23 [52-59] [Type Int]: Bind: Ident 20 [52-59] "@len_id_20"
+                                            Expr 21 [52-59] [Type Int]: Call:
                                                 Expr 18 [52-59] [Type (Int[] -> Int)]: Var:
                                                     res: Item 1 (Package 0)
                                                     generics:
                                                         Int
-                                                Expr 21 [52-59] [Type Unit]: Var: Local 15
+                                                Expr 19 [52-59] [Type Unit]: Var: Local 15
                                         Stmt 26 [52-59]: Local (Mutable):
                                             Pat 27 [52-59] [Type Int]: Bind: Ident 24 [52-59] "@index_id_24"
                                             Expr 25 [52-59] [Type Int]: Lit: Int(0)
                                         Stmt 39 [0-0]: Expr: Expr 40 [37-62] [Type Unit]: While:
                                             Expr 36 [52-59] [Type Bool]: BinOp (Lt):
                                                 Expr 37 [52-59] [Type Int]: Var: Local 24
-                                                Expr 38 [52-59] [Type Int]: Var: Local 19
+                                                Expr 38 [52-59] [Type Int]: Var: Local 20
                                             Block 13 [60-62] [Type Unit]:
                                                 Stmt 28 [41-48]: Local (Immutable):
                                                     Pat 9 [41-48] [Type Int]: Bind: Ident 10 [41-42] "i"
@@ -684,20 +684,20 @@ fn convert_treats_for_loop_with_short_circuit_expression_explicit_non_int() {
                                             Expr 11 [55-62] [Type Unit]: Fail: Expr 12 [60-62] [Type String]: String:
                                                 Lit: ""
                                         Stmt 22 [0-0]: Local (Immutable):
-                                            Pat 23 [55-62] [Type Int]: Bind: Ident 19 [55-62] "@len_id_19"
-                                            Expr 20 [55-62] [Type Int]: Call:
+                                            Pat 23 [55-62] [Type Int]: Bind: Ident 20 [55-62] "@len_id_20"
+                                            Expr 21 [55-62] [Type Int]: Call:
                                                 Expr 18 [55-62] [Type (String[] -> Int)]: Var:
                                                     res: Item 1 (Package 0)
                                                     generics:
                                                         String
-                                                Expr 21 [55-62] [Type Unit]: Var: Local 15
+                                                Expr 19 [55-62] [Type Unit]: Var: Local 15
                                         Stmt 26 [55-62]: Local (Mutable):
                                             Pat 27 [55-62] [Type Int]: Bind: Ident 24 [55-62] "@index_id_24"
                                             Expr 25 [55-62] [Type Int]: Lit: Int(0)
                                         Stmt 39 [0-0]: Expr: Expr 40 [37-65] [Type Unit]: While:
                                             Expr 36 [55-62] [Type Bool]: BinOp (Lt):
                                                 Expr 37 [55-62] [Type Int]: Var: Local 24
-                                                Expr 38 [55-62] [Type Int]: Var: Local 19
+                                                Expr 38 [55-62] [Type Int]: Var: Local 20
                                             Block 13 [63-65] [Type Unit]:
                                                 Stmt 28 [41-51]: Local (Immutable):
                                                     Pat 9 [41-51] [Type String]: Bind: Ident 10 [41-42] "i"

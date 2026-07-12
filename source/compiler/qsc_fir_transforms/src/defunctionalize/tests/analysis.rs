@@ -2782,19 +2782,19 @@ fn analysis_callable_from_constant_callable_array_loop() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let ops : (Qubit => Unit is Adj + Ctl)[] = [H, X];
-                let _generated_ident_77 : Unit = {
+                let _generated_ident_75 : Unit = {
                     let _array_id_44 : (Qubit => Unit is Adj + Ctl)[] = ops;
-                    let _len_id_48 : Int = Length(_array_id_44);
-                    mutable _index_id_53 : Int = 0;
-                    while _index_id_53 < _len_id_48 {
-                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_44[_index_id_53];
+                    let _len_id_47 : Int = 2;
+                    mutable _index_id_51 : Int = 0;
+                    while _index_id_51 < _len_id_47 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_44[_index_id_51];
                         ApplyOp_AdjCtl_(op, q);
-                        _index_id_53 += 1;
+                        _index_id_51 += 1;
                     }
 
                 };
                 __quantum__rt__qubit_release(q);
-                _generated_ident_77
+                _generated_ident_75
             }
             operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 op(q);
@@ -2809,22 +2809,22 @@ fn analysis_callable_from_constant_callable_array_loop() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let ops : (Qubit => Unit is Adj + Ctl)[] = [H, X];
-                let _generated_ident_77 : Unit = {
+                let _generated_ident_75 : Unit = {
                     let _array_id_44 : (Qubit => Unit is Adj + Ctl)[] = ops;
-                    let _len_id_48 : Int = Length(_array_id_44);
-                    mutable _index_id_53 : Int = 0;
-                    while _index_id_53 < _len_id_48 {
-                        if _index_id_53 == 0 {
+                    let _len_id_47 : Int = 2;
+                    mutable _index_id_51 : Int = 0;
+                    while _index_id_51 < _len_id_47 {
+                        if _index_id_51 == 0 {
                             ApplyOp_AdjCtl__H_(q)
                         } else {
                             ApplyOp_AdjCtl__X_(q)
                         };
-                        _index_id_53 += 1;
+                        _index_id_51 += 1;
                     }
 
                 };
                 __quantum__rt__qubit_release(q);
-                _generated_ident_77
+                _generated_ident_75
             }
             operation ApplyOp_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
                 op(q);
@@ -3117,9 +3117,9 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
             operation PreparePhase(ancillas : Qubit[]) : Unit {
                 {
                     let _array_id_257 : Qubit[] = ancillas;
-                    let _len_id_261 : Int = Length(_array_id_257);
+                    let _len_id_262 : Int = Length(_array_id_257);
                     mutable _index_id_266 : Int = 0;
-                    while _index_id_266 < _len_id_261 {
+                    while _index_id_266 < _len_id_262 {
                         let q : Qubit = _array_id_257[_index_id_266];
                         H(q);
                         _index_id_266 += 1;
@@ -3204,9 +3204,9 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
             operation PreparePhase(ancillas : Qubit[]) : Unit {
                 {
                     let _array_id_257 : Qubit[] = ancillas;
-                    let _len_id_261 : Int = Length(_array_id_257);
+                    let _len_id_262 : Int = Length(_array_id_257);
                     mutable _index_id_266 : Int = 0;
-                    while _index_id_266 < _len_id_261 {
+                    while _index_id_266 < _len_id_262 {
                         let q : Qubit = _array_id_257[_index_id_266];
                         H(q);
                         _index_id_266 += 1;
@@ -3367,9 +3367,9 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
             operation PreparePhase(ancillas : Qubit[]) : Unit {
                 {
                     let _array_id_265 : Qubit[] = ancillas;
-                    let _len_id_269 : Int = Length(_array_id_265);
+                    let _len_id_270 : Int = Length(_array_id_265);
                     mutable _index_id_274 : Int = 0;
-                    while _index_id_274 < _len_id_269 {
+                    while _index_id_274 < _len_id_270 {
                         let q : Qubit = _array_id_265[_index_id_274];
                         H(q);
                         _index_id_274 += 1;
@@ -3456,9 +3456,9 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
             operation PreparePhase(ancillas : Qubit[]) : Unit {
                 {
                     let _array_id_265 : Qubit[] = ancillas;
-                    let _len_id_269 : Int = Length(_array_id_265);
+                    let _len_id_270 : Int = Length(_array_id_265);
                     mutable _index_id_274 : Int = 0;
-                    while _index_id_274 < _len_id_269 {
+                    while _index_id_274 < _len_id_270 {
                         let q : Qubit = _array_id_265[_index_id_274];
                         H(q);
                         _index_id_274 += 1;
@@ -3629,9 +3629,9 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
             operation PreparePhase(ancillas : Qubit[]) : Unit {
                 {
                     let _array_id_262 : Qubit[] = ancillas;
-                    let _len_id_266 : Int = Length(_array_id_262);
+                    let _len_id_267 : Int = Length(_array_id_262);
                     mutable _index_id_271 : Int = 0;
-                    while _index_id_271 < _len_id_266 {
+                    while _index_id_271 < _len_id_267 {
                         let q : Qubit = _array_id_262[_index_id_271];
                         H(q);
                         _index_id_271 += 1;
@@ -3702,9 +3702,9 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
             operation PreparePhase(ancillas : Qubit[]) : Unit {
                 {
                     let _array_id_262 : Qubit[] = ancillas;
-                    let _len_id_266 : Int = Length(_array_id_262);
+                    let _len_id_267 : Int = Length(_array_id_262);
                     mutable _index_id_271 : Int = 0;
-                    while _index_id_271 < _len_id_266 {
+                    while _index_id_271 < _len_id_267 {
                         let q : Qubit = _array_id_262[_index_id_271];
                         H(q);
                         _index_id_271 += 1;
@@ -3813,21 +3813,21 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
             operation Main() : Unit {
                 let register : Qubit[] = AllocateQubitArray(1);
                 let target : Qubit = __quantum__rt__qubit_allocate();
-                let _generated_ident_156 : Unit = {
+                let _generated_ident_154 : Unit = {
                     let _array_id_118 : Int[] = [1, 2];
-                    let _len_id_122 : Int = Length(_array_id_118);
-                    mutable _index_id_127 : Int = 0;
-                    while _index_id_127 < _len_id_122 {
-                        let value : Int = _array_id_118[_index_id_127];
+                    let _len_id_121 : Int = 2;
+                    mutable _index_id_125 : Int = 0;
+                    while _index_id_125 < _len_id_121 {
+                        let value : Int = _array_id_118[_index_id_125];
                         let oracle : ((Qubit[], Qubit) => Unit) = Encode(value);
                         ApplyOp_Empty_(oracle, register, target);
-                        _index_id_127 += 1;
+                        _index_id_125 += 1;
                     }
 
                 };
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
-                _generated_ident_156
+                _generated_ident_154
             }
             operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
@@ -3857,20 +3857,20 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
             operation Main() : Unit {
                 let register : Qubit[] = AllocateQubitArray(1);
                 let target : Qubit = __quantum__rt__qubit_allocate();
-                let _generated_ident_156 : Unit = {
+                let _generated_ident_154 : Unit = {
                     let _array_id_118 : Int[] = [1, 2];
-                    let _len_id_122 : Int = Length(_array_id_118);
-                    mutable _index_id_127 : Int = 0;
-                    while _index_id_127 < _len_id_122 {
-                        let value : Int = _array_id_118[_index_id_127];
+                    let _len_id_121 : Int = 2;
+                    mutable _index_id_125 : Int = 0;
+                    while _index_id_125 < _len_id_121 {
+                        let value : Int = _array_id_118[_index_id_125];
                         ApplyOp_Empty__closure_(register, target, value);
-                        _index_id_127 += 1;
+                        _index_id_125 += 1;
                     }
 
                 };
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
-                _generated_ident_156
+                _generated_ident_154
             }
             operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
                 ApplyParityOperation(arg, hole, hole)
@@ -5230,13 +5230,13 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
                 let arr : ((Qubit => Unit is Adj + Ctl), Pauli)[] = [(S, PauliZ), (T, PauliX)];
                 {
                     let _array_id_36 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = arr;
-                    let _len_id_40 : Int = Length(_array_id_36);
-                    mutable _index_id_45 : Int = 0;
-                    while _index_id_45 < _len_id_40 {
-                        let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
+                    let _len_id_39 : Int = 2;
+                    mutable _index_id_43 : Int = 0;
+                    while _index_id_43 < _len_id_39 {
+                        let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_43];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         op(q);
-                        _index_id_45 += 1;
+                        _index_id_43 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -5251,16 +5251,16 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
                 let arr : ((Qubit => Unit is Adj + Ctl), Pauli)[] = [(S, PauliZ), (T, PauliX)];
                 {
                     let _array_id_36 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = arr;
-                    let _len_id_40 : Int = Length(_array_id_36);
-                    mutable _index_id_45 : Int = 0;
-                    while _index_id_45 < _len_id_40 {
+                    let _len_id_39 : Int = 2;
+                    mutable _index_id_43 : Int = 0;
+                    while _index_id_43 < _len_id_39 {
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_45 == 0 {
+                        if _index_id_43 == 0 {
                             S(q)
                         } else {
                             T(q)
                         };
-                        _index_id_45 += 1;
+                        _index_id_43 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 

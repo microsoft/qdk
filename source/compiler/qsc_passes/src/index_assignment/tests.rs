@@ -56,7 +56,7 @@ fn convert_array_assign() {
                             Block 4 [24-69] [Type Unit]:
                                 Stmt 5 [30-51]: Local (Mutable):
                                     Pat 6 [38-41] [Type Int[]]: Bind: Ident 7 [38-41] "arr"
-                                    Expr 8 [44-50] [Type Int[]]: Array:
+                                    Expr 8 [44-50] [Type Int[2]]: Array:
                                         Expr 9 [45-46] [Type Int]: Lit: Int(0)
                                         Expr 10 [48-49] [Type Int]: Lit: Int(1)
                                 Stmt 11 [56-67]: Semi: Expr 25 [56-66] [Type Unit]: Expr Block: Block 26 [56-66] [Type Unit]:
@@ -96,12 +96,12 @@ fn convert_2d_array_assign() {
                         body: SpecDecl 3 [0-82]: Impl:
                             Block 4 [24-82] [Type Unit]:
                                 Stmt 5 [30-61]: Local (Mutable):
-                                    Pat 6 [38-41] [Type Int[][]]: Bind: Ident 7 [38-41] "arr"
-                                    Expr 8 [44-60] [Type Int[][]]: Array:
-                                        Expr 9 [45-51] [Type Int[]]: Array:
+                                    Pat 6 [38-41] [Type Int[2][]]: Bind: Ident 7 [38-41] "arr"
+                                    Expr 8 [44-60] [Type Int[2][2]]: Array:
+                                        Expr 9 [45-51] [Type Int[2]]: Array:
                                             Expr 10 [46-47] [Type Int]: Lit: Int(0)
                                             Expr 11 [49-50] [Type Int]: Lit: Int(1)
-                                        Expr 12 [53-59] [Type Int[]]: Array:
+                                        Expr 12 [53-59] [Type Int[2]]: Array:
                                             Expr 13 [54-55] [Type Int]: Lit: Int(2)
                                             Expr 14 [57-58] [Type Int]: Lit: Int(3)
                                 Stmt 15 [66-80]: Semi: Expr 39 [66-79] [Type Unit]: Expr Block: Block 40 [66-79] [Type Unit]:
@@ -112,11 +112,11 @@ fn convert_2d_array_assign() {
                                         Pat 29 [73-74] [Type Int]: Bind: Ident 27 [73-74] "@index_27"
                                         Expr 21 [73-74] [Type Int]: Lit: Int(1)
                                     Stmt 38 [0-0]: Expr: Expr 36 [0-0] [Type Unit]: AssignIndex:
-                                        Expr 35 [66-69] [Type Int[][]]: Var: Local 7
+                                        Expr 35 [66-69] [Type Int[2][]]: Var: Local 7
                                         Expr 37 [70-71] [Type Int]: Var: Local 24
-                                        Expr 33 [0-0] [Type Int[]]: UpdateIndex:
-                                            Expr 31 [0-0] [Type Int[]]: Index:
-                                                Expr 30 [66-69] [Type Int[][]]: Var: Local 7
+                                        Expr 33 [0-0] [Type Int[2]]: UpdateIndex:
+                                            Expr 31 [0-0] [Type Int[2]]: Index:
+                                                Expr 30 [66-69] [Type Int[2][]]: Var: Local 7
                                                 Expr 32 [70-71] [Type Int]: Var: Local 24
                                             Expr 34 [73-74] [Type Int]: Var: Local 27
                                             Expr 22 [78-79] [Type Int]: Lit: Int(3)
@@ -149,20 +149,20 @@ fn convert_3d_array_assign() {
                         body: SpecDecl 3 [0-142]: Impl:
                             Block 4 [24-142] [Type Unit]:
                                 Stmt 5 [30-113]: Local (Mutable):
-                                    Pat 6 [38-41] [Type Int[][][]]: Bind: Ident 7 [38-41] "arr"
-                                    Expr 8 [44-112] [Type Int[][][]]: Array:
-                                        Expr 9 [45-77] [Type Int[][]]: Array:
-                                            Expr 10 [46-60] [Type Int[]]: Array:
+                                    Pat 6 [38-41] [Type Int[2][2][]]: Bind: Ident 7 [38-41] "arr"
+                                    Expr 8 [44-112] [Type Int[2][2][2]]: Array:
+                                        Expr 9 [45-77] [Type Int[2][2]]: Array:
+                                            Expr 10 [46-60] [Type Int[2]]: Array:
                                                 Expr 11 [47-52] [Type Int]: Lit: Int(0)
                                                 Expr 12 [54-59] [Type Int]: Lit: Int(1)
-                                            Expr 13 [62-76] [Type Int[]]: Array:
+                                            Expr 13 [62-76] [Type Int[2]]: Array:
                                                 Expr 14 [63-68] [Type Int]: Lit: Int(2)
                                                 Expr 15 [70-75] [Type Int]: Lit: Int(3)
-                                        Expr 16 [79-111] [Type Int[][]]: Array:
-                                            Expr 17 [80-94] [Type Int[]]: Array:
+                                        Expr 16 [79-111] [Type Int[2][2]]: Array:
+                                            Expr 17 [80-94] [Type Int[2]]: Array:
                                                 Expr 18 [81-86] [Type Int]: Lit: Int(4)
                                                 Expr 19 [88-93] [Type Int]: Lit: Int(5)
-                                            Expr 20 [96-110] [Type Int[]]: Array:
+                                            Expr 20 [96-110] [Type Int[2]]: Array:
                                                 Expr 21 [97-102] [Type Int]: Lit: Int(6)
                                                 Expr 22 [104-109] [Type Int]: Lit: Int(7)
                                 Stmt 23 [118-140]: Semi: Expr 59 [118-139] [Type Unit]: Expr Block: Block 60 [118-139] [Type Unit]:
@@ -176,17 +176,17 @@ fn convert_3d_array_assign() {
                                         Pat 42 [128-129] [Type Int]: Bind: Ident 40 [128-129] "@index_40"
                                         Expr 31 [128-129] [Type Int]: Lit: Int(1)
                                     Stmt 58 [0-0]: Expr: Expr 56 [0-0] [Type Unit]: AssignIndex:
-                                        Expr 55 [118-121] [Type Int[][][]]: Var: Local 7
+                                        Expr 55 [118-121] [Type Int[2][2][]]: Var: Local 7
                                         Expr 57 [122-123] [Type Int]: Var: Local 34
-                                        Expr 53 [0-0] [Type Int[][]]: UpdateIndex:
-                                            Expr 51 [0-0] [Type Int[][]]: Index:
-                                                Expr 50 [118-121] [Type Int[][][]]: Var: Local 7
+                                        Expr 53 [0-0] [Type Int[2][2]]: UpdateIndex:
+                                            Expr 51 [0-0] [Type Int[2][2]]: Index:
+                                                Expr 50 [118-121] [Type Int[2][2][]]: Var: Local 7
                                                 Expr 52 [122-123] [Type Int]: Var: Local 34
                                             Expr 54 [125-126] [Type Int]: Var: Local 37
-                                            Expr 48 [0-0] [Type Int[]]: UpdateIndex:
-                                                Expr 46 [0-0] [Type Int[]]: Index:
-                                                    Expr 44 [0-0] [Type Int[][]]: Index:
-                                                        Expr 43 [118-121] [Type Int[][][]]: Var: Local 7
+                                            Expr 48 [0-0] [Type Int[2]]: UpdateIndex:
+                                                Expr 46 [0-0] [Type Int[2]]: Index:
+                                                    Expr 44 [0-0] [Type Int[2][2]]: Index:
+                                                        Expr 43 [118-121] [Type Int[2][2][]]: Var: Local 7
                                                         Expr 45 [122-123] [Type Int]: Var: Local 34
                                                     Expr 47 [125-126] [Type Int]: Var: Local 37
                                                 Expr 49 [128-129] [Type Int]: Var: Local 40
@@ -221,7 +221,7 @@ fn convert_array_assign_range() {
                             Block 4 [24-86] [Type Unit]:
                                 Stmt 5 [30-57]: Local (Mutable):
                                     Pat 6 [38-41] [Type Int[]]: Bind: Ident 7 [38-41] "arr"
-                                    Expr 8 [44-56] [Type Int[]]: Array:
+                                    Expr 8 [44-56] [Type Int[4]]: Array:
                                         Expr 9 [45-46] [Type Int]: Lit: Int(0)
                                         Expr 10 [48-49] [Type Int]: Lit: Int(1)
                                         Expr 11 [51-52] [Type Int]: Lit: Int(2)
@@ -236,7 +236,7 @@ fn convert_array_assign_range() {
                                     Stmt 31 [0-0]: Expr: Expr 29 [0-0] [Type Unit]: AssignIndex:
                                         Expr 28 [62-65] [Type Int[]]: Var: Local 7
                                         Expr 30 [66-70] [Type Range]: Var: Local 25
-                                        Expr 20 [74-83] [Type Int[]]: Array:
+                                        Expr 20 [74-83] [Type Int[3]]: Array:
                                             Expr 21 [75-76] [Type Int]: Lit: Int(4)
                                             Expr 22 [78-79] [Type Int]: Lit: Int(5)
                                             Expr 23 [81-82] [Type Int]: Lit: Int(6)
@@ -270,7 +270,7 @@ fn convert_array_assign_single_with_range() {
                             Block 4 [24-81] [Type Unit]:
                                 Stmt 5 [30-57]: Local (Mutable):
                                     Pat 6 [38-41] [Type Int[]]: Bind: Ident 7 [38-41] "arr"
-                                    Expr 8 [44-56] [Type Int[]]: Array:
+                                    Expr 8 [44-56] [Type Int[4]]: Array:
                                         Expr 9 [45-46] [Type Int]: Lit: Int(0)
                                         Expr 10 [48-49] [Type Int]: Lit: Int(1)
                                         Expr 11 [51-52] [Type Int]: Lit: Int(2)
@@ -324,7 +324,7 @@ fn convert_array_assign_op() {
                             Block 4 [24-70] [Type Unit]:
                                 Stmt 5 [30-51]: Local (Mutable):
                                     Pat 6 [38-41] [Type Int[]]: Bind: Ident 7 [38-41] "arr"
-                                    Expr 8 [44-50] [Type Int[]]: Array:
+                                    Expr 8 [44-50] [Type Int[2]]: Array:
                                         Expr 9 [45-46] [Type Int]: Lit: Int(0)
                                         Expr 10 [48-49] [Type Int]: Lit: Int(1)
                                 Stmt 11 [56-68]: Semi: Expr 29 [56-67] [Type Unit]: Expr Block: Block 30 [56-67] [Type Unit]:
@@ -368,12 +368,12 @@ fn convert_2d_array_assign_op() {
                         body: SpecDecl 3 [0-83]: Impl:
                             Block 4 [24-83] [Type Unit]:
                                 Stmt 5 [30-61]: Local (Mutable):
-                                    Pat 6 [38-41] [Type Int[][]]: Bind: Ident 7 [38-41] "arr"
-                                    Expr 8 [44-60] [Type Int[][]]: Array:
-                                        Expr 9 [45-51] [Type Int[]]: Array:
+                                    Pat 6 [38-41] [Type Int[2][]]: Bind: Ident 7 [38-41] "arr"
+                                    Expr 8 [44-60] [Type Int[2][2]]: Array:
+                                        Expr 9 [45-51] [Type Int[2]]: Array:
                                             Expr 10 [46-47] [Type Int]: Lit: Int(0)
                                             Expr 11 [49-50] [Type Int]: Lit: Int(1)
-                                        Expr 12 [53-59] [Type Int[]]: Array:
+                                        Expr 12 [53-59] [Type Int[2]]: Array:
                                             Expr 13 [54-55] [Type Int]: Lit: Int(2)
                                             Expr 14 [57-58] [Type Int]: Lit: Int(3)
                                 Stmt 15 [66-81]: Semi: Expr 45 [66-80] [Type Unit]: Expr Block: Block 46 [66-80] [Type Unit]:
@@ -384,17 +384,17 @@ fn convert_2d_array_assign_op() {
                                         Pat 29 [73-74] [Type Int]: Bind: Ident 27 [73-74] "@index_27"
                                         Expr 21 [73-74] [Type Int]: Lit: Int(1)
                                     Stmt 44 [0-0]: Expr: Expr 42 [0-0] [Type Unit]: AssignIndex:
-                                        Expr 41 [66-69] [Type Int[][]]: Var: Local 7
+                                        Expr 41 [66-69] [Type Int[2][]]: Var: Local 7
                                         Expr 43 [70-71] [Type Int]: Var: Local 24
-                                        Expr 39 [0-0] [Type Int[]]: UpdateIndex:
-                                            Expr 37 [0-0] [Type Int[]]: Index:
-                                                Expr 36 [66-69] [Type Int[][]]: Var: Local 7
+                                        Expr 39 [0-0] [Type Int[2]]: UpdateIndex:
+                                            Expr 37 [0-0] [Type Int[2]]: Index:
+                                                Expr 36 [66-69] [Type Int[2][]]: Var: Local 7
                                                 Expr 38 [70-71] [Type Int]: Var: Local 24
                                             Expr 40 [73-74] [Type Int]: Var: Local 27
                                             Expr 35 [66-80] [Type Unit]: BinOp (Mul):
                                                 Expr 33 [0-0] [Type Int]: Index:
-                                                    Expr 31 [0-0] [Type Int[]]: Index:
-                                                        Expr 30 [66-69] [Type Int[][]]: Var: Local 7
+                                                    Expr 31 [0-0] [Type Int[2]]: Index:
+                                                        Expr 30 [66-69] [Type Int[2][]]: Var: Local 7
                                                         Expr 32 [70-71] [Type Int]: Var: Local 24
                                                     Expr 34 [73-74] [Type Int]: Var: Local 27
                                                 Expr 22 [79-80] [Type Int]: Lit: Int(2)

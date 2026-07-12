@@ -2071,13 +2071,13 @@ fn pipeline_callable_from_tuple_destructured_array_iteration() {
                 let arr : ((Qubit => Unit is Adj + Ctl), Pauli)[] = [(S, PauliZ), (T, PauliX)];
                 {
                     let _array_id_36 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = arr;
-                    let _len_id_40 : Int = Length(_array_id_36);
-                    mutable _index_id_45 : Int = 0;
-                    while _index_id_45 < _len_id_40 {
-                        let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
+                    let _len_id_39 : Int = 2;
+                    mutable _index_id_43 : Int = 0;
+                    while _index_id_43 < _len_id_39 {
+                        let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_43];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         op(q);
-                        _index_id_45 += 1;
+                        _index_id_43 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -2092,16 +2092,16 @@ fn pipeline_callable_from_tuple_destructured_array_iteration() {
                 let arr : ((Qubit => Unit is Adj + Ctl), Pauli)[] = [(S, PauliZ), (T, PauliX)];
                 {
                     let _array_id_36 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = arr;
-                    let _len_id_40 : Int = Length(_array_id_36);
-                    mutable _index_id_45 : Int = 0;
-                    while _index_id_45 < _len_id_40 {
+                    let _len_id_39 : Int = 2;
+                    mutable _index_id_43 : Int = 0;
+                    while _index_id_43 < _len_id_39 {
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_45 == 0 {
+                        if _index_id_43 == 0 {
                             S(q)
                         } else {
                             T(q)
                         };
-                        _index_id_45 += 1;
+                        _index_id_43 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -2182,13 +2182,13 @@ fn pipeline_teleportation_pattern_callable_from_array_of_tuples() {
                 let ops : ((Qubit => Unit is Adj + Ctl), Pauli)[] = [(I, PauliZ), (X, PauliZ), (SetToPlus, PauliX), (SetToMinus, PauliX)];
                 {
                     let _array_id_156 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = ops;
-                    let _len_id_160 : Int = Length(_array_id_156);
-                    mutable _index_id_165 : Int = 0;
-                    while _index_id_165 < _len_id_160 {
-                        let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_156[_index_id_165];
+                    let _len_id_159 : Int = 4;
+                    mutable _index_id_163 : Int = 0;
+                    while _index_id_163 < _len_id_159 {
+                        let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_156[_index_id_163];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         initializer(q);
-                        _index_id_165 += 1;
+                        _index_id_163 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -2235,20 +2235,20 @@ fn pipeline_teleportation_pattern_callable_from_array_of_tuples() {
                 let ops : ((Qubit => Unit is Adj + Ctl), Pauli)[] = [(I, PauliZ), (X, PauliZ), (SetToPlus, PauliX), (SetToMinus, PauliX)];
                 {
                     let _array_id_156 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = ops;
-                    let _len_id_160 : Int = Length(_array_id_156);
-                    mutable _index_id_165 : Int = 0;
-                    while _index_id_165 < _len_id_160 {
+                    let _len_id_159 : Int = 4;
+                    mutable _index_id_163 : Int = 0;
+                    while _index_id_163 < _len_id_159 {
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_165 == 0 {
+                        if _index_id_163 == 0 {
                             I(q)
-                        } else if _index_id_165 == 1 {
+                        } else if _index_id_163 == 1 {
                             X(q)
-                        } else if _index_id_165 == 2 {
+                        } else if _index_id_163 == 2 {
                             SetToPlus(q)
                         } else {
                             SetToMinus(q)
                         };
-                        _index_id_165 += 1;
+                        _index_id_163 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -2329,13 +2329,13 @@ fn pipeline_callable_at_middle_of_three_tuple_from_array_iteration() {
                 let ops : (Pauli, (Qubit => Unit is Adj + Ctl), Bool)[] = [(PauliZ, I, false), (PauliZ, X, false), (PauliX, SetToPlus, true), (PauliX, SetToMinus, true)];
                 {
                     let _array_id_162 : (Pauli, (Qubit => Unit is Adj + Ctl), Bool)[] = ops;
-                    let _len_id_166 : Int = Length(_array_id_162);
-                    mutable _index_id_171 : Int = 0;
-                    while _index_id_171 < _len_id_166 {
-                        let (_basis : Pauli, initializer : (Qubit => Unit is Adj + Ctl), _flag : Bool) = _array_id_162[_index_id_171];
+                    let _len_id_165 : Int = 4;
+                    mutable _index_id_169 : Int = 0;
+                    while _index_id_169 < _len_id_165 {
+                        let (_basis : Pauli, initializer : (Qubit => Unit is Adj + Ctl), _flag : Bool) = _array_id_162[_index_id_169];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         initializer(q);
-                        _index_id_171 += 1;
+                        _index_id_169 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -2382,20 +2382,20 @@ fn pipeline_callable_at_middle_of_three_tuple_from_array_iteration() {
                 let ops : (Pauli, (Qubit => Unit is Adj + Ctl), Bool)[] = [(PauliZ, I, false), (PauliZ, X, false), (PauliX, SetToPlus, true), (PauliX, SetToMinus, true)];
                 {
                     let _array_id_162 : (Pauli, (Qubit => Unit is Adj + Ctl), Bool)[] = ops;
-                    let _len_id_166 : Int = Length(_array_id_162);
-                    mutable _index_id_171 : Int = 0;
-                    while _index_id_171 < _len_id_166 {
+                    let _len_id_165 : Int = 4;
+                    mutable _index_id_169 : Int = 0;
+                    while _index_id_169 < _len_id_165 {
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_171 == 0 {
+                        if _index_id_169 == 0 {
                             I(q)
-                        } else if _index_id_171 == 1 {
+                        } else if _index_id_169 == 1 {
                             X(q)
-                        } else if _index_id_171 == 2 {
+                        } else if _index_id_169 == 2 {
                             SetToPlus(q)
                         } else {
                             SetToMinus(q)
                         };
-                        _index_id_171 += 1;
+                        _index_id_169 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -2478,15 +2478,15 @@ fn pipeline_teleportation_like_callable_from_string_tagged_triple_array() {
                 let ops : ((Qubit => Unit is Adj + Ctl), Pauli)[] = [(I, PauliZ), (X, PauliZ), (SetToPlus, PauliX), (SetToMinus, PauliX)];
                 {
                     let _array_id_169 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = ops;
-                    let _len_id_173 : Int = Length(_array_id_169);
-                    mutable _index_id_178 : Int = 0;
-                    while _index_id_178 < _len_id_173 {
-                        let (initializer : (Qubit => Unit is Adj + Ctl), basis : Pauli) = _array_id_169[_index_id_178];
+                    let _len_id_172 : Int = 4;
+                    mutable _index_id_176 : Int = 0;
+                    while _index_id_176 < _len_id_172 {
+                        let (initializer : (Qubit => Unit is Adj + Ctl), basis : Pauli) = _array_id_169[_index_id_176];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         initializer(q);
                         let _ : Result = Measure([basis], [q]);
                         Reset(q);
-                        _index_id_178 += 1;
+                        _index_id_176 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -2533,23 +2533,23 @@ fn pipeline_teleportation_like_callable_from_string_tagged_triple_array() {
                 let ops : ((Qubit => Unit is Adj + Ctl), Pauli)[] = [(I, PauliZ), (X, PauliZ), (SetToPlus, PauliX), (SetToMinus, PauliX)];
                 {
                     let _array_id_169 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = ops;
-                    let _len_id_173 : Int = Length(_array_id_169);
-                    mutable _index_id_178 : Int = 0;
-                    while _index_id_178 < _len_id_173 {
-                        let (initializer : (Qubit => Unit is Adj + Ctl), basis : Pauli) = _array_id_169[_index_id_178];
+                    let _len_id_172 : Int = 4;
+                    mutable _index_id_176 : Int = 0;
+                    while _index_id_176 < _len_id_172 {
+                        let (initializer : (Qubit => Unit is Adj + Ctl), basis : Pauli) = _array_id_169[_index_id_176];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_178 == 0 {
+                        if _index_id_176 == 0 {
                             I(q)
-                        } else if _index_id_178 == 1 {
+                        } else if _index_id_176 == 1 {
                             X(q)
-                        } else if _index_id_178 == 2 {
+                        } else if _index_id_176 == 2 {
                             SetToPlus(q)
                         } else {
                             SetToMinus(q)
                         };
                         let _ : Result = Measure([basis], [q]);
                         Reset(q);
-                        _index_id_178 += 1;
+                        _index_id_176 += 1;
                         __quantum__rt__qubit_release(q);
                     }
 
@@ -2602,19 +2602,19 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
             operation Main() : Unit {
                 let gates : (Qubit => Unit is Adj + Ctl)[] = [H, X, Y, Z, S, Adjoint S, SX];
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let _generated_ident_137 : Unit = {
+                let _generated_ident_135 : Unit = {
                     let _array_id_104 : (Qubit => Unit is Adj + Ctl)[] = gates;
-                    let _len_id_108 : Int = Length(_array_id_104);
-                    mutable _index_id_113 : Int = 0;
-                    while _index_id_113 < _len_id_108 {
-                        let gate : (Qubit => Unit is Adj + Ctl) = _array_id_104[_index_id_113];
+                    let _len_id_107 : Int = 7;
+                    mutable _index_id_111 : Int = 0;
+                    while _index_id_111 < _len_id_107 {
+                        let gate : (Qubit => Unit is Adj + Ctl) = _array_id_104[_index_id_111];
                         gate(q);
-                        _index_id_113 += 1;
+                        _index_id_111 += 1;
                     }
 
                 };
                 __quantum__rt__qubit_release(q);
-                _generated_ident_137
+                _generated_ident_135
             }
             // entry
             Main()
@@ -2637,32 +2637,32 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
             operation Main() : Unit {
                 let gates : (Qubit => Unit is Adj + Ctl)[] = [H, X, Y, Z, S, Adjoint S, SX];
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let _generated_ident_137 : Unit = {
+                let _generated_ident_135 : Unit = {
                     let _array_id_104 : (Qubit => Unit is Adj + Ctl)[] = gates;
-                    let _len_id_108 : Int = Length(_array_id_104);
-                    mutable _index_id_113 : Int = 0;
-                    while _index_id_113 < _len_id_108 {
-                        if _index_id_113 == 0 {
+                    let _len_id_107 : Int = 7;
+                    mutable _index_id_111 : Int = 0;
+                    while _index_id_111 < _len_id_107 {
+                        if _index_id_111 == 0 {
                             H(q)
-                        } else if _index_id_113 == 1 {
+                        } else if _index_id_111 == 1 {
                             X(q)
-                        } else if _index_id_113 == 2 {
+                        } else if _index_id_111 == 2 {
                             Y(q)
-                        } else if _index_id_113 == 3 {
+                        } else if _index_id_111 == 3 {
                             Z(q)
-                        } else if _index_id_113 == 4 {
+                        } else if _index_id_111 == 4 {
                             S(q)
-                        } else if _index_id_113 == 5 {
+                        } else if _index_id_111 == 5 {
                             Adjoint S(q)
                         } else {
                             SX(q)
                         };
-                        _index_id_113 += 1;
+                        _index_id_111 += 1;
                     }
 
                 };
                 __quantum__rt__qubit_release(q);
-                _generated_ident_137
+                _generated_ident_135
             }
             // entry
             Main()

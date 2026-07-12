@@ -1270,7 +1270,7 @@ fn generate_adj_invert_with_array_loop() {
                             Block 11 [104-188] [Type Unit]:
                                 Stmt 12 [114-182]: Expr: Expr 13 [114-182] [Type Unit]: For:
                                     Pat 14 [118-121] [Type Int]: Bind: Ident 15 [118-121] "val"
-                                    Expr 16 [125-134] [Type Int[]]: Array:
+                                    Expr 16 [125-134] [Type Int[3]]: Array:
                                         Expr 17 [126-127] [Type Int]: Lit: Int(0)
                                         Expr 18 [129-130] [Type Int]: Lit: Int(1)
                                         Expr 19 [132-133] [Type Int]: Lit: Int(2)
@@ -1285,8 +1285,8 @@ fn generate_adj_invert_with_array_loop() {
                             Block 37 [104-188] [Type Unit]:
                                 Stmt 38 [114-182]: Expr: Expr 39 [0-0] [Type Unit]: Expr Block: Block 40 [0-0] [Type Unit]:
                                     Stmt 41 [0-0]: Local (Immutable):
-                                        Pat 42 [0-0] [Type Int[]]: Bind: Ident 43 [0-0] "@array"
-                                        Expr 44 [125-134] [Type Int[]]: Array:
+                                        Pat 42 [0-0] [Type Int[3]]: Bind: Ident 43 [0-0] "@array"
+                                        Expr 44 [125-134] [Type Int[3]]: Array:
                                             Expr 45 [126-127] [Type Int]: Lit: Int(0)
                                             Expr 46 [129-130] [Type Int]: Lit: Int(1)
                                             Expr 47 [132-133] [Type Int]: Lit: Int(2)
@@ -1294,29 +1294,24 @@ fn generate_adj_invert_with_array_loop() {
                                         Pat 50 [0-0] [Type Int]: Bind: Ident 51 [0-0] "@index"
                                         Expr 52 [0-0] [Type Range]: Range:
                                             Expr 53 [0-0] [Type Int]: BinOp (Sub):
-                                                Expr 54 [0-0] [Type Int]: Call:
-                                                    Expr 55 [0-0] [Type (Int[] -> Int)]: Var:
-                                                        res: Item 1 (Package 0)
-                                                        generics:
-                                                            Int
-                                                    Expr 56 [0-0] [Type Int[]]: Var: Local 43
-                                                Expr 57 [0-0] [Type Int]: Lit: Int(1)
-                                            Expr 58 [0-0] [Type Int]: Lit: Int(-1)
-                                            Expr 59 [0-0] [Type Int]: Lit: Int(0)
-                                        Block 60 [135-182] [Type Unit]:
-                                            Stmt 61 [0-0]: Local (Immutable):
-                                                Pat 62 [118-121] [Type Int]: Bind: Ident 63 [118-121] "val"
-                                                Expr 64 [0-0] [Type Int]: Index:
-                                                    Expr 65 [0-0] [Type Int[]]: Var: Local 43
-                                                    Expr 66 [0-0] [Type Int]: Var: Local 51
-                                            Stmt 67 [167-172]: Semi: Expr 68 [167-171] [Type Unit]: Call:
-                                                Expr 69 [167-168] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
-                                                    Expr 70 [167-168] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
-                                                Expr 71 [169-170] [Type Int]: Lit: Int(2)
-                                            Stmt 72 [149-154]: Semi: Expr 73 [149-153] [Type Unit]: Call:
-                                                Expr 74 [149-150] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
-                                                    Expr 75 [149-150] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
-                                                Expr 76 [151-152] [Type Int]: Lit: Int(1)
+                                                Expr 54 [0-0] [Type Int]: Lit: Int(3)
+                                                Expr 55 [0-0] [Type Int]: Lit: Int(1)
+                                            Expr 56 [0-0] [Type Int]: Lit: Int(-1)
+                                            Expr 57 [0-0] [Type Int]: Lit: Int(0)
+                                        Block 58 [135-182] [Type Unit]:
+                                            Stmt 59 [0-0]: Local (Immutable):
+                                                Pat 60 [118-121] [Type Int]: Bind: Ident 61 [118-121] "val"
+                                                Expr 62 [0-0] [Type Int]: Index:
+                                                    Expr 63 [0-0] [Type Int[3]]: Var: Local 43
+                                                    Expr 64 [0-0] [Type Int]: Var: Local 51
+                                            Stmt 65 [167-172]: Semi: Expr 66 [167-171] [Type Unit]: Call:
+                                                Expr 67 [167-168] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                    Expr 68 [167-168] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                Expr 69 [169-170] [Type Int]: Lit: Int(2)
+                                            Stmt 70 [149-154]: Semi: Expr 71 [149-153] [Type Unit]: Call:
+                                                Expr 72 [149-150] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                    Expr 73 [149-150] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                Expr 74 [151-152] [Type Int]: Lit: Int(1)
                         ctl: <none>
                         ctl-adj: <none>"#]],
     );
@@ -1369,7 +1364,7 @@ fn generate_adj_invert_with_nested_loops() {
                             Block 11 [104-318] [Type Unit]:
                                 Stmt 12 [114-312]: Expr: Expr 13 [114-312] [Type Unit]: For:
                                     Pat 14 [118-121] [Type Int]: Bind: Ident 15 [118-121] "val"
-                                    Expr 16 [125-134] [Type Int[]]: Array:
+                                    Expr 16 [125-134] [Type Int[3]]: Array:
                                         Expr 17 [126-127] [Type Int]: Lit: Int(0)
                                         Expr 18 [129-130] [Type Int]: Lit: Int(1)
                                         Expr 19 [132-133] [Type Int]: Lit: Int(2)
@@ -1378,14 +1373,14 @@ fn generate_adj_invert_with_nested_loops() {
                                             Expr 23 [149-150] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
                                             Expr 24 [151-152] [Type Int]: Lit: Int(1)
                                         Stmt 25 [167-197]: Local (Immutable):
-                                            Pat 26 [171-174] [Type Bool[]]: Bind: Ident 27 [171-174] "arr"
-                                            Expr 28 [177-196] [Type Bool[]]: Array:
+                                            Pat 26 [171-174] [Type Bool[3]]: Bind: Ident 27 [171-174] "arr"
+                                            Expr 28 [177-196] [Type Bool[3]]: Array:
                                                 Expr 29 [178-182] [Type Bool]: Lit: Bool(true)
                                                 Expr 30 [184-189] [Type Bool]: Lit: Bool(false)
                                                 Expr 31 [191-195] [Type Bool]: Lit: Bool(true)
                                         Stmt 32 [210-284]: Expr: Expr 33 [210-284] [Type Unit]: For:
                                             Pat 34 [214-217] [Type Bool]: Bind: Ident 35 [214-217] "val"
-                                            Expr 36 [221-224] [Type Bool[]]: Var: Local 27
+                                            Expr 36 [221-224] [Type Bool[3]]: Var: Local 27
                                             Block 37 [225-284] [Type Unit]:
                                                 Stmt 38 [243-248]: Semi: Expr 39 [243-247] [Type Unit]: Call:
                                                     Expr 40 [243-244] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
@@ -1400,8 +1395,8 @@ fn generate_adj_invert_with_nested_loops() {
                             Block 60 [104-318] [Type Unit]:
                                 Stmt 61 [114-312]: Expr: Expr 62 [0-0] [Type Unit]: Expr Block: Block 63 [0-0] [Type Unit]:
                                     Stmt 64 [0-0]: Local (Immutable):
-                                        Pat 65 [0-0] [Type Int[]]: Bind: Ident 66 [0-0] "@array"
-                                        Expr 67 [125-134] [Type Int[]]: Array:
+                                        Pat 65 [0-0] [Type Int[3]]: Bind: Ident 66 [0-0] "@array"
+                                        Expr 67 [125-134] [Type Int[3]]: Array:
                                             Expr 68 [126-127] [Type Int]: Lit: Int(0)
                                             Expr 69 [129-130] [Type Int]: Lit: Int(1)
                                             Expr 70 [132-133] [Type Int]: Lit: Int(2)
@@ -1409,66 +1404,56 @@ fn generate_adj_invert_with_nested_loops() {
                                         Pat 73 [0-0] [Type Int]: Bind: Ident 74 [0-0] "@index"
                                         Expr 75 [0-0] [Type Range]: Range:
                                             Expr 76 [0-0] [Type Int]: BinOp (Sub):
-                                                Expr 77 [0-0] [Type Int]: Call:
-                                                    Expr 78 [0-0] [Type (Int[] -> Int)]: Var:
-                                                        res: Item 1 (Package 0)
-                                                        generics:
-                                                            Int
-                                                    Expr 79 [0-0] [Type Int[]]: Var: Local 66
-                                                Expr 80 [0-0] [Type Int]: Lit: Int(1)
-                                            Expr 81 [0-0] [Type Int]: Lit: Int(-1)
-                                            Expr 82 [0-0] [Type Int]: Lit: Int(0)
-                                        Block 83 [135-312] [Type Unit]:
-                                            Stmt 84 [0-0]: Local (Immutable):
-                                                Pat 85 [118-121] [Type Int]: Bind: Ident 86 [118-121] "val"
-                                                Expr 87 [0-0] [Type Int]: Index:
-                                                    Expr 88 [0-0] [Type Int[]]: Var: Local 66
-                                                    Expr 89 [0-0] [Type Int]: Var: Local 74
-                                            Stmt 90 [167-197]: Local (Immutable):
-                                                Pat 91 [171-174] [Type Bool[]]: Bind: Ident 92 [171-174] "arr"
-                                                Expr 93 [177-196] [Type Bool[]]: Array:
-                                                    Expr 94 [178-182] [Type Bool]: Lit: Bool(true)
-                                                    Expr 95 [184-189] [Type Bool]: Lit: Bool(false)
-                                                    Expr 96 [191-195] [Type Bool]: Lit: Bool(true)
-                                            Stmt 97 [297-302]: Semi: Expr 98 [297-301] [Type Unit]: Call:
-                                                Expr 99 [297-298] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
-                                                    Expr 100 [297-298] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
-                                                Expr 101 [299-300] [Type Int]: Lit: Int(4)
-                                            Stmt 102 [210-284]: Expr: Expr 103 [0-0] [Type Unit]: Expr Block: Block 104 [0-0] [Type Unit]:
-                                                Stmt 105 [0-0]: Local (Immutable):
-                                                    Pat 106 [0-0] [Type Bool[]]: Bind: Ident 107 [0-0] "@array"
-                                                    Expr 108 [221-224] [Type Bool[]]: Var: Local 92
-                                                Stmt 109 [0-0]: Expr: Expr 110 [0-0] [Type Unit]: For:
-                                                    Pat 111 [0-0] [Type Int]: Bind: Ident 112 [0-0] "@index"
-                                                    Expr 113 [0-0] [Type Range]: Range:
-                                                        Expr 114 [0-0] [Type Int]: BinOp (Sub):
-                                                            Expr 115 [0-0] [Type Int]: Call:
-                                                                Expr 116 [0-0] [Type (Bool[] -> Int)]: Var:
-                                                                    res: Item 1 (Package 0)
-                                                                    generics:
-                                                                        Bool
-                                                                Expr 117 [0-0] [Type Bool[]]: Var: Local 107
-                                                            Expr 118 [0-0] [Type Int]: Lit: Int(1)
-                                                        Expr 119 [0-0] [Type Int]: Lit: Int(-1)
-                                                        Expr 120 [0-0] [Type Int]: Lit: Int(0)
-                                                    Block 121 [225-284] [Type Unit]:
-                                                        Stmt 122 [0-0]: Local (Immutable):
-                                                            Pat 123 [214-217] [Type Bool]: Bind: Ident 124 [214-217] "val"
-                                                            Expr 125 [0-0] [Type Bool]: Index:
-                                                                Expr 126 [0-0] [Type Bool[]]: Var: Local 107
-                                                                Expr 127 [0-0] [Type Int]: Var: Local 112
-                                                        Stmt 128 [265-270]: Semi: Expr 129 [265-269] [Type Unit]: Call:
-                                                            Expr 130 [265-266] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
-                                                                Expr 131 [265-266] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
-                                                            Expr 132 [267-268] [Type Int]: Lit: Int(3)
-                                                        Stmt 133 [243-248]: Semi: Expr 134 [243-247] [Type Unit]: Call:
-                                                            Expr 135 [243-244] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
-                                                                Expr 136 [243-244] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
-                                                            Expr 137 [245-246] [Type Int]: Lit: Int(2)
-                                            Stmt 138 [149-154]: Semi: Expr 139 [149-153] [Type Unit]: Call:
-                                                Expr 140 [149-150] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
-                                                    Expr 141 [149-150] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
-                                                Expr 142 [151-152] [Type Int]: Lit: Int(1)
+                                                Expr 77 [0-0] [Type Int]: Lit: Int(3)
+                                                Expr 78 [0-0] [Type Int]: Lit: Int(1)
+                                            Expr 79 [0-0] [Type Int]: Lit: Int(-1)
+                                            Expr 80 [0-0] [Type Int]: Lit: Int(0)
+                                        Block 81 [135-312] [Type Unit]:
+                                            Stmt 82 [0-0]: Local (Immutable):
+                                                Pat 83 [118-121] [Type Int]: Bind: Ident 84 [118-121] "val"
+                                                Expr 85 [0-0] [Type Int]: Index:
+                                                    Expr 86 [0-0] [Type Int[3]]: Var: Local 66
+                                                    Expr 87 [0-0] [Type Int]: Var: Local 74
+                                            Stmt 88 [167-197]: Local (Immutable):
+                                                Pat 89 [171-174] [Type Bool[3]]: Bind: Ident 90 [171-174] "arr"
+                                                Expr 91 [177-196] [Type Bool[3]]: Array:
+                                                    Expr 92 [178-182] [Type Bool]: Lit: Bool(true)
+                                                    Expr 93 [184-189] [Type Bool]: Lit: Bool(false)
+                                                    Expr 94 [191-195] [Type Bool]: Lit: Bool(true)
+                                            Stmt 95 [297-302]: Semi: Expr 96 [297-301] [Type Unit]: Call:
+                                                Expr 97 [297-298] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                    Expr 98 [297-298] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                Expr 99 [299-300] [Type Int]: Lit: Int(4)
+                                            Stmt 100 [210-284]: Expr: Expr 101 [0-0] [Type Unit]: Expr Block: Block 102 [0-0] [Type Unit]:
+                                                Stmt 103 [0-0]: Local (Immutable):
+                                                    Pat 104 [0-0] [Type Bool[3]]: Bind: Ident 105 [0-0] "@array"
+                                                    Expr 106 [221-224] [Type Bool[3]]: Var: Local 90
+                                                Stmt 107 [0-0]: Expr: Expr 108 [0-0] [Type Unit]: For:
+                                                    Pat 109 [0-0] [Type Int]: Bind: Ident 110 [0-0] "@index"
+                                                    Expr 111 [0-0] [Type Range]: Range:
+                                                        Expr 112 [0-0] [Type Int]: BinOp (Sub):
+                                                            Expr 113 [0-0] [Type Int]: Lit: Int(3)
+                                                            Expr 114 [0-0] [Type Int]: Lit: Int(1)
+                                                        Expr 115 [0-0] [Type Int]: Lit: Int(-1)
+                                                        Expr 116 [0-0] [Type Int]: Lit: Int(0)
+                                                    Block 117 [225-284] [Type Unit]:
+                                                        Stmt 118 [0-0]: Local (Immutable):
+                                                            Pat 119 [214-217] [Type Bool]: Bind: Ident 120 [214-217] "val"
+                                                            Expr 121 [0-0] [Type Bool]: Index:
+                                                                Expr 122 [0-0] [Type Bool[3]]: Var: Local 105
+                                                                Expr 123 [0-0] [Type Int]: Var: Local 110
+                                                        Stmt 124 [265-270]: Semi: Expr 125 [265-269] [Type Unit]: Call:
+                                                            Expr 126 [265-266] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                                Expr 127 [265-266] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                            Expr 128 [267-268] [Type Int]: Lit: Int(3)
+                                                        Stmt 129 [243-248]: Semi: Expr 130 [243-247] [Type Unit]: Call:
+                                                            Expr 131 [243-244] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                                Expr 132 [243-244] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                            Expr 133 [245-246] [Type Int]: Lit: Int(2)
+                                            Stmt 134 [149-154]: Semi: Expr 135 [149-153] [Type Unit]: Call:
+                                                Expr 136 [149-150] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                    Expr 137 [149-150] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                                Expr 138 [151-152] [Type Int]: Lit: Int(1)
                         ctl: <none>
                         ctl-adj: <none>"#]],
     );
@@ -2023,8 +2008,8 @@ fn op_array_forget_functors_with_lambdas() {
                         body: SpecDecl 21 [210-314]: Impl:
                             Block 22 [232-314] [Type Unit]:
                                 Stmt 23 [254-296]: Local (Immutable):
-                                    Pat 24 [258-261] [Type (Qubit => Unit)[]]: Bind: Ident 25 [258-261] "ops"
-                                    Expr 26 [264-295] [Type (Qubit => Unit)[]]: Array:
+                                    Pat 24 [258-261] [Type (Qubit => Unit)[3]]: Bind: Ident 25 [258-261] "ops"
+                                    Expr 26 [264-295] [Type (Qubit => Unit)[3]]: Array:
                                         Expr 27 [265-268] [Type (Qubit => Unit)]: Var: Item 1 (Package 1)
                                         Expr 28 [270-281] [Type (Qubit => Unit)]: Closure([], 5)
                                         Expr 40 [283-294] [Type (Qubit => Unit)]: Closure([], 6)
