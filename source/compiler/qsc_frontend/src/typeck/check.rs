@@ -163,7 +163,7 @@ impl Checker {
             }
         }
 
-        let size_errors = propagate_array_sizes(package, names, &mut self.table.terms);
+        let size_errors = propagate_array_sizes(package, names, &mut self.table);
         self.errors.extend(size_errors);
     }
 

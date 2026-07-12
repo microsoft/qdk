@@ -267,6 +267,14 @@ enum ErrorKind {
     ))]
     #[diagnostic(code("Qdk.Qsc.TypeCk.RecursiveTypeConstraint"))]
     RecursiveTypeConstraint(#[label] Span),
+    #[error("expected array of at least size {expected}, found array of size {actual}")]
+    #[diagnostic(code("Qsc.TypeCk.ArraySizeMismatch"))]
+    ArraySizeMismatch {
+        #[label]
+        span: Span,
+        expected: usize,
+        actual: usize,
+    },
 }
 
 impl Error {

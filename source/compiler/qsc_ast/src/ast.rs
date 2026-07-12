@@ -892,7 +892,7 @@ pub enum ExprKind {
     Err,
     /// A failure: `fail "message"`.
     Fail(Box<Expr>),
-    /// A field accessor: `a::F` or `a.F`.
+    /// A field accessor: `a::F`.
     Field(Box<Expr>, FieldAccess),
     /// A for loop: `for a in b { ... }`.
     For(Box<Pat>, Box<Expr>, Box<Block>),

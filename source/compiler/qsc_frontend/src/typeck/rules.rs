@@ -410,6 +410,9 @@ impl<'a> Context<'a> {
                         if_false.diverges
                     }
                 };
+                if let Ty::Array(_, size) = &mut if_true.ty {
+                    *size = SizeKind::Unknown;
+                }
                 Partial {
                     diverges: cond.diverges || (if_true.diverges && if_false_diverges),
                     ..if_true
@@ -584,7 +587,10 @@ impl<'a> Context<'a> {
                 let cond_span = cond.span;
                 let cond = self.infer_expr(cond);
                 self.inferrer.eq(cond_span, Ty::Prim(Prim::Bool), cond.ty);
-                let if_true = self.infer_expr(if_true);
+                let mut if_true = self.infer_expr(if_true);
+                if let Ty::Array(_, size) = &mut if_true.ty {
+                    *size = SizeKind::Unknown;
+                }
                 let if_false_span = if_false.span;
                 let if_false = self.infer_expr(if_false);
                 self.inferrer
