@@ -1383,8 +1383,8 @@ fn ternop_update_array_index_var() {
             #13 58-59 "2" : Int
             #15 74-75 "i" : Int
             #17 78-79 "0" : Int
-            #19 93-95 "ys" : Int[]
-            #21 98-110 "xs w/ i <- 3" : Int[]
+            #19 93-95 "ys" : Int[1]
+            #21 98-110 "xs w/ i <- 3" : Int[1]
             #22 98-100 "xs" : Int[1]
             #25 104-105 "i" : Int
             #28 109-110 "3" : Int
@@ -1413,8 +1413,8 @@ fn ternop_update_array_index_expr() {
             #13 58-59 "2" : Int
             #15 74-75 "i" : Int
             #17 78-79 "0" : Int
-            #19 93-95 "ys" : Int[]
-            #21 98-114 "xs w/ i + 1 <- 3" : Int[]
+            #19 93-95 "ys" : Int[1]
+            #21 98-114 "xs w/ i + 1 <- 3" : Int[1]
             #22 98-100 "xs" : Int[1]
             #25 104-109 "i + 1" : Int
             #26 104-105 "i" : Int
@@ -1581,8 +1581,8 @@ fn ternop_update_array_range_takes_array() {
             #13 58-59 "0" : Int
             #14 61-62 "1" : Int
             #15 64-65 "2" : Int
-            #17 80-82 "ys" : Int[]
-            #19 85-105 "xs w/ 0..1 <- [3, 4]" : Int[]
+            #17 80-82 "ys" : Int[3]
+            #19 85-105 "xs w/ 0..1 <- [3, 4]" : Int[3]
             #20 85-87 "xs" : Int[3]
             #23 91-95 "0..1" : Range
             #24 91-92 "0" : Int
@@ -1614,8 +1614,8 @@ fn ternop_update_array_range_with_non_array_error() {
             #13 58-59 "0" : Int
             #14 61-62 "1" : Int
             #15 64-65 "2" : Int
-            #17 80-82 "ys" : Int[]
-            #19 85-100 "xs w/ 0..1 <- 3" : Int[]
+            #17 80-82 "ys" : Int[3]
+            #19 85-100 "xs w/ 0..1 <- 3" : Int[3]
             #20 85-87 "xs" : Int[3]
             #23 91-95 "0..1" : Range
             #24 91-92 "0" : Int

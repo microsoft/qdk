@@ -292,6 +292,16 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
                     self.table.terms.insert(expr.id, new_ty);
                 }
             }
+            ExprKind::TernOp(TernOp::Update, container, _, _) => {
+                if let Some(ty) = self.table.terms.get(container.id) {
+                    self.table.terms.insert(expr.id, ty.clone());
+                }
+            }
+
+            // Explicit returns checked against the expected return type of the callable.
+            // TODO: walk callable decl to track current expected return, also verify
+            // spec block type after walking the callable body.
+            // ExprKind::Return()
 
             // For all other expressions, we do not need to propagate any type information.
             _ => {}
