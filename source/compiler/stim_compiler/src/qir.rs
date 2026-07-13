@@ -162,6 +162,21 @@ block_c{pauli}_exit:
         });
     }
 
+    // Writes: `  %{dest} = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 N to ptr))`
+    fn write_read_loss(&mut self, dest: &str, id: u32) {
+        write!(self, "  %{dest} = call i1 @__quantum__rt__read_loss(");
+        self.write_ptr(id);
+        writeln!(self, ")");
+        self.declare("__quantum__rt__read_loss", || {
+            "declare i1 @__quantum__rt__read_loss(ptr)".to_string()
+        });
+    }
+
+    // Writes: `  %{dest} = or i1 %{lhs}, %{rhs}`
+    fn write_or(&mut self, dest: &str, lhs: &str, rhs: &str) {
+        writeln!(self, "  %{dest} = or i1 %{lhs}, %{rhs}");
+    }
+
     // Writes: `  %{dest} = xor i1 %{lhs}, %{rhs}`
     fn write_xor(&mut self, dest: &str, lhs: &str, rhs: &str) {
         writeln!(self, "  %{dest} = xor i1 %{lhs}, %{rhs}");
@@ -1160,7 +1175,8 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        let mut read_registers = Vec::new();
+        let mut loss_registers = Vec::new();
+        let mut result_registers = Vec::new();
         for target in &instruction.targets {
             let Some((offset, negated)) = self.expect_measurement_record(instruction, target)
             else {
@@ -1169,29 +1185,16 @@ impl<'noise> Compiler<'noise> {
             let Some(result_id) = self.resolve_record_offset(target, offset) else {
                 return;
             };
-            let read_register = self.id_map.fresh_name("r");
-            self.writer.write_read_result(&read_register, result_id);
 
-            let term = if negated {
-                let not_register = self.id_map.fresh_name("r");
-                self.writer.write_not(&not_register, &read_register);
-                not_register
-            } else {
-                read_register
-            };
-            read_registers.push(term);
+            loss_registers.push(self.read_loss_register(result_id));
+            result_registers.push(self.read_result_register(result_id, negated));
         }
 
-        let Some((first, rest)) = read_registers.split_first() else {
-            unreachable!("REQUIRE always has at least one target");
-        };
+        let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
+        let parity = self.reduce_registers(&result_registers, "parity", QirWriter::write_xor);
 
-        let mut parity = first.clone();
-        for reg in rest {
-            let temp = self.id_map.fresh_name("x");
-            self.writer.write_xor(&temp, &parity, reg);
-            parity = temp;
-        }
+        let restart = self.id_map.fresh_name("restart");
+        self.writer.write_or(&restart, &parity, &loss);
 
         let Scope::Select(scope) = self.id_map.current_scope() else {
             unreachable!("REQUIRE runs inside a select block");
@@ -1199,8 +1202,45 @@ impl<'noise> Compiler<'noise> {
         let restart_label = select_label(scope);
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
-            .write_branch(&parity, &restart_label, &continue_label);
+            .write_branch(&restart, &restart_label, &continue_label);
         self.writer.write_label(&continue_label);
+    }
+
+    fn read_loss_register(&mut self, result_id: u32) -> String {
+        let loss_register = self.id_map.fresh_name("l");
+        self.writer.write_read_loss(&loss_register, result_id);
+        loss_register
+    }
+
+    fn read_result_register(&mut self, result_id: u32, negated: bool) -> String {
+        let result_register = self.id_map.fresh_name("r");
+        self.writer.write_read_result(&result_register, result_id);
+
+        if negated {
+            let not_register = self.id_map.fresh_name("n");
+            self.writer.write_not(&not_register, &result_register);
+            not_register
+        } else {
+            result_register
+        }
+    }
+
+    fn reduce_registers(
+        &mut self,
+        registers: &[String],
+        prefix: &'static str,
+        combine: fn(&mut QirWriter, &str, &str, &str),
+    ) -> String {
+        let (first, rest) = registers
+            .split_first()
+            .expect("REQUIRE always has at least one target");
+        let mut acc = first.clone();
+        for reg in rest {
+            let temp = self.id_map.fresh_name(prefix);
+            combine(&mut self.writer, &temp, &acc, reg);
+            acc = temp;
+        }
+        acc
     }
 
     fn resolve_record_offset(&mut self, target: &Target, offset: u32) -> Option<u32> {
