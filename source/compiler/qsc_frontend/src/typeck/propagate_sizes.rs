@@ -3,12 +3,12 @@
 
 use qsc_ast::{
     ast::{
-        BinOp, Expr, ExprKind, FieldAccess, Mutability, NodeId, Package, Pat, PatKind, PathKind,
-        Stmt, StmtKind, TernOp, TyKind,
+        BinOp, Block, CallableBody, CallableDecl, Expr, ExprKind, FieldAccess, Mutability, NodeId,
+        Package, Pat, PatKind, PathKind, SpecBody, Stmt, StmtKind, TernOp, TyKind,
     },
-    visit::{Visitor, walk_expr, walk_stmt},
+    visit::{Visitor, walk_block, walk_callable_decl, walk_expr, walk_stmt},
 };
-use qsc_data_structures::index_map::IndexMap;
+use qsc_data_structures::{index_map::IndexMap, span::Span};
 use qsc_hir::{
     hir,
     ty::{SizeKind, Ty},
@@ -16,7 +16,7 @@ use qsc_hir::{
 
 use crate::{
     resolve::Res,
-    typeck::{Error, ErrorKind, Table},
+    typeck::{Error, ErrorKind, Table, convert},
 };
 
 pub fn propagate_array_sizes(
@@ -27,6 +27,7 @@ pub fn propagate_array_sizes(
     let mut visitor = PropagateSizes {
         names,
         table,
+        curr_decl_output: None,
         errors: Vec::new(),
     };
     visitor.visit_package(ast_package);
@@ -36,6 +37,7 @@ pub fn propagate_array_sizes(
 struct PropagateSizes<'a> {
     names: &'a IndexMap<NodeId, Res>,
     table: &'a mut Table,
+    curr_decl_output: Option<Ty>,
     errors: Vec<Error>,
 }
 
@@ -99,8 +101,8 @@ impl PropagateSizes<'_> {
         }
     }
 
-    fn check_sizes(&mut self, input_ty: &Ty, expr: &Expr) {
-        match input_ty {
+    fn check_expr_sizes(&mut self, expected_ty: &Ty, expr: &Expr) {
+        match expected_ty {
             Ty::Array(_, SizeKind::Known(explicit_size)) => {
                 if let Some(Ty::Array(_, SizeKind::Known(arg_size))) = self.table.terms.get(expr.id)
                     && explicit_size > arg_size
@@ -112,26 +114,16 @@ impl PropagateSizes<'_> {
                     }));
                 }
             }
-            Ty::Tuple(input_tys) => {
+            Ty::Tuple(expected_tys) => {
                 if let ExprKind::Tuple(exprs) = expr.kind.as_ref() {
-                    for (input_ty, expr) in input_tys.iter().zip(exprs.iter()) {
-                        self.check_sizes(input_ty, expr);
+                    for (input_ty, expr) in expected_tys.iter().zip(exprs.iter()) {
+                        self.check_expr_sizes(input_ty, expr);
                     }
                 } else if let Some(expr_ty) = self.table.terms.get(expr.id)
                     && let Ty::Tuple(expr_tys) = expr_ty
                 {
-                    for (input_ty, expr_ty) in input_tys.iter().zip(expr_tys.iter()) {
-                        if let Ty::Array(_, SizeKind::Known(explicit_size)) = input_ty
-                            && let Ty::Array(_, SizeKind::Known(arg_size)) = expr_ty
-                            && explicit_size > arg_size
-                        {
-                            self.errors.push(Error(ErrorKind::ArraySizeMismatch {
-                                span: expr.span,
-                                expected: *explicit_size,
-                                actual: *arg_size,
-                            }));
-                        }
-                    }
+                    self.errors
+                        .extend(check_ty_sizes(expected_tys, expr_tys, expr.span));
                 }
             }
             _ => {}
@@ -140,6 +132,56 @@ impl PropagateSizes<'_> {
 }
 
 impl<'a> Visitor<'a> for PropagateSizes<'a> {
+    fn visit_callable_decl(&mut self, decl: &'a CallableDecl) {
+        let output_ty =
+            convert::ty_from_ast(self.names, decl.output.as_ref(), &mut Default::default()).0;
+        self.curr_decl_output = Some(output_ty);
+        walk_callable_decl(self, decl);
+        let Some(expected_ty) = self.curr_decl_output.take() else {
+            // If we don't know the expected type, we can't use the logic below to validate it.
+            return;
+        };
+
+        // Check the computed type of the callable implementation against the declaration.
+        if let Some(computed_ty) = match decl.body.as_ref() {
+            CallableBody::Block(block) => self.table.terms.get(block.id),
+            CallableBody::Specs(specs) => {
+                // All specs must have the same type, so just check the first one. Callables with multiple explicit
+                // specializations must be of type Unit, so it doesn't matter which one we check.
+                if let Some(SpecBody::Impl(_, block)) = specs.first().map(|spec| spec.body.clone())
+                {
+                    self.table.terms.get(block.id)
+                } else {
+                    None
+                }
+            }
+        } {
+            let computed_ty = computed_ty.clone();
+            if computed_ty != expected_ty {
+                match (expected_ty, computed_ty) {
+                    (
+                        Ty::Array(_, SizeKind::Known(expected_size)),
+                        Ty::Array(_, SizeKind::Known(computed_size)),
+                    ) if expected_size > computed_size => {
+                        self.errors.push(Error(ErrorKind::ArraySizeMismatch {
+                            span: decl.output.span,
+                            expected: expected_size,
+                            actual: computed_size,
+                        }));
+                    }
+                    (Ty::Tuple(expected_tys), Ty::Tuple(computed_tys)) => {
+                        self.errors.extend(check_ty_sizes(
+                            &expected_tys,
+                            &computed_tys,
+                            decl.output.span,
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         walk_stmt(self, stmt);
         match stmt.kind.as_ref() {
@@ -151,7 +193,27 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
             StmtKind::Qubit(_, pat, init, _) => {
                 self.propagate_pat_sizes(pat, init.id);
             }
+
+            // Propagate the type of expression-statements into the statement itself.
+            StmtKind::Expr(expr) => {
+                if let Some(expr_ty) = self.table.terms.get(expr.id) {
+                    let ty = expr_ty.clone();
+                    self.table.terms.insert(stmt.id, ty);
+                }
+            }
             _ => {}
+        }
+    }
+
+    fn visit_block(&mut self, block: &'a Block) {
+        walk_block(self, block);
+        // If the last statement in the block is an expression, propagate its type to the block itself.
+        if let Some(last_stmt) = block.stmts.last()
+            && let StmtKind::Expr(expr) = last_stmt.kind.as_ref()
+            && let Some(expr_ty) = self.table.terms.get(expr.id)
+        {
+            let ty = expr_ty.clone();
+            self.table.terms.insert(block.id, ty);
         }
     }
 
@@ -180,7 +242,7 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
                     let input_ty = arrow.input.borrow().clone();
                     let output_ty = arrow.output.borrow().clone();
                     if Some(&input_ty) != self.table.terms.get(args.id) {
-                        self.check_sizes(&input_ty, args);
+                        self.check_expr_sizes(&input_ty, args);
                     }
                     if !args_include_hole(args) {
                         self.table.terms.insert(expr.id, output_ty);
@@ -206,7 +268,7 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
                 }
                 for (field, field_ty) in fields.iter().zip(field_tys.iter()) {
                     if let Some(field_ty) = field_ty {
-                        self.check_sizes(field_ty, &field.value);
+                        self.check_expr_sizes(field_ty, &field.value);
                     }
                 }
             }
@@ -299,9 +361,12 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
             }
 
             // Explicit returns checked against the expected return type of the callable.
-            // TODO: walk callable decl to track current expected return, also verify
-            // spec block type after walking the callable body.
-            // ExprKind::Return()
+            ExprKind::Return(expr) => {
+                if let Some(output_ty) = &self.curr_decl_output {
+                    let expected_ty = output_ty.clone();
+                    self.check_expr_sizes(&expected_ty, expr);
+                }
+            }
 
             // For all other expressions, we do not need to propagate any type information.
             _ => {}
@@ -316,4 +381,25 @@ fn args_include_hole(args: &Expr) -> bool {
         ExprKind::Hole => true,
         _ => false,
     }
+}
+
+fn check_ty_sizes(expected_tys: &[Ty], actual_tys: &[Ty], span: Span) -> Vec<Error> {
+    let mut errors = Vec::new();
+    for (expected_ty, actual_ty) in expected_tys.iter().zip(actual_tys.iter()) {
+        if let Ty::Array(_, SizeKind::Known(expected_size)) = expected_ty
+            && let Ty::Array(_, SizeKind::Known(actual_size)) = actual_ty
+            && expected_size > actual_size
+        {
+            errors.push(Error(ErrorKind::ArraySizeMismatch {
+                span,
+                expected: *expected_size,
+                actual: *actual_size,
+            }));
+        } else if let Ty::Tuple(expected_tys) = expected_ty
+            && let Ty::Tuple(actual_tys) = actual_ty
+        {
+            errors.extend(check_ty_sizes(expected_tys, actual_tys, span));
+        }
+    }
+    errors
 }
