@@ -186,16 +186,22 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
         };
 
         // Check the computed type of the callable implementation against the declaration.
-        if let Some(computed_ty) = match decl.body.as_ref() {
-            CallableBody::Block(block) => self.table.terms.get(block.id),
+        if let (Some(computed_ty), Some(span)) = match decl.body.as_ref() {
+            CallableBody::Block(block) => (
+                self.table.terms.get(block.id),
+                block.stmts.last().map(|stmt| stmt.span),
+            ),
             CallableBody::Specs(specs) => {
                 // All specs must have the same type, so just check the first one. Callables with multiple explicit
                 // specializations must be of type Unit, so it doesn't matter which one we check.
                 if let Some(SpecBody::Impl(_, block)) = specs.first().map(|spec| spec.body.clone())
                 {
-                    self.table.terms.get(block.id)
+                    (
+                        self.table.terms.get(block.id),
+                        block.stmts.last().map(|stmt| stmt.span),
+                    )
                 } else {
-                    None
+                    (None, None)
                 }
             }
         } {
@@ -207,17 +213,14 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
                         Ty::Array(_, SizeKind::Known(computed_size)),
                     ) if expected_size > computed_size => {
                         self.errors.push(Error(ErrorKind::ArraySizeMismatch {
-                            span: decl.output.span,
+                            span,
                             expected: expected_size,
                             actual: computed_size,
                         }));
                     }
                     (Ty::Tuple(expected_tys), Ty::Tuple(computed_tys)) => {
-                        self.errors.extend(check_ty_sizes(
-                            &expected_tys,
-                            &computed_tys,
-                            decl.output.span,
-                        ));
+                        self.errors
+                            .extend(check_ty_sizes(&expected_tys, &computed_tys, span));
                     }
                     _ => {}
                 }
