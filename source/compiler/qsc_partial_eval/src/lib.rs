@@ -1613,12 +1613,7 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             spec_decl
                 .filter(|spec_decl| {
-                    self.is_ir_function_eligible(
-                        store_item_id,
-                        functor_app,
-                        spec_decl,
-                        callable_decl,
-                    )
+                    self.is_ir_function_eligible(store_item_id, spec_decl, callable_decl)
                 })
                 .map(|_| {
                     args.iter()
@@ -2111,7 +2106,6 @@ impl<'a> PartialEvaluator<'a> {
     fn is_ir_function_eligible(
         &self,
         store_item_id: StoreItemId,
-        functor_app: FunctorApp,
         spec_decl: &SpecDecl,
         callable_decl: &CallableDecl,
     ) -> bool {
@@ -2121,6 +2115,9 @@ impl<'a> PartialEvaluator<'a> {
             .capabilities
             .contains(TargetCapabilityFlags::CallSupport)
         {
+            // In this case, we know the target can't support any IR function calls, so always return false.
+            // This is needed because when the target does not have that support we don't emit the `MustBeInlined`
+            // capability on the call site.
             return false;
         }
 
@@ -2149,19 +2146,6 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // The base phase emits VOID (Unit-returning) IR functions and scalar-returning IR
-        // functions for the non-composite value types Int/Double/Bool. `Result` and `Qubit` returns
-        // have no by-value single-exit representation in the base-phase RIR and must continue to
-        // inline.
-        if callable_decl.output != Ty::UNIT
-            && !matches!(
-                callable_decl.output,
-                Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
-            )
-        {
-            return false;
-        }
-
         // Every flattened input-parameter leaf must be a non-composite scalar/qubit type that can
         // be threaded as an RIR variable operand. Composite (tuple/array/arrow) leaves, as well as
         // `Result` leaves (which have no evaluator-variable representation), force the whole callable
@@ -2182,44 +2166,7 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // Callables whose bodies contain calls that RCA could not
-        // statically resolve, and callables that transitively allocate qubits (unless dynamic qubit
-        // allocation is enabled) must be inlined. These are surfaced as inherent runtime features of
-        // the specialization by RCA. Unresolved-callee paths surface as
-        // `CallToUnresolvedCallee`; in all such cases the specialization is inlined.
-        let inherent_features = self.spec_inherent_runtime_features(store_item_id, functor_app);
-        if inherent_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee) {
-            return false;
-        }
-
         true
-    }
-
-    /// Reads the inherent runtime features of a resolved callable specialization from RCA. This
-    /// mirrors the specialization selection in `get_call_compute_kind` and is used by the
-    /// IR-function eligibility predicate to detect recursion and transitive qubit allocation.
-    fn spec_inherent_runtime_features(
-        &self,
-        store_item_id: StoreItemId,
-        functor_app: FunctorApp,
-    ) -> RuntimeFeatureFlags {
-        let ItemComputeProperties::Callable(callable_compute_properties) =
-            self.compute_properties.get_item(store_item_id)
-        else {
-            return RuntimeFeatureFlags::empty();
-        };
-        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
-            (false, 0) => Some(&callable_compute_properties.body),
-            (false, _) => callable_compute_properties.ctl.as_ref(),
-            (true, 0) => callable_compute_properties.adj.as_ref(),
-            (true, _) => callable_compute_properties.ctl_adj.as_ref(),
-        };
-        match generator_set.map(|gen_set| gen_set.inherent) {
-            Some(ComputeKind::Dynamic {
-                runtime_features, ..
-            }) => runtime_features,
-            _ => RuntimeFeatureFlags::empty(),
-        }
     }
 
     /// Reports whether the resolved specialization has a `Dynamic` inherent compute kind, i.e.
