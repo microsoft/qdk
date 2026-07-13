@@ -232,7 +232,10 @@ impl<'a> Context<'a> {
         let ty = match &*expr.kind {
             ExprKind::Array(items) => match items.split_first() {
                 Some((first, rest)) => {
-                    let first = self.infer_expr(first);
+                    let mut first = self.infer_expr(first);
+                    if let Ty::Array(_, size) = &mut first.ty {
+                        *size = SizeKind::Unknown;
+                    }
                     let mut diverges = first.diverges;
                     for item in rest {
                         let span = item.span;

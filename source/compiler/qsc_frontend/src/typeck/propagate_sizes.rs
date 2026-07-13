@@ -3,8 +3,8 @@
 
 use qsc_ast::{
     ast::{
-        BinOp, Block, CallableBody, CallableDecl, Expr, ExprKind, FieldAccess, Mutability, NodeId,
-        Package, Pat, PatKind, PathKind, SpecBody, Stmt, StmtKind, TernOp, TyKind,
+        BinOp, Block, CallableBody, CallableDecl, Expr, ExprKind, FieldAccess, NodeId, Package,
+        Pat, PatKind, PathKind, SpecBody, Stmt, StmtKind, TernOp, TyKind,
     },
     visit::{Visitor, walk_block, walk_callable_decl, walk_expr, walk_stmt},
 };
@@ -13,6 +13,7 @@ use qsc_hir::{
     hir,
     ty::{SizeKind, Ty},
 };
+use rustc_hash::FxHashSet;
 
 use crate::{
     resolve::Res,
@@ -24,9 +25,15 @@ pub fn propagate_array_sizes(
     names: &IndexMap<NodeId, Res>,
     table: &mut Table,
 ) -> Vec<Error> {
+    let mut reassigned_vars = GatherReassignedVars {
+        names,
+        reassinged: FxHashSet::default(),
+    };
+    reassigned_vars.visit_package(ast_package);
     let mut visitor = PropagateSizes {
         names,
         table,
+        reassigned: reassigned_vars.reassinged,
         curr_decl_output: None,
         errors: Vec::new(),
     };
@@ -34,9 +41,45 @@ pub fn propagate_array_sizes(
     visitor.errors
 }
 
+struct GatherReassignedVars<'a> {
+    names: &'a IndexMap<NodeId, Res>,
+    reassinged: FxHashSet<NodeId>,
+}
+
+impl<'a> GatherReassignedVars<'a> {
+    fn mark_reassigned(&mut self, lhs_expr: &'a Expr) {
+        match lhs_expr.kind.as_ref() {
+            ExprKind::Path(PathKind::Ok(path)) => {
+                if let Some(res) = self.names.get(path.id)
+                    && let Res::Local(node_id) = res
+                {
+                    self.reassinged.insert(*node_id);
+                }
+            }
+            ExprKind::Tuple(exprs) => {
+                for expr in exprs {
+                    self.mark_reassigned(expr);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl<'a> Visitor<'a> for GatherReassignedVars<'a> {
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        match expr.kind.as_ref() {
+            ExprKind::Assign(lhs, _) | ExprKind::AssignOp(_, lhs, _) => self.mark_reassigned(lhs),
+            _ => {}
+        }
+        walk_expr(self, expr);
+    }
+}
+
 struct PropagateSizes<'a> {
     names: &'a IndexMap<NodeId, Res>,
     table: &'a mut Table,
+    reassigned: FxHashSet<NodeId>,
     curr_decl_output: Option<Ty>,
     errors: Vec<Error>,
 }
@@ -68,7 +111,7 @@ impl PropagateSizes<'_> {
                     _ => {}
                 }
             }
-            (PatKind::Bind(ident, None), ty) => {
+            (PatKind::Bind(ident, None), ty) if !self.reassigned.contains(&ident.id) => {
                 let Some(mut ident_ty) = self.table.terms.get_mut(ident.id) else {
                     return;
                 };
@@ -185,9 +228,11 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
     fn visit_stmt(&mut self, stmt: &'a Stmt) {
         walk_stmt(self, stmt);
         match stmt.kind.as_ref() {
-            // Immutable local bindings and qubit declarations can propagate and check array sizes from
-            // their initializer expressions to their patterns.
-            StmtKind::Local(Mutability::Immutable, pat, expr) => {
+            // Local bindings and qubit declarations can propagate and check array sizes from
+            // their initializer expressions to their patterns. Only local bindings that are not
+            // reassigned are processed, as only those can be guaranteed to have size remain constant
+            // during execution.
+            StmtKind::Local(_, pat, expr) => {
                 self.propagate_pat_sizes(pat, expr.id);
             }
             StmtKind::Qubit(_, pat, init, _) => {
