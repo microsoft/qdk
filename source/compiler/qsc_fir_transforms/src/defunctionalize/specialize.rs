@@ -730,6 +730,11 @@ fn specialize_many(
     let owned_assigner = std::mem::take(assigner);
     let mut cloner = FirCloner::from_assigner(owned_assigner);
     cloner.reset_maps();
+    let new_specialized_item_id = ItemId {
+        package: package_id,
+        item: new_item_id,
+    };
+    cloner.set_self_item_remap(hof_item_id, new_specialized_item_id);
 
     // Clone the input before the impl so `local_map` holds the input parameter
     // mappings when the callable body is walked.
@@ -786,6 +791,12 @@ fn specialize_many(
         callable_array_position.as_ref(),
         total_captures,
     );
+
+    // Recursive references are retargeted by the cloner before the callable
+    // parameter slots are removed from the specialization input. Bring those
+    // recursive calls back into the same reduced argument shape as external
+    // call sites rewritten by the defunctionalization rewrite phase.
+    rewrite_recursive_self_call_args(target, package_id, new_item_id, &new_decl, &remapped_params);
 
     let new_item = Item {
         id: new_item_id,
@@ -1208,6 +1219,11 @@ fn specialize_one(
     let owned_assigner = std::mem::take(assigner);
     let mut cloner = FirCloner::from_assigner(owned_assigner);
     cloner.reset_maps();
+    let new_specialized_item_id = ItemId {
+        package: package_id,
+        item: new_item_id,
+    };
+    cloner.set_self_item_remap(call_site.hof_item_id, new_specialized_item_id);
 
     // Clone the input before the impl so `local_map` holds the input parameter
     // mappings when the callable body is walked.
@@ -1271,6 +1287,18 @@ fn specialize_one(
         call_site,
         closure_info,
         assigner,
+    );
+
+    // The cloner has already retargeted recursive references to `new_item_id`.
+    // Those calls bypass the normal external call-site rewrite, so reduce their
+    // arguments here after the specialized input pattern has its callable slot
+    // removed.
+    rewrite_recursive_self_call_args(
+        target,
+        package_id,
+        new_item_id,
+        &new_decl,
+        std::slice::from_ref(&remapped_param),
     );
 
     // Insert the new item.
@@ -1416,6 +1444,192 @@ fn apply_single_param_specialization(
     // unit.
     remove_callable_param(target, new_decl, remapped_param, had_closure_captures);
     refresh_rewritten_value_types(target, &new_decl.implementation);
+}
+
+/// Rewrites recursive calls retargeted by `FirCloner::set_self_item_remap`.
+///
+/// The self-remap happens while cloning, before specialization removes callable
+/// parameters from the synthesized callable's input. Without this follow-up,
+/// a recursive body can call the reduced specialization while still passing the
+/// original callable argument, for example `Repeat_H(H, n - 1, q)` instead of
+/// `Repeat_H(n - 1, q)`. External call sites go through `rewrite.rs`; cloned
+/// recursive self-calls need the same argument-shape reduction locally.
+fn rewrite_recursive_self_call_args(
+    package: &mut Package,
+    package_id: PackageId,
+    self_item_id: LocalItemId,
+    decl: &CallableDecl,
+    params: &[CallableParam],
+) {
+    let mut self_calls = Vec::new();
+    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_expr_id, expr| {
+        let ExprKind::Call(callee_id, args_id) = expr.kind else {
+            return;
+        };
+        let (base_id, outer_functor) = peel_body_functors(package, callee_id);
+        if expr_is_item_callee(package, base_id, package_id, self_item_id) {
+            self_calls.push((callee_id, args_id, outer_functor));
+        }
+    });
+
+    for (callee_id, args_id, outer_functor) in self_calls {
+        rewrite_recursive_self_call_arg_expr(package, args_id, params, outer_functor);
+        refresh_self_call_callee_ty(
+            package,
+            callee_id,
+            decl.input,
+            usize::from(outer_functor.controlled),
+        );
+    }
+}
+
+/// Returns whether `expr_id` is a direct reference to `item_id` in `package_id`.
+///
+/// The caller peels functor wrappers before calling this helper, so matching a
+/// bare item reference is enough to identify calls to the synthesized recursive
+/// specialization.
+fn expr_is_item_callee(
+    package: &Package,
+    expr_id: ExprId,
+    package_id: PackageId,
+    item_id: LocalItemId,
+) -> bool {
+    matches!(
+        package.get_expr(expr_id).kind,
+        ExprKind::Var(
+            Res::Item(ItemId {
+                package: callee_package,
+                item: callee_item,
+            }),
+            _
+        ) if callee_package == package_id && callee_item == item_id
+    )
+}
+
+/// Removes every specialized callable argument from one recursive self-call.
+///
+/// Each [`CallableParam`] describes the callable slot that was removed from the
+/// synthesized input. The same paths must be removed from the recursive call's
+/// argument expression so the retargeted call matches the reduced callee
+/// signature.
+fn rewrite_recursive_self_call_arg_expr(
+    package: &mut Package,
+    args_id: ExprId,
+    params: &[CallableParam],
+    functor: FunctorApp,
+) {
+    // Use the same path construction as call-site rewrite so controlled functor
+    // shells and single tuple-valued HOF inputs locate the callable slot in the
+    // same way on both sides of specialization.
+    let mut paths = params
+        .iter()
+        .map(|param| super::build_param_input_path(param.hof_input_is_tuple, param, functor))
+        .collect::<Vec<_>>();
+    // Remove deeper and later paths first so tuple element indices are still
+    // interpreted against the original call argument shape.
+    paths.sort_by(|left, right| right.cmp(left));
+    paths.dedup();
+
+    for path in paths {
+        remove_arg_at_path(package, args_id, &path);
+    }
+}
+
+/// Removes the argument element at `path` from an expression tree in place.
+///
+/// Empty paths mean the whole argument was the removed callable, so the
+/// argument becomes `Unit`. Non-empty paths expect tuple-structured arguments;
+/// when a nested tuple element changes shape, the enclosing tuple type is
+/// refreshed to keep the expression tree internally consistent.
+fn remove_arg_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
+    let Some((&index, rest)) = path.split_first() else {
+        let expr = package.get_expr(expr_id).clone();
+        let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
+        expr_mut.kind = ExprKind::Tuple(Vec::new());
+        expr_mut.ty = Ty::UNIT;
+        expr_mut.span = expr.span;
+        return;
+    };
+
+    let expr = package.get_expr(expr_id).clone();
+    let ExprKind::Tuple(elements) = expr.kind else {
+        return;
+    };
+    if index >= elements.len() {
+        return;
+    }
+
+    if rest.is_empty() {
+        let new_elements = elements
+            .into_iter()
+            .enumerate()
+            .filter_map(|(idx, element)| (idx != index).then_some(element))
+            .collect::<Vec<_>>();
+        let (kind, ty) = build_expr_data_from_elements(package, new_elements);
+        let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
+        expr_mut.kind = kind;
+        expr_mut.ty = ty;
+        return;
+    }
+
+    let nested_id = elements[index];
+    remove_arg_at_path(package, nested_id, rest);
+    update_tuple_element_type(package, expr_id, index, nested_id);
+}
+
+/// Refreshes one tuple element type after its nested argument was rewritten.
+///
+/// This keeps the outer tuple expression aligned with the reduced nested
+/// payload without retyping unrelated sibling elements.
+fn update_tuple_element_type(
+    package: &mut Package,
+    tuple_expr_id: ExprId,
+    element_index: usize,
+    element_id: ExprId,
+) {
+    let element_ty = package.get_expr(element_id).ty.clone();
+    let expr_mut = package
+        .exprs
+        .get_mut(tuple_expr_id)
+        .expect("tuple expr not found");
+    if let Ty::Tuple(tys) = &mut expr_mut.ty
+        && element_index < tys.len()
+    {
+        tys[element_index] = element_ty;
+    }
+}
+
+/// Updates a retargeted recursive callee's arrow type after its args shrink.
+///
+/// The callee expression was cloned with the original higher-order signature.
+/// After recursive self-call arguments are reduced, the arrow input must point
+/// at the synthesized callable's final input pattern, preserving any outer
+/// controlled functor tuple layers.
+fn refresh_self_call_callee_ty(
+    package: &mut Package,
+    callee_id: ExprId,
+    input_pat_id: PatId,
+    controlled_layers: usize,
+) {
+    let original_ty = package.get_expr(callee_id).ty.clone();
+    let Ty::Arrow(arrow) = original_ty else {
+        return;
+    };
+    let target_input = package.get_pat(input_pat_id).ty.clone();
+    // The callee expression was cloned with the pre-specialization arrow type.
+    // After argument reduction, retarget the relevant input slot to the final
+    // synthesized input pattern so later type checks see callee and args agree.
+    let input = apply_target_input_at_control_path(&arrow.input, &target_input, controlled_layers);
+    package
+        .exprs
+        .get_mut(callee_id)
+        .expect("callee expr not found")
+        .ty = Ty::Arrow(Box::new(Arrow {
+        kind: arrow.kind,
+        input: Box::new(input),
+        output: arrow.output,
+        functors: arrow.functors,
+    }));
 }
 
 /// Finds the single parameter position shared by a forwarded callable array,

@@ -2922,6 +2922,216 @@ fn single_param_recursive_tuple_callable_specializes_end_to_end() {
 }
 
 #[test]
+fn recursive_hof_specialization_remaps_self_call_to_specialization() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(H, n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let repeat_names = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("Repeat") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let repeat_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{H}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        repeat_specializations.len(),
+        1,
+        "expected one H-specialized Repeat callable, got {repeat_specializations:?} from {repeat_names:?}"
+    );
+
+    let repeat_specialization = repeat_specializations[0];
+    let targets = callable_call_targets_after_defunc(source, repeat_specialization);
+    assert!(
+        targets.contains(repeat_specialization),
+        "recursive specialization {repeat_specialization} should call itself, got targets {targets:?}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(H, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl_(H, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(H, n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(H, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl__H_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl__H_(n - 1, q);
+                }
+
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_AdjCtl__H_(n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_multi_param_hof_specialization_remaps_self_call_to_specialization() {
+    let source = r#"
+        operation RepeatPair(n : Int, first : Qubit => Unit, second : Qubit => Unit, q : Qubit) : Unit {
+            if n > 0 {
+                first(q);
+                second(q);
+                RepeatPair(n - 1, H, X, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            RepeatPair(2, H, X, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let repeat_names = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("RepeatPair") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let repeat_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{H}") && name.contains("{X}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        repeat_specializations.len(),
+        1,
+        "expected one H/X-specialized RepeatPair callable, got {repeat_specializations:?} from {repeat_names:?}"
+    );
+
+    let repeat_specialization = repeat_specializations[0];
+    let targets = callable_call_targets_after_defunc(source, repeat_specialization);
+    assert!(
+        targets.contains(repeat_specialization),
+        "recursive specialization {repeat_specialization} should call itself, got targets {targets:?}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation RepeatPair(n : Int, first : (Qubit => Unit), second : (Qubit => Unit), q : Qubit) : Unit {
+                if n > 0 {
+                    first(q);
+                    second(q);
+                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                RepeatPair_AdjCtl__AdjCtl_(2, H, X, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation RepeatPair_AdjCtl__AdjCtl_(n : Int, first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                if n > 0 {
+                    first(q);
+                    second(q);
+                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation RepeatPair(n : Int, first : (Qubit => Unit), second : (Qubit => Unit), q : Qubit) : Unit {
+                if n > 0 {
+                    first(q);
+                    second(q);
+                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                RepeatPair_AdjCtl__AdjCtl__H__X_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation RepeatPair_AdjCtl__AdjCtl_(n : Int, first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                if n > 0 {
+                    first(q);
+                    second(q);
+                    RepeatPair_AdjCtl__AdjCtl__H__X_(n - 1, q);
+                }
+
+            }
+            operation RepeatPair_AdjCtl__AdjCtl__H__X_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    X(q);
+                    RepeatPair_AdjCtl__AdjCtl__H__X_(n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
 fn single_param_recursive_tuple_callable_closure_capture_invariants() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
