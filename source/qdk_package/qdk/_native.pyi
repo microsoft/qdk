@@ -25,7 +25,7 @@ class OutputSemantics(Enum):
     and the semantic checks that are performed.
     """
 
-    Qiskit = 0
+    Qiskit: OutputSemantics
     """
     The output is in Qiskit format meaning that the output
     is all of the classical registers, in reverse order
@@ -33,7 +33,7 @@ class OutputSemantics(Enum):
     bit within each register in reverse order.
     """
 
-    OpenQasm = 1
+    OpenQasm: OutputSemantics
     """
     [OpenQASM 3 has two output modes](https://openqasm.com/language/directives.html#input-output)
     - If the programmer provides one or more `output` declarations, then
@@ -42,7 +42,7 @@ class OutputSemantics(Enum):
     - Otherwise, assume all of the declared variables are returned as output.
     """
 
-    ResourceEstimation = 2
+    ResourceEstimation: OutputSemantics
     """
     No output semantics are applied. The entry point returns `Unit`.
     """
@@ -52,7 +52,7 @@ class ProgramType(Enum):
     Represents the type of compilation output to create
     """
 
-    File = 0
+    File: ProgramType
     """
     Creates an operation in a namespace as if the program is a standalone
     file. Inputs are lifted to the operation params. Output are lifted to
@@ -60,13 +60,13 @@ class ProgramType(Enum):
     as long as there are no input parameters.
     """
 
-    Operation = 1
+    Operation: ProgramType
     """
     Programs are compiled to a standalone function. Inputs are lifted to
     the operation params. Output are lifted to the operation return type.
     """
 
-    Fragments = 2
+    Fragments: ProgramType
     """
     Creates a list of statements from the program. This is useful for
     interactive environments where the program is a list of statements
@@ -90,7 +90,7 @@ class TargetProfile(Enum):
     :raises ValueError: If the string does not match any target profile.
     """
 
-    Base = 0
+    Base: TargetProfile
     """
     Target supports the minimal set of capabilities required to run a quantum
     program.
@@ -98,7 +98,7 @@ class TargetProfile(Enum):
     This option maps to the Base Profile as defined by the QIR specification.
     """
 
-    Adaptive_RI = 1
+    Adaptive_RI: TargetProfile
     """
     Target supports the Adaptive profile with the integer computation extension.
 
@@ -107,7 +107,7 @@ class TargetProfile(Enum):
     extension defined by the QIR specification.
     """
 
-    Adaptive_RIF = 2
+    Adaptive_RIF: TargetProfile
     """
     Target supports the Adaptive profile with integer & floating-point
     computation extensions.
@@ -117,7 +117,7 @@ class TargetProfile(Enum):
     extension defined by the QIR specification.
     """
 
-    Adaptive = 3
+    Adaptive: TargetProfile
     """
     Target supports the Adaptive profile with all supported extensions.
 
@@ -125,7 +125,7 @@ class TargetProfile(Enum):
     all the optional extensions defined by the QIR specification.
     """
 
-    Unrestricted = 4
+    Unrestricted: TargetProfile
     """
     Describes the unrestricted set of capabilities required to run any Q# program.
     """
@@ -396,19 +396,19 @@ class Result(Enum):
     A Q# measurement result.
     """
 
-    Zero = 0
-    One = 1
-    Loss = 2
+    Zero: int
+    One: int
+    Loss: int
 
 class Pauli(Enum):
     """
     A Q# Pauli operator.
     """
 
-    I = 0
-    X = 1
-    Y = 2
-    Z = 3
+    I: int
+    X: int
+    Y: int
+    Z: int
 
 class Output:
     """
@@ -479,17 +479,17 @@ class CircuitGenerationMethod(Enum):
     The method to use for circuit generation.
     """
 
-    ClassicalEval = 0
+    ClassicalEval: CircuitGenerationMethod
     """
     Use classical evaluation to generate the circuit.
     """
 
-    Simulate = 1
+    Simulate: CircuitGenerationMethod
     """
     Use simulation to generate the circuit.
     """
 
-    Static = 2
+    Static: CircuitGenerationMethod
     """
     Compile the program and transform to a circuit using partial evaluation.
     Only works for AdaptiveRIF-compliant programs.
@@ -825,23 +825,23 @@ class TypeKind(Enum):
     A Q# type kind.
     """
 
-    Primitive = 0
-    Tuple = 1
-    Array = 2
-    Udt = 3
+    Primitive: int
+    Tuple: int
+    Array: int
+    Udt: int
 
 class PrimitiveKind(Enum):
     """
     A Q# primitive.
     """
 
-    Bool = 0
-    Int = 1
-    Double = 2
-    Complex = 3
-    String = 4
-    Pauli = 5
-    Result = 6
+    Bool: int
+    Int: int
+    Double: int
+    Complex: int
+    String: int
+    Pauli: int
+    Result: int
 
 class UdtIR:
     """
@@ -852,42 +852,42 @@ class UdtIR:
     fields: List[Tuple[str, TypeIR]]
 
 class QirInstructionId(Enum):
-    I = 0
-    H = 1
-    X = 2
-    Y = 3
-    Z = 4
-    S = 5
-    SAdj = 6
-    SX = 7
-    SXAdj = 8
-    T = 9
-    TAdj = 10
-    CNOT = 11
-    CX = 12
-    CY = 13
-    CZ = 14
-    CCX = 15
-    SWAP = 16
-    RX = 17
-    RY = 18
-    RZ = 19
-    RXX = 20
-    RYY = 21
-    RZZ = 22
-    RESET = 23
-    M = 24
-    MResetZ = 25
-    MZ = 26
-    Move = 27
-    ReadResult = 28
-    ResultRecordOutput = 29
-    BoolRecordOutput = 30
-    IntRecordOutput = 31
-    DoubleRecordOutput = 32
-    TupleRecordOutput = 33
-    ArrayRecordOutput = 34
-    CorrelatedNoise = 35
+    I: QirInstructionId
+    H: QirInstructionId
+    X: QirInstructionId
+    Y: QirInstructionId
+    Z: QirInstructionId
+    S: QirInstructionId
+    SAdj: QirInstructionId
+    SX: QirInstructionId
+    SXAdj: QirInstructionId
+    T: QirInstructionId
+    TAdj: QirInstructionId
+    CNOT: QirInstructionId
+    CX: QirInstructionId
+    CY: QirInstructionId
+    CZ: QirInstructionId
+    CCX: QirInstructionId
+    SWAP: QirInstructionId
+    RX: QirInstructionId
+    RY: QirInstructionId
+    RZ: QirInstructionId
+    RXX: QirInstructionId
+    RYY: QirInstructionId
+    RZZ: QirInstructionId
+    RESET: QirInstructionId
+    M: QirInstructionId
+    MResetZ: QirInstructionId
+    MZ: QirInstructionId
+    Move: QirInstructionId
+    ReadResult: QirInstructionId
+    ResultRecordOutput: QirInstructionId
+    BoolRecordOutput: QirInstructionId
+    IntRecordOutput: QirInstructionId
+    DoubleRecordOutput: QirInstructionId
+    TupleRecordOutput: QirInstructionId
+    ArrayRecordOutput: QirInstructionId
+    CorrelatedNoise: QirInstructionId
 
 class QirInstruction: ...
 
