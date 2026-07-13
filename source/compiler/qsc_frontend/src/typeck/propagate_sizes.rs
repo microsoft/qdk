@@ -284,6 +284,11 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
             // any array size mismatches. Then propagate the output type if the call is not a partial
             // application.
             ExprKind::Call(callee, args) => {
+                let args = if let ExprKind::Paren(inner_args) = args.kind.as_ref() {
+                    inner_args
+                } else {
+                    args
+                };
                 if let Some(Ty::Arrow(arrow)) = self.table.terms.get(callee.id) {
                     let input_ty = arrow.input.borrow().clone();
                     let output_ty = arrow.output.borrow().clone();
