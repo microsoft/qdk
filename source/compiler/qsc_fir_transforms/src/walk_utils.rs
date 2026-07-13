@@ -465,7 +465,7 @@ pub(crate) fn classify_uses_in_block(
             // A tuple-literal reassignment (`set local = (..)`) disqualifies the
             // local from promotion, so it folds into `HardBlock`. For the only
             // caller (parameter classification) it is also borrowck-unreachable:
-            // `Qsc.BorrowCk.Mutability` forbids assigning to a parameter.
+            // `Qdk.Qsc.BorrowCk.Mutability` forbids assigning to a parameter.
             UseEvent::Decomposable | UseEvent::HardBlock => ParamUse::HardBlock,
             UseEvent::WholeValueRead(id) => ParamUse::WholeValueRead(id),
         });

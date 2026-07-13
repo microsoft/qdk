@@ -102,14 +102,14 @@ fn correlated_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: CORRELATED_ERROR
-           ,----
-         1 | CORRELATED_ERROR X0
-           : ^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: CORRELATED_ERROR
+               ,----
+             1 | CORRELATED_ERROR X0
+               : ^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -325,7 +325,7 @@ fn else_correlated_error_by_itself_yields_error() {
     check(
         source,
         &expect![[r#"
-            Stim.OrphanedElseCorrelatedError
+            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
 
               x else_correlated_error must be preceded by a correlated_error or
               | else_correlated_error instruction
@@ -347,7 +347,7 @@ ELSE_CORRELATED_ERROR(0.02) X0
     check(
         source,
         &expect![[r#"
-            Stim.OrphanedElseCorrelatedError
+            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
 
               x else_correlated_error must be preceded by a correlated_error or
               | else_correlated_error instruction
@@ -371,7 +371,7 @@ ELSE_CORRELATED_ERROR(0.02) Z0
     check(
         source,
         &expect![[r#"
-            Stim.OrphanedElseCorrelatedError
+            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
 
               x else_correlated_error must be preceded by a correlated_error or
               | else_correlated_error instruction
@@ -438,14 +438,14 @@ fn depolarize1_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: DEPOLARIZE1
-           ,----
-         1 | DEPOLARIZE1 0
-           : ^^^^^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: DEPOLARIZE1
+               ,----
+             1 | DEPOLARIZE1 0
+               : ^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -515,14 +515,14 @@ fn depolarize2_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: DEPOLARIZE2
-           ,----
-         1 | DEPOLARIZE2 0 1 2 3
-           : ^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: DEPOLARIZE2
+               ,----
+             1 | DEPOLARIZE2 0 1 2 3
+               : ^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -532,7 +532,7 @@ fn depolarize2_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Stim.OddTargetCount
+            Qdk.Stim.Compiler.OddTargetCount
 
               x instruction DEPOLARIZE2 requires an even number of targets
                ,----
@@ -675,14 +675,14 @@ fn x_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: X_ERROR
-           ,----
-         1 | X_ERROR 0
-           : ^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: X_ERROR
+               ,----
+             1 | X_ERROR 0
+               : ^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -738,14 +738,14 @@ fn y_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: Y_ERROR
-           ,----
-         1 | Y_ERROR 0
-           : ^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: Y_ERROR
+               ,----
+             1 | Y_ERROR 0
+               : ^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -801,14 +801,14 @@ fn z_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: Z_ERROR
-           ,----
-         1 | Z_ERROR 0
-           : ^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: Z_ERROR
+               ,----
+             1 | Z_ERROR 0
+               : ^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -864,13 +864,13 @@ fn loss_error_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: LOSS_ERROR
-           ,----
-         1 | LOSS_ERROR 0
-           : ^^^^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: LOSS_ERROR
+               ,----
+             1 | LOSS_ERROR 0
+               : ^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }

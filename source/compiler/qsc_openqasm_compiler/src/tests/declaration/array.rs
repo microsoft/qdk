@@ -143,7 +143,7 @@ fn initialized_simple_array_with_wrong_size_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.ArrayDeclarationTypeError
+        [Qdk.Qasm.Lowerer.ArrayDeclarationTypeError
 
           x expected an array of size 3 but found one of size 2
            ,-[Test.qasm:2:27]
@@ -408,7 +408,7 @@ fn indexing_a_simple_array_of_zero_size_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.ZeroSizeArrayAccess
+        [Qdk.Qasm.Lowerer.ZeroSizeArrayAccess
 
           x zero size array access is not allowed
            ,-[Test.qasm:3:9]
@@ -434,7 +434,7 @@ fn indexing_a_multidimensional_array_of_size_zero_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.ZeroSizeArrayAccess
+        [Qdk.Qasm.Lowerer.ZeroSizeArrayAccess
 
           x zero size array access is not allowed
            ,-[Test.qasm:3:9]
@@ -498,7 +498,7 @@ fn arrays_with_8_dimensions_are_unsupported() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.NotSupported
+        [Qdk.Qasm.Lowerer.NotSupported
 
           x arrays with more than 7 dimensions are not supported
            ,-[Test.qasm:2:9]
@@ -523,7 +523,7 @@ fn casting_arrays_unsupported() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.CannotCast
+        [Qdk.Qasm.Lowerer.CannotCast
 
           x cannot cast expression of type array[complex[float], 1, 2, 3] to type
           | array[angle, 1, 2, 3]

@@ -39,11 +39,11 @@ pub enum Error {
     #[diagnostic(help(
         "updating mutable variables in the apply-block that are used in the within-block can violate logic reversibility"
     ))]
-    #[diagnostic(code("Qsc.ConjugateInvert.ApplyAssign"))]
+    #[diagnostic(code("Qdk.Qsc.ConjugateInvert.ApplyAssign"))]
     ApplyAssign(#[label] Span),
 
     #[error("return expressions are not allowed in apply-blocks")]
-    #[diagnostic(code("Qsc.ConjugateInvert.ReturnForbidden"))]
+    #[diagnostic(code("Qdk.Qsc.ConjugateInvert.ReturnForbidden"))]
     ReturnForbidden(#[label] Span),
 }
 

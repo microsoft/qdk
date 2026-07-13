@@ -19,16 +19,16 @@ pub enum Error {
     #[diagnostic(help(
         "mutable variables must be declared with the keyword `mutable` instead of `let`"
     ))]
-    #[diagnostic(code("Qsc.BorrowCk.Mutability"))]
+    #[diagnostic(code("Qdk.Qsc.BorrowCk.Mutability"))]
     Mutability(#[label] Span),
 
     #[error("lambdas cannot close over mutable variables")]
-    #[diagnostic(code("Qsc.BorrowCk.MutableClosure"))]
+    #[diagnostic(code("Qdk.Qsc.BorrowCk.MutableClosure"))]
     MutableClosure(#[label] Span),
 
     #[error("invalid left-hand side of assignment")]
     #[diagnostic(help("the left-hand side must be a variable or tuple of variables"))]
-    #[diagnostic(code("Qsc.BorrowCk.Unassignable"))]
+    #[diagnostic(code("Qdk.Qsc.BorrowCk.Unassignable"))]
     Unassignable(#[label("not assignable")] Span),
 }
 

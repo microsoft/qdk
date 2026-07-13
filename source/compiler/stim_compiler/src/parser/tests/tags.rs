@@ -104,13 +104,13 @@ fn tag_in_target_position_is_error() {
     check(
         "H 0 [t]",
         &expect![[r#"
-        Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected newline, found tag
-           ,----
-         1 | H 0 [t]
-           :     ^^^
-           `----
-    "#]],
+              x expected newline, found tag
+               ,----
+             1 | H 0 [t]
+               :     ^^^
+               `----
+        "#]],
     );
 }

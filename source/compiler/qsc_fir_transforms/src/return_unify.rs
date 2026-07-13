@@ -83,7 +83,7 @@ pub enum Error {
     /// Return-slot selection could not prove that either Direct or
     /// `ArrayBacked` lowering is valid for this return type.
     #[error("cannot unify early returns of type `{0}`")]
-    #[diagnostic(code("Qsc.ReturnUnify.UnsupportedEarlyReturnType"))]
+    #[diagnostic(code("Qdk.Qsc.ReturnUnify.UnsupportedEarlyReturnType"))]
     #[diagnostic(severity(Warning))]
     #[diagnostic(help(
         "the return type has no classical default and cannot be array-backed; \
@@ -101,7 +101,7 @@ pub enum Error {
     /// `"simplify"`) identifies which loop did not converge. The IR remains
     /// semantically valid, but the partial fold indicates a rule regression.
     #[error("return-unification {0} did not reach a fixpoint")]
-    #[diagnostic(code("Qsc.ReturnUnify.FixpointNotReached"))]
+    #[diagnostic(code("Qdk.Qsc.ReturnUnify.FixpointNotReached"))]
     #[diagnostic(severity(Warning))]
     #[diagnostic(help(
         "this is an internal compiler diagnostic; please file an issue \
@@ -112,7 +112,7 @@ pub enum Error {
     /// A return appears inside a compound expression whose enclosing
     /// expression has a type with no classical default.
     #[error("cannot hoist `return` from a compound position of type `{0}`")]
-    #[diagnostic(code("Qsc.ReturnUnify.UnsupportedHoistContext"))]
+    #[diagnostic(code("Qdk.Qsc.ReturnUnify.UnsupportedHoistContext"))]
     #[diagnostic(severity(Warning))]
     #[diagnostic(help(
         "the surrounding expression has a non-defaultable type; \

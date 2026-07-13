@@ -84,15 +84,15 @@ fn measurement_record_zero_is_error() {
     check(
         "DETECTOR rec[-0]",
         &expect![[r#"
-        Stim.Parser.ZeroMeasurementRecord
+            Qdk.Stim.Parser.ZeroMeasurementRecord
 
-          x measurement record offset cannot be zero; the most recent measurement is
-          | rec[-1]
-           ,----
-         1 | DETECTOR rec[-0]
-           :               ^
-           `----
-    "#]],
+              x measurement record offset cannot be zero; the most recent measurement is
+              | rec[-1]
+               ,----
+             1 | DETECTOR rec[-0]
+               :               ^
+               `----
+        "#]],
     );
 }
 
@@ -102,15 +102,15 @@ fn measurement_record_zero_with_leading_zeros_is_error() {
     check(
         "DETECTOR rec[-00]",
         &expect![[r#"
-        Stim.Parser.ZeroMeasurementRecord
+            Qdk.Stim.Parser.ZeroMeasurementRecord
 
-          x measurement record offset cannot be zero; the most recent measurement is
-          | rec[-1]
-           ,----
-         1 | DETECTOR rec[-00]
-           :               ^^
-           `----
-    "#]],
+              x measurement record offset cannot be zero; the most recent measurement is
+              | rec[-1]
+               ,----
+             1 | DETECTOR rec[-00]
+               :               ^^
+               `----
+        "#]],
     );
 }
 
@@ -209,14 +209,14 @@ fn negating_sweep_bit_is_error() {
     check(
         "CX !sweep[0] 1",
         &expect![[r#"
-        Stim.Parser.CannotNegateTarget
+            Qdk.Stim.Parser.CannotNegateTarget
 
-          x only qubit and Pauli targets can be negated with '!'
-           ,----
-         1 | CX !sweep[0] 1
-           :    ^
-           `----
-    "#]],
+              x only qubit and Pauli targets can be negated with '!'
+               ,----
+             1 | CX !sweep[0] 1
+               :    ^
+               `----
+        "#]],
     );
 }
 
@@ -225,14 +225,14 @@ fn negating_loss_is_error() {
     check(
         "E(0.01) !L0",
         &expect![[r#"
-        Stim.Parser.CannotNegateTarget
+            Qdk.Stim.Parser.CannotNegateTarget
 
-          x only qubit and Pauli targets can be negated with '!'
-           ,----
-         1 | E(0.01) !L0
-           :         ^
-           `----
-    "#]],
+              x only qubit and Pauli targets can be negated with '!'
+               ,----
+             1 | E(0.01) !L0
+               :         ^
+               `----
+        "#]],
     );
 }
 
@@ -241,14 +241,14 @@ fn negating_combiner_is_error() {
     check(
         "MPP X0 !*",
         &expect![[r#"
-        Stim.Parser.CannotNegateTarget
+            Qdk.Stim.Parser.CannotNegateTarget
 
-          x only qubit and Pauli targets can be negated with '!'
-           ,----
-         1 | MPP X0 !*
-           :        ^
-           `----
-    "#]],
+              x only qubit and Pauli targets can be negated with '!'
+               ,----
+             1 | MPP X0 !*
+               :        ^
+               `----
+        "#]],
     );
 }
 
@@ -257,14 +257,14 @@ fn pauli_with_non_integer_value_is_error() {
     check(
         "MPP XY",
         &expect![[r#"
-        Stim.Parser.Expected
+            Qdk.Stim.Parser.Expected
 
-          x expected an integer, found instruction_name
-           ,----
-         1 | MPP XY
-           :      ^
-           `----
-    "#]],
+              x expected an integer, found instruction_name
+               ,----
+             1 | MPP XY
+               :      ^
+               `----
+        "#]],
     );
 }
 
@@ -273,13 +273,13 @@ fn unexpected_token_after_targets_is_error() {
     check(
         "H 0 )",
         &expect![[r#"
-        Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected newline, found close(paren)
-           ,----
-         1 | H 0 )
-           :     ^
-           `----
-    "#]],
+              x expected newline, found close(paren)
+               ,----
+             1 | H 0 )
+               :     ^
+               `----
+        "#]],
     );
 }
