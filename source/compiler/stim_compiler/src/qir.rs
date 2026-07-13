@@ -866,12 +866,9 @@ impl<'noise> Compiler<'noise> {
             }
             "DEPOLARIZE1" => self.compile_depolarize_1(instruction),
             "DEPOLARIZE2" => self.compile_depolarize_2(instruction),
-            "HERALDED_ERASE"
-            | "HERALDED_PAULI_CHANNEL_1"
-            | "II_ERROR"
-            | "I_ERROR"
-            | "PAULI_CHANNEL_1"
-            | "PAULI_CHANNEL_2" => self.unsupported(instruction),
+            "HERALDED_ERASE" | "HERALDED_PAULI_CHANNEL_1" => self.unsupported(instruction),
+            "II_ERROR" | "I_ERROR" => (),
+            "PAULI_CHANNEL_1" | "PAULI_CHANNEL_2" => self.unsupported(instruction),
             "X_ERROR" | "Y_ERROR" | "Z_ERROR" | "LOSS_ERROR" => {
                 self.compile_fault_error(instruction)
             }
