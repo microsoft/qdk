@@ -114,14 +114,7 @@ block_c{pauli}_exit:
     }
 
     fn write_noise_intrinsic(&mut self, name: &str, ids: &[u32]) {
-        write!(self, "  call void @{name}(");
-        for (i, &id) in ids.iter().enumerate() {
-            if i > 0 {
-                write!(self, ", ");
-            }
-            write!(self, "ptr inttoptr (i64 {id} to ptr)");
-        }
-        writeln!(self, ")");
+        self.write_call(name, ids);
         self.declare(name, || {
             let params = vec!["ptr"; ids.len()].join(", ");
             format!("declare void @{name}({params}) #2")
@@ -152,24 +145,12 @@ block_c{pauli}_exit:
         writeln!(self, "  br label %{label}");
     }
 
-    // Writes: `  %{dest} = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 N to ptr))`
-    fn write_read_result(&mut self, dest: &str, id: u32) {
-        write!(self, "  %{dest} = call i1 @__quantum__rt__read_result(");
+    // Writes: `  %{dest} = call i1 @{intrinsic}(ptr inttoptr (i64 N to ptr))`
+    fn write_read(&mut self, dest: &str, intrinsic: &str, id: u32) {
+        write!(self, "  %{dest} = call i1 @{intrinsic}(");
         self.write_ptr(id);
         writeln!(self, ")");
-        self.declare("__quantum__rt__read_result", || {
-            "declare i1 @__quantum__rt__read_result(ptr)".to_string()
-        });
-    }
-
-    // Writes: `  %{dest} = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 N to ptr))`
-    fn write_read_loss(&mut self, dest: &str, id: u32) {
-        write!(self, "  %{dest} = call i1 @__quantum__rt__read_loss(");
-        self.write_ptr(id);
-        writeln!(self, ")");
-        self.declare("__quantum__rt__read_loss", || {
-            "declare i1 @__quantum__rt__read_loss(ptr)".to_string()
-        });
+        self.declare(intrinsic, || format!("declare i1 @{intrinsic}(ptr)"));
     }
 
     // Writes: `  %{dest} = or i1 %{lhs}, %{rhs}`
@@ -1208,13 +1189,15 @@ impl<'noise> Compiler<'noise> {
 
     fn read_loss_register(&mut self, result_id: u32) -> String {
         let loss_register = self.id_map.fresh_name("l");
-        self.writer.write_read_loss(&loss_register, result_id);
+        self.writer
+            .write_read(&loss_register, "__quantum__rt__read_loss", result_id);
         loss_register
     }
 
     fn read_result_register(&mut self, result_id: u32, negated: bool) -> String {
         let result_register = self.id_map.fresh_name("r");
-        self.writer.write_read_result(&result_register, result_id);
+        self.writer
+            .write_read(&result_register, "__quantum__rt__read_result", result_id);
 
         if negated {
             let not_register = self.id_map.fresh_name("n");
