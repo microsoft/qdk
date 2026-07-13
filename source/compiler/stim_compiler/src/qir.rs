@@ -454,7 +454,7 @@ impl IdMap {
         let parent = self.current_scope();
         let id = self.scope_parents.len() as u32;
         self.scope_parents.push(parent);
-        self.scope_stack.push(Scope::Prepare(id));
+        self.scope_stack.push(Prepare(id));
     }
 
     fn exit_prepare_scope(&mut self) {
@@ -462,7 +462,7 @@ impl IdMap {
     }
 
     fn current_scope(&self) -> Scope {
-        self.scope_stack.last().copied().unwrap_or(Scope::TopLevel)
+        self.scope_stack.last().copied().unwrap_or(TopLevel)
     }
 
     fn scope_of_record(&self, id: u32) -> Scope {
@@ -1131,7 +1131,7 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        let Scope::Prepare(scope) = self.id_map.current_scope() else {
+        let Prepare(scope) = self.id_map.current_scope() else {
             self.push_error(Error::PrepareWithoutBlock {
                 span: instruction.span,
             });
@@ -1144,7 +1144,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {
-        if matches!(self.id_map.current_scope(), Scope::TopLevel) {
+        if matches!(self.id_map.current_scope(), TopLevel) {
             self.push_error(Error::RequireOutsidePrepareBlock {
                 span: instruction.span,
             });
@@ -1192,7 +1192,7 @@ impl<'noise> Compiler<'noise> {
             parity = temp;
         }
 
-        let Scope::Prepare(scope) = self.id_map.current_scope() else {
+        let Prepare(scope) = self.id_map.current_scope() else {
             unreachable!("REQUIRE runs inside a prepare block");
         };
         let restart_label = prepare_label(scope);
