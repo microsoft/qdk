@@ -3131,6 +3131,196 @@ fn recursive_multi_param_hof_specialization_remaps_self_call_to_specialization()
     );
 }
 
+// Regression for the soundness of the conditional, key-matched recursive
+// self-call remap. When a used-parameter recursive HOF forwards a *different*
+// global callable on its self-call than the one it was entered with, the
+// self-call must be routed to the sibling specialization for that forwarded
+// callable rather than folded into a self-loop on the current specialization.
+//
+// Here `Repeat` is entered with `H` but its recursive self-call forwards `X`.
+// The correct lowering emits the sequence `H, X`: the `H` specialization runs
+// `H(q)` and then calls the `X` sibling specialization, which runs `X(q)` and
+// recurses on itself. An unconditional remap (the pre-fix behavior) would
+// instead retarget the self-call back into the `H` specialization, silently
+// emitting `H, H` and leaving the `X` specialization orphaned.
+//
+// Note: the sibling-routing path currently mints the `X` specialization more
+// than once (one copy is reachable via the `H` specialization and one is dead
+// code reached only through the now-unreachable generic HOF). This is a
+// redundant-specialization inefficiency, not a miscompile -- the reachable
+// gate sequence is still `H, X` -- so the assertions below key off the
+// specialization *names* rather than a specialization count.
+#[test]
+fn recursive_hof_self_call_with_different_callable_routes_to_sibling_specialization() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(X, n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let repeat_names = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("Repeat") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let h_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{H}"))
+        .collect::<Vec<_>>();
+    let x_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{X}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        h_specializations.len(),
+        1,
+        "expected one H-specialized Repeat callable, got {h_specializations:?} from {repeat_names:?}"
+    );
+    assert!(
+        !x_specializations.is_empty(),
+        "expected at least one X-specialized Repeat callable, got {x_specializations:?} from {repeat_names:?}"
+    );
+
+    let h_specialization = h_specializations[0];
+    let x_specialization = x_specializations[0];
+
+    // The H specialization forwards `X` on its self-call, so it must call the
+    // X sibling specialization and must not self-loop (a self-loop would emit
+    // the incorrect sequence H, H instead of the correct H, X).
+    let h_targets = callable_call_targets_after_defunc(source, h_specialization);
+    assert!(
+        h_targets.contains(x_specialization),
+        "H specialization {h_specialization} should call the X sibling specialization \
+         {x_specialization}, got targets {h_targets:?}"
+    );
+    assert!(
+        !h_targets.contains(h_specialization),
+        "H specialization {h_specialization} must not self-loop (that would emit H, H), \
+         got targets {h_targets:?}"
+    );
+
+    // The X specialization forwards `X` on its self-call, which matches its own
+    // key, so it self-loops.
+    let x_targets = callable_call_targets_after_defunc(source, x_specialization);
+    assert!(
+        x_targets.contains(x_specialization),
+        "X specialization {x_specialization} should self-loop, got targets {x_targets:?}"
+    );
+
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(X, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl_(H, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(X, n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(X, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl__H_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl__X_(n - 1, q);
+                }
+
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_AdjCtl__X_(n - 1, q);
+                }
+
+            }
+            operation Repeat_AdjCtl__X_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    X(q);
+                    Repeat_AdjCtl__X_(n - 1, q);
+                }
+
+            }
+            operation Repeat_AdjCtl__X_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    X(q);
+                    Repeat_AdjCtl__X_(n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+// The exact repro reported for degenerate recursive defunctionalization. `F`'s
+// callable parameter is unused, so every specialization collapses to the same
+// body once the callable slot is stripped, and the fixpoint loop converges on a
+// small bounded specialization set. This must complete with no diagnostics --
+// no fixpoint-not-reached, no dynamic-callable, and no excessive-specialization
+// warning.
+#[test]
+fn recursive_unused_param_identity_lambda_converges_clean() {
+    let source = r#"
+        operation Main() : Unit {
+            F(x => x)
+        }
+        operation F(f : () => ()) : Unit {
+            F(() => F(x => x));
+        }
+        "#;
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert!(
+        errors.is_empty(),
+        "expected clean convergence with no diagnostics, got:\n{}",
+        format_defunctionalization_errors(&errors)
+    );
+}
+
 #[test]
 fn single_param_recursive_tuple_callable_closure_capture_invariants() {
     let source = r#"
@@ -3623,6 +3813,100 @@ fn excessive_specializations_warning_does_not_block_compilation() {
 
     // PostDefunc invariants must still hold.
     fir_invariants::check(&fir_store, fir_pkg_id, InvariantLevel::PostDefunc);
+}
+
+#[test]
+fn cumulative_specialization_cap_fails_closed_with_fatal_error() {
+    use std::fmt::Write as _;
+
+    // A single HOF forwarded one more distinct global callable than the
+    // cumulative cap allows must fail closed with a fatal
+    // `RecursiveSpecialization` diagnostic rather than looping or panicking.
+    // Each `OpN` is a distinct global, so each `Apply(OpN, q)` call site yields
+    // a distinct specialization key for `Apply`; `cap + 1` of them pushes the
+    // HOF's cumulative distinct-specialization count past the budget.
+    let cap = crate::defunctionalize::specialize::CUMULATIVE_SPECIALIZATION_CAP;
+    let num_ops = cap + 1;
+
+    let mut ops = String::new();
+    let mut calls = String::new();
+    for i in 0..num_ops {
+        writeln!(ops, "        operation Op{i}(q : Qubit) : Unit {{}}")
+            .expect("writing to a String cannot fail");
+        writeln!(calls, "            Apply(Op{i}, q);").expect("writing to a String cannot fail");
+    }
+    let source = format!(
+        "\n        operation Apply(op : Qubit => Unit, q : Qubit) : Unit {{ op(q); }}\n{ops}        operation Main() : Unit {{\n            use q = Qubit();\n{calls}        }}\n"
+    );
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(&source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    // The loop must terminate (fail closed); if the guard were absent this
+    // could otherwise run to the iteration cap. Reaching this assertion at all
+    // proves there was no panic or hang.
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+
+    let recursive: Vec<_> = errors
+        .iter()
+        .filter(|e| matches!(e, super::super::Error::RecursiveSpecialization(..)))
+        .collect();
+    assert_eq!(
+        recursive.len(),
+        1,
+        "expected exactly one RecursiveSpecialization diagnostic, got: {errors:?}"
+    );
+    // The fatal diagnostic must not be classified as a warning.
+    assert!(
+        !recursive[0].is_warning(),
+        "RecursiveSpecialization must be fatal, not a warning"
+    );
+    // The reported cumulative count must be over the cap.
+    if let super::super::Error::RecursiveSpecialization(_, count, _) = recursive[0] {
+        assert!(
+            *count > cap,
+            "reported count {count} should exceed the cap {cap}"
+        );
+    }
+}
+
+#[test]
+fn primary_fix_regressions_stay_under_cumulative_cap() {
+    // The key-matched self-call remap keeps each recursive HOF's specialization
+    // set bounded, so neither the used-parameter variant nor the exact
+    // unused-parameter repro should ever trip the cumulative cap. Both must
+    // defunctionalize without emitting a `RecursiveSpecialization` diagnostic.
+    let used_param = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(X, n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    let unused_param = r#"
+        operation Main() : Unit {
+            F(x => x)
+        }
+        operation F(f : () => ()) : Unit {
+            F(() => F(x => x));
+        }
+        "#;
+
+    for source in [used_param, unused_param] {
+        let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+        let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+        let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, super::super::Error::RecursiveSpecialization(..))),
+            "expected no RecursiveSpecialization under the cap, got: {errors:?}"
+        );
+    }
 }
 
 #[test]

@@ -430,7 +430,11 @@ pub struct AnalysisResult {
 /// # Severity
 ///
 /// All variants are fatal to the FIR transform pipeline except
-/// [`Error::ExcessiveSpecializations`], which is emitted as a warning. Use
+/// [`Error::ExcessiveSpecializations`], which is emitted as a warning.
+/// [`Error::RecursiveSpecialization`] is the fatal counterpart of that warning:
+/// it fires when a single HOF's cumulative specialization count across all
+/// fixpoint iterations exceeds a hard cap, backstopping any runaway-growth
+/// shape the analysis does not otherwise fold into a bounded set. Use
 /// [`Error::is_warning`] to partition diagnostics by severity.
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
@@ -504,6 +508,29 @@ pub enum Error {
         String,
         usize,
         #[label("excessive specializations generated here")] PackageSpan,
+    ),
+
+    /// Fatal error emitted when a single HOF's cumulative specialization count,
+    /// summed across every fixpoint iteration, exceeds the hard cap. The string
+    /// is the HOF name and the second field is the cumulative distinct
+    /// specialization count. This is the fatal backstop for the
+    /// [`Error::ExcessiveSpecializations`] warning: the warning flags a HOF that
+    /// is fanning out in a single pass, while this error fires when growth
+    /// persists across iterations far enough to indicate a degenerate recursive
+    /// shape that would otherwise consume unbounded resources. Failing closed
+    /// here keeps the transform from looping or exhausting memory on such input.
+    #[error(
+        "higher-order function `{0}` generated {1} cumulative specializations, exceeding the recursion cap"
+    )]
+    #[diagnostic(code("Qdk.Qsc.Defunctionalize.RecursiveSpecialization"))]
+    #[diagnostic(help(
+        "reduce the nesting depth or recursion of higher-order function calls so a single function \
+         does not require an unbounded number of specializations"
+    ))]
+    RecursiveSpecialization(
+        String,
+        usize,
+        #[label("recursive specialization budget exceeded here")] Span,
     ),
 }
 

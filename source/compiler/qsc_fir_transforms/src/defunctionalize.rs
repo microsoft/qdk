@@ -121,6 +121,18 @@ pub(crate) fn defunctionalize(
     let mut specialized_closure_targets: FxHashSet<StoreItemId> = FxHashSet::default();
     let mut specialized_items: FxHashSet<StoreItemId> = FxHashSet::default();
 
+    // Distinct specializations accumulated per HOF across every iteration.
+    // Keyed by HOF item and holding the set of `SpecKey`s generated for it,
+    // this is the running budget checked against
+    // `specialize::CUMULATIVE_SPECIALIZATION_CAP`. A `HashSet` is used rather
+    // than a raw counter so that re-deriving an already-seen `SpecKey` on a
+    // later pass — which happens whenever a still-generic HOF is re-analyzed —
+    // does not inflate the total and cause a false positive. The cumulative
+    // count for a HOF is therefore the number of *distinct* specializations it
+    // ever required.
+    let mut cumulative_specs_per_hof: FxHashMap<StoreItemId, FxHashSet<SpecKey>> =
+        FxHashMap::default();
+
     // Direct call sites whose `Var(Res::Local)` callee resolved to `Dynamic` on
     // the most recent iteration. Refreshed every pass; surfaced as diagnostics
     // only if the loop terminates with work remaining (see
@@ -159,6 +171,24 @@ pub(crate) fn defunctionalize(
         unresolved_direct_call_sites.clone_from(&analysis.unresolved_direct_call_sites);
 
         let spec_map = run_specialization(store, &analysis, assigners, &mut errors, &mut warnings);
+
+        // Fold this pass's specializations into the cumulative per-HOF budget
+        // and fail closed if any HOF has now required more distinct
+        // specializations than the hard cap allows. This backstops the
+        // per-iteration `ExcessiveSpecializations` warning (which fires on a
+        // single wide pass) by catching growth that persists across iterations,
+        // the signature of a degenerate recursive shape. Breaking here stops
+        // the loop before it can expand further; the fatal diagnostic is
+        // preserved by the after-loop `emit_fixpoint_error` gate, which only
+        // adds a generic non-convergence report when no other error fired.
+        if let Some(error) = accumulate_and_check_specialization_budget(
+            store,
+            &spec_map,
+            &mut cumulative_specs_per_hof,
+        ) {
+            errors.push(error);
+            break;
+        }
 
         // Rewrite call sites and run dead callable-local cleanup even on
         // iterations where no new specializations were discovered. Call sites
@@ -274,6 +304,41 @@ fn run_specialization(
     });
     errors.append(&mut spec_errors);
     spec_map
+}
+
+/// Folds one pass's specializations into the cumulative per-HOF budget and
+/// returns a fatal [`Error::RecursiveSpecialization`] for the first HOF whose
+/// distinct specialization set now exceeds
+/// [`specialize::CUMULATIVE_SPECIALIZATION_CAP`].
+///
+/// Each `SpecKey` from `spec_map` is inserted into the HOF's set, so a key that
+/// was already seen on a prior iteration does not inflate the count. Returns
+/// `None` while every HOF stays within budget.
+fn accumulate_and_check_specialization_budget(
+    store: &PackageStore,
+    spec_map: &FxHashMap<SpecKey, StoreItemId>,
+    cumulative_specs_per_hof: &mut FxHashMap<StoreItemId, FxHashSet<SpecKey>>,
+) -> Option<Error> {
+    for key in spec_map.keys() {
+        cumulative_specs_per_hof
+            .entry(key.hof_id)
+            .or_default()
+            .insert(key.clone());
+    }
+    for (hof_id, keys) in cumulative_specs_per_hof.iter() {
+        let count = keys.len();
+        if count > specialize::CUMULATIVE_SPECIALIZATION_CAP {
+            let package = store.get(hof_id.package);
+            let item = package.get_item(hof_id.item);
+            let (name, span) = if let ItemKind::Callable(decl) = &item.kind {
+                (decl.name.name.to_string(), decl.name.span)
+            } else {
+                (format!("Item({hof_id})"), Span::default())
+            };
+            return Some(Error::RecursiveSpecialization(name, count, span));
+        }
+    }
+    None
 }
 
 /// Rewrites call sites in every package that owns one. Call sites can live in
@@ -874,6 +939,70 @@ fn concrete_callable_key(
             functor: FunctorApp::default(),
         },
     }
+}
+
+/// Resolves the concrete callable supplied at `path` within a call's argument
+/// expression to the dispatch key it would produce, when that can be decided
+/// from the expression tree alone.
+///
+/// A synthesized recursive specialization must check each of its self-calls
+/// against the specialization's own key before its callable slot is stripped
+/// and the call retargeted; otherwise a self-call that forwards a *different*
+/// callable would be silently rerouted to the wrong specialization. This
+/// resolver recognizes the two statically-decidable argument forms — a direct
+/// global item reference and a closure — each optionally wrapped in `Adj`/`Ctl`
+/// body functors, and mints their key through [`concrete_callable_key`], the
+/// same reduction used when a specialization's [`SpecKey`] is built, so a
+/// resolved self-call argument keys identically to the specialization it
+/// targets. Closure captures are excluded from the key exactly as they are when
+/// the specialization key is minted.
+///
+/// Arguments that would require flow-sensitive reaching definitions (such as a
+/// forwarded local parameter) or cross-package return tracing are reported as
+/// `None`, so a caller can fail safe rather than assume a match. This is a
+/// deliberately narrow subset of the analysis-phase [`analysis`] resolver,
+/// which additionally traces locals, blocks, `if` branches, indexed arrays, and
+/// same-package returns using state that is not reconstructed here.
+pub(crate) fn resolve_self_call_arg_key(
+    package: &Package,
+    package_id: PackageId,
+    args_expr_id: ExprId,
+    path: &[usize],
+    hof_item_id: ItemId,
+) -> Option<ConcreteCallableKey> {
+    let slot_expr_id = arg_expr_at_path(package, args_expr_id, path)?;
+    let (base_id, outer_functor) = peel_body_functors(package, slot_expr_id);
+    let callable = match &package.get_expr(base_id).kind {
+        ExprKind::Var(Res::Item(item_id), _) => ConcreteCallable::Global {
+            item_id: *item_id,
+            functor: outer_functor,
+        },
+        ExprKind::Closure(_, target) => ConcreteCallable::Closure {
+            target: *target,
+            captures: Vec::new(),
+            functor: outer_functor,
+        },
+        _ => return None,
+    };
+    Some(concrete_callable_key(package_id, &callable, hof_item_id))
+}
+
+/// Walks `path` (a sequence of tuple element indices) into an argument
+/// expression and returns the sub-expression found at that position.
+///
+/// An empty path yields the argument expression itself. Only literal tuple
+/// layers are traversed; a path that runs past a non-tuple expression or an
+/// out-of-range index yields `None`, matching the fail-safe contract of
+/// [`resolve_self_call_arg_key`].
+fn arg_expr_at_path(package: &Package, expr_id: ExprId, path: &[usize]) -> Option<ExprId> {
+    let Some((&index, rest)) = path.split_first() else {
+        return Some(expr_id);
+    };
+    let ExprKind::Tuple(elements) = &package.get_expr(expr_id).kind else {
+        return None;
+    };
+    let &element_id = elements.get(index)?;
+    arg_expr_at_path(package, element_id, rest)
 }
 
 /// Builds the deduplication key for a single call site's specialization. This
