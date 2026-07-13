@@ -6216,6 +6216,102 @@ fn pure_array_index_dispatch_reuses_index_expression() {
     );
 }
 
+/// A side-effecting index expression must be evaluated once before the
+/// synthesized dispatch. Hoisting the block into an `index` local prevents
+/// its `X(q)` call from being repeated by each branch guard.
+#[test]
+fn impure_array_index_dispatch_hoists_index_expression() {
+    let source = r#"
+        operation Main() : Unit {
+            let ops = [I, X, Y];
+            for i in 0..1 {
+                use q = Qubit();
+                let op = ops[{ X(q); i }];
+                op(q);
+            }
+        }
+        "#;
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert_no_defunctionalization_errors("defunctionalization", &errors);
+
+    let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+    assert!(
+        after.contains("let index : Int = {")
+            && after.contains("if index == 0")
+            && after.contains("else if index == 1"),
+        "side-effecting index should be hoisted and reused by the dispatch:\n{after}"
+    );
+    assert!(
+        !after.contains("if i == 0") && !after.contains("else if i == 1"),
+        "dispatch guards should not re-evaluate the side-effecting index block:\n{after}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Main() : Unit {
+                let ops : (Qubit => Unit is Adj + Ctl)[] = [I, X, Y];
+                {
+                    let _range_id_45 : Range = 0..1;
+                    mutable _index_id_48 : Int = _range_id_45::Start;
+                    let _step_id_53 : Int = _range_id_45::Step;
+                    let _end_id_58 : Int = _range_id_45::End;
+                    while _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
+                        let i : Int = _index_id_48;
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        let op : (Qubit => Unit is Adj + Ctl) = ops[{
+                            X(q);
+                            i
+                        }];
+                        op(q);
+                        _index_id_48 += _step_id_53;
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Main() : Unit {
+                let ops : (Qubit => Unit is Adj + Ctl)[] = [I, X, Y];
+                {
+                    let _range_id_45 : Range = 0..1;
+                    mutable _index_id_48 : Int = _range_id_45::Start;
+                    let _step_id_53 : Int = _range_id_45::Step;
+                    let _end_id_58 : Int = _range_id_45::End;
+                    while _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
+                        let i : Int = _index_id_48;
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        let index : Int = {
+                            X(q);
+                            i
+                        };
+                        if index == 0 {
+                            I(q)
+                        } else if index == 1 {
+                            X(q)
+                        } else {
+                            Y(q)
+                        };
+                        _index_id_48 += _step_id_53;
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
 /// A `set f = Bar` inside the short-circuited RHS of `false and { .. }` is not
 /// executed at runtime, so the later `f(5)` must keep the reaching definition
 /// `Foo`. The fork/join arm applies the RHS conditionally rather than
