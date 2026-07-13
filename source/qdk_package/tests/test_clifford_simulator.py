@@ -323,7 +323,7 @@ def test_clifford_run_bitflip_noise():
         "0000000000000000000000011": p_noise**2,  # X & CZ bitflip
     }
 
-    output = qsharp.run("Test()", shots=500, noise=noise, seed=17, type="clifford")
+    output = qsharp.run("Test()", shots=1000, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
@@ -332,7 +332,7 @@ def test_clifford_run_bitflip_noise():
     )
 
     # Same execution should work with the operation itself.
-    output = qsharp.run(qdk.code.Test, 500, noise=noise, seed=17, type="clifford")
+    output = qsharp.run(qdk.code.Test, 1000, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
@@ -351,7 +351,7 @@ def test_clifford_run_mixed_noise():
     noise.cz.XI = p_noise
     noise.cz.IL = p_noise
 
-    output = qsharp.run("Test()", shots=500, noise=noise, seed=17, type="clifford")
+    output = qsharp.run("Test()", shots=1000, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
