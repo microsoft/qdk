@@ -91,7 +91,7 @@ impl PropagateSizes<'_> {
                         self.table
                             .terms
                             .get(pat.id)
-                            .expect("type should be present")
+                            .expect("pat type should be present")
                             .clone(),
                     );
                 }
@@ -196,9 +196,10 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
 
             // Propagate the type of expression-statements into the statement itself.
             StmtKind::Expr(expr) => {
-                if let Some(expr_ty) = self.table.terms.get(expr.id) {
-                    let ty = expr_ty.clone();
-                    self.table.terms.insert(stmt.id, ty);
+                if let Some(expr_ty) = self.table.terms.get(expr.id).cloned()
+                    && let Some(stmt_ty) = self.table.terms.get_mut(stmt.id)
+                {
+                    propagate_ty_sizes(&expr_ty, stmt_ty);
                 }
             }
             _ => {}
@@ -210,10 +211,10 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
         // If the last statement in the block is an expression, propagate its type to the block itself.
         if let Some(last_stmt) = block.stmts.last()
             && let StmtKind::Expr(expr) = last_stmt.kind.as_ref()
-            && let Some(expr_ty) = self.table.terms.get(expr.id)
+            && let Some(expr_ty) = self.table.terms.get(expr.id).cloned()
+            && let Some(block_ty) = self.table.terms.get_mut(block.id)
         {
-            let ty = expr_ty.clone();
-            self.table.terms.insert(block.id, ty);
+            propagate_ty_sizes(&expr_ty, block_ty);
         }
     }
 
@@ -244,8 +245,10 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
                     if Some(&input_ty) != self.table.terms.get(args.id) {
                         self.check_expr_sizes(&input_ty, args);
                     }
-                    if !args_include_hole(args) {
-                        self.table.terms.insert(expr.id, output_ty);
+                    if !args_include_hole(args)
+                        && let Some(expr_ty) = self.table.terms.get_mut(expr.id)
+                    {
+                        propagate_ty_sizes(&output_ty, expr_ty);
                     }
                 }
             }
@@ -303,35 +306,43 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
 
             // Propagate the computed types for these expressions to their parent.
             ExprKind::Block(block) | ExprKind::Conjugate(_, block) => {
-                if let Some(ty) = self.table.terms.get(block.id) {
-                    self.table.terms.insert(expr.id, ty.clone());
+                if let Some(ty) = self.table.terms.get(block.id).cloned()
+                    && let Some(expr_ty) = self.table.terms.get_mut(expr.id)
+                {
+                    propagate_ty_sizes(&ty, expr_ty);
                 }
             }
             ExprKind::Path(PathKind::Ok(path)) => {
                 if let Some(res) = self.names.get(path.id)
                     && let Res::Local(node_id) = res
-                    && let Some(ty) = self.table.terms.get(*node_id)
+                    && let Some(ty) = self.table.terms.get(*node_id).cloned()
+                    && let Some(expr_ty) = self.table.terms.get_mut(expr.id)
                 {
                     // A normal local variable propagates its type to the path expression.
-                    self.table.terms.insert(expr.id, ty.clone());
+                    propagate_ty_sizes(&ty, expr_ty);
                 } else if let Some(segments) = &path.segments
                     && let Some(Ty::Udt(_, hir::Res::Item(item_id))) = self
                         .table
                         .terms
                         .get(segments.last().expect("segments shound have content").id)
                     && let Some(udt) = self.table.udts.get(item_id)
-                    && let Some(field) = udt.find_field_by_name(&path.name.name)
+                    && let Some(field) = udt.find_field_by_name(&path.name.name).cloned()
                 {
                     // A field access propagates the type from the field definition to the path expression
                     // and to the leaf identifier within the path expression.
-                    let new_ty = field.ty.clone();
-                    self.table.terms.insert(expr.id, new_ty.clone());
-                    self.table.terms.insert(path.name.id, new_ty);
+                    if let Some(expr_ty) = self.table.terms.get_mut(expr.id) {
+                        propagate_ty_sizes(&field.ty, expr_ty);
+                    }
+                    if let Some(name_ty) = self.table.terms.get_mut(path.name.id) {
+                        propagate_ty_sizes(&field.ty, name_ty);
+                    }
                 }
             }
             ExprKind::Paren(inner) => {
-                if let Some(ty) = self.table.terms.get(inner.id) {
-                    self.table.terms.insert(expr.id, ty.clone());
+                if let Some(ty) = self.table.terms.get(inner.id).cloned()
+                    && let Some(expr_ty) = self.table.terms.get_mut(expr.id)
+                {
+                    propagate_ty_sizes(&ty, expr_ty);
                 }
             }
             ExprKind::Tuple(exprs) => {
@@ -343,20 +354,24 @@ impl<'a> Visitor<'a> for PropagateSizes<'a> {
                         return;
                     }
                 }
-                self.table.terms.insert(expr.id, Ty::Tuple(tys));
+                if let Some(expr_ty) = self.table.terms.get_mut(expr.id) {
+                    propagate_ty_sizes(&Ty::Tuple(tys), expr_ty);
+                }
             }
             ExprKind::Field(base, FieldAccess::Ok(ident)) => {
                 if let Some(Ty::Udt(_, hir::Res::Item(item_id))) = self.table.terms.get(base.id)
                     && let Some(udt) = self.table.udts.get(item_id)
-                    && let Some(field) = udt.find_field_by_name(&ident.name)
+                    && let Some(field) = udt.find_field_by_name(&ident.name).cloned()
+                    && let Some(expr_ty) = self.table.terms.get_mut(expr.id)
                 {
-                    let new_ty = field.ty.clone();
-                    self.table.terms.insert(expr.id, new_ty);
+                    propagate_ty_sizes(&field.ty, expr_ty);
                 }
             }
             ExprKind::TernOp(TernOp::Update, container, _, _) => {
-                if let Some(ty) = self.table.terms.get(container.id) {
-                    self.table.terms.insert(expr.id, ty.clone());
+                if let Some(ty) = self.table.terms.get(container.id).cloned()
+                    && let Some(expr_ty) = self.table.terms.get_mut(expr.id)
+                {
+                    propagate_ty_sizes(&ty, expr_ty);
                 }
             }
 
@@ -402,4 +417,20 @@ fn check_ty_sizes(expected_tys: &[Ty], actual_tys: &[Ty], span: Span) -> Vec<Err
         }
     }
     errors
+}
+
+fn propagate_ty_sizes(source: &Ty, target: &mut Ty) {
+    match (source, target) {
+        (Ty::Array(_, SizeKind::Known(source_size)), Ty::Array(_, target_size))
+            if *target_size == SizeKind::Unknown =>
+        {
+            *target_size = SizeKind::Known(*source_size);
+        }
+        (Ty::Tuple(source_tys), Ty::Tuple(target_tys)) if source_tys.len() == target_tys.len() => {
+            for (source_ty, target_ty) in source_tys.iter().zip(target_tys.iter_mut()) {
+                propagate_ty_sizes(source_ty, target_ty);
+            }
+        }
+        _ => {}
+    }
 }

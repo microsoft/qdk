@@ -1241,7 +1241,7 @@ fn if_else_fail() {
             #2 3-8 "false" : Bool
             #3 9-14 "{ 5 }" : Int
             #5 11-12 "5" : Int
-            #6 15-37 "else { fail \"error\"; }" : Unit
+            #6 15-37 "else { fail \"error\"; }" : Int
             #7 20-37 "{ fail \"error\"; }" : Unit
             #9 22-34 "fail \"error\"" : Unit
             #10 27-34 "\"error\"" : String
@@ -3722,7 +3722,7 @@ fn lambda_inner_return() {
             #12 54-55 "f" : (Unit -> Int)
             #14 58-98 "() -> {\n            return 42;\n        }" : (Unit -> Int)
             #15 58-60 "()" : Unit
-            #16 64-98 "{\n            return 42;\n        }" : Unit
+            #16 64-98 "{\n            return 42;\n        }" : Int
             #17 64-98 "{\n            return 42;\n        }" : Unit
             #19 78-87 "return 42" : Unit
             #20 85-87 "42" : Int
@@ -3755,7 +3755,7 @@ fn lambda_inner_return_without_call_ambiguous() {
             #15 58-64 "(a, b)" : (?2, ?2)
             #16 59-60 "a" : ?2
             #18 62-63 "b" : ?2
-            #20 68-105 "{\n            return a + b;\n        }" : Unit
+            #20 68-105 "{\n            return a + b;\n        }" : ?2
             #21 68-105 "{\n            return a + b;\n        }" : Unit
             #23 82-94 "return a + b" : Unit
             #24 89-94 "a + b" : ?2
