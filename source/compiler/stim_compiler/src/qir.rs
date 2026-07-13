@@ -1194,7 +1194,7 @@ impl<'noise> Compiler<'noise> {
         let parity = self.reduce_registers(&result_registers, "parity", QirWriter::write_xor);
 
         let restart = self.id_map.fresh_name("restart");
-        self.writer.write_or(&restart, &parity, &loss);
+        self.writer.write_or(&restart, &loss, &parity);
 
         let Scope::Select(scope) = self.id_map.current_scope() else {
             unreachable!("REQUIRE runs inside a select block");
