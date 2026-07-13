@@ -478,12 +478,12 @@ class AdaptiveProfilePass:
             return self._value_to_reg[value]
 
         if isinstance(value, pyqir.IntConstant):
-            int_val = value.value
-            return IntOperand(int_val, self._int_bits)
+            val = value.value
+            return IntOperand(val, self._int_bits)
 
         if isinstance(value, pyqir.FloatConstant):
-            float_val = value.value
-            return FloatOperand(float_val, self._bytecode_kind)
+            val = value.value
+            return FloatOperand(val, self._bytecode_kind)
 
         # Global variable reference (e.g., @array0)
         if hasattr(value, "name") and value.name in self._global_to_address:
