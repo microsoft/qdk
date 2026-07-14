@@ -10,7 +10,6 @@ independent Q# environments to coexist.
 """
 
 import json
-import builtins
 import sys
 import types
 import weakref
@@ -107,9 +106,9 @@ def _visual_circuit_count(circuit_json: str) -> int:
 
 def make_class_rec(qsharp_type: TypeIR) -> type:
     class_name = qsharp_type.unwrap_udt().name
-    fields: dict[str, Any] = {}
+    fields = {}
     for field in qsharp_type.unwrap_udt().fields:
-        ty: type[Any] | None = None
+        ty = None
         kind = field[1].kind()
 
         if kind == TypeKind.Primitive:
@@ -142,7 +141,6 @@ def make_class_rec(qsharp_type: TypeIR) -> type:
             ty = make_class_rec(field[1])
         else:
             raise QSharpError(f"unknown type {kind}")
-        assert ty is not None
         fields[field[0]] = ty
 
     return make_dataclass(
@@ -386,7 +384,7 @@ class Context:
         finally:
             visited.remove(obj_id)
 
-    def _python_args_to_interpreter_args(self, args: tuple[Any, ...]) -> Any:
+    def _python_args_to_interpreter_args(self, args: tuple[Any, ...]):
         """Turns `args` to the format expected by the Q# interpreter."""
         if len(args) == 0:
             return None
@@ -410,7 +408,7 @@ class Context:
         self, namespace: List[str]
     ) -> types.ModuleType | types.SimpleNamespace:
         """Returns module for given path, creating it if it doesn't exist."""
-        module: Any = self.code
+        module = self.code
         if self._is_global_context:
             accumulated_namespace = code.__name__
             for name in namespace:
@@ -429,9 +427,9 @@ class Context:
                 if hasattr(module, name):
                     module = module.__getattribute__(name)
                 else:
-                    new_namespace_module = types.SimpleNamespace()
-                    module.__setattr__(name, new_namespace_module)
-                    module = new_namespace_module
+                    new_module = types.SimpleNamespace()
+                    module.__setattr__(name, new_module)
+                    module = new_module
         return module
 
     def _make_callable(
@@ -467,7 +465,7 @@ class Context:
         """Registers a Q# type as a Python dataclass in this context's code module."""
         module = self._get_code_module(namespace)
         QSharpClass = make_class_rec(qsharp_type)
-        setattr(QSharpClass, "__qsharp_class", True)
+        QSharpClass.__qsharp_class = True
         setattr(QSharpClass, "_qdk_context", self)
         module.__setattr__(class_name, QSharpClass)
 
@@ -688,7 +686,9 @@ class Context:
 
         callable = None
         run_entry_expr = None
-        if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
+        if isinstance(entry_expr, Callable) and hasattr(
+            entry_expr, "__global_callable"
+        ):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             callable = getattr(entry_expr, "__global_callable")
@@ -777,7 +777,9 @@ class Context:
         start = monotonic()
         target_profile = self._config.get_target_profile()
         telemetry_events.on_compile(target_profile)
-        if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
+        if isinstance(entry_expr, Callable) and hasattr(
+            entry_expr, "__global_callable"
+        ):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             ll_str = self._interpreter.qir(
@@ -861,7 +863,9 @@ class Context:
             prune_classical_qubits=prune_classical_qubits,
         )
 
-        if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
+        if isinstance(entry_expr, Callable) and hasattr(
+            entry_expr, "__global_callable"
+        ):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             res = self._interpreter.circuit(
@@ -870,10 +874,9 @@ class Context:
                 args=args,
             )
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
+            args = self._python_args_to_interpreter_args(args)
             res = self._interpreter.circuit(
-                config=config,
-                callable=entry_expr,
-                args=self._python_args_to_interpreter_args(args),
+                config=config, callable=entry_expr, args=args
             )
         else:
             assert entry_expr is None or isinstance(entry_expr, str)
@@ -901,7 +904,9 @@ class Context:
         """
         ipython_helper()
 
-        if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
+        if isinstance(entry_expr, Callable) and hasattr(
+            entry_expr, "__global_callable"
+        ):
             self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             res_dict = self._interpreter.logical_counts(
