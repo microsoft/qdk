@@ -391,7 +391,7 @@ def test_clifford_run_mixed_noise():
     noise.cz.XI = p_noise
     noise.cz.IL = p_noise
 
-    output = qsharp.run("Test()", shots=1000, noise=noise, seed=17, type="clifford")
+    output = qsharp.run("Test()", shots=2000, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
