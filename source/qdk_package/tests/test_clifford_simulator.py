@@ -301,6 +301,46 @@ def test_clifford_run_no_noise():
     assert output == [[Result.Zero] * 16], "Expected result of 0s with pi/2 angles."
 
 
+QSHARP_SEEDED_MEASUREMENT = """
+operation SeededMeasurement() : Result {
+    use q = Qubit();
+    H(q);
+    return MResetZ(q);
+}
+"""
+
+
+def test_run_qir_clifford_with_seed_produces_deterministic_results():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(QSHARP_SEEDED_MEASUREMENT)
+    qir = str(qsharp.compile("SeededMeasurement()"))
+
+    results = run_qir_clifford(qir, shots=32, seed=42)
+    repeated_results = run_qir_clifford(qir, shots=32, seed=42)
+    different_seed_results = run_qir_clifford(qir, shots=32, seed=43)
+
+    assert set(results) == {Result.Zero, Result.One}
+    assert results == repeated_results
+    assert results != different_seed_results
+
+
+def test_qsharp_clifford_run_with_seed_produces_deterministic_results():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(QSHARP_SEEDED_MEASUREMENT)
+
+    results = qsharp.run("SeededMeasurement()", shots=32, seed=42, type="clifford")
+    repeated_results = qsharp.run(
+        "SeededMeasurement()", shots=32, seed=42, type="clifford"
+    )
+    different_seed_results = qsharp.run(
+        "SeededMeasurement()", shots=32, seed=43, type="clifford"
+    )
+
+    assert set(results) == {Result.Zero, Result.One}
+    assert results == repeated_results
+    assert results != different_seed_results
+
+
 QSHARP_OP_25_QUBITS = """
 operation Test() : Result[] {
   use qs = Qubit[25]; X(qs[0]); CZ(qs[23], qs[24]); MResetEachZ(qs)

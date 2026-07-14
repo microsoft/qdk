@@ -217,6 +217,7 @@ impl OutcomeSpecificSimulation {
     }
 }
 
+/// Extensions to pauliverse's outcome specific simulation.
 impl OutcomeSpecificSimulation {
     /// Force a Z-basis measurement on `index` to have the requested `value`.
     pub fn post_select_z(&mut self, value: bool, index: usize) -> Result<(), String> {
@@ -242,6 +243,11 @@ impl OutcomeSpecificSimulation {
         }
 
         Ok(())
+    }
+
+    /// Reseed random measurement outcomes without changing the current state.
+    pub fn set_seed(&mut self, seed: u64) {
+        self.bit_source = Box::new(SeededRandomBitIterator::new(seed));
     }
 }
 

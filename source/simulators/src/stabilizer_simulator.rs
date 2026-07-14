@@ -103,6 +103,7 @@ impl StabilizerSimulator {
     /// Sets the random seed of the simulator.
     pub fn set_seed(&mut self, seed: u64) {
         self.rng = StdRng::seed_from_u64(seed);
+        self.state.set_seed(seed);
     }
 
     /// Increment the simulation time by one.
@@ -274,7 +275,10 @@ impl Simulator for StabilizerSimulator {
         Self {
             noise_config,
             rng: StdRng::seed_from_u64(u64::from(seed)),
-            state: OutcomeSpecificSimulation::new_with_random_outcomes(num_qubits),
+            state: OutcomeSpecificSimulation::new_with_seeded_random_outcomes(
+                num_qubits,
+                seed.into(),
+            ),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
             last_operation_time: vec![0; num_qubits],
