@@ -33,6 +33,47 @@ import rzOps from "../../rz-array.json";
 const INITIAL_KET_MARKDOWN =
   "$$ | \\psi \\rangle_0 = \\begin{bmatrix} 1 \\\\ 0 \\end{bmatrix} $$";
 
+// Playback transport icons are drawn as inline SVG rather than as Unicode
+// media glyphs (U+23E9 etc.). Those code points have inconsistent font
+// coverage across platforms, and the U+FE0E text-presentation selector we
+// previously appended to force non-emoji rendering is not honored on
+// macOS, so the controls showed up as tofu or color emoji there. Vector
+// paths render identically everywhere. Paths use a 24x24 viewBox and are
+// from the Material Design icon set.
+type TransportIconName =
+  | "jump-to-start"
+  | "step-back"
+  | "play"
+  | "pause"
+  | "replay"
+  | "step-forward"
+  | "jump-to-end";
+
+const TRANSPORT_ICON_PATHS: Record<TransportIconName, string> = {
+  "jump-to-start": "M6 6h2v12H6zm3.5 6l8.5 6V6z",
+  "step-back": "M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z",
+  play: "M8 5v14l11-7z",
+  pause: "M6 5h4v14H6zm8 0h4v14h-4z",
+  replay:
+    "M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z",
+  "step-forward": "M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z",
+  "jump-to-end": "M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z",
+};
+
+function TransportIcon({ name }: { name: TransportIconName }) {
+  return (
+    <svg
+      class="qs-bloch-transport-icon"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={TRANSPORT_ICON_PATHS[name]} />
+    </svg>
+  );
+}
+
 export interface BlochSphereProps {
   /** Gate codes (X Y Z H S s T t) to replay on mount. Sanitized and
    * length-capped, so it's safe to pass straight from an untrusted URL. */
@@ -945,7 +986,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                     title="Jump to start"
                     aria-label="Jump to start"
                   >
-                    {"\u23EE\uFE0E"}
+                    <TransportIcon name="jump-to-start" />
                   </button>
                   <button
                     type="button"
@@ -954,7 +995,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                     title="Step back"
                     aria-label="Step back"
                   >
-                    {"\u23EA\uFE0E"}
+                    <TransportIcon name="step-back" />
                   </button>
                   {isPlaying ? (
                     <button
@@ -963,7 +1004,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                       title="Pause"
                       aria-label="Pause"
                     >
-                      {"\u23F8\uFE0E"}
+                      <TransportIcon name="pause" />
                     </button>
                   ) : (
                     <button
@@ -973,7 +1014,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                       title={atEnd ? "Replay from start" : "Play from here"}
                       aria-label={atEnd ? "Replay from start" : "Play"}
                     >
-                      {atEnd ? "\u21BB" : "\u23F5\uFE0E"}
+                      <TransportIcon name={atEnd ? "replay" : "play"} />
                     </button>
                   )}
                   <button
@@ -983,7 +1024,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                     title="Step forward"
                     aria-label="Step forward"
                   >
-                    {"\u23E9\uFE0E"}
+                    <TransportIcon name="step-forward" />
                   </button>
                   <button
                     type="button"
@@ -992,7 +1033,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                     title="Jump to end"
                     aria-label="Jump to end"
                   >
-                    {"\u23ED\uFE0E"}
+                    <TransportIcon name="jump-to-end" />
                   </button>
                 </div>
               )}
@@ -1348,7 +1389,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               title="Jump to start"
               aria-label="Jump to start"
             >
-              {"\u23EE\uFE0E"}
+              <TransportIcon name="jump-to-start" />
             </button>
             <button
               type="button"
@@ -1357,7 +1398,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               title="Step back"
               aria-label="Step back"
             >
-              {"\u23EA\uFE0E"}
+              <TransportIcon name="step-back" />
             </button>
             {isPlaying ? (
               <button
@@ -1366,7 +1407,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 title="Pause"
                 aria-label="Pause"
               >
-                {"\u23F8\uFE0E"}
+                <TransportIcon name="pause" />
               </button>
             ) : (
               <button
@@ -1376,10 +1417,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 title={atEnd ? "Replay from start" : "Play from here"}
                 aria-label={atEnd ? "Replay from start" : "Play"}
               >
-                {/* Replay glyph when the cursor is at the end (clicking
-                  rewinds first); play triangle otherwise. U+FE0E forces
-                  text-style presentation to match the other glyphs. */}
-                {atEnd ? "\u21BB" : "\u23F5\uFE0E"}
+                {/* Replay icon when the cursor is at the end (clicking
+                  rewinds first); play triangle otherwise. */}
+                <TransportIcon name={atEnd ? "replay" : "play"} />
               </button>
             )}
             <button
@@ -1389,7 +1429,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               title="Step forward"
               aria-label="Step forward"
             >
-              {"\u23E9\uFE0E"}
+              <TransportIcon name="step-forward" />
             </button>
             <button
               type="button"
@@ -1398,7 +1438,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               title="Jump to end"
               aria-label="Jump to end"
             >
-              {"\u23ED\uFE0E"}
+              <TransportIcon name="jump-to-end" />
             </button>
           </div>
           {/*

@@ -764,21 +764,26 @@
   background: var(--qdk-host-background);
 }
 .qs-bloch-media-controls button {
-  /* Stretch to fill the row so the cluster spans the full pane width.
-     Height + font-size scaled up so the unicode media glyphs
-     (U+23E9 .. U+23EF range) render at a legible size. The default
-     button font often hands those glyphs to a fallback face that
-     renders them tiny. */
+  /* Stretch to fill the row so the cluster spans the full pane width. */
   flex: 1;
   height: 32px;
   padding: 0;
-  font-size: 1.1em;
   line-height: 1;
   cursor: pointer;
 }
 .qs-bloch-media-controls button:disabled {
   cursor: default;
   opacity: 0.4;
+}
+
+/* Inline SVG transport icons (play/pause/step/etc.). Sized in em so they
+   scale with each button's font-size and inherit the button color via
+   `fill: currentColor` on the svg. */
+.qs-bloch-transport-icon {
+  width: 1.4em;
+  height: 1.4em;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 /* Speed slider row immediately below the transport controls. Same
