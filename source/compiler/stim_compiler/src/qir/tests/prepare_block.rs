@@ -3,17 +3,17 @@
 
 use crate::qir::tests::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn simple_prepare_block() {
     // should require result of M 0 == 0
-    let source = "
-PREPARE {
-    M 0
-    REQUIRE rec[-1]
-}
-";
-
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -57,17 +57,17 @@ PREPARE {
 
 #[test]
 fn long_prepare_block() {
-    let source = "
-PREPARE {
-    X 0
-    M 0
-    H 1
-    X 1
-    M 1
-    M 2
-    REQUIRE rec[-1] rec[-2] rec[-3]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          X 0
+          M 0
+          H 1
+          X 1
+          M 1
+          M 2
+          REQUIRE rec[-1] rec[-2] rec[-3]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -124,14 +124,14 @@ PREPARE {
 
 #[test]
 fn multiple_requires_in_block() {
-    let source = "
-PREPARE {
-    M 0
-    REQUIRE rec[-1]
-    M 1
-    REQUIRE rec[-1] rec[-2]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          REQUIRE rec[-1]
+          M 1
+          REQUIRE rec[-1] rec[-2]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -183,13 +183,13 @@ PREPARE {
 #[test]
 fn prepare_block_no_require() {
     // should compile to a QIR that works as if there was no prepare
-    let source = "
-PREPARE {
-    M 0
-    M 1
-    M 2
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          M 1
+          M 2
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -233,10 +233,10 @@ PREPARE {
 
 #[test]
 fn empty_prepare_block() {
-    let source = "
-PREPARE {
-}
-";
+    let source = indoc! {"
+        PREPARE {
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -273,23 +273,22 @@ PREPARE {
 
 #[test]
 fn prepare_block_with_args_yields_error() {
-    let source = "
-PREPARE(0.5) {
-    M 0
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE(0.5) {
+          M 0
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: PREPARE
-               ,-[2:1]
-             1 | 
-             2 | PREPARE(0.5) {
+               ,-[1:1]
+             1 | PREPARE(0.5) {
                : ^^^^^^^^^^^^
-             3 |     M 0
+             2 |   M 0
                `----
         "#]],
     );
@@ -297,23 +296,22 @@ PREPARE(0.5) {
 
 #[test]
 fn prepare_block_with_targets_yields_error() {
-    let source = "
-PREPARE 0 1 {
-    M 0
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE 0 1 {
+          M 0
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: PREPARE
-               ,-[2:9]
-             1 | 
-             2 | PREPARE 0 1 {
+               ,-[1:9]
+             1 | PREPARE 0 1 {
                :         ^
-             3 |     M 0
+             2 |   M 0
                `----
         "#]],
     );
@@ -321,12 +319,12 @@ PREPARE 0 1 {
 
 #[test]
 fn prepare_block_with_tag() {
-    let source = "
-PREPARE[some_tag] {
-    M 0
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE[some_tag] {
+          M 0
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -370,12 +368,12 @@ PREPARE[some_tag] {
 
 #[test]
 fn require_with_negated_target() {
-    let source = "
-PREPARE {
-    M 0
-    REQUIRE !rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          REQUIRE !rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -420,23 +418,23 @@ PREPARE {
 
 #[test]
 fn require_with_integer_target_yields_error() {
-    let source = "
-PREPARE {
-    M 0
-    REQUIRE 0
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          REQUIRE 0
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: REQUIRE
-               ,-[4:13]
-             3 |     M 0
-             4 |     REQUIRE 0
-               :             ^
-             5 | }
+               ,-[3:11]
+             2 |   M 0
+             3 |   REQUIRE 0
+               :           ^
+             4 | }
                `----
         "#]],
     );
@@ -444,23 +442,23 @@ PREPARE {
 
 #[test]
 fn require_with_pauli_target_yields_error() {
-    let source = "
-PREPARE {
-    M 0
-    REQUIRE X0
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          REQUIRE X0
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: REQUIRE
-               ,-[4:13]
-             3 |     M 0
-             4 |     REQUIRE X0
-               :             ^^
-             5 | }
+               ,-[3:11]
+             2 |   M 0
+             3 |   REQUIRE X0
+               :           ^^
+             4 | }
                `----
         "#]],
     );
@@ -468,23 +466,23 @@ PREPARE {
 
 #[test]
 fn require_with_no_targets_yields_error() {
-    let source = "
-PREPARE {
-    M 0
-    REQUIRE
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          REQUIRE
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: REQUIRE
-               ,-[4:5]
-             3 |     M 0
-             4 |     REQUIRE
-               :     ^^^^^^^
-             5 | }
+               ,-[3:3]
+             2 |   M 0
+             3 |   REQUIRE
+               :   ^^^^^^^
+             4 | }
                `----
         "#]],
     );
@@ -492,18 +490,15 @@ PREPARE {
 
 #[test]
 fn require_no_prepare_block_yields_error() {
-    let source = "
-REQUIRE rec[-1]
-";
+    let source = "REQUIRE rec[-1]";
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.RequireOutsidePrepareBlock
 
               x require must appear inside a PREPARE block
-               ,-[2:1]
-             1 | 
-             2 | REQUIRE rec[-1]
+               ,----
+             1 | REQUIRE rec[-1]
                : ^^^^^^^^^^^^^^^
                `----
         "#]],
@@ -512,22 +507,22 @@ REQUIRE rec[-1]
 
 #[test]
 fn require_with_no_measurements_yields_error() {
-    let source = "
-PREPARE {
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
-               ,-[3:13]
-             2 | PREPARE {
-             3 |     REQUIRE rec[-1]
-               :             ^^^^^^^
-             4 | }
+               ,-[2:11]
+             1 | PREPARE {
+             2 |   REQUIRE rec[-1]
+               :           ^^^^^^^
+             3 | }
                `----
         "#]],
     );
@@ -535,23 +530,23 @@ PREPARE {
 
 #[test]
 fn require_before_measurement_yields_error() {
-    let source = "
-PREPARE {
-    REQUIRE rec[-1]
-    M 0
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          REQUIRE rec[-1]
+          M 0
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
-               ,-[3:13]
-             2 | PREPARE {
-             3 |     REQUIRE rec[-1]
-               :             ^^^^^^^
-             4 |     M 0
+               ,-[2:11]
+             1 | PREPARE {
+             2 |   REQUIRE rec[-1]
+               :           ^^^^^^^
+             3 |   M 0
                `----
         "#]],
     );
@@ -559,23 +554,23 @@ PREPARE {
 
 #[test]
 fn rec_index_out_of_bounds() {
-    let source = "
-PREPARE {
-    M 0
-    REQUIRE rec[-2]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          REQUIRE rec[-2]
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
-               ,-[4:13]
-             3 |     M 0
-             4 |     REQUIRE rec[-2]
-               :             ^^^^^^^
-             5 | }
+               ,-[3:11]
+             2 |   M 0
+             3 |   REQUIRE rec[-2]
+               :           ^^^^^^^
+             4 | }
                `----
         "#]],
     );
@@ -583,13 +578,13 @@ PREPARE {
 
 #[test]
 fn rec_index_out_of_scope() {
-    let source = "
-M 0
-PREPARE {
-    M 1
-    REQUIRE rec[-2]
-}
-";
+    let source = indoc! {"
+        M 0
+        PREPARE {
+          M 1
+          REQUIRE rec[-2]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -597,11 +592,11 @@ PREPARE {
 
               x measurement record refers to a measurement outside the enclosing PREPARE
               | block
-               ,-[5:13]
-             4 |     M 1
-             5 |     REQUIRE rec[-2]
-               :             ^^^^^^^
-             6 | }
+               ,-[4:11]
+             3 |   M 1
+             4 |   REQUIRE rec[-2]
+               :           ^^^^^^^
+             5 | }
                `----
         "#]],
     );
@@ -610,23 +605,23 @@ PREPARE {
 #[test]
 fn reset_does_not_count_as_measurement() {
     // R does not produce a measurement record, so rec[-1] should be out of bounds.
-    let source = "
-PREPARE {
-    R 0
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          R 0
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
-               ,-[4:13]
-             3 |     R 0
-             4 |     REQUIRE rec[-1]
-               :             ^^^^^^^
-             5 | }
+               ,-[3:11]
+             2 |   R 0
+             3 |   REQUIRE rec[-1]
+               :           ^^^^^^^
+             4 | }
                `----
         "#]],
     );
@@ -635,12 +630,12 @@ PREPARE {
 #[test]
 fn measure_reset_counts_as_measurement() {
     // MR produces a measurement record.
-    let source = "
-PREPARE {
-    MR 0
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          MR 0
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -684,12 +679,12 @@ PREPARE {
 
 #[test]
 fn pair_measurement_record_in_prepare() {
-    let source = "
-PREPARE {
-    MZZ 0 1
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          MZZ 0 1
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -738,23 +733,23 @@ PREPARE {
 fn pair_measurement_record_in_prepare_out_of_bounds() {
     // A two-qubit measurement produces a single measurement record.
     // So this should not be valid
-    let source = "
-PREPARE {
-    MZZ 0 1
-    REQUIRE rec[-1] rec[-2]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          MZZ 0 1
+          REQUIRE rec[-1] rec[-2]
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
 
               x measurement record is out of bounds
-               ,-[4:21]
-             3 |     MZZ 0 1
-             4 |     REQUIRE rec[-1] rec[-2]
-               :                     ^^^^^^^
-             5 | }
+               ,-[3:19]
+             2 |   MZZ 0 1
+             3 |   REQUIRE rec[-1] rec[-2]
+               :                   ^^^^^^^
+             4 | }
                `----
         "#]],
     );
@@ -762,16 +757,16 @@ PREPARE {
 
 #[test]
 fn nested_prepare_blocks() {
-    let source = "
-PREPARE {
-    PREPARE {
-        M 0
-        REQUIRE rec[-1]
-    }
-    M 1
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          PREPARE {
+            M 0
+            REQUIRE rec[-1]
+          }
+          M 1
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -822,20 +817,20 @@ PREPARE {
 
 #[test]
 fn deeply_nested_prepare_blocks() {
-    let source = "
-PREPARE {
-    PREPARE {
+    let source = indoc! {"
         PREPARE {
-            M 0
+          PREPARE {
+            PREPARE {
+              M 0
+              REQUIRE rec[-1]
+            }
+            M 1
             REQUIRE rec[-1]
+          }
+          M 2
+          REQUIRE rec[-1]
         }
-        M 1
-        REQUIRE rec[-1]
-    }
-    M 2
-    REQUIRE rec[-1]
-}
-";
+    "};
     check(
         source,
         &expect![[r#"
@@ -893,14 +888,14 @@ PREPARE {
 
 #[test]
 fn outer_prepare_reaches_into_inner_prepare() {
-    let source = "
-PREPARE {
-    PREPARE {
-        M 0
-    }
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          PREPARE {
+            M 0
+          }
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -946,16 +941,16 @@ PREPARE {
 
 #[test]
 fn outer_prepare_reaches_into_deeply_nested_inner_prepare() {
-    let source = "
-PREPARE {
-    PREPARE {
+    let source = indoc! {"
         PREPARE {
-            M 0
+          PREPARE {
+            PREPARE {
+              M 0
+            }
+          }
+          REQUIRE rec[-1]
         }
-    }
-    REQUIRE rec[-1]
-}
-";
+    "};
     check(
         source,
         &expect![[r#"
@@ -1003,14 +998,14 @@ PREPARE {
 
 #[test]
 fn inner_prepare_reaches_into_outer_prepare_yields_error() {
-    let source = "
-PREPARE {
-    M 0
-    PREPARE {
-        REQUIRE rec[-1]
-    }
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          PREPARE {
+            REQUIRE rec[-1]
+          }
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -1018,11 +1013,11 @@ PREPARE {
 
               x measurement record refers to a measurement outside the enclosing PREPARE
               | block
-               ,-[5:17]
-             4 |     PREPARE {
-             5 |         REQUIRE rec[-1]
-               :                 ^^^^^^^
-             6 |     }
+               ,-[4:13]
+             3 |   PREPARE {
+             4 |     REQUIRE rec[-1]
+               :             ^^^^^^^
+             5 |   }
                `----
         "#]],
     );
@@ -1030,16 +1025,16 @@ PREPARE {
 
 #[test]
 fn sibling_prepare_blocks() {
-    let source = "
-PREPARE {
-    M 0
-    REQUIRE rec[-1]
-}
-PREPARE {
-    M 1
-    REQUIRE rec[-1]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+          REQUIRE rec[-1]
+        }
+        PREPARE {
+          M 1
+          REQUIRE rec[-1]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -1090,15 +1085,15 @@ PREPARE {
 
 #[test]
 fn sibling_prepare_block_cannot_require_previous_block_measurement_yields_error() {
-    let source = "
-PREPARE {
-    M 0
-}
-PREPARE {
-    M 1
-    REQUIRE rec[-2]
-}
-";
+    let source = indoc! {"
+        PREPARE {
+          M 0
+        }
+        PREPARE {
+          M 1
+          REQUIRE rec[-2]
+        }
+    "};
     check(
         source,
         &expect![[r#"
@@ -1106,11 +1101,11 @@ PREPARE {
 
               x measurement record refers to a measurement outside the enclosing PREPARE
               | block
-               ,-[7:13]
-             6 |     M 1
-             7 |     REQUIRE rec[-2]
-               :             ^^^^^^^
-             8 | }
+               ,-[6:11]
+             5 |   M 1
+             6 |   REQUIRE rec[-2]
+               :           ^^^^^^^
+             7 | }
                `----
         "#]],
     );
@@ -1118,22 +1113,22 @@ PREPARE {
 
 #[test]
 fn blockless_prepare_yields_error() {
-    let source = "
-X 0
-PREPARE
-M 0
-";
+    let source = indoc! {"
+        X 0
+        PREPARE
+        M 0
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.PrepareWithoutBlock
 
               x prepare instruction must start a block
-               ,-[3:1]
-             2 | X 0
-             3 | PREPARE
+               ,-[2:1]
+             1 | X 0
+             2 | PREPARE
                : ^^^^^^^
-             4 | M 0
+             3 | M 0
                `----
         "#]],
     );
