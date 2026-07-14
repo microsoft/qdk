@@ -16,7 +16,7 @@ class Trace(QirModuleVisitor):
             "qubits": device.home_locs,
             "steps": [],
         }
-        self.q_cols: dict[int, int] = {}
+        self.q_cols = {}
         super().__init__()
 
     def _next_step(self):
@@ -45,7 +45,6 @@ class Trace(QirModuleVisitor):
         if not self.in_parallel:
             self._next_step()
         q = ptr_id(qubit)
-        assert q is not None
         self.q_cols[q] = col.value
         self.trace["steps"][-1]["ops"].append(f"move({row.value}, {col.value}) {q}")
 
@@ -53,14 +52,12 @@ class Trace(QirModuleVisitor):
         if not self.in_parallel:
             self._next_step()
         q = ptr_id(qubit)
-        assert q is not None
         self.trace["steps"][-1]["ops"].append(f"sx {q}")
 
     def _on_qis_rz(self, call, angle, qubit):
         if not self.in_parallel:
             self._next_step()
         q = ptr_id(qubit)
-        assert q is not None
         self.trace["steps"][-1]["ops"].append(f"rz({angle.value}) {q}")
 
     def _on_qis_cz(self, call, qubit1, qubit2):
@@ -68,8 +65,6 @@ class Trace(QirModuleVisitor):
             self._next_step()
         q1 = ptr_id(qubit1)
         q2 = ptr_id(qubit2)
-        assert q1 is not None
-        assert q2 is not None
         if self.q_cols.get(q1, -1) > self.q_cols.get(q2, -1):
             q1, q2 = q2, q1
         self.trace["steps"][-1]["ops"].append(f"cz {q1}, {q2}")
