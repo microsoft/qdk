@@ -583,6 +583,7 @@ def circuit_qasm_program(
         callbacks and other Python specific details.
 
     :param source: An OpenQASM program.
+    :param config: Circuit generation options.
     :param read_file: A callable that reads a file and returns its content and path.
     :param list_directory: A callable that lists the contents of a directory.
     :param resolve_path: A callable that resolves a file path given a base path and a relative path.
