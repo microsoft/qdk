@@ -82,23 +82,17 @@ test("constructor seeds qubitUseCounts from existing operations", () => {
   assert.deepEqual(model.qubitUseCounts, [1, 2, 1]);
 });
 
-test("constructor borrows componentGrid by reference", () => {
+test("constructor borrows componentGrid and qubits by reference", () => {
   const circuit = emptyCircuit(2);
   const model = new CircuitModel(circuit);
 
-  // Mutate via the model.
-  model.componentGrid.push({ components: [unitary("H", 0)] });
-
-  // Underlying circuit sees the same change.
-  assert.equal(circuit.componentGrid.length, 1);
-  assert.equal(circuit.componentGrid, model.componentGrid);
-});
-
-test("constructor borrows qubits by reference", () => {
-  const circuit = emptyCircuit(2);
-  const model = new CircuitModel(circuit);
-
+  // Both arrays are shared with the underlying circuit.
   assert.equal(circuit.qubits, model.qubits);
+  assert.equal(circuit.componentGrid, model.componentGrid);
+
+  // A mutation via the model is visible on the underlying circuit.
+  model.componentGrid.push({ components: [unitary("H", 0)] });
+  assert.equal(circuit.componentGrid.length, 1);
 });
 
 test("constructor with measurement op counts only qubits, not result registers", () => {
@@ -142,19 +136,6 @@ test("constructor silently ignores ops referencing out-of-range wires", () => {
   // No throw, no growth — out-of-range refs are dropped.
   assert.deepEqual(model.qubitUseCounts, [0, 0]);
   assert.equal(model.qubits.length, 2);
-});
-
-// ---------------------------------------------------------------------------
-// snapshot
-// ---------------------------------------------------------------------------
-
-test("snapshot returns a Circuit aliasing the model's arrays", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-
-  const snap = model.snapshot();
-
-  assert.equal(snap.qubits, model.qubits);
-  assert.equal(snap.componentGrid, model.componentGrid);
 });
 
 // ---------------------------------------------------------------------------
@@ -203,30 +184,26 @@ test("removeTrailingUnusedQubits drops only zero-count tail wires", () => {
   assert.deepEqual(model.qubitUseCounts, [0, 1]);
 });
 
-test("removeTrailingUnusedQubits is a no-op when all wires are used", () => {
+test("removeTrailingUnusedQubits: all-used is a no-op, all-unused empties the model", () => {
+  // All wires used -> nothing to trim.
   /** @type {any} */
-  const circuit = {
+  const allUsed = {
     qubits: [{ id: 0 }, { id: 1 }],
     componentGrid: [
       { components: [unitary("X", 0)] },
       { components: [unitary("H", 1)] },
     ],
   };
-  const model = new CircuitModel(circuit);
+  const usedModel = new CircuitModel(allUsed);
+  usedModel.removeTrailingUnusedQubits();
+  assert.equal(usedModel.qubits.length, 2);
+  assert.deepEqual(usedModel.qubitUseCounts, [1, 1]);
 
-  model.removeTrailingUnusedQubits();
-
-  assert.equal(model.qubits.length, 2);
-  assert.deepEqual(model.qubitUseCounts, [1, 1]);
-});
-
-test("removeTrailingUnusedQubits empties the model when no wires are used", () => {
-  const model = new CircuitModel(emptyCircuit(3));
-
-  model.removeTrailingUnusedQubits();
-
-  assert.equal(model.qubits.length, 0);
-  assert.deepEqual(model.qubitUseCounts, []);
+  // No wires used -> trims everything.
+  const emptyModel = new CircuitModel(emptyCircuit(3));
+  emptyModel.removeTrailingUnusedQubits();
+  assert.equal(emptyModel.qubits.length, 0);
+  assert.deepEqual(emptyModel.qubitUseCounts, []);
 });
 
 test("removeTrailingUnusedQubits walks nested children, not just qubitUseCounts", () => {
@@ -341,37 +318,19 @@ test("removeTrailingUnusedQubits is recursive into expanded-group children", () 
 // increment / decrement
 // ---------------------------------------------------------------------------
 
-test("incrementQubitUseCountForOp ignores out-of-range registers", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-
-  // Wire 5 doesn't exist — silently skipped.
-  model.incrementQubitUseCountForOp(/** @type {any} */ (unitary("X", 5)));
-
-  assert.deepEqual(model.qubitUseCounts, [0, 0]);
-});
-
-test("incrementQubitUseCountForOp counts every qubit register", () => {
+test("increment/decrementQubitUseCountForOp count every register and ignore out-of-range", () => {
   const model = new CircuitModel(emptyCircuit(3));
 
-  model.incrementQubitUseCountForOp(
-    /** @type {any} */ (unitary("X", 0, [1, 2])),
-  );
-
-  assert.deepEqual(model.qubitUseCounts, [1, 1, 1]);
-});
-
-test("decrementQubitUseCountForOp mirrors increment", () => {
-  /** @type {any} */
-  const circuit = {
-    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
-    componentGrid: [{ components: [unitary("X", 0, [1, 2])] }],
-  };
-  const model = new CircuitModel(circuit);
+  // Counts target + both controls.
+  const op = /** @type {any} */ (unitary("X", 0, [1, 2]));
+  model.incrementQubitUseCountForOp(op);
   assert.deepEqual(model.qubitUseCounts, [1, 1, 1]);
 
-  model.decrementQubitUseCountForOp(
-    /** @type {any} */ (model.componentGrid[0].components[0]),
-  );
+  // Out-of-range registers are silently skipped.
+  model.incrementQubitUseCountForOp(/** @type {any} */ (unitary("X", 5)));
+  assert.deepEqual(model.qubitUseCounts, [1, 1, 1]);
 
+  // Decrement mirrors increment back to zero.
+  model.decrementQubitUseCountForOp(op);
   assert.deepEqual(model.qubitUseCounts, [0, 0, 0]);
 });

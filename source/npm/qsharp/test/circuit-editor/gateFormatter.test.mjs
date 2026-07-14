@@ -78,24 +78,22 @@ function makeRenderData(overrides = {}) {
 // `beforeEach` setup is harmless)
 // ---------------------------------------------------------------------------
 
-test("_getQuantumControlYs: returns every control when classicalControlIds is undefined", () => {
-  const data = makeRenderData({
-    controlsY: [40, 80, 120],
-    // classicalControlIds omitted — every entry is quantum.
-  });
-
-  assert.deepEqual(_getQuantumControlYs(data), [40, 80, 120]);
-});
-
-test("_getQuantumControlYs: keeps every entry whose classicalControlIds slot is undefined", () => {
-  // Every control is quantum but the classicalControlIds array
-  // exists (defensively created upstream) with all slots undefined.
-  const data = makeRenderData({
-    controlsY: [40, 80],
-    classicalControlIds: [undefined, undefined],
-  });
-
-  assert.deepEqual(_getQuantumControlYs(data), [40, 80]);
+test("_getQuantumControlYs: keeps every quantum entry (no classical ids)", () => {
+  // classicalControlIds omitted entirely, or present with every
+  // slot undefined — either way all controls are quantum.
+  assert.deepEqual(
+    _getQuantumControlYs(makeRenderData({ controlsY: [40, 80, 120] })),
+    [40, 80, 120],
+  );
+  assert.deepEqual(
+    _getQuantumControlYs(
+      makeRenderData({
+        controlsY: [40, 80],
+        classicalControlIds: [undefined, undefined],
+      }),
+    ),
+    [40, 80],
+  );
 });
 
 test("_getQuantumControlYs: filters out every classical entry (numeric id)", () => {
@@ -107,28 +105,29 @@ test("_getQuantumControlYs: filters out every classical entry (numeric id)", () 
   assert.deepEqual(_getQuantumControlYs(data), []);
 });
 
-test("_getQuantumControlYs: filters mixed entries — quantum kept, classical (number) dropped", () => {
-  // Mixed shape from an add-quantum-control-on-classical-op: index
-  // 0 is a classical ref (numeric id), index 1 is the freshly-added
-  // quantum control.
-  const data = makeRenderData({
-    controlsY: [40, 120],
-    classicalControlIds: [0, undefined],
-  });
-
-  assert.deepEqual(_getQuantumControlYs(data), [120]);
-});
-
-test("_getQuantumControlYs: filters out null entries (unresolved classical id)", () => {
-  // `null` marks a classical ref whose id couldn't be resolved.
-  // It must still route through the classical render path; the
-  // quantum path would draw a stray dot on the qubit wire.
-  const data = makeRenderData({
-    controlsY: [40, 120],
-    classicalControlIds: [null, undefined],
-  });
-
-  assert.deepEqual(_getQuantumControlYs(data), [120]);
+test("_getQuantumControlYs: in mixed arrays keeps quantum, drops classical (numeric id or null)", () => {
+  // Only entries whose classicalControlIds slot is `undefined` are
+  // quantum. A numeric id is a resolved classical ref; `null` is an
+  // unresolved one. Both route through the classical render path
+  // (a quantum entry would draw a stray dot on the qubit wire).
+  assert.deepEqual(
+    _getQuantumControlYs(
+      makeRenderData({
+        controlsY: [40, 120],
+        classicalControlIds: [0, undefined],
+      }),
+    ),
+    [120],
+  );
+  assert.deepEqual(
+    _getQuantumControlYs(
+      makeRenderData({
+        controlsY: [40, 120],
+        classicalControlIds: [null, undefined],
+      }),
+    ),
+    [120],
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -295,10 +294,10 @@ test("_classicalControls: renders null id (unresolved) without crashing", () => 
 // _createGate — CSS-class hook for classically-controlled wrappers
 // ---------------------------------------------------------------------------
 
-test("_createGate: adds classically-controlled-group CSS class when classical controls are present", () => {
-  // The editor relies on this class to scope CSS and to select
-  // classically-controlled wrappers via `querySelectorAll`.
-  const gate = _createGate(
+test("_createGate: toggles classically-controlled-group class on presence of classical controls", () => {
+  // The editor scopes CSS and selects wrappers via this class, so it
+  // must appear exactly when the op carries classical controls.
+  const withClassical = _createGate(
     [],
     makeRenderData({
       type: GateType.Group,
@@ -310,14 +309,12 @@ test("_createGate: adds classically-controlled-group CSS class when classical co
       bottomPadding: 10,
     }),
   );
+  assert.equal(
+    withClassical.classList.contains("classically-controlled-group"),
+    true,
+  );
 
-  assert.equal(gate.classList.contains("classically-controlled-group"), true);
-});
-
-test("_createGate: omits classically-controlled-group CSS class when no classical controls", () => {
-  // Negative side of the contract — pure-quantum groups (or any
-  // op without classical refs) must not carry the class.
-  const gate = _createGate(
+  const withoutClassical = _createGate(
     [],
     makeRenderData({
       type: GateType.Group,
@@ -328,6 +325,8 @@ test("_createGate: omits classically-controlled-group CSS class when no classica
       bottomPadding: 10,
     }),
   );
-
-  assert.equal(gate.classList.contains("classically-controlled-group"), false);
+  assert.equal(
+    withoutClassical.classList.contains("classically-controlled-group"),
+    false,
+  );
 });

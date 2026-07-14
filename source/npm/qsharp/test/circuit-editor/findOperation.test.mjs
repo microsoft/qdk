@@ -67,13 +67,38 @@ function nestedGrid() {
   ];
 }
 
-// ---------- findOperation ----------
+// ---------- shared contract ----------
 
-test("findOperation returns null for null/empty location", () => {
-  const grid = flatGrid();
-  assert.equal(findOperation(grid, null), null);
-  assert.equal(findOperation(grid, ""), null);
+test("all three helpers return null for a null/empty location", () => {
+  const grid = nestedGrid();
+  for (const loc of [null, ""]) {
+    assert.equal(findOperation(grid, loc), null);
+    assert.equal(findParentArray(grid, loc), null);
+    assert.equal(findParentOperation(grid, loc), null);
+  }
 });
+
+test("findOperation returns null (never throws) for out-of-bounds op indices", () => {
+  const grid = nestedGrid();
+  // Out-of-bounds top-level column / op, out-of-bounds nested column / op,
+  // and a path below a missing ancestor.
+  for (const loc of ["9,0", "0,9", "0,0-9,0", "0,0-0,9", "9,0-0,0"]) {
+    assert.equal(findOperation(grid, loc), null, loc);
+  }
+});
+
+test("findParentArray/findParentOperation return null only when an ancestor is missing", () => {
+  const grid = nestedGrid();
+  // The parent PATH is valid, so the containing grid is returned even when
+  // the addressed op index itself is out of bounds.
+  assert.ok(findParentArray(grid, "9,0")); // root grid
+  assert.ok(findParentArray(grid, "0,0-9,0")); // children grid
+  // An ancestor in the path is missing → null.
+  assert.equal(findParentArray(grid, "9,0-0,0"), null);
+  assert.equal(findParentOperation(grid, "9,0-0,0"), null);
+});
+
+// ---------- findOperation ----------
 
 test("findOperation returns the op at an in-bounds top-level location", () => {
   const grid = flatGrid();
@@ -89,36 +114,7 @@ test("findOperation returns the op at an in-bounds nested location", () => {
   assert.equal(op.gate, "X");
 });
 
-test("findOperation returns null for an out-of-bounds top-level column", () => {
-  const grid = flatGrid();
-  assert.equal(findOperation(grid, "9,0"), null);
-});
-
-test("findOperation returns null for an out-of-bounds top-level op", () => {
-  const grid = flatGrid();
-  assert.equal(findOperation(grid, "0,9"), null);
-});
-
-test("findOperation returns null for an out-of-bounds nested location", () => {
-  const grid = nestedGrid();
-  // Outer op exists at "0,0", but its children grid only has "0,0".
-  assert.equal(findOperation(grid, "0,0-9,0"), null);
-  assert.equal(findOperation(grid, "0,0-0,9"), null);
-});
-
-test("findOperation returns null when the parent path is itself out of bounds", () => {
-  const grid = nestedGrid();
-  // No op at "9,0", so the nested address can't resolve.
-  assert.equal(findOperation(grid, "9,0-0,0"), null);
-});
-
 // ---------- findParentArray ----------
-
-test("findParentArray returns null for null/empty location", () => {
-  const grid = flatGrid();
-  assert.equal(findParentArray(grid, null), null);
-  assert.equal(findParentArray(grid, ""), null);
-});
 
 test("findParentArray returns the root grid for a top-level location", () => {
   const grid = flatGrid();
@@ -135,34 +131,14 @@ test("findParentArray returns the children grid for a nested location", () => {
   assert.equal(parent[0].components[0].gate, "X");
 });
 
-test("findParentArray returns null when an ancestor address is out of bounds", () => {
-  const grid = nestedGrid();
-  // Walking "9,0-..." can't get past the first segment.
-  assert.equal(findParentArray(grid, "9,0-0,0"), null);
-});
-
 // ---------- findParentOperation ----------
 
-test("findParentOperation returns null for top-level locations (no parent op)", () => {
+test("findParentOperation returns null at top level and the group at a nested location", () => {
   const grid = nestedGrid();
+  // Top-level locations have no parent op.
   assert.equal(findParentOperation(grid, "0,0"), null);
-});
-
-test("findParentOperation returns null for null/empty location", () => {
-  const grid = flatGrid();
-  assert.equal(findParentOperation(grid, null), null);
-  assert.equal(findParentOperation(grid, ""), null);
-});
-
-test("findParentOperation returns the immediate parent for a nested location", () => {
-  const grid = nestedGrid();
+  // Nested locations return the immediate parent op.
   const parent = findParentOperation(grid, "0,0-0,0");
   assert.ok(parent);
   assert.equal(parent.gate, "Group");
-});
-
-test("findParentOperation returns null when the parent address is out of bounds", () => {
-  const grid = nestedGrid();
-  // "9,0-0,0" → parent address is "9,0", which doesn't exist.
-  assert.equal(findParentOperation(grid, "9,0-0,0"), null);
 });

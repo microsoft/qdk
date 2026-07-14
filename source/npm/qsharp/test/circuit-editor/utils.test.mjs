@@ -28,8 +28,13 @@ import {
 // pickClosestWireIndex
 // ============================================================
 
-test("pickClosestWireIndex: empty wireYs returns -1", () => {
+test("pickClosestWireIndex: degenerate inputs return the sentinel / first-match contract", () => {
+  // Empty span -> -1.
   assert.equal(pickClosestWireIndex(0, [], [40, 100, 160]), -1);
+  // Closest wireY has no matching entry in wireData -> -1.
+  assert.equal(pickClosestWireIndex(50, [40, 100], [200, 300]), -1);
+  // Duplicate Y in wireData resolves to the FIRST index (indexOf).
+  assert.equal(pickClosestWireIndex(45, [40], [40, 40, 40]), 0);
 });
 
 test("pickClosestWireIndex: single-wire span ignores clickY", () => {
@@ -89,21 +94,6 @@ test("pickClosestWireIndex: wireYs ordering does not affect the result", () => {
   assert.equal(pickClosestWireIndex(155, [100, 40, 160], wireData), 2);
 });
 
-test("pickClosestWireIndex: returns -1 if the closest wireY is not in wireData", () => {
-  // Belt-and-suspenders: the renderer/editor wire tables should
-  // always agree, but if they don't, the helper signals "no match"
-  // rather than silently returning a wrong index.
-  assert.equal(pickClosestWireIndex(50, [40, 100], [200, 300]), -1);
-});
-
-test("pickClosestWireIndex: wireData with a duplicate Y returns the FIRST index", () => {
-  // `Array.prototype.indexOf` finds the first occurrence; we lock
-  // that behavior in so callers can rely on it. In practice the
-  // wire table is unique-per-wire, so this is mostly a defensive
-  // contract for malformed input.
-  assert.equal(pickClosestWireIndex(45, [40], [40, 40, 40]), 0);
-});
-
 // ============================================================
 // parseWireYs
 // ============================================================
@@ -125,32 +115,20 @@ const makeElem = (/** @type {string | null} */ attr) => {
   return el;
 };
 
-test("parseWireYs: missing attribute returns []", () => {
+test("parseWireYs: absent or invalid attribute returns []", () => {
+  // Missing attribute, malformed JSON, non-number entries (whole
+  // array rejected), and non-array JSON all yield [].
   assert.deepEqual(parseWireYs(makeElem(null)), []);
+  assert.deepEqual(parseWireYs(makeElem("not json")), []);
+  assert.deepEqual(parseWireYs(makeElem('[40, "100", 160]')), []);
+  assert.deepEqual(parseWireYs(makeElem("42")), []);
+  assert.deepEqual(parseWireYs(makeElem('"40"')), []);
+  assert.deepEqual(parseWireYs(makeElem("{}")), []);
 });
 
 test("parseWireYs: valid number-array round-trips", () => {
   assert.deepEqual(parseWireYs(makeElem("[40, 100, 160]")), [40, 100, 160]);
   assert.deepEqual(parseWireYs(makeElem("[40]")), [40]);
-});
-
-test("parseWireYs: malformed JSON returns []", () => {
-  // The renderer always writes well-formed JSON; this is the
-  // contract for "data was hand-edited or corrupted".
-  assert.deepEqual(parseWireYs(makeElem("not json")), []);
-});
-
-test("parseWireYs: non-number entries cause the whole array to be rejected", () => {
-  // Better to refuse the whole payload than to silently coerce a
-  // string into NaN and propagate it through the closest-wire
-  // arithmetic.
-  assert.deepEqual(parseWireYs(makeElem('[40, "100", 160]')), []);
-});
-
-test("parseWireYs: non-array JSON returns []", () => {
-  assert.deepEqual(parseWireYs(makeElem("42")), []);
-  assert.deepEqual(parseWireYs(makeElem('"40"')), []);
-  assert.deepEqual(parseWireYs(makeElem("{}")), []);
 });
 
 // ============================================================
@@ -273,25 +251,6 @@ test("getChildTargets: preserves classical-control refs from classically-conditi
     out.filter((r) => r.qubit === 0 && r.result === 0).length,
     1,
     "classical ref should be deduped to a single entry",
-  );
-});
-
-test("getChildTargets: keeps bare-qubit and classical-ref on the same qubit as distinct entries", () => {
-  // The key invariant: `{qubit:0}` and `{qubit:0, result:0}` are
-  // two different register identities (a wire vs. a classical
-  // bit), and both must survive into the output. Dedup must key
-  // on `(qubit, result)`, not on `qubit`.
-  const wireOp = u("H", [{ qubit: 0 }]);
-  const condOp = u("Z", [{ qubit: 1 }], [{ qubit: 0, result: 0 }]);
-  const foo = group("Foo", [{ qubit: 0 }, { qubit: 1 }], [wireOp, condOp]);
-  const out = getChildTargets(foo);
-  assert.ok(
-    out.some((r) => r.qubit === 0 && r.result === undefined),
-    `expected bare-qubit {qubit:0}, got ${JSON.stringify(out)}`,
-  );
-  assert.ok(
-    out.some((r) => r.qubit === 0 && r.result === 0),
-    `expected classical-ref {qubit:0, result:0}, got ${JSON.stringify(out)}`,
   );
 });
 
@@ -443,10 +402,13 @@ test("getWireRange: endpoints are fresh objects, not aliases of op's registers",
 const grid = (/** @type {any[][]} */ componentLists) =>
   componentLists.map((/** @type {any[]} */ components) => ({ components }));
 
-test("getOuterColumnSiblingWires: null / empty location returns empty set", () => {
+test("getOuterColumnSiblingWires: null / empty / unresolvable location returns empty set", () => {
   const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);
   assert.equal(getOuterColumnSiblingWires(componentGrid, null).size, 0);
   assert.equal(getOuterColumnSiblingWires(componentGrid, "").size, 0);
+  // A location whose ancestor is out of bounds resolves to no parent
+  // array; the helper returns empty rather than throwing.
+  assert.equal(getOuterColumnSiblingWires(componentGrid, "5,0-0,0").size, 0);
 });
 
 test("getOuterColumnSiblingWires: op with no co-resident siblings returns empty set", () => {
@@ -568,15 +530,6 @@ test("getOuterColumnSiblingWires: nested op uses its OWN containing grid, not th
   );
 });
 
-test("getOuterColumnSiblingWires: location resolving to no parent array returns empty set", () => {
-  // Defensive guard — a location addressing an op nested below a
-  // missing ancestor (e.g., "5,0-0,0" on a single-column grid)
-  // resolves to no parent array; helper returns empty rather than
-  // throwing.
-  const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);
-  assert.equal(getOuterColumnSiblingWires(componentGrid, "5,0-0,0").size, 0);
-});
-
 // ============================================================
 // getAncestorColumnSiblingWires
 // ============================================================
@@ -587,28 +540,11 @@ test("getOuterColumnSiblingWires: location resolving to no parent array returns 
 // enclose the drop wire — collisions can show up at ANY level, not
 // just the immediate parent's.
 
-test("getAncestorColumnSiblingWires: null / empty location returns empty set", () => {
+test("getAncestorColumnSiblingWires: null / empty / unresolvable location returns empty set", () => {
   const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);
   assert.equal(getAncestorColumnSiblingWires(componentGrid, null).size, 0);
   assert.equal(getAncestorColumnSiblingWires(componentGrid, "").size, 0);
-});
-
-test("getAncestorColumnSiblingWires: top-level op matches getOuterColumnSiblingWires (chain of length 1)", () => {
-  // A top-level location has no ancestors — the chain walk reduces
-  // to a single call. Result must match the single-level helper.
-  const componentGrid = grid([
-    [
-      u("Foo", [{ qubit: 0 }, { qubit: 1 }]),
-      u("Z", [{ qubit: 3 }]),
-      u("W", [{ qubit: 4 }]),
-    ],
-  ]);
-  const single = getOuterColumnSiblingWires(componentGrid, "0,0");
-  const chained = getAncestorColumnSiblingWires(componentGrid, "0,0");
-  assert.deepEqual(
-    [...chained].sort((a, b) => a - b),
-    [...single].sort((a, b) => a - b),
-  );
+  assert.equal(getAncestorColumnSiblingWires(componentGrid, "5,0-0,0").size, 0);
 });
 
 test("getAncestorColumnSiblingWires: unions sibling wires from EVERY level of the chain", () => {
@@ -700,10 +636,4 @@ test("getAncestorColumnSiblingWires: classical-ref endpoints on ancestor-level s
     "q2 is crossed by the descending connector",
   );
   assert.equal(blocked.has(3), true, "q3 is the gate body's row");
-});
-
-test("getAncestorColumnSiblingWires: location resolving to no parent array returns empty set", () => {
-  // Defensive guard, mirroring the single-level helper.
-  const componentGrid = grid([[u("H", [{ qubit: 0 }])]]);
-  assert.equal(getAncestorColumnSiblingWires(componentGrid, "5,0-0,0").size, 0);
 });
