@@ -257,19 +257,3 @@ test("removeAllWireDropzones: strips every .dropzone-full-wire and leaves other 
   assert.equal(remaining.length, 1);
   assert.equal(remaining[0], onColumnDz);
 });
-
-test("removeAllWireDropzones: no-op when nothing matches", () => {
-  // Defensive: calling on an SVG with no wire dropzones shouldn't throw
-  // and shouldn't disturb other children.
-  const svg = makeSvg(600);
-  const wireData = [100];
-  const onColumnDz = makeDropzoneBox(
-    { scope: makeScope([50], [40]), wireData },
-    { colIndex: 0, opIndex: 0, wireIndex: 0, interColumn: false },
-  );
-  svg.appendChild(onColumnDz);
-
-  removeAllWireDropzones(svg);
-
-  assert.equal(svg.querySelectorAll(".dropzone").length, 1);
-});

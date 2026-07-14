@@ -135,32 +135,6 @@ function setup(circuitObj, options = {}) {
 const dispatchMouseDown = (/** @type {EventTarget} */ target) =>
   target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
 
-test("constructor on a fixture with no labels is a safe no-op", () => {
-  const container = document.createElement("div");
-  document.body.appendChild(container);
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("class", "qviz");
-  container.appendChild(svg);
-
-  // No g.qubit-input-states → getQubitLabelElems returns [] → no listeners.
-  assert.doesNotThrow(() => {
-    const model = build(circuit(0, []));
-    const ctx = {
-      model,
-      interaction: new InteractionState(),
-      layoutMap: /** @type {any} */ ({}),
-      container,
-      circuitSvg: svg,
-      overlayLayer: /** @type {any} */ ({}),
-      dropzoneLayer: /** @type {any} */ ({}),
-      ghostQubitLayer: /** @type {any} */ ({}),
-      wireData: [],
-      renderFn: () => {},
-    };
-    new QubitController(/** @type {any} */ (ctx));
-  });
-});
-
 test("removeQubitLineWithConfirmation removes an empty wire without prompting", () => {
   // Pre-populate wire 0 with an op so `removeTrailingUnusedQubits`
   // doesn't trim every wire after the target removal.

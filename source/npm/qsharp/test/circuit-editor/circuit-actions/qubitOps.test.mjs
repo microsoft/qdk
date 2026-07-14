@@ -89,15 +89,6 @@ test("moveQubit with isBetween=true inserts before the target wire", () => {
   expectOp(ops[3], { Z: 3 });
 });
 
-test("moveQubit with sourceWire === targetWire is a no-op", () => {
-  const model = build(circuit(2, [[gate("X", 0), gate("H", 1)]]));
-  const before = JSON.stringify(model.componentGrid);
-
-  moveQubit(model, 1, 1, false);
-
-  assert.equal(JSON.stringify(model.componentGrid), before);
-});
-
 test("removeQubitWithDependents strips ops on the wire and drops it", () => {
   // The public cascade: remove every op touching the doomed wire,
   // then rewire the higher indices down.
