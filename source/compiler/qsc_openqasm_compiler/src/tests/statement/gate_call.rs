@@ -1592,6 +1592,28 @@ fn broadcast_with_qubit_and_register() -> miette::Result<(), Vec<Report>> {
 }
 
 #[test]
+fn broadcast_with_hardware_qubit_and_register_reports_unsupported_hardware() {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[2] targets;
+        cx $0, targets;
+    "#;
+
+    let Err(errors) = compile_qasm_to_qsharp(source) else {
+        panic!("Expected error");
+    };
+
+    let diagnostics = format!("{errors:?}");
+    assert!(diagnostics.contains("Qdk.Qasm.Compiler.NotSupported"));
+    assert_eq!(
+        diagnostics
+            .matches("hardware qubit operands are not supported")
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn broadcast_with_different_register_sizes_fails() {
     let source = r#"
         include "stdgates.inc";

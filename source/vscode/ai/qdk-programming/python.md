@@ -234,6 +234,119 @@ result = code.GenerateRandomBits(5)  # pass Q# function arguments directly
 
 For OpenQASM syntax details, see [openqasm.md](./openqasm.md).
 
+### Parse, analyze, and navigate source
+
+Parsing and semantic analysis return diagnostics as result data. Their nodes
+and diagnostics use global, half-open UTF-8 byte spans resolved through the
+result's immutable source document:
+
+```python
+from qdk.openqasm import parser, semantic
+
+parsed = parser.parse(
+    'OPENQASM 3.0; include "defs.inc"; qubit q;',
+    path="memory://workspace/main.qasm",
+    includes={"memory://workspace/defs.inc": "gate local q { x q; }"},
+)
+assert not parsed.has_errors
+
+included = parsed.document.source_map.find("memory://workspace/defs.inc")
+assert included is not None
+position = parsed.document.source_map.position_at(included.id, 5)
+assert parsed.document.source_map.byte_offset(included.id, position) == 5
+
+analysis = semantic.analyze(
+    'OPENQASM 3.0; include "stdgates.inc"; qubit q; h q; int value = missing;'
+)
+assert analysis.has_errors
+assert any(d.code == "Qdk.Qasm.Lowerer.UndefinedSymbol" for d in analysis.diagnostics)
+```
+
+### Resolved types, constant values, and equality
+
+Resolved types are structured nodes, not strings, and constant values are data,
+not renderings. Nodes, types, and values all compare and hash structurally, with
+source position excluded, so nodes work as `set` members and `dict` keys:
+
+```python
+from qdk.openqasm import semantic
+
+analysis = semantic.analyze(
+    "OPENQASM 3.0; array[int[8], 2, 3] grid; const angle turn = pi/2;"
+)
+grid, turn = analysis.program.statements
+
+assert isinstance(grid.type, semantic.ArrayType)
+assert grid.type.base_type.size == 8
+assert grid.type.dimensions == [2, 3]
+assert isinstance(turn.init_expr.const_value, semantic.Angle)
+
+source = "OPENQASM 3.0; qubit q;"
+assert semantic.analyze(source).program == semantic.analyze(source).program
+```
+
+A resolved type carries no `span` and is not a `QASMNode`, so it does not appear
+in `children()`. `parser.dumps` rejects a semantic program with a message naming
+both the expected and the received type.
+
+### Include resolver contract
+
+Resolver keys are platform-neutral logical identifiers. Use `/` separators.
+Relative `.` and `..` components are normalized against the including source;
+URI-like schemes are preserved but not decoded or fetched. Caller keys match
+exactly and case-sensitively on every host:
+
+```python
+from qdk.openqasm import parser
+
+result = parser.parse(
+    'OPENQASM 3.0; include "./Case.inc"; include "case.inc";',
+    path="memory://workspace/main.qasm",
+    includes={
+        "memory://workspace/Case.inc": "int upper = 1;",
+        "memory://workspace/case.inc": "int lower = 2;",
+    },
+)
+assert not result.has_errors
+```
+
+`stdgates.inc`, `qelib1.inc`, and the QDK extension `qdk.inc` are built in and
+do not invoke the resolver. During semantic analysis, `qdk.inc` makes two QDK
+intrinsics available: `mresetz_checked(qubit) -> int`, which measures and resets
+a qubit and returns `0` for Zero, `1` for One, or `2` for qubit loss; and
+`postselectz(bit, qubit) -> void`, which post-selects a computational-basis
+result. These names are unavailable without `qdk.inc`.
+
+Other keys have no filesystem or network fallback. Missing keys, wrong callback
+return types, and callback exceptions become diagnostics and unresolved source
+entries. Results do not retain resolver callbacks.
+
+### Visit and serialize syntax
+
+`QASMVisitor` propagates optional context through syntax and semantic trees.
+Canonical serialization accepts syntax programs only and may change between
+preview releases:
+
+```python
+from qdk.openqasm import parser
+from qdk.openqasm.parser import QASMVisitor
+
+class GateNames(QASMVisitor):
+    def visit_QuantumGate(self, node: object, context: list[str]) -> None:
+        context.append(node.name.name)  # type: ignore[attr-defined]
+        self.generic_visit(node, context)
+
+names: list[str] = []
+program = parser.parse_program("OPENQASM 3.0; qubit q; x q; y q;")
+GateNames().visit(program, names)
+assert names == ["x", "y"]
+assert parser.dumps(program) == "OPENQASM 3.0;\nqubit q;\nx q;\ny q;\n"
+```
+
+`parser.dumps` raises `QASMUnparseError` for recovered or unsupported syntax,
+invalid strings, and non-finite floats. `parser.dump` writes once to a text
+stream, propagates writer exceptions, and does not flush or close the stream.
+
 ### Multishot Simulation
 
 ```python

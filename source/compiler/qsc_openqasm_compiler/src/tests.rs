@@ -4,12 +4,12 @@
 use crate::compiler::{PragmaConfig, parse_and_compile_to_qsharp_ast_with_config};
 use crate::{
     CompilerConfig, OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
-    get_semantic_errors_from_lowering_result,
+    get_errors_from_analysis_result, parser_types::to_qsharp_source_map,
 };
 use expect_test::Expect;
 use miette::Report;
-use qdk_openqasm_parser::io::{InMemorySourceResolver, SourceResolver};
-use qdk_openqasm_parser::semantic::{QasmSemanticParseResult, parse_source};
+use qdk_openqasm::io::{InMemorySourceResolver, SourceResolver};
+use qdk_openqasm::semantic::AnalysisResult;
 use qsc::compile::compile_ast;
 use qsc::compile::package_store_with_stdlib;
 use qsc::interpret::Error;
@@ -87,22 +87,34 @@ fn compile<S: Into<Arc<str>>>(source: S) -> miette::Result<QasmCompileUnit, Vec<
     compile_with_config(source, config)
 }
 
+#[test]
+fn qasm2_version_selects_qasm2_environment() -> miette::Result<(), Vec<Report>> {
+    let unit = compile(concat!(
+        "OPENQASM 2.0; include \"qelib1.inc\"; ",
+        "qreg q[1]; creg c[1]; h q[0]; measure q[0] -> c[0];"
+    ))?;
+
+    fail_on_compilation_errors(&unit);
+    Ok(())
+}
+
 fn compile_with_config<S: Into<Arc<str>>>(
     source: S,
     config: CompilerConfig,
 ) -> miette::Result<QasmCompileUnit, Vec<Report>> {
     let res = parse(source)?;
-    if res.has_syntax_errors() {
-        for e in res.sytax_errors() {
+    if res.has_parse_errors() {
+        for e in res.parse_errors() {
             println!("{:?}", Report::new(e.clone()));
         }
     }
-    assert!(!res.has_syntax_errors());
-    let errors = get_semantic_errors_from_lowering_result(&res);
+    assert!(!res.has_parse_errors());
+    let source_map = to_qsharp_source_map(&res.source_map);
+    let errors = get_errors_from_analysis_result(&res, &source_map);
     let program = res.program;
 
     let compiler = crate::compiler::QasmCompiler {
-        source_map: res.source_map,
+        source_map,
         config,
         stmts: vec![],
         symbols: res.symbols,
@@ -164,12 +176,13 @@ pub fn compile_all_with_config<P: Into<Arc<str>>>(
     config: CompilerConfig,
 ) -> miette::Result<QasmCompileUnit, Vec<Report>> {
     let res = parse_all(path, sources)?;
-    assert!(!res.has_syntax_errors());
-    let errors = get_semantic_errors_from_lowering_result(&res);
+    assert!(!res.has_parse_errors());
+    let source_map = to_qsharp_source_map(&res.source_map);
+    let errors = get_errors_from_analysis_result(&res, &source_map);
     let program = res.program;
 
     let compiler = crate::compiler::QasmCompiler {
-        source_map: res.source_map,
+        source_map,
         config,
         stmts: vec![],
         symbols: res.symbols,
@@ -248,20 +261,14 @@ pub(crate) fn compare_compilation_to_qsharp(unit: &QasmCompileUnit, expected: &s
     difference::assert_diff!(&qsharp, expected, "\n", 0);
 }
 
-pub(crate) fn parse<S: Into<Arc<str>>>(
-    source: S,
-) -> miette::Result<QasmSemanticParseResult, Vec<Report>> {
+pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<AnalysisResult, Vec<Report>> {
     let source = source.into();
     let name: Arc<str> = "Test.qasm".into();
     let sources = [(name.clone(), source.clone())];
     let mut resolver = InMemorySourceResolver::from_iter(sources);
-    let res = parse_source(source, name, &mut resolver);
-    if res.source.has_errors() {
-        let errors = res
-            .errors()
-            .into_iter()
-            .map(|e| Report::new(e.clone()))
-            .collect();
+    let res = qdk_openqasm::analyze_source(source, name, Some(&mut resolver));
+    if res.has_parse_errors() {
+        let errors = res.parse_errors().into_iter().map(Report::new).collect();
         return Err(errors);
     }
     Ok(res)
@@ -270,20 +277,16 @@ pub(crate) fn parse<S: Into<Arc<str>>>(
 pub(crate) fn parse_all<P: Into<Arc<str>>>(
     path: P,
     sources: impl IntoIterator<Item = (Arc<str>, Arc<str>)>,
-) -> miette::Result<QasmSemanticParseResult, Vec<Report>> {
+) -> miette::Result<AnalysisResult, Vec<Report>> {
     let path = path.into();
     let mut resolver = InMemorySourceResolver::from_iter(sources);
     let source = resolver
         .resolve(&path, &path)
         .map_err(|e| vec![Report::new(e)])?
         .1;
-    let res = parse_source(source, path, &mut resolver);
-    if res.source.has_errors() {
-        let errors = res
-            .errors()
-            .into_iter()
-            .map(|e| Report::new(e.clone()))
-            .collect();
+    let res = qdk_openqasm::analyze_source(source, path, Some(&mut resolver));
+    if res.has_parse_errors() {
+        let errors = res.parse_errors().into_iter().map(Report::new).collect();
         Err(errors)
     } else {
         Ok(res)
@@ -538,7 +541,7 @@ pub(crate) fn compare_qasm_and_qasharp_asts(source: &str) {
         None,
         None,
     );
-    let mut resolver = qdk_openqasm_parser::io::InMemorySourceResolver::from_iter([]);
+    let mut resolver = qdk_openqasm::io::InMemorySourceResolver::from_iter([]);
     let unit = parse_and_compile_to_qsharp_ast_with_config(
         source,
         "source.qasm",

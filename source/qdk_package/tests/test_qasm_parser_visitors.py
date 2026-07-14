@@ -1,0 +1,353 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+"""Proves that every ``visit_<NodeType>`` callback of the syntactic visitor is
+dispatched correctly.
+
+A comprehensive `OpenQASM` program is parsed, and a :class:`QASMVisitor`
+subclass is built with a ``visit_<NodeType>`` method for *every* syntactic node
+class exported by :mod:`qdk.openqasm.parser`. Each callback records that it fired
+and asserts it received a node of exactly its own type. The test then checks
+that the set of callbacks that fired equals the set of node types actually
+present in the tree (collected independently), and that both counts match.
+"""
+
+from typing import Any, Callable, Dict, List, Tuple
+
+from qdk.openqasm import parser, semantic
+from qdk.openqasm.parser import QASMNode, QASMVisitor, Statement
+
+# A single program exercising a broad range of OpenQASM 3 constructs so that as
+# many distinct syntactic node types as possible appear in the parsed tree.
+_PROGRAM = """OPENQASM 3.0;
+include "stdgates.inc";
+extern myext(int) -> int;
+gate mygate(theta) q { rz(theta) q; }
+def add(int a, int b) -> int { return a + b; }
+const int N = 3;
+input int shots;
+output bit result;
+qubit q;
+qubit[2] qs;
+bit c;
+bit[2] cs;
+int a = 1 + 2;
+float f = -1.5;
+int b = (a * 2) - 1;
+int d = add(a, N);
+bit[4] joined = cs ++ cs;
+bool cond = a > 0;
+a = 5;
+a += 1;
+let myalias = qs[0:1];
+x q;
+x $0;
+mygate(0.5) q;
+ctrl @ x qs[0], qs[1];
+h qs[0];
+gphase(pi / 2);
+c = measure q;
+measure qs[0];
+reset q;
+barrier q, qs;
+delay[10ns] q;
+box { x q; }
+pragma qdk.example some custom pragma text
+duration dur = durationof({x q;});
+if (a == 3) { x q; } else { y q; }
+for int i in [0:2] { x q; if (cond) { break; } else { continue; } }
+while (a > 0) { a -= 1; }
+switch (a) { case 1 { x q; } default { y q; } }
+int g = int(f);
+add(a, N);
+end;
+"""
+
+# Core node types the program is guaranteed to produce. Kept as a stable subset
+# so the test remains a meaningful proof of dispatch even if the parser gains or
+# loses more exotic node kinds over time.
+_REQUIRED_TYPES = {
+    "Program",
+    "QubitDeclaration",
+    "ClassicalDeclaration",
+    "ConstantDeclaration",
+    "QuantumGate",
+    "QuantumGateDefinition",
+    "SubroutineDefinition",
+    "Identifier",
+    "BinaryExpression",
+    "UnaryExpression",
+    "IntegerLiteral",
+    "IndexExpression",
+    "IndexedIdentifier",
+    "ParenExpression",
+    "Pragma",
+    "FunctionCall",
+    "Cast",
+    "BranchingStatement",
+    "ForInLoop",
+    "WhileLoop",
+    "ReturnStatement",
+    "QuantumMeasurementStatement",
+    "QuantumReset",
+    "QuantumBarrier",
+    "ClassicalAssignment",
+}
+
+_MIN_DISTINCT_TYPES = 40
+
+
+def _node_class_names() -> List[str]:
+    """Every syntactic node class name exported by ``qdk.openqasm.parser``."""
+    names = []
+    for name in parser.__all__:
+        obj = getattr(parser, name)
+        if isinstance(obj, type) and issubclass(obj, QASMNode):
+            names.append(name)
+    return names
+
+
+def _collect_present_types(program: Any) -> Dict[str, int]:
+    """Independently collects ``type(node).__name__`` -> count over the tree."""
+    counts: Dict[str, int] = {}
+
+    class Collector(QASMVisitor):
+        def generic_visit(self, node: Any) -> None:
+            name = type(node).__name__
+            counts[name] = counts.get(name, 0) + 1
+            super().generic_visit(node)
+
+    Collector().visit(program)
+    return counts
+
+
+def _make_callback(expected: str, dispatched: Dict[str, int], mismatches: List[Tuple[str, str]]) -> Callable:
+    def callback(self: QASMVisitor, node: Any) -> None:
+        actual = type(node).__name__
+        if actual != expected:
+            mismatches.append((expected, actual))
+        dispatched[expected] = dispatched.get(expected, 0) + 1
+        self.generic_visit(node)
+
+    return callback
+
+
+def test_every_syntactic_visit_callback_dispatches() -> None:
+    program = parser.parse(_PROGRAM).program
+
+    present = _collect_present_types(program)
+    assert _REQUIRED_TYPES <= set(present)
+    assert len(present) >= _MIN_DISTINCT_TYPES
+
+    dispatched: Dict[str, int] = {}
+    mismatches: List[Tuple[str, str]] = []
+
+    # Build a visitor with a visit_<NodeType> callback for every syntactic node
+    # class, so no node can fall back to generic_visit unhandled.
+    attrs = {
+        f"visit_{name}": _make_callback(name, dispatched, mismatches)
+        for name in _node_class_names()
+    }
+    all_callbacks_visitor = type("AllSyntacticCallbacks", (QASMVisitor,), attrs)
+
+    all_callbacks_visitor().visit(program)
+
+    # Every node was routed to the callback named after its own type.
+    assert mismatches == []
+    # Each present type's callback fired for exactly its nodes, and no present
+    # type was missing a callback.
+    assert dispatched == present
+    # And every present type does have a dedicated callback method.
+    for name in present:
+        assert hasattr(all_callbacks_visitor, f"visit_{name}")
+
+
+def test_error_statement_callback_dispatches() -> None:
+    # A deliberately-invalid program (a trailing binary operator with no
+    # right-hand operand) makes the parser emit an error statement node.
+    result = parser.parse("OPENQASM 3.0; int a = 1 + ; ")
+    assert result.has_errors
+
+    error_nodes: List[Any] = []
+
+    class Collector(QASMVisitor):
+        def generic_visit(self, node: Any) -> None:
+            if type(node).__name__ == "ErrorStatement":
+                error_nodes.append(node)
+            super().generic_visit(node)
+
+    Collector().visit(result.program)
+    assert error_nodes, "expected at least one ErrorStatement node in the tree"
+    for node in error_nodes:
+        assert isinstance(node, Statement)
+
+    fired: List[Any] = []
+
+    class ErrorVisitor(QASMVisitor):
+        def visit_ErrorStatement(self, node: Any) -> None:
+            fired.append(node)
+            self.generic_visit(node)
+
+    ErrorVisitor().visit(result.program)
+    assert len(fired) >= 1
+    for node in fired:
+        assert type(node).__name__ == "ErrorStatement"
+        assert isinstance(node, Statement)
+
+
+def test_auxiliary_node_callbacks_dispatch() -> None:
+    source = """OPENQASM 3.0;
+    @tag value
+    def f(int[8] a) -> int { return a; }
+    int x;
+    switch (x) { case 1 { x = 2; } }
+    """
+    fired: List[str] = []
+
+    class AuxiliaryVisitor(QASMVisitor):
+        def visit_Annotation(self, node: Any) -> None:
+            fired.append("Annotation")
+
+        def visit_SubroutineParameter(self, node: Any) -> None:
+            fired.append("SubroutineParameter")
+            self.generic_visit(node)
+
+        def visit_SwitchCase(self, node: Any) -> None:
+            fired.append("SwitchCase")
+            self.generic_visit(node)
+
+    AuxiliaryVisitor().visit(parser.parse(source).program)
+    assert fired == ["Annotation", "SubroutineParameter", "SwitchCase"]
+
+
+def test_semantic_auxiliary_node_callbacks_dispatch() -> None:
+    source = """OPENQASM 3.1;
+    include "stdgates.inc";
+    @tag value
+    def f(int[8] a) -> int { return a; }
+    bit[4] bits;
+    let slice = bits[1:2];
+    int selector;
+    switch (selector) { case 1 { selector = 2; } }
+    qubit[2] q;
+    ctrl @ x q[0], q[1];
+    """
+    fired: List[str] = []
+
+    class AuxiliaryVisitor(QASMVisitor):
+        def visit_Annotation(self, node: Any) -> None:
+            fired.append("Annotation")
+
+        def visit_SubroutineParameter(self, node: Any) -> None:
+            fired.append("SubroutineParameter")
+            self.generic_visit(node)
+
+        def visit_RangeDefinition(self, node: Any) -> None:
+            fired.append("RangeDefinition")
+            self.generic_visit(node)
+
+        def visit_SwitchCase(self, node: Any) -> None:
+            fired.append("SwitchCase")
+            self.generic_visit(node)
+
+        def visit_QuantumGateModifier(self, node: Any) -> None:
+            fired.append("QuantumGateModifier")
+            self.generic_visit(node)
+
+    result = semantic.analyze(source)
+    assert not result.has_errors
+    AuxiliaryVisitor().visit(result.program)
+    assert fired == [
+        "Annotation",
+        "SubroutineParameter",
+        "RangeDefinition",
+        "SwitchCase",
+        "QuantumGateModifier",
+    ]
+
+
+def test_syntax_type_expressions_are_visited_as_children() -> None:
+    values: List[int] = []
+
+    class TypeExpressionVisitor(QASMVisitor):
+        def visit_IntegerLiteral(self, node: Any) -> None:
+            values.append(node.value)
+            self.generic_visit(node)
+
+    program = parser.parse("OPENQASM 3.0; array[int[8], 2, 3] values;").program
+    TypeExpressionVisitor().visit(program)
+
+    assert values == [8, 2, 3]
+
+
+def test_syntax_visitor_propagates_context_and_supports_legacy_callbacks() -> None:
+    context = {"layer": "syntax"}
+    seen: List[Tuple[str, Any]] = []
+
+    class ContextVisitor(QASMVisitor):
+        def visit_Annotation(self, node: Any, callback_context: Any = None) -> None:
+            seen.append(("annotation", callback_context))
+
+        def visit_ClassicalDeclaration(
+            self, node: Any, callback_context: Any = None
+        ) -> None:
+            seen.append(("declaration", callback_context))
+            self.generic_visit(node, callback_context)
+
+        def visit_IntegerLiteral(
+            self, node: Any, callback_context: Any = None
+        ) -> None:
+            seen.append((f"literal:{node.value}", callback_context))
+            self.generic_visit(node, callback_context)
+
+    program = parser.parse("OPENQASM 3.0;\n@tag\nint[8] value = 1;").program
+    ContextVisitor().visit(program, context)
+
+    # Children follow source order: the declared type precedes the initializer.
+    assert [name for name, _ in seen] == [
+        "declaration",
+        "annotation",
+        "literal:8",
+        "literal:1",
+    ]
+    assert all(callback_context is context for _, callback_context in seen)
+
+    legacy_names: List[str] = []
+
+    class LegacyVisitor(QASMVisitor):
+        def visit_Identifier(self, node: Any) -> None:
+            legacy_names.append(node.name)
+
+    LegacyVisitor().visit(program, context)
+    assert legacy_names == ["value"]
+
+
+def test_generic_traversal_reaches_each_annotation_exactly_once() -> None:
+    source = """OPENQASM 3.0;
+@one
+@two 23
+qubit q;
+@three
+int x = 1;
+"""
+    program = parser.parse(source).program
+
+    identifiers: List[str] = []
+
+    class AnnotationVisitor(QASMVisitor):
+        def visit_Annotation(self, node: Any) -> None:
+            identifiers.append(node.identifier)
+            self.generic_visit(node)
+
+    AnnotationVisitor().visit(program)
+
+    # Each annotation is observed once, in source order, and annotations
+    # precede the statement's own children.
+    assert identifiers == ["one", "two", "three"]
+
+    declaration = program.statements[-1]
+    children = declaration.children()
+    assert [type(child).__name__ for child in children[:1]] == ["Annotation"]
+    assert children[0] == declaration.annotations[0]
+    assert len(children) > 1
+

@@ -13,16 +13,15 @@ use crate::{
     fs::file_system,
     generic_estimator::register_generic_estimator_submodule,
     interop::{
-        circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
-        compile_stim_to_qir, create_filesystem_from_py, get_operation_name, get_output_semantics,
-        get_program_type, get_search_path, resource_estimate_qasm_program, run_qasm_program,
-        sanitize_name,
+        create_filesystem_from_py, get_operation_name, get_output_semantics, get_program_type,
+        get_search_path, sanitize_name,
     },
     interpreter::data_interop::{
         PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
+    openqasm::register_openqasm_submodule,
     qir_simulation::{
         IdleNoiseParams, LossPolicy, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         cpu_simulators::{
@@ -107,6 +106,8 @@ fn verify_classes_are_sendable() {
     is_send::<NoiseTable>();
     is_send::<IdleNoiseParams>();
     is_send::<LossPolicy>();
+
+    crate::openqasm::verify_interop_struct_traits();
 }
 
 #[pymodule]
@@ -149,16 +150,9 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
     register_qre_submodule(m)?;
-    // QASM interop
-    m.add("QasmError", py.get_type::<QasmError>())?;
     m.add("StimError", py.get_type::<StimError>())?;
-    m.add_function(wrap_pyfunction!(resource_estimate_qasm_program, m)?)?;
-    m.add_function(wrap_pyfunction!(run_qasm_program, m)?)?;
-    m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
-    m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
-    m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
-    m.add_function(wrap_pyfunction!(compile_stim_to_qir, m)?)?;
-    m.add_function(wrap_pyfunction!(compile_visual_circuit_to_qsharp, m)?)?;
+    // QASM interop
+    register_openqasm_submodule(py, m)?;
     Ok(())
 }
 
@@ -676,7 +670,7 @@ impl Interpreter {
             Some(operation_name.into()),
             None,
         );
-        let res = qsc::openqasm::semantic::parse_sources(&sources);
+        let res = qsc::openqasm::analyze_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
         let (sources, errors, mut package, _, _) = unit.into_tuple();
 

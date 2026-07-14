@@ -14,6 +14,16 @@ Core submodules (always available):
   (:func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.eval`, :func:`~qdk.qsharp.run`,
   :func:`~qdk.qsharp.compile`, :func:`~qdk.qsharp.circuit`, etc.).
 - :mod:`qdk.openqasm` — compile, run, and estimate OpenQASM programs.
+  Its :mod:`qdk.openqasm.parser` and :mod:`qdk.openqasm.semantic` modules expose
+  recovery-oriented parsing, source documents, read-only visitors, semantic
+  analysis, and checked canonical serialization::
+
+      from qdk.openqasm import parser, semantic
+
+      parsed = parser.parse("OPENQASM 3.0; qubit q;")
+      analyzed = semantic.analyze("OPENQASM 3.0; const int value = 1 + 2;")
+      assert not parsed.has_errors
+      assert not analyzed.has_errors
 - :mod:`qdk.simulation` — noise-aware quantum simulators and the
   ``NeutralAtomDevice``.
 - :mod:`qdk.estimator` — the legacy Microsoft Resource Estimator API.

@@ -4,6 +4,9 @@
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod openqasm_tests;
+
 use std::rc::Rc;
 
 use crate::compilation::{Compilation, CompilationKind, source_position_to_package_offset};

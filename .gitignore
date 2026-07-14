@@ -23,6 +23,7 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 .idea/
+.copilot-tracking/
 *.so
 samples/scratch/
 samples/qdk-learning/
