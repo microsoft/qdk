@@ -602,15 +602,15 @@ impl Display for Block {
 }
 
 #[derive(Clone, Debug)]
-pub struct DurationofCall {
+pub struct DurationOfCall {
     pub span: Span,
     pub name_span: Span,
     pub scope: Block,
 }
 
-impl Display for DurationofCall {
+impl Display for DurationOfCall {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header_with_span(f, "DurationofCall", self.span)?;
+        writeln_header_with_span(f, "DurationOfCall", self.span)?;
         writeln_field(f, "name_span", &self.name_span)?;
         write_field(f, "scope", &self.scope)
     }
@@ -735,7 +735,7 @@ impl Display for Expr {
 pub enum Index {
     /// Only allowed in registers, and only in alias statements.
     /// `alias b = a[{1, 5, 8}];`
-    IndexSet(Set),
+    DiscreteSet(DiscreteSet),
     /// A list of indices, used for multidimensional indexing.
     /// `int b = a[2, 3:7];`
     IndexList(IndexList),
@@ -744,7 +744,7 @@ pub enum Index {
 impl Display for Index {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Index::IndexSet(set) => write!(f, "{set}"),
+            Index::DiscreteSet(set) => write!(f, "{set}"),
             Index::IndexList(list) => write!(f, "{list}"),
         }
     }
@@ -754,7 +754,7 @@ impl Index {
     #[must_use]
     pub fn span(&self) -> Span {
         match self {
-            Index::IndexSet(set) => set.span,
+            Index::DiscreteSet(set) => set.span,
             Index::IndexList(set) => set.span,
         }
     }
@@ -763,21 +763,21 @@ impl Index {
     pub fn num_indices(&self) -> usize {
         match self {
             // According to the spec Index sets count as a single index.
-            Index::IndexSet(_) => 1,
+            Index::DiscreteSet(_) => 1,
             Index::IndexList(index_list) => index_list.values.len(),
         }
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Set {
+pub struct DiscreteSet {
     pub span: Span,
     pub values: List<Expr>,
 }
 
-impl Display for Set {
+impl Display for DiscreteSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header_with_span(f, "Set", self.span)?;
+        writeln_header_with_span(f, "DiscreteSet", self.span)?;
         write_list_field(f, "values", &self.values)
     }
 }
@@ -968,7 +968,7 @@ impl Display for ScalarType {
 pub enum ScalarTypeKind {
     Bit(BitType),
     Int(IntType),
-    UInt(UIntType),
+    Uint(UintType),
     Float(FloatType),
     Complex(ComplexType),
     Angle(AngleType),
@@ -984,7 +984,7 @@ impl Display for ScalarTypeKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             ScalarTypeKind::Int(int) => write!(f, "{int}"),
-            ScalarTypeKind::UInt(uint) => write!(f, "{uint}"),
+            ScalarTypeKind::Uint(uint) => write!(f, "{uint}"),
             ScalarTypeKind::Float(float) => write!(f, "{float}"),
             ScalarTypeKind::Complex(complex) => write!(f, "{complex}"),
             ScalarTypeKind::Angle(angle) => write!(f, "{angle}"),
@@ -1000,7 +1000,7 @@ impl Display for ScalarTypeKind {
 #[derive(Clone, Debug)]
 pub enum ArrayBaseTypeKind {
     Int(IntType),
-    UInt(UIntType),
+    Uint(UintType),
     Float(FloatType),
     Complex(ComplexType),
     Angle(AngleType),
@@ -1012,7 +1012,7 @@ impl Display for ArrayBaseTypeKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             ArrayBaseTypeKind::Int(int) => write!(f, "ArrayBaseTypeKind {int}"),
-            ArrayBaseTypeKind::UInt(uint) => write!(f, "ArrayBaseTypeKind {uint}"),
+            ArrayBaseTypeKind::Uint(uint) => write!(f, "ArrayBaseTypeKind {uint}"),
             ArrayBaseTypeKind::Float(float) => write!(f, "ArrayBaseTypeKind {float}"),
             ArrayBaseTypeKind::Complex(complex) => write!(f, "ArrayBaseTypeKind {complex}"),
             ArrayBaseTypeKind::Angle(angle) => write!(f, "ArrayBaseTypeKind {angle}"),
@@ -1036,14 +1036,14 @@ impl Display for IntType {
 }
 
 #[derive(Clone, Debug)]
-pub struct UIntType {
+pub struct UintType {
     pub span: Span,
     pub size: Option<Expr>,
 }
 
-impl Display for UIntType {
+impl Display for UintType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header_with_span(f, "UIntType", self.span)?;
+        writeln_header_with_span(f, "UintType", self.span)?;
         write_opt_field(f, "size", self.size.as_ref())
     }
 }
@@ -1626,7 +1626,7 @@ impl Display for ForStmt {
 
 #[derive(Clone, Debug)]
 pub enum EnumerableSet {
-    Set(Set),
+    DiscreteSet(DiscreteSet),
     Range(Range),
     Expr(Expr),
 }
@@ -1634,7 +1634,7 @@ pub enum EnumerableSet {
 impl Display for EnumerableSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            EnumerableSet::Set(set) => write!(f, "{set}"),
+            EnumerableSet::DiscreteSet(set) => write!(f, "{set}"),
             EnumerableSet::Range(range) => write!(f, "{range}"),
             EnumerableSet::Expr(expr) => write!(f, "{expr}"),
         }
@@ -1689,7 +1689,7 @@ pub enum ExprKind {
     Cast(Cast),
     IndexExpr(IndexExpr),
     Paren(Expr),
-    DurationOf(DurationofCall),
+    DurationOf(DurationOfCall),
 }
 
 impl Display for ExprKind {

@@ -7,8 +7,8 @@
 //! paths that are implemented.
 
 use super::ast::{
-    BinOp, BinaryOpExpr, Cast, Expr, ExprKind, FunctionCall, Index, IndexedExpr, LiteralKind,
-    UnaryOp, UnaryOpExpr,
+    BinOp, BinaryOpExpr, Cast, Expr, ExprKind, Index, IndexedExpr, LiteralKind,
+    ResolvedFunctionCall, UnaryOp, UnaryOpExpr,
 };
 use super::symbols::SymbolId;
 use super::types::compute_slice_components;
@@ -108,13 +108,13 @@ impl Expr {
         }
 
         match &*self.kind {
-            ExprKind::CapturedIdent(symbol_id) | ExprKind::Ident(symbol_id) => {
+            ExprKind::CapturedResolvedIdent(symbol_id) | ExprKind::ResolvedIdent(symbol_id) => {
                 symbol_id.const_eval(ctx)
             }
             ExprKind::UnaryOp(unary_op_expr) => unary_op_expr.const_eval(ctx),
             ExprKind::BinaryOp(binary_op_expr) => binary_op_expr.const_eval(ctx),
             ExprKind::Lit(literal_kind) => Some(literal_kind.clone()),
-            ExprKind::FunctionCall(function_call) => function_call.const_eval(ctx, ty),
+            ExprKind::ResolvedFunctionCall(function_call) => function_call.const_eval(ctx, ty),
             ExprKind::BuiltinFunctionCall(_) => self.get_const_value(),
             ExprKind::Cast(cast) => cast.const_eval(ctx),
             ExprKind::IndexedExpr(index_expr) => index_expr.const_eval(ctx, ty),
@@ -123,8 +123,8 @@ impl Expr {
                 // Measurements are non-const, so we don't need to implement them.
                 None
             }
-            ExprKind::SizeofCall(_) => {
-                // We only lower SizeofCall expressions that should be evaluated
+            ExprKind::RuntimeSizeof(_) => {
+                // We only lower RuntimeSizeof expressions that should be evaluated
                 // at runtime. The ones that can be const evaluated are handled
                 // in [`Lowerer::lower_sizeof_call_expr`].
                 None
@@ -134,7 +134,7 @@ impl Expr {
                 // concatenation in the const-evaluator.
                 None
             }
-            ExprKind::DurationofCall(expr) => Some(LiteralKind::Duration(expr.duration)),
+            ExprKind::EvaluatedDurationof(expr) => Some(LiteralKind::Duration(expr.duration)),
             ExprKind::Err => None,
         }
     }
@@ -774,7 +774,7 @@ impl BinaryOpExpr {
     }
 }
 
-impl FunctionCall {
+impl ResolvedFunctionCall {
     /// Builtin function calls, which are const, are const evaluated
     /// in [`Lowerer::lower_builtin_function_call_expr`].
     #[allow(clippy::unused_self)]

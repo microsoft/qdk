@@ -1368,8 +1368,8 @@ pub(crate) fn build_barrier_call(span: Span) -> Stmt {
 pub(crate) fn build_argument_validation_stmts(name: &String, ty: &Type, span: Span) -> Vec<Stmt> {
     assert!(ty.is_array(), "Expected array type");
     assert!(
-        !matches!(ty, Type::DynArrayRef(..)),
-        "Unexpected dynamic array type"
+        !matches!(ty, Type::RankedArrayRef(..)),
+        "Unexpected ranked array reference type"
     );
 
     let message = Expr {

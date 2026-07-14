@@ -472,7 +472,7 @@ fn classical_indexing_assign_to_mutable_static_array_ref() {
                 body: Block [47-93]:
                     Stmt [61-83]:
                         annotations: <empty>
-                        kind: IndexedClassicalTypeAssignStmt [61-83]:
+                        kind: IndexedAssignStmt [61-83]:
                             lhs: Expr [61-67]:
                                 ty: int[32]
                                 kind: IndexedExpr [61-67]:

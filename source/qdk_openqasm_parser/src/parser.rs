@@ -38,16 +38,16 @@ impl MutVisitor for Offsetter {
 }
 
 #[derive(Debug, Clone)]
-pub struct QasmParseResult {
+pub struct ParseResult {
     pub source: QasmSource,
     pub source_map: SourceMap,
 }
 
-impl QasmParseResult {
+impl ParseResult {
     #[must_use]
-    pub fn new(mut source: QasmSource) -> QasmParseResult {
+    pub fn new(mut source: QasmSource) -> ParseResult {
         let source_map = create_source_map_and_update_offsets(&mut source);
-        QasmParseResult { source, source_map }
+        ParseResult { source, source_map }
     }
 
     #[must_use]
@@ -123,14 +123,14 @@ pub fn parse_source<R: SourceResolver, S: Into<Arc<str>>, P: Into<Arc<str>>>(
     source: S,
     path: P,
     resolver: &mut R,
-) -> QasmParseResult {
+) -> ParseResult {
     let path = path.into();
     resolver
         .ctx()
         .check_include_errors(&path, Span::default())
         .expect("Failed to check include errors");
     let res = parse_qasm_source(source.into(), path.clone(), resolver);
-    QasmParseResult::new(res)
+    ParseResult::new(res)
 }
 
 /// Creates a Q# source map from a QASM parse output while updating source and

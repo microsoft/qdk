@@ -42,7 +42,7 @@ pub(crate) use vendor::{display, index_map, source, span};
 
 use std::sync::Arc;
 
-use crate::{parser::QasmParseResult, semantic::QasmSemanticParseResult};
+use crate::{parser::ParseResult, semantic::AnalysisResult};
 
 /// Parses `OpenQASM` source text into a syntax tree.
 ///
@@ -62,11 +62,11 @@ use crate::{parser::QasmParseResult, semantic::QasmSemanticParseResult};
 ///
 /// # Returns
 ///
-/// A [`QasmParseResult`](parser::QasmParseResult) containing the parsed source
+/// A [`ParseResult`] containing the parsed source
 /// and its source map. Parse errors are collected on the result rather than
 /// returned as an `Err`; inspect them via
-/// [`QasmParseResult::has_errors`](parser::QasmParseResult::has_errors) and
-/// [`QasmParseResult::all_errors`](parser::QasmParseResult::all_errors).
+/// [`ParseResult::has_errors`](parser::ParseResult::has_errors) and
+/// [`ParseResult::all_errors`](parser::ParseResult::all_errors).
 ///
 /// # Examples
 ///
@@ -97,7 +97,7 @@ pub fn parse_source<R: io::SourceResolver>(
     source: impl Into<Arc<str>>,
     path: impl Into<Arc<str>>,
     resolver: Option<&mut R>,
-) -> QasmParseResult {
+) -> ParseResult {
     if let Some(resolver) = resolver {
         parser::parse_source(source, path, resolver)
     } else {
@@ -124,13 +124,13 @@ pub fn parse_source<R: io::SourceResolver>(
 ///
 /// # Returns
 ///
-/// A [`QasmSemanticParseResult`](semantic::QasmSemanticParseResult) containing
+/// An [`AnalysisResult`] containing
 /// the analyzed source, source map, symbol table, semantic program, and any
 /// diagnostics. Errors are collected on the result rather than returned as an
 /// `Err`; inspect them via
-/// [`QasmSemanticParseResult::has_errors`](semantic::QasmSemanticParseResult::has_errors),
-/// [`has_syntax_errors`](semantic::QasmSemanticParseResult::has_syntax_errors),
-/// and [`has_semantic_errors`](semantic::QasmSemanticParseResult::has_semantic_errors).
+/// [`AnalysisResult::has_errors`](semantic::AnalysisResult::has_errors),
+/// [`has_syntax_errors`](semantic::AnalysisResult::has_syntax_errors),
+/// and [`has_semantic_errors`](semantic::AnalysisResult::has_semantic_errors).
 ///
 /// # Examples
 ///
@@ -167,7 +167,7 @@ pub fn analyze_source<R: io::SourceResolver>(
     source: impl Into<Arc<str>>,
     path: impl Into<Arc<str>>,
     resolver: Option<&mut R>,
-) -> QasmSemanticParseResult {
+) -> AnalysisResult {
     if let Some(resolver) = resolver {
         semantic::parse_source(source, path, resolver)
     } else {

@@ -9,7 +9,7 @@ use crate::{
 use expect_test::Expect;
 use miette::Report;
 use qdk_openqasm_parser::io::{InMemorySourceResolver, SourceResolver};
-use qdk_openqasm_parser::semantic::{QasmSemanticParseResult, parse_source};
+use qdk_openqasm_parser::semantic::{AnalysisResult, parse_source};
 use qsc::compile::compile_ast;
 use qsc::compile::package_store_with_stdlib;
 use qsc::interpret::Error;
@@ -248,9 +248,7 @@ pub(crate) fn compare_compilation_to_qsharp(unit: &QasmCompileUnit, expected: &s
     difference::assert_diff!(&qsharp, expected, "\n", 0);
 }
 
-pub(crate) fn parse<S: Into<Arc<str>>>(
-    source: S,
-) -> miette::Result<QasmSemanticParseResult, Vec<Report>> {
+pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<AnalysisResult, Vec<Report>> {
     let source = source.into();
     let name: Arc<str> = "Test.qasm".into();
     let sources = [(name.clone(), source.clone())];
@@ -270,7 +268,7 @@ pub(crate) fn parse<S: Into<Arc<str>>>(
 pub(crate) fn parse_all<P: Into<Arc<str>>>(
     path: P,
     sources: impl IntoIterator<Item = (Arc<str>, Arc<str>)>,
-) -> miette::Result<QasmSemanticParseResult, Vec<Report>> {
+) -> miette::Result<AnalysisResult, Vec<Report>> {
     let path = path.into();
     let mut resolver = InMemorySourceResolver::from_iter(sources);
     let source = resolver

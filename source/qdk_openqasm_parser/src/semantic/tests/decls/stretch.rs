@@ -61,7 +61,7 @@ fn spec_sample() {
                 init_expr: Expr [105-132]:
                     ty: const duration
                     const_value: Duration(100.0 ns)
-                    kind: DurationofCallExpr [105-132]:
+                    kind: EvaluatedDurationofExpr [105-132]:
                         fn_name_span: [105-115]
                         duration: 100.0 ns
                         scope: Block [116-131]:
@@ -224,7 +224,7 @@ fn spec_sample_2() {
                                     kind: Lit: Float(0.5)
                                 rhs: Expr [129-155]:
                                     ty: const duration
-                                    kind: DurationofCallExpr [129-155]:
+                                    kind: EvaluatedDurationofExpr [129-155]:
                                         fn_name_span: [129-139]
                                         duration: 10.0 ns
                                         scope: Block [140-154]:
@@ -276,7 +276,7 @@ fn spec_sample_2() {
                                             kind: Lit: Float(0.5)
                                         rhs: Expr [204-230]:
                                             ty: const duration
-                                            kind: DurationofCallExpr [204-230]:
+                                            kind: EvaluatedDurationofExpr [204-230]:
                                                 fn_name_span: [204-214]
                                                 duration: 10.0 ns
                                                 scope: Block [215-229]:
@@ -306,7 +306,7 @@ fn spec_sample_2() {
                                     kind: Lit: Float(0.5)
                                 rhs: Expr [238-265]:
                                     ty: const duration
-                                    kind: DurationofCallExpr [238-265]:
+                                    kind: EvaluatedDurationofExpr [238-265]:
                                         fn_name_span: [238-248]
                                         duration: 100.0 ns
                                         scope: Block [249-264]:
@@ -353,7 +353,7 @@ fn spec_sample_2() {
                                     kind: Lit: Float(0.5)
                                 rhs: Expr [311-339]:
                                     ty: const duration
-                                    kind: DurationofCallExpr [311-339]:
+                                    kind: EvaluatedDurationofExpr [311-339]:
                                         fn_name_span: [311-321]
                                         duration: 1000.0 ns
                                         scope: Block [322-338]:

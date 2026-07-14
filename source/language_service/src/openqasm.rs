@@ -31,7 +31,7 @@ fn find_symbol_in_sources(
     position: Position,
     position_encoding: Encoding,
 ) -> (
-    qsc::openqasm::semantic::QasmSemanticParseResult,
+    qsc::openqasm::semantic::AnalysisResult,
     Option<qsc::openqasm::semantic::symbols::SymbolId>,
 ) {
     let res = qsc::openqasm::semantic::parse_sources(sources);

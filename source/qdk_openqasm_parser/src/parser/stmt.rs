@@ -39,7 +39,7 @@ use super::ast::{
     IfStmt, IncludeStmt, Index, IndexExpr, IndexListItem, IntType, List, LiteralKind,
     MeasureArrowStmt, Pragma, QuantumGateDefinition, QuantumGateModifier, QubitDeclaration, Range,
     ResetStmt, ReturnStmt, ScalarType, ScalarTypeKind, Stmt, StmtKind, SwitchCase, SwitchStmt,
-    TypeDef, UIntType, WhileLoop, list_from_iter,
+    TypeDef, UintType, WhileLoop, list_from_iter,
 };
 use super::{ParserContext, prim::token};
 
@@ -1127,20 +1127,20 @@ fn scalar_uint_type(s: &mut ParserContext) -> Result<ScalarType> {
     let ty = uint_type(s)?;
     Ok(ScalarType {
         span: s.span(lo),
-        kind: ScalarTypeKind::UInt(ty),
+        kind: ScalarTypeKind::Uint(ty),
     })
 }
 
 fn array_uint_type(s: &mut ParserContext) -> Result<ArrayBaseTypeKind> {
     let ty = uint_type(s)?;
-    Ok(ArrayBaseTypeKind::UInt(ty))
+    Ok(ArrayBaseTypeKind::Uint(ty))
 }
 
-fn uint_type(s: &mut ParserContext) -> Result<UIntType> {
+fn uint_type(s: &mut ParserContext) -> Result<UintType> {
     let lo = s.peek().span.lo;
     token(s, TokenKind::Type(Type::UInt))?;
     let size = opt(s, designator)?;
-    Ok(UIntType {
+    Ok(UintType {
         size,
         span: s.span(lo),
     })
@@ -1403,7 +1403,7 @@ fn for_loop_iterable_expr(s: &mut ParserContext) -> Result<EnumerableSet> {
     if let Some(range) = opt(s, for_loop_range_expr)? {
         Ok(EnumerableSet::Range(range))
     } else if let Some(set) = opt(s, expr::set_expr)? {
-        Ok(EnumerableSet::Set(set))
+        Ok(EnumerableSet::DiscreteSet(set))
     } else {
         Ok(EnumerableSet::Expr(expr::expr(s)?))
     }

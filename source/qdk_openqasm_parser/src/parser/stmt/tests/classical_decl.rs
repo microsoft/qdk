@@ -473,7 +473,7 @@ fn uint_decl() {
             Stmt [0-7]:
                 annotations: <empty>
                 kind: ClassicalDeclarationStmt [0-7]:
-                    type: ScalarType [0-4]: UIntType [0-4]:
+                    type: ScalarType [0-4]: UintType [0-4]:
                         size: <none>
                     ident: Ident [5-6] "i"
                     init_expr: <none>"#]],
@@ -489,7 +489,7 @@ fn uint_decl_uint_lit() {
             Stmt [0-11]:
                 annotations: <empty>
                 kind: ClassicalDeclarationStmt [0-11]:
-                    type: ScalarType [0-4]: UIntType [0-4]:
+                    type: ScalarType [0-4]: UintType [0-4]:
                         size: <none>
                     ident: Ident [5-6] "i"
                     init_expr: Expr [9-10]: Lit: Int(1)"#]],
@@ -545,7 +545,7 @@ fn const_uint_decl_uint_lit() {
             Stmt [0-17]:
                 annotations: <empty>
                 kind: ConstantDeclStmt [0-17]:
-                    type: ScalarType [6-10]: UIntType [6-10]:
+                    type: ScalarType [6-10]: UintType [6-10]:
                         size: <none>
                     ident: Ident [11-12] "i"
                     init_expr: Expr [15-16]: Lit: Int(1)"#]],
@@ -561,7 +561,7 @@ fn uint_sized_decl() {
             Stmt [0-11]:
                 annotations: <empty>
                 kind: ClassicalDeclarationStmt [0-11]:
-                    type: ScalarType [0-8]: UIntType [0-8]:
+                    type: ScalarType [0-8]: UintType [0-8]:
                         size: Expr [5-7]: Lit: Int(32)
                     ident: Ident [9-10] "i"
                     init_expr: <none>"#]],
@@ -577,7 +577,7 @@ fn uint_sized_decl_uint_lit() {
             Stmt [0-15]:
                 annotations: <empty>
                 kind: ClassicalDeclarationStmt [0-15]:
-                    type: ScalarType [0-8]: UIntType [0-8]:
+                    type: ScalarType [0-8]: UintType [0-8]:
                         size: Expr [5-7]: Lit: Int(32)
                     ident: Ident [9-10] "i"
                     init_expr: Expr [13-14]: Lit: Int(1)"#]],
@@ -593,7 +593,7 @@ fn const_uint_sized_decl_uint_lit() {
             Stmt [0-21]:
                 annotations: <empty>
                 kind: ConstantDeclStmt [0-21]:
-                    type: ScalarType [6-14]: UIntType [6-14]:
+                    type: ScalarType [6-14]: UintType [6-14]:
                         size: Expr [11-13]: Lit: Int(32)
                     ident: Ident [15-16] "i"
                     init_expr: Expr [19-20]: Lit: Int(1)"#]],

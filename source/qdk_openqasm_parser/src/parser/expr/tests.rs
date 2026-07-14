@@ -744,7 +744,7 @@ fn cast_to_uint() {
         "uint(0)",
         &expect![[r#"
             Expr [0-7]: Cast [0-7]:
-                type: ScalarType [0-4]: UIntType [0-4]:
+                type: ScalarType [0-4]: UintType [0-4]:
                     size: <none>
                 arg: Expr [5-6]: Lit: Int(0)"#]],
     );
@@ -756,7 +756,7 @@ fn cast_to_uint_with_designator() {
         "uint[64](0)",
         &expect![[r#"
             Expr [0-11]: Cast [0-11]:
-                type: ScalarType [0-8]: UIntType [0-8]:
+                type: ScalarType [0-8]: UintType [0-8]:
                     size: Expr [5-7]: Lit: Int(64)
                 arg: Expr [9-10]: Lit: Int(0)"#]],
     );
@@ -867,7 +867,7 @@ fn cast_to_uint_array() {
         &expect![[r#"
             Expr [0-21]: Cast [0-21]:
                 type: ArrayType [0-18]:
-                    base_type: ArrayBaseTypeKind UIntType [6-14]:
+                    base_type: ArrayBaseTypeKind UintType [6-14]:
                         size: Expr [11-13]: Lit: Int(64)
                     dimensions:
                         Expr [16-17]: Lit: Int(4)
@@ -969,7 +969,7 @@ fn index_set() {
         &expect![[r#"
             Expr [0-14]: IndexExpr [0-14]:
                 collection: Expr [0-3]: Ident [0-3] "foo"
-                index: Set [4-13]:
+                index: DiscreteSet [4-13]:
                     values:
                         Expr [5-6]: Lit: Int(1)
                         Expr [8-9]: Lit: Int(4)
@@ -1087,7 +1087,7 @@ fn set_expr() {
         super::set_expr,
         "{2, 3, 4}",
         &expect![[r#"
-            Set [0-9]:
+            DiscreteSet [0-9]:
                 values:
                     Expr [1-2]: Lit: Int(2)
                     Expr [4-5]: Lit: Int(3)
@@ -1197,7 +1197,7 @@ fn duration_of() {
     check_expr(
         "durationof({x [25ms] $0;})",
         &expect![[r#"
-            Expr [0-26]: DurationofCall [0-26]:
+            Expr [0-26]: DurationOfCall [0-26]:
                 name_span: [0-10]
                 scope: Block [11-25]:
                     Stmt [12-24]:

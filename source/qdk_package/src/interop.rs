@@ -27,7 +27,7 @@ use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
 use qsc::interpret::{CircuitEntryPoint, Interpreter, SimType, into_errors};
 use qsc::openqasm::compiler::compile_to_qsharp_ast_with_config;
-use qsc::openqasm::semantic::QasmSemanticParseResult;
+use qsc::openqasm::semantic::AnalysisResult;
 use qsc::openqasm::{OperationSignature, QubitSemantics};
 use qsc::project::ProjectType;
 use qsc::target::Profile;
@@ -372,7 +372,7 @@ pub(crate) fn compile_qasm_program_to_qir(
 }
 
 pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
-    semantic_parse_result: QasmSemanticParseResult,
+    semantic_parse_result: AnalysisResult,
     operation_name: S,
     program_ty: ProgramType,
     output_semantics: OutputSemantics,

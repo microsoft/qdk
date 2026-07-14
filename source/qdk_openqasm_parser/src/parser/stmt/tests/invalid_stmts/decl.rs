@@ -135,7 +135,7 @@ fn incorrect_designators() {
         Stmt [0-17]:
             annotations: <empty>
             kind: ClassicalDeclarationStmt [0-17]:
-                type: ScalarType [0-10]: UIntType [0-10]:
+                type: ScalarType [0-10]: UintType [0-10]:
                     size: Expr [5-6]: Lit: Int(8)
                 ident: Ident [11-16] "myvar"
                 init_expr: <none>
@@ -865,7 +865,7 @@ fn incorrect_orders() {
         Stmt [0-10]:
             annotations: <empty>
             kind: ClassicalDeclarationStmt [0-10]:
-                type: ScalarType [0-4]: UIntType [0-4]:
+                type: ScalarType [0-4]: UintType [0-4]:
                     size: <none>
                 ident: Ident [5-10] "myvar"
                 init_expr: <none>

@@ -7,16 +7,16 @@ use crate::{
     semantic::{
         ast::{
             AliasDeclStmt, Block, BoxStmt, ClassicalDeclarationStmt, DefParameter, DefStmt,
-            DelayStmt, Expr, ExprKind, ExternDecl, ForStmt, FunctionCall, GateCall,
-            InputDeclaration, OutputDeclaration, Program, QuantumGateDefinition,
-            QubitArrayDeclaration, QubitDeclaration,
+            DelayStmt, Expr, ExprKind, ExternDecl, ForStmt, GateCall, InputDeclaration,
+            OutputDeclaration, Program, QuantumGateDefinition, QubitArrayDeclaration,
+            QubitDeclaration, ResolvedFunctionCall,
         },
         symbols::{self, SymbolId},
         visit::{
             Visitor, walk_alias_decl_stmt, walk_classical_decl_stmt, walk_def_param, walk_def_stmt,
-            walk_expr, walk_extern_decl, walk_for_stmt, walk_function_call_expr,
-            walk_gate_call_stmt, walk_input_declaration, walk_output_declaration,
-            walk_quantum_gate_definition, walk_qubit_array_decl, walk_qubit_decl,
+            walk_expr, walk_extern_decl, walk_for_stmt, walk_gate_call_stmt,
+            walk_input_declaration, walk_output_declaration, walk_quantum_gate_definition,
+            walk_qubit_array_decl, walk_qubit_decl, walk_resolved_function_call_expr,
         },
     },
     stdlib::duration::Duration,
@@ -191,7 +191,7 @@ impl Visitor for ReferenceFinder<'_> {
         // we process here rather than visit_symbol_id
         // since we need to push the expr's span.
         match expr.kind.as_ref() {
-            ExprKind::CapturedIdent(id) | ExprKind::Ident(id) if self.id == *id => {
+            ExprKind::CapturedResolvedIdent(id) | ExprKind::ResolvedIdent(id) if self.id == *id => {
                 self.references.push(expr.span);
             }
             _ => {}
@@ -199,11 +199,11 @@ impl Visitor for ReferenceFinder<'_> {
         walk_expr(self, expr);
     }
 
-    fn visit_function_call_expr(&mut self, expr: &FunctionCall) {
-        if self.id == expr.symbol_id {
+    fn visit_resolved_function_call_expr(&mut self, expr: &ResolvedFunctionCall) {
+        if self.id == expr.callee_id {
             self.references.push(expr.fn_name_span);
         }
-        walk_function_call_expr(self, expr);
+        walk_resolved_function_call_expr(self, expr);
     }
 }
 
@@ -362,7 +362,9 @@ impl Visitor for SymbolFinder<'_> {
 
     fn visit_expr(&mut self, expr: &Expr) {
         match expr.kind.as_ref() {
-            ExprKind::CapturedIdent(id) | ExprKind::Ident(id) if expr.span.touches(self.offset) => {
+            ExprKind::CapturedResolvedIdent(id) | ExprKind::ResolvedIdent(id)
+                if expr.span.touches(self.offset) =>
+            {
                 self.symbol_id = Some(*id);
                 return;
             }
@@ -371,12 +373,12 @@ impl Visitor for SymbolFinder<'_> {
         walk_expr(self, expr);
     }
 
-    fn visit_function_call_expr(&mut self, expr: &FunctionCall) {
+    fn visit_resolved_function_call_expr(&mut self, expr: &ResolvedFunctionCall) {
         if expr.fn_name_span.touches(self.offset) {
-            self.symbol_id = Some(expr.symbol_id);
+            self.symbol_id = Some(expr.callee_id);
             return;
         }
-        walk_function_call_expr(self, expr);
+        walk_resolved_function_call_expr(self, expr);
     }
 }
 

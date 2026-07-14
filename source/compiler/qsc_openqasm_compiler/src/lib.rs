@@ -27,7 +27,7 @@ pub use functor_constraints::{FunctorConstraintSolver, FunctorConstraints};
 use std::{fmt::Write, sync::Arc};
 
 use miette::Diagnostic;
-use qdk_openqasm_parser::semantic::QasmSemanticParseResult;
+use qdk_openqasm_parser::semantic::AnalysisResult;
 use qsc_ast::ast::Package;
 use qsc_data_structures::{error::WithSource, source::SourceMap, target::Profile};
 use thiserror::Error;
@@ -50,7 +50,7 @@ impl Error {
 }
 
 pub(crate) fn get_semantic_errors_from_lowering_result(
-    res: &QasmSemanticParseResult,
+    res: &AnalysisResult,
 ) -> Vec<WithSource<crate::Error>> {
     res.errors
         .iter()

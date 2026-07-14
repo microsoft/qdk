@@ -8,8 +8,8 @@ This crate provides a complete front-end for processing OpenQASM 3 source code. 
 
 The processing pipeline has two stages:
 
-1. Lexing and parsing tokenizes and parses OpenQASM 3 source into a syntax tree (`QasmParseResult`).
-2. Semantic analysis lowers the syntax tree into a semantic AST with type checking, symbol resolution, and const evaluation (`QasmSemanticParseResult`).
+1. Lexing and parsing tokenizes and parses OpenQASM 3 source into a syntax tree (`ParseResult`).
+2. Semantic analysis lowers the syntax tree into a semantic AST with type checking, symbol resolution, and const evaluation (`AnalysisResult`).
 
 ### Source Resolution
 

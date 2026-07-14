@@ -5,13 +5,11 @@ use expect_test::Expect;
 use miette::Report;
 
 use crate::io::InMemorySourceResolver;
-use crate::semantic::QasmSemanticParseResult;
+use crate::semantic::AnalysisResult;
 use crate::semantic::parse_source;
 use std::sync::Arc;
 
-pub(crate) fn parse<S: Into<Arc<str>>>(
-    source: S,
-) -> miette::Result<QasmSemanticParseResult, Vec<Report>> {
+pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<AnalysisResult, Vec<Report>> {
     let source = source.into();
     let name: Arc<str> = "Test.qasm".into();
     let sources = [(name.clone(), source.clone())];

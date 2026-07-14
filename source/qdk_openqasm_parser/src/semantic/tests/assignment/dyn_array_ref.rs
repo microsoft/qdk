@@ -440,7 +440,7 @@ fn classical_indexing_assign_to_mutable_dyn_array_ref() {
                 body: Block [51-97]:
                     Stmt [65-87]:
                         annotations: <empty>
-                        kind: IndexedClassicalTypeAssignStmt [65-87]:
+                        kind: IndexedAssignStmt [65-87]:
                             lhs: Expr [65-71]:
                                 ty: int[32]
                                 kind: IndexedExpr [65-71]:

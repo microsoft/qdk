@@ -113,17 +113,17 @@ impl From<&qdk_openqasm_parser::semantic::types::ArrayDimensions> for ArrayDimen
     }
 }
 
-impl From<qdk_openqasm_parser::semantic::types::Dims> for ArrayDimensions {
-    fn from(value: qdk_openqasm_parser::semantic::types::Dims) -> Self {
+impl From<qdk_openqasm_parser::semantic::types::ArrayRank> for ArrayDimensions {
+    fn from(value: qdk_openqasm_parser::semantic::types::ArrayRank) -> Self {
         match value {
-            qdk_openqasm_parser::semantic::types::Dims::One => Self::One,
-            qdk_openqasm_parser::semantic::types::Dims::Two => Self::Two,
-            qdk_openqasm_parser::semantic::types::Dims::Three => Self::Three,
-            qdk_openqasm_parser::semantic::types::Dims::Four => Self::Four,
-            qdk_openqasm_parser::semantic::types::Dims::Five => Self::Five,
-            qdk_openqasm_parser::semantic::types::Dims::Six => Self::Six,
-            qdk_openqasm_parser::semantic::types::Dims::Seven => Self::Seven,
-            qdk_openqasm_parser::semantic::types::Dims::Err => {
+            qdk_openqasm_parser::semantic::types::ArrayRank::One => Self::One,
+            qdk_openqasm_parser::semantic::types::ArrayRank::Two => Self::Two,
+            qdk_openqasm_parser::semantic::types::ArrayRank::Three => Self::Three,
+            qdk_openqasm_parser::semantic::types::ArrayRank::Four => Self::Four,
+            qdk_openqasm_parser::semantic::types::ArrayRank::Five => Self::Five,
+            qdk_openqasm_parser::semantic::types::ArrayRank::Six => Self::Six,
+            qdk_openqasm_parser::semantic::types::ArrayRank::Seven => Self::Seven,
+            qdk_openqasm_parser::semantic::types::ArrayRank::Err => {
                 unimplemented!("Array dimensions greater than seven are not supported.")
             }
         }

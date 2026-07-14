@@ -158,7 +158,7 @@ pub enum StmtKind {
     GateCall(GateCall),
     If(IfStmt),
     Include(IncludeStmt),
-    IndexedClassicalTypeAssign(IndexedClassicalTypeAssignStmt),
+    IndexedAssign(IndexedAssignStmt),
     InputDeclaration(InputDeclaration),
     OutputDeclaration(OutputDeclaration),
     MeasureArrow(MeasureArrowStmt),
@@ -197,7 +197,7 @@ impl Display for StmtKind {
             StmtKind::For(for_stmt) => write!(f, "{for_stmt}"),
             StmtKind::GateCall(gate_call) => write!(f, "{gate_call}"),
             StmtKind::If(if_stmt) => write!(f, "{if_stmt}"),
-            StmtKind::IndexedClassicalTypeAssign(stmt) => write!(f, "{stmt}"),
+            StmtKind::IndexedAssign(stmt) => write!(f, "{stmt}"),
             StmtKind::Include(include) => write!(f, "{include}"),
             StmtKind::InputDeclaration(io) => write!(f, "{io}"),
             StmtKind::OutputDeclaration(io) => write!(f, "{io}"),
@@ -540,16 +540,16 @@ impl Display for IncludeStmt {
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexedClassicalTypeAssignStmt {
+pub struct IndexedAssignStmt {
     pub span: Span,
     pub lhs: Box<Expr>,
     pub indices: VecDeque<Index>,
     pub rhs: Box<Expr>,
 }
 
-impl Display for IndexedClassicalTypeAssignStmt {
+impl Display for IndexedAssignStmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header_with_span(f, "IndexedClassicalTypeAssignStmt", self.span)?;
+        writeln_header_with_span(f, "IndexedAssignStmt", self.span)?;
         writeln_field(f, "lhs", &self.lhs)?;
         writeln_field(f, "rhs", &self.rhs)?;
         write_list_field(f, "indices", &self.indices)
@@ -878,19 +878,19 @@ pub enum ExprKind {
     /// An expression with invalid syntax that can't be parsed.
     #[default]
     Err,
-    CapturedIdent(SymbolId),
-    Ident(SymbolId),
+    CapturedResolvedIdent(SymbolId),
+    ResolvedIdent(SymbolId),
     UnaryOp(UnaryOpExpr),
     BinaryOp(BinaryOpExpr),
     Lit(LiteralKind),
-    FunctionCall(FunctionCall),
+    ResolvedFunctionCall(ResolvedFunctionCall),
     BuiltinFunctionCall(BuiltinFunctionCall),
     Cast(Cast),
     IndexedExpr(IndexedExpr),
     Paren(Box<Expr>),
     Measure(MeasureExpr),
-    SizeofCall(SizeofCallExpr),
-    DurationofCall(DurationofCallExpr),
+    RuntimeSizeof(RuntimeSizeofExpr),
+    EvaluatedDurationof(EvaluatedDurationofExpr),
     Concat(ConcatExpr),
 }
 
@@ -898,19 +898,19 @@ impl Display for ExprKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             ExprKind::Err => write!(f, "Err"),
-            ExprKind::CapturedIdent(id) => write!(f, "CapturedSymbolId({id})"),
-            ExprKind::Ident(id) => write!(f, "SymbolId({id})"),
+            ExprKind::CapturedResolvedIdent(id) => write!(f, "CapturedSymbolId({id})"),
+            ExprKind::ResolvedIdent(id) => write!(f, "SymbolId({id})"),
             ExprKind::UnaryOp(expr) => write!(f, "{expr}"),
             ExprKind::BinaryOp(expr) => write!(f, "{expr}"),
             ExprKind::Lit(lit) => write!(f, "Lit: {lit}"),
-            ExprKind::FunctionCall(call) => write!(f, "{call}"),
+            ExprKind::ResolvedFunctionCall(call) => write!(f, "{call}"),
             ExprKind::BuiltinFunctionCall(call) => write!(f, "{call}"),
             ExprKind::Cast(expr) => write!(f, "{expr}"),
             ExprKind::IndexedExpr(expr) => write!(f, "{expr}"),
             ExprKind::Paren(expr) => write!(f, "Paren {expr}"),
             ExprKind::Measure(expr) => write!(f, "{expr}"),
-            ExprKind::SizeofCall(call) => write!(f, "{call}"),
-            ExprKind::DurationofCall(call) => write!(f, "{call}"),
+            ExprKind::RuntimeSizeof(expr) => write!(f, "{expr}"),
+            ExprKind::EvaluatedDurationof(expr) => write!(f, "{expr}"),
             ExprKind::Concat(expr) => write!(f, "{expr}"),
         }
     }
@@ -1134,54 +1134,52 @@ impl Display for BinaryOpExpr {
 }
 
 #[derive(Clone, Debug)]
-pub struct FunctionCall {
+pub struct ResolvedFunctionCall {
     pub span: Span,
     pub fn_name_span: Span,
-    pub symbol_id: SymbolId,
+    pub callee_id: SymbolId,
     pub args: List<Expr>,
 }
 
-impl Display for FunctionCall {
+impl Display for ResolvedFunctionCall {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header_with_span(f, "FunctionCall", self.span)?;
+        writeln_header_with_span(f, "ResolvedFunctionCall", self.span)?;
         writeln_field(f, "fn_name_span", &self.fn_name_span)?;
-        writeln_field(f, "symbol_id", &self.symbol_id)?;
+        writeln_field(f, "callee_id", &self.callee_id)?;
         write_list_field(f, "args", &self.args)
     }
 }
 
 #[derive(Clone, Debug)]
-
-pub struct SizeofCallExpr {
+pub struct RuntimeSizeofExpr {
     pub span: Span,
     pub fn_name_span: Span,
     pub array: Box<Expr>,
-    pub array_dims: u32,
-    pub dim: Box<Expr>,
+    pub array_rank: u32,
+    pub dimension: Box<Expr>,
 }
 
-impl Display for SizeofCallExpr {
+impl Display for RuntimeSizeofExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header_with_span(f, "SizeofCallExpr", self.span)?;
+        writeln_header_with_span(f, "RuntimeSizeofExpr", self.span)?;
         writeln_field(f, "fn_name_span", &self.fn_name_span)?;
         writeln_field(f, "array", &self.array)?;
-        writeln_field(f, "array_dims", &self.array_dims)?;
-        write_field(f, "dim", &self.dim)
+        writeln_field(f, "array_rank", &self.array_rank)?;
+        write_field(f, "dimension", &self.dimension)
     }
 }
 
 #[derive(Clone, Debug)]
-
-pub struct DurationofCallExpr {
+pub struct EvaluatedDurationofExpr {
     pub span: Span,
     pub fn_name_span: Span,
     pub duration: Duration,
     pub scope: Block,
 }
 
-impl Display for DurationofCallExpr {
+impl Display for EvaluatedDurationofExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln_header_with_span(f, "DurationofCallExpr", self.span)?;
+        writeln_header_with_span(f, "EvaluatedDurationofExpr", self.span)?;
         writeln_field(f, "fn_name_span", &self.fn_name_span)?;
         writeln_field(f, "duration", &self.duration)?;
         write_field(f, "scope", &self.scope)

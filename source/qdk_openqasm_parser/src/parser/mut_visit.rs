@@ -3,19 +3,20 @@
 
 use qsc_data_structures::span::Span;
 
-use crate::parser::ast::{ConcatExpr, DefParameter, DefParameterType, DurationofCall, QubitType};
+use crate::parser::ast::{ConcatExpr, DefParameter, DefParameterType, DurationOfCall, QubitType};
 
 use super::ast::{
     AccessControl, AliasDeclStmt, Annotation, ArrayBaseTypeKind, ArrayReferenceType, ArrayType,
     AssignOpStmt, AssignStmt, BarrierStmt, BinOp, BinaryOpExpr, Block, BoxStmt, BreakStmt,
     CalibrationGrammarStmt, CalibrationStmt, Cast, ClassicalDeclarationStmt, ConstantDeclStmt,
-    ContinueStmt, DefCalStmt, DefStmt, DelayStmt, EndStmt, EnumerableSet, Expr, ExprStmt,
-    ExternDecl, ExternParameter, ForStmt, FunctionCall, GPhase, GateCall, GateModifierKind,
-    GateOperand, GateOperandKind, HardwareQubit, IODeclaration, Ident, IdentOrIndexedIdent, IfStmt,
-    IncludeStmt, Index, IndexExpr, IndexList, IndexListItem, IndexedIdent, Lit, LiteralKind,
-    MeasureArrowStmt, MeasureExpr, Pragma, Program, QuantumGateDefinition, QuantumGateModifier,
-    QubitDeclaration, Range, ResetStmt, ReturnStmt, ScalarType, Set, Stmt, StmtKind, SwitchCase,
-    SwitchStmt, TypeDef, UnaryOp, UnaryOpExpr, ValueExpr, Version, WhileLoop,
+    ContinueStmt, DefCalStmt, DefStmt, DelayStmt, DiscreteSet, EndStmt, EnumerableSet, Expr,
+    ExprStmt, ExternDecl, ExternParameter, ForStmt, FunctionCall, GPhase, GateCall,
+    GateModifierKind, GateOperand, GateOperandKind, HardwareQubit, IODeclaration, Ident,
+    IdentOrIndexedIdent, IfStmt, IncludeStmt, Index, IndexExpr, IndexList, IndexListItem,
+    IndexedIdent, Lit, LiteralKind, MeasureArrowStmt, MeasureExpr, Pragma, Program,
+    QuantumGateDefinition, QuantumGateModifier, QubitDeclaration, Range, ResetStmt, ReturnStmt,
+    ScalarType, Stmt, StmtKind, SwitchCase, SwitchStmt, TypeDef, UnaryOp, UnaryOpExpr, ValueExpr,
+    Version, WhileLoop,
 };
 
 pub trait MutVisitor: Sized {
@@ -187,7 +188,7 @@ pub trait MutVisitor: Sized {
         walk_cast_expr(self, expr);
     }
 
-    fn visit_duration_of_expr(&mut self, expr: &mut DurationofCall) {
+    fn visit_duration_of_expr(&mut self, expr: &mut DurationOfCall) {
         walk_duration_of_expr(self, expr);
     }
 
@@ -223,8 +224,8 @@ pub trait MutVisitor: Sized {
         walk_index(self, elem);
     }
 
-    fn visit_set(&mut self, set: &mut Set) {
-        walk_set(self, set);
+    fn visit_discrete_set(&mut self, set: &mut DiscreteSet) {
+        walk_discrete_set(self, set);
     }
 
     fn visit_index_list(&mut self, set: &mut IndexList) {
@@ -649,7 +650,7 @@ pub fn walk_cast_expr(vis: &mut impl MutVisitor, expr: &mut Cast) {
     vis.visit_expr(&mut expr.arg);
 }
 
-pub fn walk_duration_of_expr(vis: &mut impl MutVisitor, expr: &mut DurationofCall) {
+pub fn walk_duration_of_expr(vis: &mut impl MutVisitor, expr: &mut DurationOfCall) {
     vis.visit_span(&mut expr.span);
     vis.visit_span(&mut expr.name_span);
     vis.visit_block(&mut expr.scope);
@@ -704,12 +705,12 @@ pub fn walk_ident(vis: &mut impl MutVisitor, ident: &mut Ident) {
 
 pub fn walk_index(vis: &mut impl MutVisitor, elem: &mut Index) {
     match elem {
-        Index::IndexSet(discrete_set) => vis.visit_set(discrete_set),
+        Index::DiscreteSet(discrete_set) => vis.visit_discrete_set(discrete_set),
         Index::IndexList(index_set) => vis.visit_index_list(index_set),
     }
 }
 
-pub fn walk_set(vis: &mut impl MutVisitor, set: &mut Set) {
+pub fn walk_discrete_set(vis: &mut impl MutVisitor, set: &mut DiscreteSet) {
     vis.visit_span(&mut set.span);
     set.values.iter_mut().for_each(|e| vis.visit_expr(e));
 }
@@ -757,7 +758,7 @@ pub fn walk_array_type(vis: &mut impl MutVisitor, ty: &mut ArrayType) {
 pub fn walk_array_base_type(vis: &mut impl MutVisitor, ty: &mut ArrayBaseTypeKind) {
     match ty {
         ArrayBaseTypeKind::Int(ty) => vis.visit_span(&mut ty.span),
-        ArrayBaseTypeKind::UInt(ty) => vis.visit_span(&mut ty.span),
+        ArrayBaseTypeKind::Uint(ty) => vis.visit_span(&mut ty.span),
         ArrayBaseTypeKind::Float(ty) => vis.visit_span(&mut ty.span),
         ArrayBaseTypeKind::Complex(ty) => vis.visit_span(&mut ty.span),
         ArrayBaseTypeKind::Angle(ty) => vis.visit_span(&mut ty.span),
@@ -787,7 +788,7 @@ pub fn walk_scalar_type(vis: &mut impl MutVisitor, ty: &mut ScalarType) {
     match &mut ty.kind {
         super::ast::ScalarTypeKind::Bit(ty) => vis.visit_span(&mut ty.span),
         super::ast::ScalarTypeKind::Int(ty) => vis.visit_span(&mut ty.span),
-        super::ast::ScalarTypeKind::UInt(ty) => vis.visit_span(&mut ty.span),
+        super::ast::ScalarTypeKind::Uint(ty) => vis.visit_span(&mut ty.span),
         super::ast::ScalarTypeKind::Float(ty) => vis.visit_span(&mut ty.span),
         super::ast::ScalarTypeKind::Complex(ty) => vis.visit_span(&mut ty.span),
         super::ast::ScalarTypeKind::Angle(ty) => vis.visit_span(&mut ty.span),
@@ -831,7 +832,7 @@ pub fn walk_extern_parameter(vis: &mut impl MutVisitor, param: &mut ExternParame
 
 pub fn walk_enumerable_set(vis: &mut impl MutVisitor, set: &mut EnumerableSet) {
     match set {
-        EnumerableSet::Set(set) => vis.visit_set(set),
+        EnumerableSet::DiscreteSet(set) => vis.visit_discrete_set(set),
         EnumerableSet::Range(range_definition) => {
             vis.visit_range(range_definition);
         }

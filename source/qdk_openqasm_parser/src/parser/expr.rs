@@ -18,7 +18,7 @@ use crate::{
         cooked::{ComparisonOp, Literal, TimingLiteralKind},
     },
     parser::{
-        ast::{ConcatExpr, DurationofCall, List},
+        ast::{ConcatExpr, DurationOfCall, List},
         stmt::parse_block,
     },
 };
@@ -27,10 +27,10 @@ use crate::parser::Result;
 
 use super::{
     ast::{
-        BinOp, BinaryOpExpr, Cast, Expr, ExprKind, FunctionCall, GateOperand, GateOperandKind,
-        HardwareQubit, Ident, IdentOrIndexedIdent, Index, IndexExpr, IndexList, IndexListItem,
-        IndexedIdent, Lit, LiteralKind, MeasureExpr, Range, Set, TimeUnit, TypeDef, UnaryOp,
-        UnaryOpExpr, ValueExpr, Version, list_from_iter,
+        BinOp, BinaryOpExpr, Cast, DiscreteSet, Expr, ExprKind, FunctionCall, GateOperand,
+        GateOperandKind, HardwareQubit, Ident, IdentOrIndexedIdent, Index, IndexExpr, IndexList,
+        IndexListItem, IndexedIdent, Lit, LiteralKind, MeasureExpr, Range, TimeUnit, TypeDef,
+        UnaryOp, UnaryOpExpr, ValueExpr, Version, list_from_iter,
     },
     completion::word_kinds::WordKinds,
     error::{Error, ErrorKind},
@@ -472,7 +472,7 @@ fn index_expr(s: &mut ParserContext, lhs: Expr) -> Result<ExprKind> {
 
 fn index_element(s: &mut ParserContext) -> Result<Index> {
     let index = match opt(s, set_expr) {
-        Ok(Some(v)) => Index::IndexSet(v),
+        Ok(Some(v)) => Index::DiscreteSet(v),
         Err(err) => return Err(err),
         Ok(None) => {
             let lo = s.peek().span.lo;
@@ -532,12 +532,12 @@ fn index_set_item(s: &mut ParserContext) -> Result<IndexListItem> {
     }))
 }
 
-pub(crate) fn set_expr(s: &mut ParserContext) -> Result<Set> {
+pub(crate) fn set_expr(s: &mut ParserContext) -> Result<DiscreteSet> {
     let lo = s.peek().span.lo;
     token(s, TokenKind::Open(Delim::Brace))?;
     let exprs = expr_list(s)?;
     recovering_token(s, TokenKind::Close(Delim::Brace));
-    Ok(Set {
+    Ok(DiscreteSet {
         span: s.span(lo),
         values: list_from_iter(exprs),
     })
@@ -856,7 +856,7 @@ fn duration_of(s: &mut ParserContext) -> Result<Expr> {
     token(s, TokenKind::Open(Delim::Paren))?;
     let scope = parse_block(s)?;
     recovering_token(s, TokenKind::Close(Delim::Paren));
-    let duration = DurationofCall {
+    let duration = DurationOfCall {
         span: s.span(lo),
         name_span,
         scope,

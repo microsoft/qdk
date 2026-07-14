@@ -241,7 +241,7 @@ fn input_uint_decl() {
                 annotations: <empty>
                 kind: IODeclaration [0-13]:
                     io_keyword: input
-                    type: ScalarType [6-10]: UIntType [6-10]:
+                    type: ScalarType [6-10]: UintType [6-10]:
                         size: <none>
                     ident: Ident [11-12] "i""#]],
     );
@@ -257,7 +257,7 @@ fn output_uint_decl() {
                 annotations: <empty>
                 kind: IODeclaration [0-14]:
                     io_keyword: output
-                    type: ScalarType [7-11]: UIntType [7-11]:
+                    type: ScalarType [7-11]: UintType [7-11]:
                         size: <none>
                     ident: Ident [12-13] "i""#]],
     );
@@ -273,7 +273,7 @@ fn input_uint_sized_decl() {
                 annotations: <empty>
                 kind: IODeclaration [0-17]:
                     io_keyword: input
-                    type: ScalarType [6-14]: UIntType [6-14]:
+                    type: ScalarType [6-14]: UintType [6-14]:
                         size: Expr [11-13]: Lit: Int(32)
                     ident: Ident [15-16] "i""#]],
     );
@@ -289,7 +289,7 @@ fn output_uint_sized_decl() {
                 annotations: <empty>
                 kind: IODeclaration [0-18]:
                     io_keyword: output
-                    type: ScalarType [7-15]: UIntType [7-15]:
+                    type: ScalarType [7-15]: UintType [7-15]:
                         size: Expr [12-14]: Lit: Int(32)
                     ident: Ident [16-17] "i""#]],
     );

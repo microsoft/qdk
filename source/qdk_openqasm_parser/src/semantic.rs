@@ -3,7 +3,7 @@
 
 use crate::io::InMemorySourceResolver;
 use crate::io::SourceResolver;
-use crate::parser::QasmParseResult;
+use crate::parser::ParseResult;
 use crate::parser::QasmSource;
 
 pub(crate) use lowerer::Lowerer;
@@ -28,7 +28,7 @@ pub mod visit;
 pub(crate) mod tests;
 
 #[derive(Debug, Clone)]
-pub struct QasmSemanticParseResult {
+pub struct AnalysisResult {
     pub source: QasmSource,
     pub source_map: SourceMap,
     pub symbols: self::symbols::SymbolTable,
@@ -36,7 +36,7 @@ pub struct QasmSemanticParseResult {
     pub errors: Vec<WithSource<crate::error::Error>>,
 }
 
-impl QasmSemanticParseResult {
+impl AnalysisResult {
     #[must_use]
     pub fn has_errors(&self) -> bool {
         self.has_syntax_errors() || self.has_semantic_errors()
@@ -97,7 +97,7 @@ impl QasmSemanticParseResult {
     }
 }
 
-pub fn parse<S: Into<Arc<str>>, P: Into<Arc<str>>>(source: S, path: P) -> QasmSemanticParseResult {
+pub fn parse<S: Into<Arc<str>>, P: Into<Arc<str>>>(source: S, path: P) -> AnalysisResult {
     let source = source.into();
     let path = path.into();
     let mut resolver = InMemorySourceResolver::from_iter([(path.clone(), source.clone())]);
@@ -112,13 +112,13 @@ pub fn parse_source<R: SourceResolver, S: Into<Arc<str>>, P: Into<Arc<str>>>(
     source: S,
     path: P,
     resolver: &mut R,
-) -> QasmSemanticParseResult {
+) -> AnalysisResult {
     let res = crate::parser::parse_source(source, path, resolver);
     lower_parse_result(res)
 }
 
 #[must_use]
-pub fn parse_sources(sources: &[(Arc<str>, Arc<str>)]) -> QasmSemanticParseResult {
+pub fn parse_sources(sources: &[(Arc<str>, Arc<str>)]) -> AnalysisResult {
     let (path, source) = sources
         .iter()
         .next()
@@ -128,11 +128,11 @@ pub fn parse_sources(sources: &[(Arc<str>, Arc<str>)]) -> QasmSemanticParseResul
 }
 
 #[must_use]
-pub fn lower_parse_result(parse_result: QasmParseResult) -> QasmSemanticParseResult {
+pub fn lower_parse_result(parse_result: ParseResult) -> AnalysisResult {
     let analyzer = Lowerer::new(parse_result.source, parse_result.source_map);
     let sem_res = analyzer.lower();
     let errors = sem_res.all_errors();
-    QasmSemanticParseResult {
+    AnalysisResult {
         source: sem_res.source,
         source_map: sem_res.source_map,
         symbols: sem_res.symbols,

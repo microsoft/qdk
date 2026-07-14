@@ -147,7 +147,7 @@ impl Lowerer {
         }
     }
 
-    pub fn lower(mut self) -> crate::semantic::QasmSemanticParseResult {
+    pub fn lower(mut self) -> crate::semantic::AnalysisResult {
         // Move the parsed source out of `self` so the immutable walk below does
         // not borrow-conflict with the `&mut self` lowering methods. This avoids
         // cloning the entire syntax AST just to read it; the source is moved back
@@ -175,7 +175,7 @@ impl Lowerer {
             pragmas: syntax::list_from_iter(self.pragmas),
         };
 
-        super::QasmSemanticParseResult {
+        super::AnalysisResult {
             source,
             source_map: self.source_map,
             symbols: self.symbols,
@@ -839,12 +839,7 @@ impl Lowerer {
                 }
                 syntax::ValueExpr::Concat(expr) => self.lower_array_concat_expr(expr),
             };
-            return self.lower_indexed_classical_type_assign_stmt(
-                lhs,
-                &rhs,
-                span,
-                classical_indices,
-            );
+            return self.lower_staged_indexed_assign_stmt(lhs, &rhs, span, classical_indices);
         }
 
         let indexed_ty = &lhs.ty;
@@ -870,7 +865,7 @@ impl Lowerer {
         })
     }
 
-    fn lower_indexed_classical_type_assign_stmt(
+    fn lower_staged_indexed_assign_stmt(
         &mut self,
         lhs: semantic::Expr,
         rhs: &semantic::Expr,
@@ -887,7 +882,7 @@ impl Lowerer {
 
         // We return the rhs already casted to the type of the fully indexed lhs.
         // So, if return here, it is guaranteed that the assignment will succeed.
-        semantic::StmtKind::IndexedClassicalTypeAssign(semantic::IndexedClassicalTypeAssignStmt {
+        semantic::StmtKind::IndexedAssign(semantic::IndexedAssignStmt {
             span,
             lhs: Box::new(lhs),
             indices,
@@ -988,12 +983,7 @@ impl Lowerer {
                 syntax::ValueExpr::Concat(expr) => self.lower_array_concat_expr(expr),
             };
             let rhs = self.lower_binary_op_expr(op, binary_expr_lhs, binary_expr_rhs, span);
-            return self.lower_indexed_classical_type_assign_stmt(
-                lhs,
-                &rhs,
-                span,
-                classical_indices,
-            );
+            return self.lower_staged_indexed_assign_stmt(lhs, &rhs, span, classical_indices);
         }
 
         // Construct the rhs binary expression.
@@ -1075,7 +1065,7 @@ impl Lowerer {
         for expr in rhs {
             if !matches!(
                 expr.ty,
-                Type::Array(..) | Type::StaticArrayRef(..) | Type::DynArrayRef(..)
+                Type::Array(..) | Type::StaticArrayRef(..) | Type::RankedArrayRef(..)
             ) {
                 let tys = expr.ty.to_string();
                 let kind = SemanticErrorKind::InvalidTypeInArrayConcatenation(tys, expr.span);
@@ -1101,7 +1091,7 @@ impl Lowerer {
                 (&first_ty, ty),
                 (Type::Array(..), Type::Array(..))
                     | (Type::StaticArrayRef(..), Type::StaticArrayRef(..))
-                    | (Type::DynArrayRef(..), Type::DynArrayRef(..))
+                    | (Type::RankedArrayRef(..), Type::RankedArrayRef(..))
             );
             indexed_ty_is_the_same && same_kind_of_array
         });
@@ -1116,7 +1106,7 @@ impl Lowerer {
             return Type::Err;
         }
 
-        if matches!(first_ty, Type::DynArrayRef(..)) {
+        if matches!(first_ty, Type::RankedArrayRef(..)) {
             return first_ty.clone();
         }
 
@@ -1133,9 +1123,9 @@ impl Lowerer {
                         size += operand_width;
                     }
                 }
-                Type::DynArrayRef(_) => {
-                    // Dynamic array references were handled above.
-                    unreachable!("`Type::DynArrayRef` was handled above");
+                Type::RankedArrayRef(_) => {
+                    // Ranked array references were handled above.
+                    unreachable!("`Type::RankedArrayRef` was handled above");
                 }
                 _ => {
                     unreachable!("rhs expressions must be arrays");
@@ -1236,15 +1226,15 @@ impl Lowerer {
 
         let kind = if need_to_capture_symbol && symbol.ty.is_const() {
             if symbol.get_const_value().is_some() {
-                semantic::ExprKind::CapturedIdent(symbol_id)
+                semantic::ExprKind::CapturedResolvedIdent(symbol_id)
             } else {
                 // If the const evaluation fails, we return Err but don't push
                 // any additional error. The error was already pushed in the
                 // const_eval function.
-                semantic::ExprKind::Ident(symbol_id)
+                semantic::ExprKind::ResolvedIdent(symbol_id)
             }
         } else {
-            semantic::ExprKind::Ident(symbol_id)
+            semantic::ExprKind::ResolvedIdent(symbol_id)
         };
 
         semantic::Expr::new(ident.span, kind, symbol.ty.clone())
@@ -1446,13 +1436,13 @@ impl Lowerer {
         }
     }
 
-    fn lower_duration_of_expr(&mut self, expr: &syntax::DurationofCall) -> semantic::Expr {
+    fn lower_duration_of_expr(&mut self, expr: &syntax::DurationOfCall) -> semantic::Expr {
         let scope = self.lower_block(&expr.scope);
 
         let duration = DurationAccumulator::get_duration(&scope);
 
         let ty = Type::Duration(true);
-        let kind = semantic::ExprKind::DurationofCall(semantic::DurationofCallExpr {
+        let kind = semantic::ExprKind::EvaluatedDurationof(semantic::EvaluatedDurationofExpr {
             span: expr.span,
             fn_name_span: expr.name_span,
             duration,
@@ -1962,7 +1952,7 @@ impl Lowerer {
         let expr = Box::new(self.lower_expr(&stmt.expr));
         match &*expr.kind {
             semantic::ExprKind::Err => semantic::StmtKind::Err,
-            semantic::ExprKind::Ident(id) => {
+            semantic::ExprKind::ResolvedIdent(id) => {
                 let symbol = &self.symbols[*id];
                 match &symbol.ty {
                     Type::Gate(..) => {
@@ -2239,16 +2229,16 @@ impl Lowerer {
 
                 Expr::uint(i64::from(dims_vec[second_arg]), expr.span)
             }
-            // If the first argument is a dynamic reference. We can only compute the length
+            // If the first argument is a ranked reference. We can only compute the length
             // of the requested dimension at runtime, and the output is of type `uint`.
-            Type::DynArrayRef(ref_ty) => {
-                let array_dims = ref_ty.dims;
-                let kind = semantic::ExprKind::SizeofCall(semantic::SizeofCallExpr {
+            Type::RankedArrayRef(ref_ty) => {
+                let array_rank = ref_ty.rank;
+                let kind = semantic::ExprKind::RuntimeSizeof(semantic::RuntimeSizeofExpr {
                     span: expr.span,
                     fn_name_span: expr.name.span,
                     array: Box::new(first_arg),
-                    array_dims: array_dims.into(),
-                    dim: Box::new(second_arg),
+                    array_rank: array_rank.into(),
+                    dimension: Box::new(second_arg),
                 });
 
                 Expr::new(expr.span, kind, Type::UInt(None, false))
@@ -2319,10 +2309,10 @@ impl Lowerer {
         });
         let args = list_from_iter(args);
 
-        let kind = semantic::ExprKind::FunctionCall(semantic::FunctionCall {
+        let kind = semantic::ExprKind::ResolvedFunctionCall(semantic::ResolvedFunctionCall {
             span: expr.span,
             fn_name_span: expr.name.span,
-            symbol_id,
+            callee_id: symbol_id,
             args,
         });
 
@@ -3234,7 +3224,7 @@ impl Lowerer {
                     Vec::new(),
                 ),
             },
-            syntax::ScalarTypeKind::UInt(uint_type) => match &uint_type.size {
+            syntax::ScalarTypeKind::Uint(uint_type) => match &uint_type.size {
                 Some(size) => {
                     let Some(size_expr) = self.const_eval_type_width_designator_expr(size) else {
                         return (crate::semantic::types::Type::Err, Vec::new());
@@ -3356,9 +3346,9 @@ impl Lowerer {
                 span,
                 kind: syntax::ScalarTypeKind::Int(ty.clone()),
             }),
-            syntax::ArrayBaseTypeKind::UInt(ty) => syntax::TypeDef::Scalar(syntax::ScalarType {
+            syntax::ArrayBaseTypeKind::Uint(ty) => syntax::TypeDef::Scalar(syntax::ScalarType {
                 span,
-                kind: syntax::ScalarTypeKind::UInt(ty.clone()),
+                kind: syntax::ScalarTypeKind::Uint(ty.clone()),
             }),
             syntax::ArrayBaseTypeKind::Float(ty) => syntax::TypeDef::Scalar(syntax::ScalarType {
                 span,
@@ -3497,7 +3487,7 @@ impl Lowerer {
 
                 let exprs = base_ty.1.into_iter().chain(once(num_dims_expr)).collect();
                 (
-                    Type::make_dyn_array_ref_ty(num_dims.into(), &base_ty.0, is_mutable),
+                    Type::make_ranked_array_ref_ty(num_dims.into(), &base_ty.0, is_mutable),
                     exprs,
                 )
             }
@@ -3626,7 +3616,7 @@ impl Lowerer {
             | Type::Set
             | Type::Void
             | Type::StaticArrayRef(..)
-            | Type::DynArrayRef(..) => {
+            | Type::RankedArrayRef(..) => {
                 let message = format!("default values for {ty}");
                 self.push_unsupported_error_message(message, span);
                 None
@@ -3980,7 +3970,7 @@ impl Lowerer {
             Type::BitArray(size, _) => Self::cast_bitarray_expr_to_type(*size, ty, expr),
             Type::Array(..) => Self::cast_array_expr_to_type(ty, expr),
             Type::StaticArrayRef(..) => Self::cast_static_array_ref_to_type(ty, expr),
-            Type::DynArrayRef(..) => Self::cast_dyn_array_ref_to_type(ty, expr),
+            Type::RankedArrayRef(..) => Self::cast_ranked_array_ref_to_type(ty, expr),
             Type::Duration(..) | Type::Stretch(..) => cast_duration_subtype_expr_to_type(ty, expr),
             _ => None,
         }
@@ -4159,11 +4149,11 @@ impl Lowerer {
                     ty: ty.clone(),
                 })
             }
-            Type::DynArrayRef(ref_ty) if !ref_ty.is_mutable => {
+            Type::RankedArrayRef(ref_ty) if !ref_ty.is_mutable => {
                 if !types_equal_except_const(
                     &array_ty.base_ty.clone().into(),
                     &ref_ty.base_ty.clone().into(),
-                ) || array_ty.dims.num_dims() != u32::from(ref_ty.dims)
+                ) || array_ty.dims.num_dims() != u32::from(ref_ty.rank)
                 {
                     return None;
                 }
@@ -4196,8 +4186,8 @@ impl Lowerer {
     }
 
     /// The only purpose of this cast is relaxing the mutability of array references.
-    fn cast_dyn_array_ref_to_type(ty: &Type, expr: &semantic::Expr) -> Option<semantic::Expr> {
-        assert!(matches!(expr.ty, Type::DynArrayRef(..)));
+    fn cast_ranked_array_ref_to_type(ty: &Type, expr: &semantic::Expr) -> Option<semantic::Expr> {
+        assert!(matches!(expr.ty, Type::RankedArrayRef(..)));
 
         if base_types_equal(ty, &expr.ty) {
             Some(Expr {
@@ -4544,7 +4534,7 @@ impl Lowerer {
 
     fn lower_index(&mut self, index: &syntax::Index) -> Option<Vec<semantic::Index>> {
         match index {
-            syntax::Index::IndexSet(set) => {
+            syntax::Index::DiscreteSet(set) => {
                 // According to the grammar: <https://openqasm.com/grammar/index.html>
                 //   "`setExpression` is only valid when being used as a single index.
                 //    Registers can support it for creating aliases, but arrays cannot."
@@ -4561,7 +4551,9 @@ impl Lowerer {
 
     fn lower_enumerable_set(&mut self, set: &syntax::EnumerableSet) -> semantic::EnumerableSet {
         match set {
-            syntax::EnumerableSet::Set(set) => semantic::EnumerableSet::Set(self.lower_set(set)),
+            syntax::EnumerableSet::DiscreteSet(set) => {
+                semantic::EnumerableSet::Set(self.lower_discrete_set(set))
+            }
             syntax::EnumerableSet::Range(range_definition) => {
                 semantic::EnumerableSet::Range(self.lower_range(range_definition).into())
             }
@@ -4571,7 +4563,7 @@ impl Lowerer {
         }
     }
 
-    fn lower_set(&mut self, set: &syntax::Set) -> semantic::Set {
+    fn lower_discrete_set(&mut self, set: &syntax::DiscreteSet) -> semantic::Set {
         let items = set
             .values
             .iter()

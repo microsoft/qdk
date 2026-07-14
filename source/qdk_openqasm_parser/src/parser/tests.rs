@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::io::InMemorySourceResolver;
 use crate::io::SourceResolver;
 
-use super::QasmParseResult;
+use super::ParseResult;
 use super::parse_source;
 use miette::Report;
 
@@ -18,7 +18,7 @@ use std::fmt::Display;
 pub(crate) fn parse_all<S: Into<Arc<str>>>(
     path: S,
     sources: impl IntoIterator<Item = (Arc<str>, Arc<str>)>,
-) -> miette::Result<QasmParseResult, Vec<Report>> {
+) -> miette::Result<ParseResult, Vec<Report>> {
     let path = path.into();
     let mut resolver = InMemorySourceResolver::from_iter(sources);
     let (path, source) = resolver
@@ -37,7 +37,7 @@ pub(crate) fn parse_all<S: Into<Arc<str>>>(
     }
 }
 
-pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<QasmParseResult, Vec<Report>> {
+pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<ParseResult, Vec<Report>> {
     let source = source.into();
     let mut resolver = InMemorySourceResolver::from_iter([("test".into(), source.clone())]);
     let res = parse_source(source, "test", &mut resolver);

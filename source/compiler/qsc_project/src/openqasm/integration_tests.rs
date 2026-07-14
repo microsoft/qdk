@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use expect_test::expect;
-use qdk_openqasm_parser::semantic::QasmSemanticParseResult;
+use qdk_openqasm_parser::semantic::AnalysisResult;
 
 use crate::{FileSystem, ProjectType, StdFs};
 use miette::Report;
@@ -16,7 +16,7 @@ fn get_test_dir() -> PathBuf {
         .join("openqasm_projects")
 }
 
-fn parse_file(file_name: &'static str) -> (Arc<str>, QasmSemanticParseResult) {
+fn parse_file(file_name: &'static str) -> (Arc<str>, AnalysisResult) {
     let test_dir = get_test_dir();
     let test_file = test_dir.join(file_name);
     parse_file_with_contents(&test_file, None)
@@ -25,7 +25,7 @@ fn parse_file(file_name: &'static str) -> (Arc<str>, QasmSemanticParseResult) {
 fn parse_file_with_contents<P: AsRef<Path>>(
     test_file: P,
     source: Option<Arc<str>>,
-) -> (Arc<str>, QasmSemanticParseResult) {
+) -> (Arc<str>, AnalysisResult) {
     let fs = StdFs;
     let project = fs.load_openqasm_project(test_file.as_ref(), source);
     let ProjectType::OpenQASM(sources) = project.project_type else {

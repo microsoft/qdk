@@ -36,10 +36,11 @@ pub enum Type {
     // proper arrays
     Array(ArrayType),
 
-    /// Dynamic array references.
-    /// These are array references declared with the `#dim = const expr` syntax.
+    /// Ranked array references.
+    /// These are array references declared with the `#dim = const expr` syntax,
+    /// where the rank is known but the dimension lengths are not.
     /// E.g.: `readonly array[int, #dim = 3] arr`.
-    DynArrayRef(DynArrayRefType),
+    RankedArrayRef(RankedArrayRefType),
 
     /// Static array references.
     /// These are array references where all dimension lengths are declared explicitly.
@@ -143,13 +144,13 @@ impl Display for StaticArrayRefType {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct DynArrayRefType {
+pub struct RankedArrayRefType {
     pub base_ty: ArrayBaseType,
-    pub dims: Dims,
+    pub rank: ArrayRank,
     pub is_mutable: bool,
 }
 
-impl Display for DynArrayRefType {
+impl Display for RankedArrayRefType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.is_mutable {
             write!(f, "mutable ")?;
@@ -158,7 +159,7 @@ impl Display for DynArrayRefType {
         }
 
         let base_ty: Type = self.base_ty.clone().into();
-        write!(f, "array[{}, #dim = {}]", base_ty, self.dims)
+        write!(f, "array[{}, #dim = {}]", base_ty, self.rank)
     }
 }
 
@@ -254,7 +255,7 @@ impl Display for Type {
             Type::QubitArray(width) => write_ty_with_designator(f, Some(*width), "qubit"),
             Type::Array(array) => write!(f, "{array}"),
             Type::StaticArrayRef(array_ref) => write!(f, "{array_ref}"),
-            Type::DynArrayRef(array_ref) => write!(f, "{array_ref}"),
+            Type::RankedArrayRef(array_ref) => write!(f, "{array_ref}"),
             Type::Gate(cargs, qargs) => write!(f, "gate({cargs}, {qargs})"),
             Type::Function(params_ty, return_ty) => {
                 let params_ty_str = params_ty
@@ -280,7 +281,7 @@ impl Type {
             Type::BitArray(..)
                 | Type::QubitArray(..)
                 | Type::Array(..)
-                | Type::DynArrayRef(..)
+                | Type::RankedArrayRef(..)
                 | Type::StaticArrayRef(..)
         )
     }
@@ -335,11 +336,15 @@ impl Type {
         }
     }
 
-    pub(crate) fn make_dyn_array_ref_ty(num_dims: Dims, base_ty: &Self, is_mutable: bool) -> Self {
+    pub(crate) fn make_ranked_array_ref_ty(
+        rank: ArrayRank,
+        base_ty: &Self,
+        is_mutable: bool,
+    ) -> Self {
         if let Ok(base_ty) = base_ty.clone().try_into() {
-            Self::DynArrayRef(DynArrayRefType {
+            Self::RankedArrayRef(RankedArrayRefType {
                 base_ty,
-                dims: num_dims,
+                rank,
                 is_mutable,
             })
         } else {
@@ -385,7 +390,7 @@ impl Type {
     pub fn is_readonly_array_ref(&self) -> bool {
         match self {
             Type::StaticArrayRef(array_ref) => !array_ref.is_mutable,
-            Type::DynArrayRef(array_ref) => !array_ref.is_mutable,
+            Type::RankedArrayRef(array_ref) => !array_ref.is_mutable,
             _ => false,
         }
     }
@@ -490,19 +495,19 @@ impl Type {
                 &array.dims,
                 index,
             ),
-            Type::DynArrayRef(array) => {
+            Type::RankedArrayRef(array) => {
                 // In this case we only care about the number of dimensions and not about
                 // the size of the dimensions. So, we create a dummy `ArrayDimensions`
                 // encoding the num_dims to be able to use the same infrastructure we
                 // use for the other array types.
-                let dummy_dims: ArrayDimensions = array.dims.into();
+                let dummy_dims: ArrayDimensions = array.rank.into();
                 indexed_type_builder(
                     ctx,
                     || array.base_ty.clone().into(),
                     |dims| {
-                        Type::DynArrayRef(DynArrayRefType {
+                        Type::RankedArrayRef(RankedArrayRefType {
                             base_ty: array.base_ty.clone(),
-                            dims: dims.into(),
+                            rank: dims.into(),
                             is_mutable: array.is_mutable,
                         })
                     },
@@ -823,7 +828,7 @@ impl From<&[u32]> for ArrayDimensions {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum Dims {
+pub enum ArrayRank {
     One = 1,
     Two = 2,
     Three = 3,
@@ -834,28 +839,28 @@ pub enum Dims {
     Err = 0,
 }
 
-impl Display for Dims {
+impl Display for ArrayRank {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Dims::One => write!(f, "1"),
-            Dims::Two => write!(f, "2"),
-            Dims::Three => write!(f, "3"),
-            Dims::Four => write!(f, "4"),
-            Dims::Five => write!(f, "5"),
-            Dims::Six => write!(f, "6"),
-            Dims::Seven => write!(f, "7"),
-            Dims::Err => write!(f, "Err"),
+            ArrayRank::One => write!(f, "1"),
+            ArrayRank::Two => write!(f, "2"),
+            ArrayRank::Three => write!(f, "3"),
+            ArrayRank::Four => write!(f, "4"),
+            ArrayRank::Five => write!(f, "5"),
+            ArrayRank::Six => write!(f, "6"),
+            ArrayRank::Seven => write!(f, "7"),
+            ArrayRank::Err => write!(f, "Err"),
         }
     }
 }
 
-impl From<Dims> for u32 {
-    fn from(value: Dims) -> Self {
+impl From<ArrayRank> for u32 {
+    fn from(value: ArrayRank) -> Self {
         value as u32
     }
 }
 
-impl From<u32> for Dims {
+impl From<u32> for ArrayRank {
     fn from(value: u32) -> Self {
         match value {
             1 => Self::One,
@@ -870,7 +875,7 @@ impl From<u32> for Dims {
     }
 }
 
-impl From<ArrayDimensions> for Dims {
+impl From<ArrayDimensions> for ArrayRank {
     fn from(value: ArrayDimensions) -> Self {
         match value {
             ArrayDimensions::One(..) => Self::One,
@@ -885,19 +890,19 @@ impl From<ArrayDimensions> for Dims {
     }
 }
 
-impl From<Dims> for ArrayDimensions {
+impl From<ArrayRank> for ArrayDimensions {
     /// This implementation is only meant to be used as a helper method
     /// for [`Type::get_indexed_type`].
-    fn from(value: Dims) -> Self {
+    fn from(value: ArrayRank) -> Self {
         match value {
-            Dims::One => Self::One(0),
-            Dims::Two => Self::Two(0, 0),
-            Dims::Three => Self::Three(0, 0, 0),
-            Dims::Four => Self::Four(0, 0, 0, 0),
-            Dims::Five => Self::Five(0, 0, 0, 0, 0),
-            Dims::Six => Self::Six(0, 0, 0, 0, 0, 0),
-            Dims::Seven => Self::Seven(0, 0, 0, 0, 0, 0, 0),
-            Dims::Err => Self::Err,
+            ArrayRank::One => Self::One(0),
+            ArrayRank::Two => Self::Two(0, 0),
+            ArrayRank::Three => Self::Three(0, 0, 0),
+            ArrayRank::Four => Self::Four(0, 0, 0, 0),
+            ArrayRank::Five => Self::Five(0, 0, 0, 0, 0),
+            ArrayRank::Six => Self::Six(0, 0, 0, 0, 0, 0),
+            ArrayRank::Seven => Self::Seven(0, 0, 0, 0, 0, 0, 0),
+            ArrayRank::Err => Self::Err,
         }
     }
 }
@@ -1077,9 +1082,9 @@ pub(crate) fn types_equal_except_const(lhs: &Type, rhs: &Type) -> bool {
             types_equal_except_const(&lhs.base_ty.clone().into(), &rhs.base_ty.clone().into())
                 && lhs.dims == rhs.dims
         }
-        (Type::DynArrayRef(lhs), Type::DynArrayRef(rhs)) => {
+        (Type::RankedArrayRef(lhs), Type::RankedArrayRef(rhs)) => {
             types_equal_except_const(&lhs.base_ty.clone().into(), &rhs.base_ty.clone().into())
-                && lhs.dims == rhs.dims
+                && lhs.rank == rhs.rank
         }
         (Type::Gate(lhs_cargs, lhs_qargs), Type::Gate(rhs_cargs, rhs_qargs)) => {
             lhs_cargs == rhs_cargs && lhs_qargs == rhs_qargs
@@ -1118,9 +1123,9 @@ pub(crate) fn base_types_equal(lhs: &Type, rhs: &Type) -> bool {
             base_types_equal(&lhs.base_ty.clone().into(), &rhs.base_ty.clone().into())
                 && lhs.dims == rhs.dims
         }
-        (Type::DynArrayRef(lhs), Type::DynArrayRef(rhs)) => {
+        (Type::RankedArrayRef(lhs), Type::RankedArrayRef(rhs)) => {
             base_types_equal(&lhs.base_ty.clone().into(), &rhs.base_ty.clone().into())
-                && lhs.dims == rhs.dims
+                && lhs.rank == rhs.rank
         }
         _ => false,
     }

@@ -412,13 +412,13 @@ fn sizeof_dyn_array_ref() {
                             ty_exprs: <empty>
                             init_expr: Expr [111-123]:
                                 ty: uint
-                                kind: SizeofCallExpr [111-123]:
+                                kind: RuntimeSizeofExpr [111-123]:
                                     fn_name_span: [111-117]
                                     array: Expr [118-119]:
                                         ty: readonly array[bool, #dim = 2]
                                         kind: SymbolId(10)
-                                    array_dims: 2
-                                    dim: Expr [121-122]:
+                                    array_rank: 2
+                                    dimension: Expr [121-122]:
                                         ty: const int
                                         kind: Lit: Int(1)"#]],
     );
@@ -459,13 +459,13 @@ fn sizeof_dyn_array_ref_omitted_dimension() {
                             ty_exprs: <empty>
                             init_expr: Expr [111-120]:
                                 ty: uint
-                                kind: SizeofCallExpr [111-120]:
+                                kind: RuntimeSizeofExpr [111-120]:
                                     fn_name_span: [111-117]
                                     array: Expr [118-119]:
                                         ty: readonly array[bool, #dim = 2]
                                         kind: SymbolId(10)
-                                    array_dims: 2
-                                    dim: Expr [111-120]:
+                                    array_rank: 2
+                                    dimension: Expr [111-120]:
                                         ty: const uint
                                         const_value: Int(0)
                                         kind: Lit: Int(0)"#]],
@@ -508,13 +508,13 @@ fn sizeof_dyn_array_ref_invalid_dimension_lowers_correctly() {
                             ty_exprs: <empty>
                             init_expr: Expr [111-123]:
                                 ty: uint
-                                kind: SizeofCallExpr [111-123]:
+                                kind: RuntimeSizeofExpr [111-123]:
                                     fn_name_span: [111-117]
                                     array: Expr [118-119]:
                                         ty: readonly array[bool, #dim = 2]
                                         kind: SymbolId(10)
-                                    array_dims: 2
-                                    dim: Expr [121-122]:
+                                    array_rank: 2
+                                    dimension: Expr [121-122]:
                                         ty: const int
                                         kind: Lit: Int(2)"#]],
     );

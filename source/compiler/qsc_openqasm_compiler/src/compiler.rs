@@ -44,7 +44,7 @@ use qdk_openqasm_parser::{
     io::SourceResolver,
     parser::ast::{List, PathKind, list_from_iter},
     semantic::{
-        QasmSemanticParseResult,
+        AnalysisResult,
         ast::{
             Array, BinaryOpExpr, Cast, Expr, GateOperand, GateOperandKind, Index, IndexedExpr,
             LiteralKind, MeasureExpr, Set, TimeUnit, UnaryOpExpr,
@@ -113,7 +113,7 @@ pub fn parse_and_compile_to_qsharp_ast_with_config<
 
 #[must_use]
 pub fn compile_to_qsharp_ast_with_config(
-    res: QasmSemanticParseResult,
+    res: AnalysisResult,
     config: CompilerConfig,
 ) -> QasmCompileUnit {
     let errors = get_semantic_errors_from_lowering_result(&res);
@@ -268,7 +268,7 @@ fn collect_assigned_input_symbols(
     impl Visitor for AssignmentCollector<'_> {
         fn visit_stmt(&mut self, stmt: &semast::Stmt) {
             if let semast::StmtKind::Assign(assign) = &*stmt.kind
-                && let semast::ExprKind::Ident(sym_id) = &*assign.lhs.kind
+                && let semast::ExprKind::ResolvedIdent(sym_id) = &*assign.lhs.kind
             {
                 let sym = &self.symbols[*sym_id];
                 if self.input_names.contains(&sym.name) {
@@ -723,9 +723,7 @@ impl QasmCompiler {
             semast::StmtKind::If(stmt) => self.compile_if_stmt(stmt),
             semast::StmtKind::GateCall(stmt) => self.compile_gate_call_stmt(stmt),
             semast::StmtKind::Include(stmt) => self.compile_include_stmt(stmt),
-            semast::StmtKind::IndexedClassicalTypeAssign(stmt) => {
-                self.compile_indexed_classical_type_assign_stmt(stmt)
-            }
+            semast::StmtKind::IndexedAssign(stmt) => self.compile_indexed_assign_stmt(stmt),
             semast::StmtKind::InputDeclaration(stmt) => self.compile_input_decl_stmt(stmt),
             semast::StmtKind::OutputDeclaration(stmt) => self.compile_output_decl_stmt(stmt),
             semast::StmtKind::MeasureArrow(stmt) => self.compile_measure_stmt(stmt),
@@ -840,9 +838,9 @@ impl QasmCompiler {
         Some(build_assignment_statement(lhs, rhs, stmt.span))
     }
 
-    fn compile_indexed_classical_type_assign_stmt(
+    fn compile_indexed_assign_stmt(
         &mut self,
-        stmt: &semast::IndexedClassicalTypeAssignStmt,
+        stmt: &semast::IndexedAssignStmt,
     ) -> Option<qsast::Stmt> {
         // Invariant: The lowerer ensures that we only get here if the
         //            rhs can be assigned to the fully indexed rhs.
@@ -1191,8 +1189,11 @@ impl QasmCompiler {
         }
     }
 
-    fn compile_function_call_expr(&mut self, expr: &semast::FunctionCall) -> qsast::Expr {
-        let symbol = self.symbols[expr.symbol_id].clone();
+    fn compile_resolved_function_call_expr(
+        &mut self,
+        expr: &semast::ResolvedFunctionCall,
+    ) -> qsast::Expr {
+        let symbol = self.symbols[expr.callee_id].clone();
         let name = &symbol.name;
         let name_span = expr.fn_name_span;
         if expr.args.is_empty() {
@@ -1214,18 +1215,18 @@ impl QasmCompiler {
         }
     }
 
-    fn compile_sizeof_call_expr(&mut self, expr: &semast::SizeofCallExpr) -> qsast::Expr {
+    fn compile_runtime_sizeof_expr(&mut self, expr: &semast::RuntimeSizeofExpr) -> qsast::Expr {
         let span = expr.span;
         let name_span = expr.fn_name_span;
         let array = self.compile_expr(&expr.array);
-        let dim = self.compile_expr(&expr.dim);
-        let operands = vec![array, dim];
-        let array_dims = expr.array_dims;
+        let dimension = self.compile_expr(&expr.dimension);
+        let operands = vec![array, dimension];
+        let array_rank = expr.array_rank;
         assert!(
-            (1..=7).contains(&array_dims),
-            "array dimension should be between 1 and 7"
+            (1..=7).contains(&array_rank),
+            "array rank should be between 1 and 7"
         );
-        let fn_name = format!("sizeof_{array_dims}");
+        let fn_name = format!("sizeof_{array_rank}");
         build_call_with_params(
             &fn_name,
             &["Std", "OpenQASM", "Builtin"],
@@ -1235,7 +1236,10 @@ impl QasmCompiler {
         )
     }
 
-    fn compile_durationof_call_expr(&mut self, expr: &semast::DurationofCallExpr) -> qsast::Expr {
+    fn compile_evaluated_durationof_expr(
+        &mut self,
+        expr: &semast::EvaluatedDurationofExpr,
+    ) -> qsast::Expr {
         self.push_unsupported_error_message("durationof call", expr.span);
         err_expr(expr.span)
     }
@@ -1778,10 +1782,12 @@ impl QasmCompiler {
                 span: expr.span,
                 ..Default::default()
             },
-            semast::ExprKind::CapturedIdent(symbol_id) => {
+            semast::ExprKind::CapturedResolvedIdent(symbol_id) => {
                 self.compile_captured_ident_expr(*symbol_id, expr.span)
             }
-            semast::ExprKind::Ident(symbol_id) => self.compile_ident_expr(*symbol_id, expr.span),
+            semast::ExprKind::ResolvedIdent(symbol_id) => {
+                self.compile_ident_expr(*symbol_id, expr.span)
+            }
             semast::ExprKind::UnaryOp(unary_op_expr) => self.compile_unary_op_expr(unary_op_expr),
             semast::ExprKind::BinaryOp(binary_op_expr) => {
                 self.compile_binary_op_expr(binary_op_expr)
@@ -1789,8 +1795,8 @@ impl QasmCompiler {
             semast::ExprKind::Lit(literal_kind) => {
                 self.compile_literal_expr(literal_kind, expr.span)
             }
-            semast::ExprKind::FunctionCall(function_call) => {
-                self.compile_function_call_expr(function_call)
+            semast::ExprKind::ResolvedFunctionCall(function_call) => {
+                self.compile_resolved_function_call_expr(function_call)
             }
             semast::ExprKind::BuiltinFunctionCall(_) => {
                 let Some(value) = expr.get_const_value() else {
@@ -1803,10 +1809,10 @@ impl QasmCompiler {
             semast::ExprKind::IndexedExpr(index_expr) => self.compile_indexed_expr(index_expr),
             semast::ExprKind::Paren(pexpr) => self.compile_paren_expr(pexpr, expr.span),
             semast::ExprKind::Measure(mexpr) => self.compile_measure_expr(mexpr, &expr.ty),
-            semast::ExprKind::SizeofCall(sizeof_call) => self.compile_sizeof_call_expr(sizeof_call),
+            semast::ExprKind::RuntimeSizeof(expr) => self.compile_runtime_sizeof_expr(expr),
             semast::ExprKind::Concat(concat) => self.compile_concat_expr(concat),
-            semast::ExprKind::DurationofCall(duration_call) => {
-                self.compile_durationof_call_expr(duration_call)
+            semast::ExprKind::EvaluatedDurationof(expr) => {
+                self.compile_evaluated_durationof_expr(expr)
             }
         }
     }
@@ -2707,8 +2713,8 @@ impl QasmCompiler {
                 let dims = (&array_ref.dims).into();
                 Self::make_qsharp_array_ty(&array_ref.base_ty, dims)
             }
-            Type::DynArrayRef(array_ref) if !array_ref.is_mutable => {
-                let dims = (array_ref.dims).into();
+            Type::RankedArrayRef(array_ref) if !array_ref.is_mutable => {
+                let dims = (array_ref.rank).into();
                 Self::make_qsharp_array_ty(&array_ref.base_ty, dims)
             }
             Type::StaticArrayRef(array_ref) if array_ref.is_mutable => {
@@ -2716,7 +2722,7 @@ impl QasmCompiler {
                 errs.push(unsupported_err(msg, span));
                 crate::types::Type::Err
             }
-            Type::DynArrayRef(array_ref) if array_ref.is_mutable => {
+            Type::RankedArrayRef(array_ref) if array_ref.is_mutable => {
                 let msg = format!("mutable array references `{ty}`");
                 errs.push(unsupported_err(msg, span));
                 crate::types::Type::Err
@@ -2802,7 +2808,7 @@ impl QasmCompiler {
     ) -> Vec<qsast::Stmt> {
         args.iter()
             .filter_map(|(name, _, span, ty)| {
-                if ty.is_array() && !matches!(ty, Type::DynArrayRef(..)) {
+                if ty.is_array() && !matches!(ty, Type::RankedArrayRef(..)) {
                     Some(build_argument_validation_stmts(name, ty, *span))
                 } else {
                     None

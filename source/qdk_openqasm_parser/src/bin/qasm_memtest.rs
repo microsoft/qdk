@@ -238,7 +238,7 @@ fn run_stage(stage: Stage, corpus: &Corpus) -> Result<(), String> {
     Ok(())
 }
 
-fn parse(corpus: &Corpus) -> Result<qdk_openqasm_parser::parser::QasmParseResult, String> {
+fn parse(corpus: &Corpus) -> Result<qdk_openqasm_parser::parser::ParseResult, String> {
     let mut resolver = corpus.resolver();
     let result = parse_source(
         corpus.source.clone(),
@@ -249,9 +249,7 @@ fn parse(corpus: &Corpus) -> Result<qdk_openqasm_parser::parser::QasmParseResult
     Ok(std::hint::black_box(result))
 }
 
-fn analyze(
-    corpus: &Corpus,
-) -> Result<qdk_openqasm_parser::semantic::QasmSemanticParseResult, String> {
+fn analyze(corpus: &Corpus) -> Result<qdk_openqasm_parser::semantic::AnalysisResult, String> {
     let mut resolver = corpus.resolver();
     let result = analyze_source(
         corpus.source.clone(),
@@ -264,7 +262,7 @@ fn analyze(
 
 fn ensure_parse_success(
     corpus: &Corpus,
-    result: &qdk_openqasm_parser::parser::QasmParseResult,
+    result: &qdk_openqasm_parser::parser::ParseResult,
 ) -> Result<(), String> {
     if result.has_errors() {
         return Err(format!(
@@ -278,7 +276,7 @@ fn ensure_parse_success(
 
 fn ensure_semantic_success(
     corpus: &Corpus,
-    result: &qdk_openqasm_parser::semantic::QasmSemanticParseResult,
+    result: &qdk_openqasm_parser::semantic::AnalysisResult,
 ) -> Result<(), String> {
     if result.has_errors() {
         return Err(format!(

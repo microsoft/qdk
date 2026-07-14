@@ -13,14 +13,14 @@ use crate::{
             AliasDeclStmt, Annotation, Array, AssignStmt, BarrierStmt, BinOp, BinaryOpExpr, Block,
             BoxStmt, BreakStmt, BuiltinFunctionCall, CalibrationGrammarStmt, CalibrationStmt, Cast,
             ClassicalDeclarationStmt, ConcatExpr, ContinueStmt, DefCalStmt, DefParameter, DefStmt,
-            DelayStmt, DurationofCallExpr, EndStmt, EnumerableSet, Expr, ExprKind, ExprStmt,
-            ExternDecl, ForStmt, FunctionCall, GateCall, GateModifierKind, GateOperand,
-            GateOperandKind, HardwareQubit, IfStmt, IncludeStmt, Index,
-            IndexedClassicalTypeAssignStmt, IndexedExpr, InputDeclaration, LiteralKind,
-            MeasureArrowStmt, MeasureExpr, OutputDeclaration, Pragma, Program,
-            QuantumGateDefinition, QuantumGateModifier, QubitArrayDeclaration, QubitDeclaration,
-            Range, ResetStmt, ReturnStmt, Set, SizeofCallExpr, Stmt, StmtKind, SwitchCase,
-            SwitchStmt, TimeUnit, UnaryOp, UnaryOpExpr, Version, WhileLoop,
+            DelayStmt, EndStmt, EnumerableSet, EvaluatedDurationofExpr, Expr, ExprKind, ExprStmt,
+            ExternDecl, ForStmt, GateCall, GateModifierKind, GateOperand, GateOperandKind,
+            HardwareQubit, IfStmt, IncludeStmt, Index, IndexedAssignStmt, IndexedExpr,
+            InputDeclaration, LiteralKind, MeasureArrowStmt, MeasureExpr, OutputDeclaration,
+            Pragma, Program, QuantumGateDefinition, QuantumGateModifier, QubitArrayDeclaration,
+            QubitDeclaration, Range, ResetStmt, ResolvedFunctionCall, ReturnStmt,
+            RuntimeSizeofExpr, Set, Stmt, StmtKind, SwitchCase, SwitchStmt, TimeUnit, UnaryOp,
+            UnaryOpExpr, Version, WhileLoop,
         },
         symbols::SymbolId,
         types::Type,
@@ -132,11 +132,8 @@ pub trait MutVisitor: Sized {
         walk_include_stmt(self, stmt);
     }
 
-    fn visit_indexed_classical_type_assign_stmt(
-        &mut self,
-        stmt: &mut IndexedClassicalTypeAssignStmt,
-    ) {
-        walk_indexed_classical_type_assign_stmt(self, stmt);
+    fn visit_indexed_assign_stmt(&mut self, stmt: &mut IndexedAssignStmt) {
+        walk_indexed_assign_stmt(self, stmt);
     }
 
     fn visit_input_declaration(&mut self, stmt: &mut InputDeclaration) {
@@ -191,8 +188,8 @@ pub trait MutVisitor: Sized {
         walk_binary_op_expr(self, expr);
     }
 
-    fn visit_function_call_expr(&mut self, expr: &mut FunctionCall) {
-        walk_function_call_expr(self, expr);
+    fn visit_resolved_function_call_expr(&mut self, expr: &mut ResolvedFunctionCall) {
+        walk_resolved_function_call_expr(self, expr);
     }
 
     fn visit_builtin_function_call_expr(&mut self, expr: &mut BuiltinFunctionCall) {
@@ -211,12 +208,12 @@ pub trait MutVisitor: Sized {
         walk_measure_expr(self, expr);
     }
 
-    fn visit_sizeof_call_expr(&mut self, expr: &mut SizeofCallExpr) {
-        walk_sizeof_call_expr(self, expr);
+    fn visit_runtime_sizeof_expr(&mut self, expr: &mut RuntimeSizeofExpr) {
+        walk_runtime_sizeof_expr(self, expr);
     }
 
-    fn visit_durationof_call_expr(&mut self, expr: &mut DurationofCallExpr) {
-        walk_durationof_call_expr(self, expr);
+    fn visit_evaluated_durationof_expr(&mut self, expr: &mut EvaluatedDurationofExpr) {
+        walk_evaluated_durationof_expr(self, expr);
     }
 
     fn visit_concat_expr(&mut self, expr: &mut ConcatExpr) {
@@ -342,9 +339,7 @@ pub fn walk_stmt(vis: &mut impl MutVisitor, stmt: &mut Stmt) {
         StmtKind::GateCall(stmt) => vis.visit_gate_call_stmt(stmt),
         StmtKind::If(stmt) => vis.visit_if_stmt(stmt),
         StmtKind::Include(stmt) => vis.visit_include_stmt(stmt),
-        StmtKind::IndexedClassicalTypeAssign(stmt) => {
-            vis.visit_indexed_classical_type_assign_stmt(stmt);
-        }
+        StmtKind::IndexedAssign(stmt) => vis.visit_indexed_assign_stmt(stmt),
         StmtKind::InputDeclaration(stmt) => vis.visit_input_declaration(stmt),
         StmtKind::OutputDeclaration(stmt) => vis.visit_output_declaration(stmt),
         StmtKind::MeasureArrow(stmt) => vis.visit_measure_arrow_stmt(stmt),
@@ -512,10 +507,7 @@ pub fn walk_include_stmt(vis: &mut impl MutVisitor, stmt: &mut IncludeStmt) {
     vis.visit_span(&mut stmt.span);
 }
 
-pub fn walk_indexed_classical_type_assign_stmt(
-    vis: &mut impl MutVisitor,
-    stmt: &mut IndexedClassicalTypeAssignStmt,
-) {
+pub fn walk_indexed_assign_stmt(vis: &mut impl MutVisitor, stmt: &mut IndexedAssignStmt) {
     vis.visit_span(&mut stmt.span);
     vis.visit_expr(&mut stmt.lhs);
     stmt.indices.iter_mut().for_each(|i| vis.visit_index(i));
@@ -598,18 +590,20 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
         .for_each(|v| vis.visit_literal(v));
     vis.visit_ty(&mut expr.ty);
     match expr.kind.as_mut() {
-        ExprKind::CapturedIdent(id) | ExprKind::Ident(id) => vis.visit_symbol_id(id),
+        ExprKind::CapturedResolvedIdent(id) | ExprKind::ResolvedIdent(id) => {
+            vis.visit_symbol_id(id);
+        }
         ExprKind::UnaryOp(expr) => vis.visit_unary_op_expr(expr),
         ExprKind::BinaryOp(expr) => vis.visit_binary_op_expr(expr),
         ExprKind::Lit(lit) => vis.visit_literal(lit),
-        ExprKind::FunctionCall(call) => vis.visit_function_call_expr(call),
+        ExprKind::ResolvedFunctionCall(call) => vis.visit_resolved_function_call_expr(call),
         ExprKind::BuiltinFunctionCall(call) => vis.visit_builtin_function_call_expr(call),
         ExprKind::Cast(cast) => vis.visit_cast_expr(cast),
         ExprKind::IndexedExpr(expr) => vis.visit_indexed_expr(expr),
         ExprKind::Paren(expr) => vis.visit_expr(expr),
         ExprKind::Measure(expr) => vis.visit_measure_expr(expr),
-        ExprKind::SizeofCall(call) => vis.visit_sizeof_call_expr(call),
-        ExprKind::DurationofCall(call) => vis.visit_durationof_call_expr(call),
+        ExprKind::RuntimeSizeof(expr) => vis.visit_runtime_sizeof_expr(expr),
+        ExprKind::EvaluatedDurationof(expr) => vis.visit_evaluated_durationof_expr(expr),
         ExprKind::Concat(concat) => vis.visit_concat_expr(concat),
         ExprKind::Err => {}
     }
@@ -627,10 +621,13 @@ pub fn walk_binary_op_expr(vis: &mut impl MutVisitor, expr: &mut BinaryOpExpr) {
     vis.visit_expr(&mut expr.rhs);
 }
 
-pub fn walk_function_call_expr(vis: &mut impl MutVisitor, expr: &mut FunctionCall) {
+pub fn walk_resolved_function_call_expr(
+    vis: &mut impl MutVisitor,
+    expr: &mut ResolvedFunctionCall,
+) {
     vis.visit_span(&mut expr.span);
     vis.visit_span(&mut expr.fn_name_span);
-    vis.visit_symbol_id(&mut expr.symbol_id);
+    vis.visit_symbol_id(&mut expr.callee_id);
     expr.args.iter_mut().for_each(|a| vis.visit_expr(a));
 }
 
@@ -662,14 +659,17 @@ pub fn walk_measure_expr(vis: &mut impl MutVisitor, expr: &mut MeasureExpr) {
     vis.visit_gate_operand(&mut expr.operand);
 }
 
-pub fn walk_sizeof_call_expr(vis: &mut impl MutVisitor, expr: &mut SizeofCallExpr) {
+pub fn walk_runtime_sizeof_expr(vis: &mut impl MutVisitor, expr: &mut RuntimeSizeofExpr) {
     vis.visit_span(&mut expr.span);
     vis.visit_span(&mut expr.fn_name_span);
     vis.visit_expr(&mut expr.array);
-    vis.visit_expr(&mut expr.dim);
+    vis.visit_expr(&mut expr.dimension);
 }
 
-pub fn walk_durationof_call_expr(vis: &mut impl MutVisitor, expr: &mut DurationofCallExpr) {
+pub fn walk_evaluated_durationof_expr(
+    vis: &mut impl MutVisitor,
+    expr: &mut EvaluatedDurationofExpr,
+) {
     vis.visit_span(&mut expr.span);
     vis.visit_span(&mut expr.fn_name_span);
     vis.visit_block(&mut expr.scope);
