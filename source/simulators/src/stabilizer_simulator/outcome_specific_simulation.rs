@@ -70,22 +70,6 @@ pub struct OutcomeSpecificSimulation {
     qubit_count: usize,
 }
 
-impl std::fmt::Debug for OutcomeSpecificSimulation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OutcomeSpecificSimulation")
-            .field(
-                "state_encoder",
-                &self.clifford.clone().resize(self.qubit_count),
-            )
-            .field("outcome_vector", &self.outcome_vector)
-            .field("bit_source", &"<bit source iterator>")
-            .field("random_outcome_indicator", &self.random_outcome_indicator)
-            .field("num_random_bits", &self.num_random_bits)
-            .field("qubit_count", &self.qubit_count)
-            .finish()
-    }
-}
-
 impl Default for OutcomeSpecificSimulation {
     fn default() -> Self {
         OutcomeSpecificSimulation::with_capacity(0, 0, 0)
@@ -281,6 +265,34 @@ impl OutcomeSpecificSimulation {
     }
 }
 
+impl OutcomeSpecificSimulation {
+    /// Force a Z-basis measurement on `index` to have the requested `value`.
+    pub fn post_select_z(&mut self, value: bool, index: usize) -> Result<(), String> {
+        self.ensure_qubit_capacity(Some(index));
+        let observable = SparsePauli::from([paulimer::core::z(index)]);
+        let preimage = self.clifford.preimage(&observable);
+
+        if let Some(pos) = preimage.x_bits().support().next() {
+            let hint = self.clifford.image_z(pos);
+            let mut pauli = observable.clone() * &hint;
+            pauli.add_assign_phase_exp(3u8);
+            self.clifford.left_mul_pauli_exp(&pauli);
+
+            self.outcome_vector.push(value);
+            self.random_outcome_indicator.push(true);
+            self.num_random_bits += 1;
+            self.apply_conditional_pauli_generic(&hint, &[self.outcome_count() - 1], true);
+        } else {
+            self.measure_deterministic(&preimage);
+            if self.outcome_vector.last() != Some(&value) {
+                return Err("post-selection condition has zero probability".into());
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl Simulation for OutcomeSpecificSimulation {
     fn allocate_random_bit(&mut self) -> usize {
         let random_bit = self
@@ -446,12 +458,77 @@ fn total_parity(outcome_vector: &[bool], outcomes_indicator: &[usize]) -> bool {
     res
 }
 
-//TODO: move to tests module
-#[test]
-fn init_test() {
-    let outcome_specific_simulation = OutcomeSpecificSimulation::new(2);
-    // Verify it initializes correctly with just qubit count
-    assert_eq!(outcome_specific_simulation.outcome_vector().len(), 0);
+pub struct RandomBitIterator {
+    rng: rand::rngs::ThreadRng,
+}
+
+impl RandomBitIterator {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { rng: rand::rng() }
+    }
+}
+
+impl Default for RandomBitIterator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Iterator for RandomBitIterator {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<bool> {
+        Some(self.rng.random::<bool>())
+    }
+}
+
+pub struct SeededRandomBitIterator {
+    rng: StdRng,
+}
+
+impl SeededRandomBitIterator {
+    #[must_use]
+    pub fn new(seed: u64) -> Self {
+        Self {
+            rng: StdRng::seed_from_u64(seed),
+        }
+    }
+}
+
+impl Iterator for SeededRandomBitIterator {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<bool> {
+        Some(self.rng.random::<bool>())
+    }
+}
+
+/// Iterator that always returns false
+pub struct ZeroBitIterator;
+
+impl Iterator for ZeroBitIterator {
+    type Item = bool;
+
+    fn next(&mut self) -> Option<bool> {
+        Some(false)
+    }
+}
+
+#[must_use]
+pub fn max_support(support: &[usize]) -> Option<usize> {
+    support.iter().copied().max()
+}
+
+pub fn max_pair_support<PauliLike1: Pauli, PauliLike2: Pauli>(
+    a: &PauliLike1,
+    b: &PauliLike2,
+) -> Option<usize> {
+    match (a.max_support(), b.max_support()) {
+        (None, None) => None,
+        (Some(id), None) | (None, Some(id)) => Some(id),
+        (Some(id1), Some(id2)) => Some(std::cmp::max(id1, id2)),
+    }
 }
 
 #[cfg(test)]
@@ -476,7 +553,7 @@ mod measure_tests {
     /// optimization is behavior-preserving.
     #[test]
     fn fast_measure_path_matches_general_path() {
-        let mut rng = StdRng::seed_from_u64(0x0DDB_A11);
+        let mut rng = StdRng::seed_from_u64(0x00DD_BA11);
         for trial in 0..300 {
             let n = 9;
             let mut sim = OutcomeSpecificSimulation::new_with_seeded_random_outcomes(n, trial);
@@ -548,74 +625,54 @@ mod measure_tests {
     }
 }
 
-pub struct RandomBitIterator {
-    rng: rand::rngs::ThreadRng,
-}
+#[cfg(test)]
+mod post_select_tests {
+    use super::OutcomeSpecificSimulation;
+    use paulimer::UnitaryOp;
+    use pauliverse::Simulation;
 
-impl RandomBitIterator {
-    #[must_use]
-    pub fn new() -> Self {
-        Self { rng: rand::rng() }
+    type SparsePauli = paulimer::pauli::SparsePauli;
+
+    fn z_obs(qubit: usize) -> SparsePauli {
+        [paulimer::core::z(qubit)].into()
     }
-}
 
-impl Default for RandomBitIterator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+    #[test]
+    fn random_post_selection_collapses_bell_state() {
+        for value in [false, true] {
+            let mut sim = OutcomeSpecificSimulation::new_with_bit_source(2, std::iter::empty());
+            sim.unitary_op(UnitaryOp::Hadamard, &[0]);
+            sim.unitary_op(UnitaryOp::ControlledX, &[0, 1]);
 
-impl Iterator for RandomBitIterator {
-    type Item = bool;
+            sim.post_select_z(value, 0).expect("selection is possible");
 
-    fn next(&mut self) -> Option<bool> {
-        Some(self.rng.random::<bool>())
-    }
-}
+            assert_eq!(sim.outcome_vector(), &[value]);
+            assert_eq!(sim.random_outcome_indicator(), &[true]);
+            assert_eq!(sim.random_outcome_count(), 1);
 
-pub struct SeededRandomBitIterator {
-    rng: StdRng,
-}
-
-impl SeededRandomBitIterator {
-    #[must_use]
-    pub fn new(seed: u64) -> Self {
-        Self {
-            rng: StdRng::seed_from_u64(seed),
+            let correlated = sim.measure(&z_obs(1));
+            assert_eq!(sim.outcome_vector()[correlated], value);
+            assert!(!sim.random_outcome_indicator()[correlated]);
         }
     }
-}
 
-impl Iterator for SeededRandomBitIterator {
-    type Item = bool;
+    #[test]
+    fn deterministic_post_selection_rejects_impossible_value() {
+        let mut accepted = OutcomeSpecificSimulation::new_with_zero_outcomes(1);
+        accepted
+            .post_select_z(false, 0)
+            .expect("zero state has Z outcome false");
+        assert_eq!(accepted.outcome_vector(), &[false]);
+        assert_eq!(accepted.random_outcome_indicator(), &[false]);
+        assert_eq!(accepted.random_outcome_count(), 0);
 
-    fn next(&mut self) -> Option<bool> {
-        Some(self.rng.random::<bool>())
-    }
-}
-
-/// Iterator that always returns false
-pub struct ZeroBitIterator;
-
-impl Iterator for ZeroBitIterator {
-    type Item = bool;
-
-    fn next(&mut self) -> Option<bool> {
-        Some(false)
-    }
-}
-
-pub fn max_support(support: &[usize]) -> Option<usize> {
-    support.iter().copied().max()
-}
-
-pub fn max_pair_support<PauliLike1: Pauli, PauliLike2: Pauli>(
-    a: &PauliLike1,
-    b: &PauliLike2,
-) -> Option<usize> {
-    match (a.max_support(), b.max_support()) {
-        (None, None) => None,
-        (Some(id), None) | (None, Some(id)) => Some(id),
-        (Some(id1), Some(id2)) => Some(std::cmp::max(id1, id2)),
+        let mut rejected = OutcomeSpecificSimulation::new_with_zero_outcomes(1);
+        let error = rejected
+            .post_select_z(true, 0)
+            .expect_err("zero state cannot have Z outcome true");
+        assert_eq!(error, "post-selection condition has zero probability");
+        assert_eq!(rejected.outcome_vector(), &[false]);
+        assert_eq!(rejected.random_outcome_indicator(), &[false]);
+        assert_eq!(rejected.random_outcome_count(), 0);
     }
 }

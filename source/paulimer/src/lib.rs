@@ -1,15 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-pub mod bits;
-pub mod clifford;
-pub mod operations;
-pub mod outcome_specific_simulation;
-pub mod pauli;
-pub mod quantum_core;
-pub mod setwise;
+pub(crate) mod bits;
+pub(crate) mod clifford;
+pub(crate) mod operations;
+pub(crate) mod outcome_specific_simulation;
+pub(crate) mod pauli;
+pub(crate) mod quantum_core;
+pub(crate) mod setwise;
 
-pub use operations::UnitaryOp;
+pub(crate) use operations::UnitaryOp;
 
 type Tuple2<T> = (T, T);
 type Tuple4<T> = (T, T, T, T);
@@ -17,7 +17,7 @@ type Tuple8<T> = (T, T, T, T, T, T, T, T);
 type Tuple2x2<T> = Tuple2<Tuple2<T>>;
 type Tuple4x2<T> = Tuple4<Tuple2<T>>;
 
-pub trait NeutralElement {
+pub(crate) trait NeutralElement {
     type NeutralElementType: 'static;
     fn neutral_element(&self) -> Self::NeutralElementType;
     fn default_size_neutral_element() -> Self::NeutralElementType;
@@ -28,7 +28,7 @@ use clifford::CliffordUnitary;
 use pauli::SparsePauli;
 use quantum_core::PositionedPauliObservable;
 
-pub trait Simulation {
+pub(crate) trait Simulation {
     fn pauli_exp(&mut self, sparse_pauli: &[PositionedPauliObservable]);
 
     fn apply_unitary(&mut self, unitary_op: UnitaryOp, support: &[usize]);
@@ -71,7 +71,7 @@ pub trait Simulation {
 }
 
 #[must_use]
-pub fn subscript_digits(number: usize) -> String {
+pub(crate) fn subscript_digits(number: usize) -> String {
     let mut res = String::new();
     for char in number.to_string().chars() {
         let digit = char.to_digit(10).unwrap_or_default() as usize;
@@ -80,4 +80,4 @@ pub fn subscript_digits(number: usize) -> String {
     res
 }
 
-pub const SUB_CHARS: [char; 10] = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+pub(crate) const SUB_CHARS: [char; 10] = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];

@@ -1,5 +1,5 @@
 [package]
-name = "paulimer"
+name = "paulimer-vendored"
 version = "0.0.1"
 edition = "2021"
 publish = false
