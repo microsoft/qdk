@@ -376,21 +376,21 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("measurement record refers to a measurement outside the enclosing PREPARE block")]
+    #[error("measurement record refers to a measurement outside the enclosing SELECT block")]
     #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfScope"))]
     MeasurementRecordOutOfScope {
         #[label]
         span: Span,
     },
-    #[error("require must appear inside a PREPARE block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.RequireOutsidePrepareBlock"))]
-    RequireOutsidePrepareBlock {
+    #[error("require must appear inside a SELECT block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.RequireOutsideSelectBlock"))]
+    RequireOutsideSelectBlock {
         #[label]
         span: Span,
     },
-    #[error("prepare instruction must start a block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.PrepareWithoutBlock"))]
-    PrepareWithoutBlock {
+    #[error("select instruction must start a block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.SelectWithoutBlock"))]
+    SelectWithoutBlock {
         #[label]
         span: Span,
     },
@@ -420,14 +420,14 @@ impl AllowedRecPosition {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Scope {
     TopLevel,
-    Prepare(u32), // The u32 is a unique id for the prepare scope
+    Select(u32), // The u32 is a unique id for the select scope
 }
 
 struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
     record_scopes: Vec<Scope>,                   // indexed by result id
-    scope_parents: Vec<Scope>, // indexed by prepare scope id, value = parent scope
-    scope_stack: Vec<Scope>,   // active nested scopes; last() = current, empty = top level
+    scope_parents: Vec<Scope>,                   // indexed by select scope id, value = parent scope
+    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
 }
 
@@ -449,14 +449,14 @@ impl IdMap {
         format!("{prefix}_{id}")
     }
 
-    fn enter_prepare_scope(&mut self) {
+    fn enter_select_scope(&mut self) {
         let parent = self.current_scope();
         let id = self.scope_parents.len() as u32;
         self.scope_parents.push(parent);
-        self.scope_stack.push(Scope::Prepare(id));
+        self.scope_stack.push(Scope::Select(id));
     }
 
-    fn exit_prepare_scope(&mut self) {
+    fn exit_select_scope(&mut self) {
         self.scope_stack.pop();
     }
 
@@ -472,7 +472,7 @@ impl IdMap {
     }
 
     fn parent_of(&self, scope: Scope) -> Scope {
-        let Scope::Prepare(id) = scope else {
+        let Scope::Select(id) = scope else {
             return Scope::TopLevel;
         };
         self.scope_parents
@@ -486,7 +486,7 @@ impl IdMap {
             return true;
         }
         match scope {
-            Scope::Prepare(_) => self.is_descendant_or_equal(self.parent_of(scope), ancestor),
+            Scope::Select(_) => self.is_descendant_or_equal(self.parent_of(scope), ancestor),
             Scope::TopLevel => false,
         }
     }
@@ -516,8 +516,8 @@ impl IdMap {
     }
 }
 
-fn prepare_label(scope: u32) -> String {
-    format!("prepare_{scope}")
+fn select_label(scope: u32) -> String {
+    format!("select_{scope}")
 }
 
 struct Compiler<'noise> {
@@ -561,12 +561,12 @@ impl<'noise> Compiler<'noise> {
             ..
         } = block;
 
-        self.id_map.enter_prepare_scope();
+        self.id_map.enter_select_scope();
         self.compile_instruction(block_instruction);
         for item in items {
             self.compile_item(item);
         }
-        self.id_map.exit_prepare_scope();
+        self.id_map.exit_select_scope();
     }
 
     fn compile_line(&mut self, line: &Line) {
@@ -958,7 +958,7 @@ impl<'noise> Compiler<'noise> {
 
             // Control Flow
             "REPEAT" => self.unsupported(instruction),
-            "PREPARE" => self.compile_prepare(instruction),
+            "SELECT" => self.compile_select(instruction),
             "REQUIRE" => self.compile_require(instruction),
 
             // Annotations
@@ -1111,7 +1111,7 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q0, q1]);
     }
 
-    fn compile_prepare(&mut self, instruction: &Instruction) {
+    fn compile_select(&mut self, instruction: &Instruction) {
         if !instruction.targets.is_empty() {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
@@ -1132,21 +1132,21 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        let Scope::Prepare(scope) = self.id_map.current_scope() else {
-            self.push_error(Error::PrepareWithoutBlock {
+        let Scope::Select(scope) = self.id_map.current_scope() else {
+            self.push_error(Error::SelectWithoutBlock {
                 span: instruction.span,
             });
             return;
         };
 
-        let label = prepare_label(scope);
+        let label = select_label(scope);
         self.writer.write_jump(&label); // terminate the previous block
         self.writer.write_label(&label); // start the new block
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {
         if matches!(self.id_map.current_scope(), Scope::TopLevel) {
-            self.push_error(Error::RequireOutsidePrepareBlock {
+            self.push_error(Error::RequireOutsideSelectBlock {
                 span: instruction.span,
             });
             return;
@@ -1193,10 +1193,10 @@ impl<'noise> Compiler<'noise> {
             parity = temp;
         }
 
-        let Scope::Prepare(scope) = self.id_map.current_scope() else {
-            unreachable!("REQUIRE runs inside a prepare block");
+        let Scope::Select(scope) = self.id_map.current_scope() else {
+            unreachable!("REQUIRE runs inside a select block");
         };
-        let restart_label = prepare_label(scope);
+        let restart_label = select_label(scope);
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
             .write_branch(&parity, &restart_label, &continue_label);

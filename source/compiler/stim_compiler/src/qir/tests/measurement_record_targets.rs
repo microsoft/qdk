@@ -1079,10 +1079,10 @@ fn ycz_with_negated_rec_on_second_target_yields_error() {
 }
 
 #[test]
-fn cx_with_rec_control_crossing_prepare_boundary_yields_error() {
+fn cx_with_rec_control_crossing_select_boundary_yields_error() {
     let source = indoc! {"
         M 0
-        PREPARE {
+        SELECT {
           CX rec[-1] 1
         }
     "};
@@ -1091,10 +1091,10 @@ fn cx_with_rec_control_crossing_prepare_boundary_yields_error() {
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-              x measurement record refers to a measurement outside the enclosing PREPARE
+              x measurement record refers to a measurement outside the enclosing SELECT
               | block
                ,-[3:6]
-             2 | PREPARE {
+             2 | SELECT {
              3 |   CX rec[-1] 1
                :      ^^^^^^^
              4 | }
@@ -1104,9 +1104,9 @@ fn cx_with_rec_control_crossing_prepare_boundary_yields_error() {
 }
 
 #[test]
-fn top_level_classical_control_reaches_into_prepare() {
+fn top_level_classical_control_reaches_into_select() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
         }
         CX rec[-1] 1
@@ -1116,8 +1116,8 @@ fn top_level_classical_control_reaches_into_prepare() {
         &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
-          br label %prepare_0
-        prepare_0:
+          br label %select_0
+        select_0:
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
           call void @__quantum__rt__array_record_output(i64 1, ptr null)

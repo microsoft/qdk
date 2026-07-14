@@ -6,10 +6,10 @@ use expect_test::expect;
 use indoc::indoc;
 
 #[test]
-fn simple_prepare_block() {
+fn simple_select_block() {
     // should require result of M 0 == 0
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           REQUIRE rec[-1]
         }
@@ -19,11 +19,11 @@ fn simple_prepare_block() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %prepare_0, label %continue_0
+              br i1 %r_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -56,9 +56,9 @@ fn simple_prepare_block() {
 }
 
 #[test]
-fn long_prepare_block() {
+fn long_select_block() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           X 0
           M 0
           H 1
@@ -73,8 +73,8 @@ fn long_prepare_block() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
@@ -86,7 +86,7 @@ fn long_prepare_block() {
               %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %x_0 = xor i1 %r_0, %r_1
               %x_1 = xor i1 %x_0, %r_2
-              br i1 %x_1, label %prepare_0, label %continue_0
+              br i1 %x_1, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 3, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -125,7 +125,7 @@ fn long_prepare_block() {
 #[test]
 fn multiple_requires_in_block() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           REQUIRE rec[-1]
           M 1
@@ -137,17 +137,17 @@ fn multiple_requires_in_block() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %prepare_0, label %continue_0
+              br i1 %r_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
               %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
               %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %x_0 = xor i1 %r_1, %r_2
-              br i1 %x_0, label %prepare_0, label %continue_1
+              br i1 %x_0, label %select_0, label %continue_1
             continue_1:
               call void @__quantum__rt__array_record_output(i64 2, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -181,10 +181,10 @@ fn multiple_requires_in_block() {
 }
 
 #[test]
-fn prepare_block_no_require() {
-    // should compile to a QIR that works as if there was no prepare
+fn select_block_no_require() {
+    // should compile to a QIR that works as if there was no select
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           M 1
           M 2
@@ -195,8 +195,8 @@ fn prepare_block_no_require() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
               call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
@@ -232,9 +232,9 @@ fn prepare_block_no_require() {
 }
 
 #[test]
-fn empty_prepare_block() {
+fn empty_select_block() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
         }
     "};
     check(
@@ -242,8 +242,8 @@ fn empty_prepare_block() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
@@ -272,9 +272,9 @@ fn empty_prepare_block() {
 }
 
 #[test]
-fn prepare_block_with_args_yields_error() {
+fn select_block_with_args_yields_error() {
     let source = indoc! {"
-        PREPARE(0.5) {
+        SELECT(0.5) {
           M 0
           REQUIRE rec[-1]
         }
@@ -284,10 +284,10 @@ fn prepare_block_with_args_yields_error() {
         &expect![[r#"
             Qdk.Stim.Compiler.UnsupportedArgument
 
-              x unsupported argument in instruction: PREPARE
+              x unsupported argument in instruction: SELECT
                ,-[1:1]
-             1 | PREPARE(0.5) {
-               : ^^^^^^^^^^^^
+             1 | SELECT(0.5) {
+               : ^^^^^^^^^^^
              2 |   M 0
                `----
         "#]],
@@ -295,9 +295,9 @@ fn prepare_block_with_args_yields_error() {
 }
 
 #[test]
-fn prepare_block_with_targets_yields_error() {
+fn select_block_with_targets_yields_error() {
     let source = indoc! {"
-        PREPARE 0 1 {
+        SELECT 0 1 {
           M 0
           REQUIRE rec[-1]
         }
@@ -307,10 +307,10 @@ fn prepare_block_with_targets_yields_error() {
         &expect![[r#"
             Qdk.Stim.Compiler.UnsupportedTarget
 
-              x unsupported target in instruction: PREPARE
-               ,-[1:9]
-             1 | PREPARE 0 1 {
-               :         ^
+              x unsupported target in instruction: SELECT
+               ,-[1:8]
+             1 | SELECT 0 1 {
+               :        ^
              2 |   M 0
                `----
         "#]],
@@ -318,9 +318,9 @@ fn prepare_block_with_targets_yields_error() {
 }
 
 #[test]
-fn prepare_block_with_tag() {
+fn select_block_with_tag() {
     let source = indoc! {"
-        PREPARE[some_tag] {
+        SELECT[some_tag] {
           M 0
           REQUIRE rec[-1]
         }
@@ -330,11 +330,11 @@ fn prepare_block_with_tag() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %prepare_0, label %continue_0
+              br i1 %r_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -369,7 +369,7 @@ fn prepare_block_with_tag() {
 #[test]
 fn require_with_negated_target() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           REQUIRE !rec[-1]
         }
@@ -379,12 +379,12 @@ fn require_with_negated_target() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
               %r_1 = xor i1 %r_0, true
-              br i1 %r_1, label %prepare_0, label %continue_0
+              br i1 %r_1, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -419,7 +419,7 @@ fn require_with_negated_target() {
 #[test]
 fn require_with_integer_target_yields_error() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           REQUIRE 0
         }
@@ -443,7 +443,7 @@ fn require_with_integer_target_yields_error() {
 #[test]
 fn require_with_pauli_target_yields_error() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           REQUIRE X0
         }
@@ -467,7 +467,7 @@ fn require_with_pauli_target_yields_error() {
 #[test]
 fn require_with_no_targets_yields_error() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           REQUIRE
         }
@@ -489,14 +489,14 @@ fn require_with_no_targets_yields_error() {
 }
 
 #[test]
-fn require_no_prepare_block_yields_error() {
+fn require_no_select_block_yields_error() {
     let source = "REQUIRE rec[-1]";
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.RequireOutsidePrepareBlock
+            Qdk.Stim.Compiler.RequireOutsideSelectBlock
 
-              x require must appear inside a PREPARE block
+              x require must appear inside a SELECT block
                ,----
              1 | REQUIRE rec[-1]
                : ^^^^^^^^^^^^^^^
@@ -508,7 +508,7 @@ fn require_no_prepare_block_yields_error() {
 #[test]
 fn require_with_no_measurements_yields_error() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           REQUIRE rec[-1]
         }
     "};
@@ -519,7 +519,7 @@ fn require_with_no_measurements_yields_error() {
 
               x measurement record is out of bounds
                ,-[2:11]
-             1 | PREPARE {
+             1 | SELECT {
              2 |   REQUIRE rec[-1]
                :           ^^^^^^^
              3 | }
@@ -531,7 +531,7 @@ fn require_with_no_measurements_yields_error() {
 #[test]
 fn require_before_measurement_yields_error() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           REQUIRE rec[-1]
           M 0
         }
@@ -543,7 +543,7 @@ fn require_before_measurement_yields_error() {
 
               x measurement record is out of bounds
                ,-[2:11]
-             1 | PREPARE {
+             1 | SELECT {
              2 |   REQUIRE rec[-1]
                :           ^^^^^^^
              3 |   M 0
@@ -555,7 +555,7 @@ fn require_before_measurement_yields_error() {
 #[test]
 fn rec_index_out_of_bounds() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           REQUIRE rec[-2]
         }
@@ -580,7 +580,7 @@ fn rec_index_out_of_bounds() {
 fn rec_index_out_of_scope() {
     let source = indoc! {"
         M 0
-        PREPARE {
+        SELECT {
           M 1
           REQUIRE rec[-2]
         }
@@ -590,7 +590,7 @@ fn rec_index_out_of_scope() {
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-              x measurement record refers to a measurement outside the enclosing PREPARE
+              x measurement record refers to a measurement outside the enclosing SELECT
               | block
                ,-[4:11]
              3 |   M 1
@@ -606,7 +606,7 @@ fn rec_index_out_of_scope() {
 fn reset_does_not_count_as_measurement() {
     // R does not produce a measurement record, so rec[-1] should be out of bounds.
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           R 0
           REQUIRE rec[-1]
         }
@@ -631,7 +631,7 @@ fn reset_does_not_count_as_measurement() {
 fn measure_reset_counts_as_measurement() {
     // MR produces a measurement record.
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           MR 0
           REQUIRE rec[-1]
         }
@@ -641,11 +641,11 @@ fn measure_reset_counts_as_measurement() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %prepare_0, label %continue_0
+              br i1 %r_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -678,9 +678,9 @@ fn measure_reset_counts_as_measurement() {
 }
 
 #[test]
-fn pair_measurement_record_in_prepare() {
+fn pair_measurement_record_in_select() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           MZZ 0 1
           REQUIRE rec[-1]
         }
@@ -690,13 +690,13 @@ fn pair_measurement_record_in_prepare() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
+              br label %select_0
+            select_0:
               call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
               call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %prepare_0, label %continue_0
+              br i1 %r_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -730,11 +730,11 @@ fn pair_measurement_record_in_prepare() {
 }
 
 #[test]
-fn pair_measurement_record_in_prepare_out_of_bounds() {
+fn pair_measurement_record_in_select_out_of_bounds() {
     // A two-qubit measurement produces a single measurement record.
     // So this should not be valid
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           MZZ 0 1
           REQUIRE rec[-1] rec[-2]
         }
@@ -756,10 +756,10 @@ fn pair_measurement_record_in_prepare_out_of_bounds() {
 }
 
 #[test]
-fn nested_prepare_blocks() {
+fn nested_select_blocks() {
     let source = indoc! {"
-        PREPARE {
-          PREPARE {
+        SELECT {
+          SELECT {
             M 0
             REQUIRE rec[-1]
           }
@@ -772,17 +772,17 @@ fn nested_prepare_blocks() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
-              br label %prepare_1
-            prepare_1:
+              br label %select_0
+            select_0:
+              br label %select_1
+            select_1:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %prepare_1, label %continue_0
+              br i1 %r_0, label %select_1, label %continue_0
             continue_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
               %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-              br i1 %r_1, label %prepare_0, label %continue_1
+              br i1 %r_1, label %select_0, label %continue_1
             continue_1:
               call void @__quantum__rt__array_record_output(i64 2, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -816,11 +816,11 @@ fn nested_prepare_blocks() {
 }
 
 #[test]
-fn deeply_nested_prepare_blocks() {
+fn deeply_nested_select_blocks() {
     let source = indoc! {"
-        PREPARE {
-          PREPARE {
-            PREPARE {
+        SELECT {
+          SELECT {
+            SELECT {
               M 0
               REQUIRE rec[-1]
             }
@@ -836,23 +836,23 @@ fn deeply_nested_prepare_blocks() {
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              br label %prepare_0
-            prepare_0:
-              br label %prepare_1
-            prepare_1:
-              br label %prepare_2
-            prepare_2:
+              br label %select_0
+            select_0:
+              br label %select_1
+            select_1:
+              br label %select_2
+            select_2:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %prepare_2, label %continue_0
+              br i1 %r_0, label %select_2, label %continue_0
             continue_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
               %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-              br i1 %r_1, label %prepare_1, label %continue_1
+              br i1 %r_1, label %select_1, label %continue_1
             continue_1:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
               %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-              br i1 %r_2, label %prepare_0, label %continue_2
+              br i1 %r_2, label %select_0, label %continue_2
             continue_2:
               call void @__quantum__rt__array_record_output(i64 3, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -887,10 +887,10 @@ fn deeply_nested_prepare_blocks() {
 }
 
 #[test]
-fn outer_prepare_reaches_into_inner_prepare() {
+fn outer_select_reaches_into_inner_select() {
     let source = indoc! {"
-        PREPARE {
-          PREPARE {
+        SELECT {
+          SELECT {
             M 0
           }
           REQUIRE rec[-1]
@@ -901,13 +901,13 @@ fn outer_prepare_reaches_into_inner_prepare() {
         &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
-          br label %prepare_0
-        prepare_0:
-          br label %prepare_1
-        prepare_1:
+          br label %select_0
+        select_0:
+          br label %select_1
+        select_1:
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %r_0, label %prepare_0, label %continue_0
+          br i1 %r_0, label %select_0, label %continue_0
         continue_0:
           call void @__quantum__rt__array_record_output(i64 1, ptr null)
           call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -940,11 +940,11 @@ fn outer_prepare_reaches_into_inner_prepare() {
 }
 
 #[test]
-fn outer_prepare_reaches_into_deeply_nested_inner_prepare() {
+fn outer_select_reaches_into_deeply_nested_inner_select() {
     let source = indoc! {"
-        PREPARE {
-          PREPARE {
-            PREPARE {
+        SELECT {
+          SELECT {
+            SELECT {
               M 0
             }
           }
@@ -956,15 +956,15 @@ fn outer_prepare_reaches_into_deeply_nested_inner_prepare() {
         &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
-          br label %prepare_0
-        prepare_0:
-          br label %prepare_1
-        prepare_1:
-          br label %prepare_2
-        prepare_2:
+          br label %select_0
+        select_0:
+          br label %select_1
+        select_1:
+          br label %select_2
+        select_2:
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %r_0, label %prepare_0, label %continue_0
+          br i1 %r_0, label %select_0, label %continue_0
         continue_0:
           call void @__quantum__rt__array_record_output(i64 1, ptr null)
           call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -997,11 +997,11 @@ fn outer_prepare_reaches_into_deeply_nested_inner_prepare() {
 }
 
 #[test]
-fn inner_prepare_reaches_into_outer_prepare_yields_error() {
+fn inner_select_reaches_into_outer_select_yields_error() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
-          PREPARE {
+          SELECT {
             REQUIRE rec[-1]
           }
         }
@@ -1011,10 +1011,10 @@ fn inner_prepare_reaches_into_outer_prepare_yields_error() {
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-              x measurement record refers to a measurement outside the enclosing PREPARE
+              x measurement record refers to a measurement outside the enclosing SELECT
               | block
                ,-[4:13]
-             3 |   PREPARE {
+             3 |   SELECT {
              4 |     REQUIRE rec[-1]
                :             ^^^^^^^
              5 |   }
@@ -1024,13 +1024,13 @@ fn inner_prepare_reaches_into_outer_prepare_yields_error() {
 }
 
 #[test]
-fn sibling_prepare_blocks() {
+fn sibling_select_blocks() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
           REQUIRE rec[-1]
         }
-        PREPARE {
+        SELECT {
           M 1
           REQUIRE rec[-1]
         }
@@ -1040,17 +1040,17 @@ fn sibling_prepare_blocks() {
         &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
-          br label %prepare_0
-        prepare_0:
+          br label %select_0
+        select_0:
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
           %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %r_0, label %prepare_0, label %continue_0
+          br i1 %r_0, label %select_0, label %continue_0
         continue_0:
-          br label %prepare_1
-        prepare_1:
+          br label %select_1
+        select_1:
           call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
           %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-          br i1 %r_1, label %prepare_1, label %continue_1
+          br i1 %r_1, label %select_1, label %continue_1
         continue_1:
           call void @__quantum__rt__array_record_output(i64 2, ptr null)
           call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -1084,12 +1084,12 @@ fn sibling_prepare_blocks() {
 }
 
 #[test]
-fn sibling_prepare_block_cannot_require_previous_block_measurement_yields_error() {
+fn sibling_select_block_cannot_require_previous_block_measurement_yields_error() {
     let source = indoc! {"
-        PREPARE {
+        SELECT {
           M 0
         }
-        PREPARE {
+        SELECT {
           M 1
           REQUIRE rec[-2]
         }
@@ -1099,7 +1099,7 @@ fn sibling_prepare_block_cannot_require_previous_block_measurement_yields_error(
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-              x measurement record refers to a measurement outside the enclosing PREPARE
+              x measurement record refers to a measurement outside the enclosing SELECT
               | block
                ,-[6:11]
              5 |   M 1
@@ -1112,22 +1112,22 @@ fn sibling_prepare_block_cannot_require_previous_block_measurement_yields_error(
 }
 
 #[test]
-fn blockless_prepare_yields_error() {
+fn blockless_select_yields_error() {
     let source = indoc! {"
         X 0
-        PREPARE
+        SELECT
         M 0
     "};
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.PrepareWithoutBlock
+            Qdk.Stim.Compiler.SelectWithoutBlock
 
-              x prepare instruction must start a block
+              x select instruction must start a block
                ,-[2:1]
              1 | X 0
-             2 | PREPARE
-               : ^^^^^^^
+             2 | SELECT
+               : ^^^^^^
              3 | M 0
                `----
         "#]],
