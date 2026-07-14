@@ -469,7 +469,7 @@ class EstimatorInputParamsItem:
 
         self.qubit_params: EstimatorQubitParams = EstimatorQubitParams()
         self.qec_scheme: EstimatorQecScheme = EstimatorQecScheme()
-        self.distillation_unit_specifications = []  # type: List[DistillationUnitSpecification]
+        self.distillation_unit_specifications: List[DistillationUnitSpecification] = []
         self.constraints: EstimatorConstraints = EstimatorConstraints()
         self.error_budget: Optional[Union[float, ErrorBudgetPartition]] = None
         self.estimate_type: Optional[str] = None
