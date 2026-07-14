@@ -14,7 +14,7 @@ pub const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restr
 pub const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
 pub const MAX_QUBITS_PER_WORKGROUP: i32 = 18; // Max qubits to be processed by a single workgroup
 pub const THREADS_PER_WORKGROUP: i32 = 32; // 32 gives good occupancy across various GPUs
-pub const MAX_REGISTERS: usize = 4096; // 4096 * 4 bytes = 16 KB of register file size per interpreter
+pub const MAX_REGISTERS: usize = 8192; // 8192 * 4 bytes = 32 KB of register file size per interpreter
 
 // Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
 pub const MAX_PARTITIONED_WORKGROUPS: i32 = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
@@ -298,6 +298,10 @@ pub struct Op {
     pub q1: u32,
     pub q2: u32,
     pub q3: u32, // For ccx
+    pub policy: u32,
+    pub pad0: u32, // for 16-byte alignment
+    pub pad1: u32, // for 16-byte alignment
+    pub pad2: u32, // for 16-byte alignment
     pub r00: f32,
     pub i00: f32,
     pub r01: f32,
@@ -333,7 +337,7 @@ pub struct Op {
 }
 
 // safety check to make sure Op is the correct size with padding at compile time
-const _: () = assert!(std::mem::size_of::<Op>() == 144);
+const _: () = assert!(std::mem::size_of::<Op>() == 160);
 
 impl Default for Op {
     fn default() -> Self {
@@ -342,6 +346,10 @@ impl Default for Op {
             q1: 0,
             q2: 0,
             q3: 0,
+            policy: 0,
+            pad0: 0,
+            pad1: 0,
+            pad2: 0,
             r00: 0.0,
             i00: 0.0,
             r01: 0.0,
@@ -693,10 +701,14 @@ impl Op {
     /// in the op's matrix-storage floats. The host and shader agree that flat
     /// slot `k` maps to WGSL `unitary[k / 2][k % 2]`.
     pub fn set_noise_prob_slot(&mut self, slot: usize, prob: f32) {
-        // Op is 4 leading u32 fields followed by 32 matrix floats
-        // (r00, i00, r01, i01, ...), so matrix flat slot `k` lives at index `4 + k`.
-        let floats: &mut [f32; 36] = bytemuck::cast_mut(self);
-        floats[4 + slot] = prob;
+        // The matrix floats (r00, i00, r01, i01, ...) follow the leading u32
+        // header fields. Derive the lengths from the struct layout so this stays
+        // correct if header fields are added or removed, and so the `cast_mut`
+        // below never hits a size mismatch.
+        const OP_FLOATS: usize = std::mem::size_of::<Op>() / std::mem::size_of::<f32>();
+        const MATRIX_OFFSET: usize = std::mem::offset_of!(Op, r00) / std::mem::size_of::<f32>();
+        let floats: &mut [f32; OP_FLOATS] = bytemuck::cast_mut(self);
+        floats[MATRIX_OFFSET + slot] = prob;
     }
 
     #[must_use]
@@ -928,16 +940,22 @@ impl Op {
     /// in matrix flat slot `i`).
     #[must_use]
     pub fn correlated_noise_qubit(&self, index: u32) -> u32 {
-        let floats: &[f32; 36] = bytemuck::cast_ref(self);
-        // The 4 leading u32 fields precede the 32 matrix floats. Qubit ids are
-        // stored as exact f32 values (range limited to 32), mirroring how the
-        // shader reads them back as u32.
+        // The matrix floats (r00, i00, r01, i01, ...) follow the leading u32
+        // header fields. Derive the lengths from the struct layout so this stays
+        // correct if header fields are added or removed, and so the `cast_mut`
+        // below never hits a size mismatch.
+        const OP_FLOATS: usize = std::mem::size_of::<Op>() / std::mem::size_of::<f32>();
+        const MATRIX_OFFSET: usize = std::mem::offset_of!(Op, r00) / std::mem::size_of::<f32>();
+        let floats: &[f32; OP_FLOATS] = bytemuck::cast_ref(self);
+
+        // Qubit ids are stored as exact f32 values (range limited to 32),
+        // mirroring how the shader reads them back as u32.
         #[allow(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
             reason = "qubit ids are small non-negative integers stored exactly as f32"
         )]
-        let qubit = floats[4 + index as usize] as u32;
+        let qubit = floats[MATRIX_OFFSET + index as usize] as u32;
         qubit
     }
 

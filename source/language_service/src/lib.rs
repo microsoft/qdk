@@ -60,22 +60,22 @@ impl LanguageService {
         }
     }
 
-    /// Creates an `UpdateWorker`. An update worker will read messages posted
+    /// Creates an `UpdateHandler`. An update handler will read messages posted
     /// to the update channel and apply them, sequentially, to the compilation state.
     ///
     /// This method *must* be called for the language service to do any work.
-    /// The caller needs to start the worker by calling `.run()` .
-    pub fn create_update_worker<'a>(
+    /// The caller needs to start the handler by calling `.run()` .
+    pub fn create_update_handler<'a>(
         &mut self,
         diagnostics_receiver: impl Fn(DiagnosticUpdate) + 'a,
         // Callback which receives detected test callables and does something with them
         // in the case of VS Code, updates the test explorer with them
         test_callable_receiver: impl Fn(TestCallables) + 'a,
         project_host: impl JSProjectHost + 'static,
-    ) -> UpdateWorker<'a> {
+    ) -> UpdateHandler<'a> {
         assert!(self.state_updater.is_none());
         let (send, recv) = unbounded();
-        let worker = UpdateWorker {
+        let handler = UpdateHandler {
             updater: CompilationStateUpdater::new(
                 self.state.clone(),
                 diagnostics_receiver,
@@ -86,15 +86,15 @@ impl LanguageService {
             recv,
         };
         self.state_updater = Some(send);
-        worker
+        handler
     }
 
     /// Stops the language service from processing further updates.
-    /// This will stop the update worker, and any update operations
+    /// This will stop the update handler, and any update operations
     /// that the language service receives after this call will be ignored.
     pub fn stop_updates(&mut self) {
         // Dropping the sender will cause the
-        // worker created in [`create_update_worker()`] to stop.
+        // handler created in [`create_update_handler()`] to stop.
         self.state_updater = None;
     }
 
@@ -319,7 +319,7 @@ impl LanguageService {
     }
 
     /// Queues an update to the compilation state. The message will be handled, and the
-    /// actual compilation state update, by the update worker which was created in `create_update_worker()`.
+    /// actual compilation state update, by the update handler which was created in `create_update_handler()`.
     ///
     /// All "update" operations should go through this method.
     fn send_update(&mut self, update: Update) {
@@ -328,23 +328,23 @@ impl LanguageService {
                 .unbounded_send(update)
                 .expect("send error in queue_update");
         } else {
-            warn!("Ignoring update, no worker is listening");
+            warn!("Ignoring update, no handler is listening");
         }
     }
 }
 
-pub struct UpdateWorker<'a> {
+pub struct UpdateHandler<'a> {
     updater: CompilationStateUpdater<'a>,
     recv: UnboundedReceiver<Update>,
 }
 
-impl UpdateWorker<'_> {
-    /// Runs the update worker. This method is expected to run
+impl UpdateHandler<'_> {
+    /// Runs the update handler. This method is expected to run
     /// for the entire lifetime of the language service.
     ///
     /// It returns a future that will only complete when the
     /// language service has explicitly closed the message
-    /// channel, in `stop_update_worker()`.
+    /// channel, in `stop_update_handler()`.
     ///
     pub async fn run(&mut self) {
         while let Some(update) = self.recv.next().await {
@@ -357,7 +357,7 @@ impl UpdateWorker<'_> {
     /// to control exactly when updates are applied.
     ///
     /// Since `run()` will mutably borrow `self` for the entire
-    /// lifetime of the worker, this method should not ever be used
+    /// lifetime of the handler, this method should not ever be used
     /// if `run()` has been called.
     #[cfg(test)]
     async fn apply_pending(&mut self) {

@@ -198,8 +198,17 @@ pub fn get_circuit(
             .map_err(interpret_errors_into_qsharp_errors_json)?;
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     } else {
-        let (source_map, capabilities, language_features, store, deps) =
+        let (source_map, mut capabilities, language_features, store, deps) =
             into_qsc_args(program, None, false).map_err(compile_errors_into_qsharp_errors_json)?;
+
+        if method == qsc::interpret::CircuitGenerationMethod::Static
+            && capabilities > Profile::AdaptiveRIF.into()
+        {
+            // If the program itself is annotated for a profile that is more capable than Adaptive_RIF,
+            // we need to fall back to Adaptive_RIF. Higher profiles generate patterns that static circuit
+            // construction cannot handle.
+            capabilities = Profile::AdaptiveRIF.into();
+        }
 
         let (package_type, entry_point) = match operation {
             Some(p) => {

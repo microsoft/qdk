@@ -19,8 +19,13 @@ from qdk.qre.property_keys import (
     ACCELERATION,
     ASSUMPTIONS,
     ATOM_SPACING,
+    BASE_SYSTEM_COST,
+    COST_PER_HOUR,
+    COST_PER_QUBIT,
+    COST_PER_QUBIT_PER_HOUR,
     DISTANCE,
     FEASIBILITY,
+    SHOT_COST,
     TARGET_YEAR,
     VELOCITY,
 )
@@ -193,6 +198,41 @@ def test_qualitative_property_keys():
     assert property_name_to_key("target_year") == TARGET_YEAR
 
 
+def test_cost_property_keys():
+    """Test the cost property keys added for resource-estimator costing data."""
+    keys = {
+        BASE_SYSTEM_COST,
+        SHOT_COST,
+        COST_PER_QUBIT,
+        COST_PER_HOUR,
+        COST_PER_QUBIT_PER_HOUR,
+    }
+    assert len(keys) == 5
+    assert BASE_SYSTEM_COST != DISTANCE
+    assert SHOT_COST != DISTANCE
+    assert COST_PER_QUBIT != DISTANCE
+    assert COST_PER_HOUR != DISTANCE
+    assert COST_PER_QUBIT_PER_HOUR != DISTANCE
+
+    assert property_name(BASE_SYSTEM_COST) == "BASE_SYSTEM_COST"
+    assert property_name(SHOT_COST) == "SHOT_COST"
+    assert property_name(COST_PER_QUBIT) == "COST_PER_QUBIT"
+    assert property_name(COST_PER_HOUR) == "COST_PER_HOUR"
+    assert property_name(COST_PER_QUBIT_PER_HOUR) == "COST_PER_QUBIT_PER_HOUR"
+
+    assert property_name_to_key("BASE_SYSTEM_COST") == BASE_SYSTEM_COST
+    assert property_name_to_key("SHOT_COST") == SHOT_COST
+    assert property_name_to_key("COST_PER_QUBIT") == COST_PER_QUBIT
+    assert property_name_to_key("COST_PER_HOUR") == COST_PER_HOUR
+    assert property_name_to_key("COST_PER_QUBIT_PER_HOUR") == COST_PER_QUBIT_PER_HOUR
+
+    assert property_name_to_key("base_system_cost") == BASE_SYSTEM_COST
+    assert property_name_to_key("shot_cost") == SHOT_COST
+    assert property_name_to_key("cost_per_qubit") == COST_PER_QUBIT
+    assert property_name_to_key("cost_per_hour") == COST_PER_HOUR
+    assert property_name_to_key("cost_per_qubit_per_hour") == COST_PER_QUBIT_PER_HOUR
+
+
 def test_qualitative_properties_on_instruction():
     """Test setting and retrieving qualitative properties on instructions."""
     instr = _make_instruction(
@@ -217,6 +257,38 @@ def test_qualitative_properties_on_instruction():
     assert instr.get_property(ASSUMPTIONS) == 42
     assert instr.get_property(FEASIBILITY) == 4
     assert instr.get_property(TARGET_YEAR) == 2030
+
+
+def test_cost_properties_on_instruction():
+    """Test setting and retrieving costing properties on instructions."""
+    instr = _make_instruction(
+        T,
+        1,
+        1,
+        1000,
+        None,
+        None,
+        1e-8,
+        {
+            "base_system_cost": 10,
+            "shot_cost": 15,
+            "cost_per_qubit": 20,
+            "cost_per_hour": 30,
+            "cost_per_qubit_per_hour": 40,
+        },
+    )
+
+    assert instr.has_property(BASE_SYSTEM_COST) is True
+    assert instr.has_property(SHOT_COST) is True
+    assert instr.has_property(COST_PER_QUBIT) is True
+    assert instr.has_property(COST_PER_HOUR) is True
+    assert instr.has_property(COST_PER_QUBIT_PER_HOUR) is True
+
+    assert instr.get_property(BASE_SYSTEM_COST) == 10
+    assert instr.get_property(SHOT_COST) == 15
+    assert instr.get_property(COST_PER_QUBIT) == 20
+    assert instr.get_property(COST_PER_HOUR) == 30
+    assert instr.get_property(COST_PER_QUBIT_PER_HOUR) == 40
 
 
 def test_block_linear_function():
@@ -276,10 +348,58 @@ def test_generic_function():
     space_fn = generic_function(lambda x: 12)
     assert isinstance(space_fn, _FloatFunction)
 
+    # I can provide an optional second argument for an int-valued function
+    def time2(x: int, params: list[float]) -> int:
+        return x + int(sum(params))
+
+    time_fn2 = generic_function(time2)
+    assert isinstance(time_fn2, _IntFunction)
+    assert time_fn2(5, [1.0, 2.0]) == 8
+
+    # I can provide an optional second argument for a float-valued function
+    def error_rate2(x: int, params: list[float]) -> float:
+        return x + sum(params)
+
+    error_rate_fn2 = generic_function(error_rate2)
+    assert isinstance(error_rate_fn2, _FloatFunction)
+    assert error_rate_fn2(5, [1.0, 2.0]) == 8.0
+
     i = _make_instruction(42, 0, None, time_fn, 12, None, error_rate_fn, {})
     assert i.space(5) == 12
     assert i.time(5) == 25
     assert i.error_rate(5) == 2.5
+
+
+def test_generic_function_stringized_annotations():
+    """Test that string return annotations (PEP 563) select int vs float."""
+    from qdk.qre._qre import _IntFunction, _FloatFunction
+
+    # Simulate `from __future__ import annotations`, where annotations are
+    # stored as strings rather than the actual type objects.
+    def int_fn(arity):
+        return arity * 2
+
+    int_fn.__annotations__ = {"arity": "int", "return": "int"}
+    assert isinstance(generic_function(int_fn), _IntFunction)
+
+    def float_fn(arity):
+        return arity / 2.0
+
+    float_fn.__annotations__ = {"arity": "int", "return": "float"}
+    assert isinstance(generic_function(float_fn), _FloatFunction)
+
+    # Stringized int annotation combined with a params argument.
+    def int_params_fn(arity, params):
+        return arity + int(sum(params))
+
+    int_params_fn.__annotations__ = {
+        "arity": "int",
+        "params": "list[float]",
+        "return": "int",
+    }
+    fn = generic_function(int_params_fn)
+    assert isinstance(fn, _IntFunction)
+    assert fn(5, [1.0, 2.0]) == 8
 
 
 def test_isa_from_architecture():

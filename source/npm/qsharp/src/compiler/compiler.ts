@@ -124,7 +124,7 @@ export class Compiler implements ICompiler {
   async checkCode(code: string): Promise<VSDiagnostic[]> {
     let diags: VSDiagnostic[] = [];
     const languageService = new this.wasm.LanguageService();
-    const work = languageService.start_background_work(
+    const update_loop = languageService.start_update_loop(
       (uri: string, version: number | undefined, errors: VSDiagnostic[]) => {
         diags = errors;
       },
@@ -140,10 +140,10 @@ export class Compiler implements ICompiler {
       },
     );
     languageService.update_document("code", 1, code, "qsharp");
-    // Yield to let the language service background worker handle the update
+    // Yield to let the language service update loop handle the update
     await Promise.resolve();
-    languageService.stop_background_work();
-    await work;
+    languageService.stop_update_loop();
+    await update_loop;
     languageService.free();
     return diags;
   }
@@ -159,7 +159,7 @@ export class Compiler implements ICompiler {
   }
 
   async getRir(program: ProgramConfig): Promise<string[]> {
-    const config = toWasmProgramConfig(program, "adaptive_ri");
+    const config = toWasmProgramConfig(program, "adaptive_rif");
     return callAndTransformExceptions(async () => this.wasm.get_rir(config));
   }
 
@@ -204,7 +204,7 @@ export class Compiler implements ICompiler {
 
   async getQir(program: ProgramConfig): Promise<string> {
     return callAndTransformExceptions(async () =>
-      this.wasm.get_qir(toWasmProgramConfig(program, "base")),
+      this.wasm.get_qir(toWasmProgramConfig(program, "adaptive_rif")),
     );
   }
 

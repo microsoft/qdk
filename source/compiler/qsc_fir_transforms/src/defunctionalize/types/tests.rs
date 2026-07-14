@@ -40,6 +40,36 @@ fn join_with_condition_single_multi_inserts_into_set() {
 }
 
 #[test]
+fn join_with_condition_single_multi_shared_callable_keeps_both_arms() {
+    // `if cOuter { W } else { if b {W} else {Z} }`: `W` reaches the local from
+    // the true branch and also from the false-branch inner conditional under a
+    // different guard. The merge must keep both `W` arms — collapsing the
+    // true-branch `W` against the inner occurrence would drop the `cOuter` arm
+    // and reroute that path through `b`'s guard instead of unconditionally
+    // selecting `W`.
+    let inner_b = ExprId::from(20u32);
+    let cc_w = global(1);
+    let cc_z = global(4);
+
+    let lhs = CalleeLattice::Single(cc_w.clone());
+    let rhs = CalleeLattice::Multi(vec![(cc_w.clone(), vec![inner_b]), (cc_z.clone(), vec![])]);
+
+    let result = lhs.join_with_condition(rhs, cond());
+
+    match result {
+        CalleeLattice::Multi(entries) => {
+            assert_eq!(entries.len(), 3);
+            // The true-branch `W` is prepended with the outer condition and is
+            // not deduplicated against the false-branch `W`.
+            assert_eq!(entries[0], (cc_w.clone(), vec![cond()]));
+            assert_eq!(entries[1], (cc_w, vec![inner_b]));
+            assert_eq!(entries[2], (cc_z, vec![]));
+        }
+        other => panic!("expected Multi, got {other:?}"),
+    }
+}
+
+#[test]
 fn join_with_condition_multi_single_inserts_into_set() {
     let a = global(1);
     let b = global(2);

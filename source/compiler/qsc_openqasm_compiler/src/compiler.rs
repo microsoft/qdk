@@ -39,9 +39,8 @@ use crate::{
     },
     get_semantic_errors_from_lowering_result,
 };
-use qsc_ast::ast::{self as qsast, NodeId, Package};
-use qsc_openqasm_parser::semantic::ast as semast;
-use qsc_openqasm_parser::{
+use qdk_openqasm_parser::semantic::ast as semast;
+use qdk_openqasm_parser::{
     io::SourceResolver,
     parser::ast::{List, PathKind, list_from_iter},
     semantic::{
@@ -56,6 +55,7 @@ use qsc_openqasm_parser::{
     },
     stdlib::complex::Complex,
 };
+use qsc_ast::ast::{self as qsast, NodeId, Package};
 
 const QSHARP_QIR_INTRINSIC_ANNOTATION: &str = "SimulatableIntrinsic";
 const QDK_QIR_INTRINSIC_ANNOTATION: &str = "qdk.qir.intrinsic";
@@ -63,6 +63,20 @@ const QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION: &str = "NoiseIntrinsic";
 const QDK_QIR_NOISE_INTRINSIC_ANNOTATION: &str = "qdk.qir.noise_intrinsic";
 const QSHARP_CONFIG_ANNOTATION: &str = "Config";
 const QDK_CONFIG_ANNOTATION: &str = "qdk.qir.profile";
+
+/// The QDK-namespaced annotation names recognized by the compiler.
+pub const SUPPORTED_QDK_ANNOTATIONS: [&str; 3] = [
+    QDK_QIR_INTRINSIC_ANNOTATION,
+    QDK_QIR_NOISE_INTRINSIC_ANNOTATION,
+    QDK_CONFIG_ANNOTATION,
+];
+
+/// Returns `true` if the given annotation name configures the QIR target profile,
+/// accepting either the QDK-namespaced or bare Q#-style spelling.
+#[must_use]
+pub fn annotation_configures_profile(name: &str) -> bool {
+    name == QSHARP_CONFIG_ANNOTATION || name == QDK_CONFIG_ANNOTATION
+}
 
 /// Helper to create an error expression. Used when we fail to
 /// compile an expression. It is assumed that an error was
@@ -72,6 +86,10 @@ fn err_expr(span: Span) -> qsast::Expr {
         span,
         ..Default::default()
     }
+}
+
+fn boxed_list_from_iter<T>(iter: impl IntoIterator<Item = T>) -> Box<[Box<T>]> {
+    iter.into_iter().map(Box::new).collect()
 }
 
 #[must_use]
@@ -86,9 +104,9 @@ pub fn parse_and_compile_to_qsharp_ast_with_config<
     config: CompilerConfig,
 ) -> QasmCompileUnit {
     let res = if let Some(resolver) = resolver {
-        qsc_openqasm_parser::semantic::parse_source(source, path, resolver)
+        qdk_openqasm_parser::semantic::parse_source(source, path, resolver)
     } else {
-        qsc_openqasm_parser::semantic::parse(source, path)
+        qdk_openqasm_parser::semantic::parse(source, path)
     };
     compile_to_qsharp_ast_with_config(res, config)
 }
@@ -132,17 +150,62 @@ pub enum PragmaKind {
     QdkQirProfile,
 }
 
+impl PragmaKind {
+    /// Returns the canonical source spelling of the pragma name.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PragmaKind::QdkBoxOpen => "qdk.box.open",
+            PragmaKind::QdkBoxClose => "qdk.box.close",
+            PragmaKind::QdkQirProfile => "qdk.qir.profile",
+        }
+    }
+
+    /// Returns all supported pragma kinds.
+    #[must_use]
+    pub fn all() -> [PragmaKind; 3] {
+        [
+            PragmaKind::QdkBoxOpen,
+            PragmaKind::QdkBoxClose,
+            PragmaKind::QdkQirProfile,
+        ]
+    }
+}
+
 impl FromStr for PragmaKind {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "qdk.box.open" => Ok(PragmaKind::QdkBoxOpen),
-            "qdk.box.close" => Ok(PragmaKind::QdkBoxClose),
-            "qdk.qir.profile" => Ok(PragmaKind::QdkQirProfile),
-            _ => Err(()),
-        }
+        let lowered = s.to_lowercase();
+        PragmaKind::all()
+            .into_iter()
+            .find(|kind| kind.as_str() == lowered)
+            .ok_or(())
     }
+}
+
+/// Returns true when the function type takes no parameters and returns void.
+/// This is the requirement for a `qdk.box.open`/`qdk.box.close` pragma target.
+fn is_parameterless_and_returns_void(args: &Arc<[Type]>, return_ty: &Arc<Type>) -> bool {
+    args.is_empty() && matches!(&**return_ty, Type::Void)
+}
+
+/// Returns the names of all symbols that are valid targets for the
+/// `qdk.box.open` and `qdk.box.close` pragmas. A valid target is a function
+/// that takes no parameters and returns void.
+#[must_use]
+pub fn valid_box_pragma_targets(symbols: &SymbolTable) -> Vec<String> {
+    symbols
+        .symbols()
+        .filter_map(|symbol| match &symbol.ty {
+            Type::Function(args, return_ty)
+                if is_parameterless_and_returns_void(args, return_ty) =>
+            {
+                Some(symbol.name.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 #[derive(Eq, PartialEq, Default)]
@@ -524,7 +587,7 @@ impl QasmCompiler {
                     .filter(|symbol| {
                         matches!(
                             symbol.ty,
-                            qsc_openqasm_parser::semantic::types::Type::BitArray(..)
+                            qdk_openqasm_parser::semantic::types::Type::BitArray(..)
                         )
                     })
                     .map(|symbol| {
@@ -564,7 +627,7 @@ impl QasmCompiler {
                     .filter(|symbol| {
                         matches!(
                             symbol.ty,
-                            qsc_openqasm_parser::semantic::types::Type::BitArray(..)
+                            qdk_openqasm_parser::semantic::types::Type::BitArray(..)
                         )
                     })
                     .map(|symbol| self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span))
@@ -611,9 +674,9 @@ impl QasmCompiler {
         }
     }
 
-    fn compile_stmts(&mut self, stmts: &[Box<qsc_openqasm_parser::semantic::ast::Stmt>]) {
+    fn compile_stmts(&mut self, stmts: &[qdk_openqasm_parser::semantic::ast::Stmt]) {
         for stmt in stmts {
-            let compiled_stmt = self.compile_stmt(stmt.as_ref());
+            let compiled_stmt = self.compile_stmt(stmt);
             if let Some(stmt) = compiled_stmt {
                 self.stmts.push(stmt);
             }
@@ -622,7 +685,7 @@ impl QasmCompiler {
 
     fn compile_stmt(
         &mut self,
-        stmt: &qsc_openqasm_parser::semantic::ast::Stmt,
+        stmt: &qdk_openqasm_parser::semantic::ast::Stmt,
     ) -> Option<qsast::Stmt> {
         if !stmt.annotations.is_empty()
             && !matches!(
@@ -855,7 +918,7 @@ impl QasmCompiler {
         let block = qsast::Block {
             id: Default::default(),
             span: rhs_span,
-            stmts: list_from_iter(vec![temp_var_stmt, update_stmt, implicit_return]),
+            stmts: boxed_list_from_iter(vec![temp_var_stmt, update_stmt, implicit_return]),
         };
 
         let rhs = qsast::Expr {
@@ -903,7 +966,7 @@ impl QasmCompiler {
 
         let block = qsast::Block {
             id: qsast::NodeId::default(),
-            stmts: list_from_iter(stmts),
+            stmts: boxed_list_from_iter(stmts),
             span: stmt.span,
         };
 
@@ -918,7 +981,7 @@ impl QasmCompiler {
             .collect::<Vec<_>>();
         qsast::Block {
             id: qsast::NodeId::default(),
-            stmts: list_from_iter(stmts),
+            stmts: boxed_list_from_iter(stmts),
             span: block.span,
         }
     }
@@ -986,7 +1049,7 @@ impl QasmCompiler {
                 // this can happen if the def statement shadows a non-def symbol
                 // Since the symbol is not a function, we assume it returns an error type.
                 // There is already an error reported for this case.
-                &Arc::from(qsc_openqasm_parser::semantic::types::Type::Err)
+                &Arc::from(qdk_openqasm_parser::semantic::types::Type::Err)
             }
         };
 
@@ -1034,9 +1097,7 @@ impl QasmCompiler {
         if let Some(annotation) = annotations
             .iter()
             .find(|annotation| Self::is_noise_intrinsic(annotation))
-            && !annotations
-                .iter()
-                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
+            && !annotations.iter().any(Self::is_simulatable_intrinsic)
         {
             attrs.push(build_attr(
                 QSHARP_QIR_INTRINSIC_ANNOTATION,
@@ -1058,7 +1119,7 @@ impl QasmCompiler {
             return_type,
             kind,
             None,
-            list_from_iter(attrs),
+            boxed_list_from_iter(attrs),
         ))
     }
 
@@ -1319,7 +1380,7 @@ impl QasmCompiler {
             args.is_empty()
                 && matches!(
                     &**return_ty,
-                    qsc_openqasm_parser::semantic::types::Type::Void
+                    qdk_openqasm_parser::semantic::types::Type::Void
                 )
         }
 
@@ -1341,7 +1402,7 @@ impl QasmCompiler {
         match (pragma, stmt.value.as_ref()) {
             (PragmaKind::QdkBoxOpen, Some(value)) => {
                 if let Ok(symbol) = self.symbols.get_symbol_by_name(value)
-                    && let qsc_openqasm_parser::semantic::types::Type::Function(args, return_ty) =
+                    && let qdk_openqasm_parser::semantic::types::Type::Function(args, return_ty) =
                         &symbol.1.ty
                     && is_parameterless_and_returns_void(args, return_ty)
                 {
@@ -1356,7 +1417,7 @@ impl QasmCompiler {
             }
             (PragmaKind::QdkBoxClose, Some(value)) => {
                 if let Ok(symbol) = self.symbols.get_symbol_by_name(value)
-                    && let qsc_openqasm_parser::semantic::types::Type::Function(args, return_ty) =
+                    && let qdk_openqasm_parser::semantic::types::Type::Function(args, return_ty) =
                         &symbol.1.ty
                     && is_parameterless_and_returns_void(args, return_ty)
                 {
@@ -1460,9 +1521,7 @@ impl QasmCompiler {
         if let Some(annotation) = annotations
             .iter()
             .find(|annotation| Self::is_noise_intrinsic(annotation))
-            && !annotations
-                .iter()
-                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
+            && !annotations.iter().any(Self::is_simulatable_intrinsic)
         {
             attrs.push(build_attr(
                 QSHARP_QIR_INTRINSIC_ANNOTATION,
@@ -1473,10 +1532,7 @@ impl QasmCompiler {
 
         // Determine which functors this gate needs based on how it's called.
         // Do not compile functors if we have the simulatable intrinsic annotation.
-        let functors = if annotations
-            .iter()
-            .any(|annotation| Self::is_simulatable_intrinsic(annotation))
-        {
+        let functors = if annotations.iter().any(Self::is_simulatable_intrinsic) {
             None
         } else {
             // Use the constraint solver results to determine required functors.
@@ -1502,7 +1558,7 @@ impl QasmCompiler {
             build_path_ident_ty("Unit"),
             qsast::CallableKind::Operation,
             functors,
-            list_from_iter(attrs),
+            boxed_list_from_iter(attrs),
         ))
     }
 
@@ -1606,7 +1662,7 @@ impl QasmCompiler {
     }
 
     fn compile_reset_stmt(&mut self, stmt: &semast::ResetStmt) -> Option<qsast::Stmt> {
-        let is_register = matches!(stmt.operand.kind, qsc_openqasm_parser::semantic::ast::GateOperandKind::Expr(ref expr) if matches!(expr.ty, Type::QubitArray(..)));
+        let is_register = matches!(stmt.operand.kind, qdk_openqasm_parser::semantic::ast::GateOperandKind::Expr(ref expr) if matches!(expr.ty, Type::QubitArray(..)));
 
         let operand = self.compile_gate_operand(&stmt.operand);
         let operand_span = operand.span;
@@ -1702,7 +1758,7 @@ impl QasmCompiler {
                 let block_stmt = self.compile_stmt(&stmt.body)?;
                 let block = qsast::Block {
                     id: qsast::NodeId::default(),
-                    stmts: list_from_iter([block_stmt]),
+                    stmts: boxed_list_from_iter([block_stmt]),
                     span: stmt.span,
                 };
                 Some(build_while_stmt(condition, block, stmt.span))
@@ -1865,8 +1921,8 @@ impl QasmCompiler {
         op: qsast::BinOp,
         lhs: qsast::Expr,
         rhs: qsast::Expr,
-        lhs_ty: &qsc_openqasm_parser::semantic::types::Type,
-        rhs_ty: &qsc_openqasm_parser::semantic::types::Type,
+        lhs_ty: &qdk_openqasm_parser::semantic::types::Type,
+        rhs_ty: &qdk_openqasm_parser::semantic::types::Type,
     ) -> qsast::Expr {
         let span = Span {
             lo: lhs.span.lo,
@@ -1984,29 +2040,29 @@ impl QasmCompiler {
 
         let expr = self.compile_expr(&cast.expr);
         let cast_expr = match cast.expr.ty {
-            qsc_openqasm_parser::semantic::types::Type::Bit(_) => {
+            qdk_openqasm_parser::semantic::types::Type::Bit(_) => {
                 Self::cast_bit_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
             }
-            qsc_openqasm_parser::semantic::types::Type::Bool(_) => {
+            qdk_openqasm_parser::semantic::types::Type::Bool(_) => {
                 Self::cast_bool_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
             }
-            qsc_openqasm_parser::semantic::types::Type::Duration(_) => {
+            qdk_openqasm_parser::semantic::types::Type::Duration(_) => {
                 self.cast_duration_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
             }
-            qsc_openqasm_parser::semantic::types::Type::Angle(_, _) => {
+            qdk_openqasm_parser::semantic::types::Type::Angle(_, _) => {
                 Self::cast_angle_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
             }
-            qsc_openqasm_parser::semantic::types::Type::Complex(_, _) => {
+            qdk_openqasm_parser::semantic::types::Type::Complex(_, _) => {
                 self.cast_complex_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
             }
-            qsc_openqasm_parser::semantic::types::Type::Float(_, _) => {
+            qdk_openqasm_parser::semantic::types::Type::Float(_, _) => {
                 Self::cast_float_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
             }
-            qsc_openqasm_parser::semantic::types::Type::Int(_, _)
-            | qsc_openqasm_parser::semantic::types::Type::UInt(_, _) => {
+            qdk_openqasm_parser::semantic::types::Type::Int(_, _)
+            | qdk_openqasm_parser::semantic::types::Type::UInt(_, _) => {
                 Self::cast_int_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
             }
-            qsc_openqasm_parser::semantic::types::Type::BitArray(size, _) => {
+            qdk_openqasm_parser::semantic::types::Type::BitArray(size, _) => {
                 Self::cast_bit_array_expr_to_ty(expr, &cast.expr.ty, &cast.ty, size, cast.span)
             }
             _ => err_expr(cast.span),
@@ -2034,7 +2090,7 @@ impl QasmCompiler {
     fn compile_measure_expr(
         &mut self,
         expr: &MeasureExpr,
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
     ) -> qsast::Expr {
         assert!(matches!(ty, Type::BitArray(..) | Type::Bit(..)));
 
@@ -2197,8 +2253,8 @@ impl QasmCompiler {
     /// +----------------+-------+-----+------+-------+-------+-----+----------+-------+
     fn cast_angle_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qsc_openqasm_parser::semantic::types::Type,
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Angle(..)));
@@ -2239,8 +2295,8 @@ impl QasmCompiler {
     /// +----------------+-------+-----+------+-------+-------+-----+----------+-------+
     fn cast_bit_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qsc_openqasm_parser::semantic::types::Type,
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Bit(..)));
@@ -2287,8 +2343,8 @@ impl QasmCompiler {
 
     fn cast_bit_array_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qsc_openqasm_parser::semantic::types::Type,
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
         size: u32,
         span: Span,
     ) -> qsast::Expr {
@@ -2330,8 +2386,8 @@ impl QasmCompiler {
     /// +----------------+-------+-----+------+-------+-------+-----+----------+-------+
     fn cast_bool_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qsc_openqasm_parser::semantic::types::Type,
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Bool(..)));
@@ -2373,8 +2429,8 @@ impl QasmCompiler {
     fn cast_complex_expr_to_ty(
         &mut self,
         _expr: qsast::Expr,
-        _expr_ty: &qsc_openqasm_parser::semantic::types::Type,
-        _ty: &qsc_openqasm_parser::semantic::types::Type,
+        _expr_ty: &qdk_openqasm_parser::semantic::types::Type,
+        _ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         self.push_unimplemented_error_message("cast complex expressions", span);
@@ -2384,8 +2440,8 @@ impl QasmCompiler {
     fn cast_duration_expr_to_ty(
         &mut self,
         _expr: qsast::Expr,
-        _expr_ty: &qsc_openqasm_parser::semantic::types::Type,
-        _ty: &qsc_openqasm_parser::semantic::types::Type,
+        _expr_ty: &qdk_openqasm_parser::semantic::types::Type,
+        _ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         self.push_unimplemented_error_message("cast duration expressions", span);
@@ -2403,8 +2459,8 @@ impl QasmCompiler {
     /// Additional cast to complex
     fn cast_float_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qsc_openqasm_parser::semantic::types::Type,
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Float(..)));
@@ -2476,8 +2532,8 @@ impl QasmCompiler {
     #[allow(clippy::too_many_lines)]
     fn cast_int_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qsc_openqasm_parser::semantic::types::Type,
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Int(..) | Type::UInt(..)));
@@ -2573,7 +2629,7 @@ impl QasmCompiler {
 
     fn map_semantic_type_to_qsharp_type(
         &mut self,
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> crate::types::Type {
         let mut errors = Vec::new();
@@ -2587,15 +2643,15 @@ impl QasmCompiler {
     /// Mapping from an `OpenQASM` semantic type to its Q# equivalent.
     /// Returns the mapped type and any errors that would have been pushed.
     fn semantic_type_for_qsharp_type(
-        ty: &qsc_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm_parser::semantic::types::Type,
         span: Span,
         errs: &mut Vec<CompilerErrorKind>,
     ) -> crate::types::Type {
-        use qsc_openqasm_parser::semantic::types::Type;
+        use qdk_openqasm_parser::semantic::types::Type;
         if ty.is_array()
             && matches!(
                 ty.array_dims(),
-                Some(qsc_openqasm_parser::semantic::types::ArrayDimensions::Err)
+                Some(qdk_openqasm_parser::semantic::types::ArrayDimensions::Err)
             )
         {
             errs.push(unsupported_err("arrays with more than 7 dimensions", span));
@@ -2641,7 +2697,7 @@ impl QasmCompiler {
             Type::Array(array)
                 if !matches!(
                     array.base_ty,
-                    qsc_openqasm_parser::semantic::types::ArrayBaseType::Duration
+                    qdk_openqasm_parser::semantic::types::ArrayBaseType::Duration
                 ) =>
             {
                 let dims = (&array.dims).into();
@@ -2698,25 +2754,25 @@ impl QasmCompiler {
     }
 
     fn make_qsharp_array_ty(
-        base_ty: &qsc_openqasm_parser::semantic::types::ArrayBaseType,
+        base_ty: &qdk_openqasm_parser::semantic::types::ArrayBaseType,
         dims: crate::types::ArrayDimensions,
     ) -> crate::types::Type {
         match base_ty {
-            qsc_openqasm_parser::semantic::types::ArrayBaseType::Duration => unreachable!(),
-            qsc_openqasm_parser::semantic::types::ArrayBaseType::Bool => {
+            qdk_openqasm_parser::semantic::types::ArrayBaseType::Duration => unreachable!(),
+            qdk_openqasm_parser::semantic::types::ArrayBaseType::Bool => {
                 crate::types::Type::BoolArray(dims)
             }
-            qsc_openqasm_parser::semantic::types::ArrayBaseType::Angle(_) => {
+            qdk_openqasm_parser::semantic::types::ArrayBaseType::Angle(_) => {
                 crate::types::Type::AngleArray(dims)
             }
-            qsc_openqasm_parser::semantic::types::ArrayBaseType::Complex(_) => {
+            qdk_openqasm_parser::semantic::types::ArrayBaseType::Complex(_) => {
                 crate::types::Type::ComplexArray(dims)
             }
-            qsc_openqasm_parser::semantic::types::ArrayBaseType::Float(_) => {
+            qdk_openqasm_parser::semantic::types::ArrayBaseType::Float(_) => {
                 crate::types::Type::DoubleArray(dims)
             }
-            qsc_openqasm_parser::semantic::types::ArrayBaseType::Int(width)
-            | qsc_openqasm_parser::semantic::types::ArrayBaseType::UInt(width) => {
+            qdk_openqasm_parser::semantic::types::ArrayBaseType::Int(width)
+            | qdk_openqasm_parser::semantic::types::ArrayBaseType::UInt(width) => {
                 if let Some(width) = width {
                     if *width > 64 {
                         crate::types::Type::BigIntArray(dims)
@@ -2732,8 +2788,8 @@ impl QasmCompiler {
 
     /// Returns `true` if both `OpenQASM` types map to the same Q# type without errors.
     fn maps_to_same_qsharp_type(
-        a: &qsc_openqasm_parser::semantic::types::Type,
-        b: &qsc_openqasm_parser::semantic::types::Type,
+        a: &qdk_openqasm_parser::semantic::types::Type,
+        b: &qdk_openqasm_parser::semantic::types::Type,
     ) -> bool {
         let mut errs = Vec::new();
         let ty_a = Self::semantic_type_for_qsharp_type(a, Span::default(), &mut errs);
@@ -2765,7 +2821,7 @@ impl QasmCompiler {
             .map(|(name, ast_ty, pat, sym_type)| (name, ast_ty.clone(), pat.span, sym_type))
             .collect::<Vec<_>>();
         let stmts = Self::get_argument_validation_stmts(&args);
-        let stmts = list_from_iter(stmts);
+        let stmts = boxed_list_from_iter(stmts);
         body.stmts = stmts.into_iter().chain(body.stmts).collect();
 
         Some(body)

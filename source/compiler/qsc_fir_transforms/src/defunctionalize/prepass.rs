@@ -67,6 +67,14 @@ fn promote_adjacent_aggregate_callable_aliases(store: &mut PackageStore, package
     }
 }
 
+/// Iterates the block until no further promotions apply, removing alias
+/// statements whose single-use binding feeds a subsequent tuple destructure.
+///
+/// Each pass scans adjacent statement pairs: when the first is an immutable
+/// `let` binding whose init is a callable-bearing aggregate and the second
+/// destructures that binding with exactly one use, the alias statement is
+/// elided and the destructure is repointed directly at the original init.
+/// The loop re-runs because removing one alias may expose the next.
 fn promote_adjacent_aggregate_callable_aliases_in_block(pkg: &mut Package, block_id: BlockId) {
     loop {
         let stmt_ids = pkg.get_block(block_id).stmts.clone();
@@ -112,6 +120,17 @@ fn promote_adjacent_aggregate_callable_aliases_in_block(pkg: &mut Package, block
     }
 }
 
+/// Returns the initializer `ExprId` of `alias_stmt_id` when it forms a
+/// promotable adjacent-aggregate pair with `use_stmt_id`.
+///
+/// The pair is promotable when:
+/// 1. `alias_stmt_id` is an immutable `let` binding whose type contains an
+///    arrow (callable-bearing aggregate).
+/// 2. `use_stmt_id` destructures that exact binding via a tuple pattern.
+/// 3. The alias local has exactly one use in the enclosing block, which is
+///    the `use_stmt_id` reference.
+///
+/// Returns `None` when any condition fails.
 fn aggregate_alias_promotion_init(
     pkg: &Package,
     block_id: BlockId,
@@ -150,6 +169,9 @@ fn aggregate_alias_promotion_init(
     }
 }
 
+/// Reports whether `local_id` has exactly one use in `block_id` and that
+/// use is the expression `expected_use_expr_id`. Both direct `Var` references
+/// and closure captures count as uses.
 fn local_has_exactly_one_use_in_block(
     pkg: &Package,
     block_id: BlockId,
@@ -176,6 +198,15 @@ fn local_has_exactly_one_use_in_block(
     use_count == 1 && saw_expected_use
 }
 
+/// Reports whether `ty` is or transitively contains an arrow type (callable).
+/// Recurses through tuple types but does not expand UDTs — expanding a UDT
+/// requires a `PackageStore` lookup (to read the type definition's underlying
+/// structure), and this helper intentionally avoids that dependency because
+/// the pre-pass promotions are best-effort simplifications, not correctness
+/// requirements. A missed callable hidden behind a UDT wrapper is still
+/// handled correctly by the full analysis phase, which uses the heavier
+/// [`super::specialize::ty_contains_arrow_through_udts`] variant with store
+/// access.
 fn ty_contains_arrow(ty: &Ty) -> bool {
     match ty {
         Ty::Arrow(_) => true,

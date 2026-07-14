@@ -26,22 +26,22 @@ pub enum Error {
     #[diagnostic(help(
         "only one callable named `Main` or one callable with the `@EntryPoint()` attribute must be present if no entry expression is provided"
     ))]
-    #[diagnostic(code("Qsc.EntryPoint.Duplicate"))]
+    #[diagnostic(code("Qdk.Qsc.EntryPoint.Duplicate"))]
     Duplicate(String, #[label] Span),
 
     #[error("entry point cannot have parameters")]
-    #[diagnostic(code("Qsc.EntryPoint.Args"))]
+    #[diagnostic(code("Qdk.Qsc.EntryPoint.Args"))]
     Args(#[label] Span),
 
     #[error("entry point must have body implementation only")]
-    #[diagnostic(code("Qsc.EntryPoint.BodyMissing"))]
+    #[diagnostic(code("Qdk.Qsc.EntryPoint.BodyMissing"))]
     BodyMissing(#[label("cannot have specialization implementation")] Span),
 
     #[error("entry point not found")]
     #[diagnostic(help(
         "a single callable with the `@EntryPoint()` attribute must be present if no entry expression is provided and no callable named `Main` is present"
     ))]
-    #[diagnostic(code("Qsc.EntryPoint.NotFound"))]
+    #[diagnostic(code("Qdk.Qsc.EntryPoint.NotFound"))]
     NotFound,
 }
 

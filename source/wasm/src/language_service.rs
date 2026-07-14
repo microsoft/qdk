@@ -31,7 +31,7 @@ impl LanguageService {
         LanguageService(qsls::LanguageService::new(Encoding::Utf16))
     }
 
-    pub fn start_background_work(
+    pub fn start_update_loop(
         &mut self,
         diagnostics_callback: &DiagnosticsCallback,
         test_callables_callback: &TestCallableCallback,
@@ -96,7 +96,7 @@ impl LanguageService {
         };
         let mut worker =
             self.0
-                .create_update_worker(diagnostics_callback, test_callables_callback, host);
+                .create_update_handler(diagnostics_callback, test_callables_callback, host);
 
         future_to_promise(async move {
             worker.run().await;
@@ -104,7 +104,7 @@ impl LanguageService {
         })
     }
 
-    pub fn stop_background_work(&mut self) {
+    pub fn stop_update_loop(&mut self) {
         self.0.stop_updates();
     }
 
@@ -628,7 +628,7 @@ serializable_type! {
         pub projectRoot: Option<String>,
     },
     r#"export interface INotebookMetadata {
-        targetProfile?: "base" | "adaptive_ri" | "adaptive_rif" | "unrestricted";
+        targetProfile?: "base" | "adaptive_ri" | "adaptive_rif" | "adaptive" | "unrestricted";
         languageFeatures?: "v2-preview-syntax"[];
         manifest?: string;
         projectRoot?: string;

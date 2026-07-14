@@ -333,27 +333,27 @@ fn grover_sample_full_pipeline_reachable_items() {
         operation CollectControls(ctls : Qubit[], aux : Qubit[], adjustment : Int) : Unit is Adj {
             body ... {
                 {
-                    let _range_id_49549 : Range = 0..2..Length(ctls) - 2;
-                    mutable _index_id_49552 : Int = _range_id_49549::Start;
-                    let _step_id_49557 : Int = _range_id_49549::Step;
-                    let _end_id_49562 : Int = _range_id_49549::End;
-                    while _step_id_49557 > 0 and _index_id_49552 <= _end_id_49562 or _step_id_49557 < 0 and _index_id_49552 >= _end_id_49562 {
-                        let i : Int = _index_id_49552;
+                    let _range_id_48965 : Range = 0..2..Length(ctls) - 2;
+                    mutable _index_id_48968 : Int = _range_id_48965::Start;
+                    let _step_id_48973 : Int = _range_id_48965::Step;
+                    let _end_id_48978 : Int = _range_id_48965::End;
+                    while _step_id_48973 > 0 and _index_id_48968 <= _end_id_48978 or _step_id_48973 < 0 and _index_id_48968 >= _end_id_48978 {
+                        let i : Int = _index_id_48968;
                         CCNOT(ctls[i], ctls[i + 1], aux[i / 2]);
-                        _index_id_49552 += _step_id_49557;
+                        _index_id_48968 += _step_id_48973;
                     }
 
                 }
 
                 {
-                    let _range_id_49592 : Range = 0..Length(ctls) / 2 - 2 - adjustment;
-                    mutable _index_id_49595 : Int = _range_id_49592::Start;
-                    let _step_id_49600 : Int = _range_id_49592::Step;
-                    let _end_id_49605 : Int = _range_id_49592::End;
-                    while _step_id_49600 > 0 and _index_id_49595 <= _end_id_49605 or _step_id_49600 < 0 and _index_id_49595 >= _end_id_49605 {
-                        let i : Int = _index_id_49595;
+                    let _range_id_49008 : Range = 0..Length(ctls) / 2 - 2 - adjustment;
+                    mutable _index_id_49011 : Int = _range_id_49008::Start;
+                    let _step_id_49016 : Int = _range_id_49008::Step;
+                    let _end_id_49021 : Int = _range_id_49008::End;
+                    while _step_id_49016 > 0 and _index_id_49011 <= _end_id_49021 or _step_id_49016 < 0 and _index_id_49011 >= _end_id_49021 {
+                        let i : Int = _index_id_49011;
                         CCNOT(aux[i * 2], aux[i * 2 + 1], aux[i + Length(ctls) / 2]);
-                        _index_id_49595 += _step_id_49600;
+                        _index_id_49011 += _step_id_49016;
                     }
 
                 }
@@ -363,14 +363,14 @@ fn grover_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 0..Length(ctls) / 2 - 2 - adjustment;
                     {
-                        let _range_id_49635 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_49638 : Int = _range_id_49635::Start;
-                        let _step_id_49643 : Int = _range_id_49635::Step;
-                        let _end_id_49648 : Int = _range_id_49635::End;
-                        while _step_id_49643 > 0 and _index_id_49638 <= _end_id_49648 or _step_id_49643 < 0 and _index_id_49638 >= _end_id_49648 {
-                            let i : Int = _index_id_49638;
+                        let _range_id_49051 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_49054 : Int = _range_id_49051::Start;
+                        let _step_id_49059 : Int = _range_id_49051::Step;
+                        let _end_id_49064 : Int = _range_id_49051::End;
+                        while _step_id_49059 > 0 and _index_id_49054 <= _end_id_49064 or _step_id_49059 < 0 and _index_id_49054 >= _end_id_49064 {
+                            let i : Int = _index_id_49054;
                             Adjoint CCNOT(aux[i * 2], aux[i * 2 + 1], aux[i + Length(ctls) / 2]);
-                            _index_id_49638 += _step_id_49643;
+                            _index_id_49054 += _step_id_49059;
                         }
 
                     }
@@ -380,14 +380,14 @@ fn grover_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 0..2..Length(ctls) - 2;
                     {
-                        let _range_id_49678 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_49681 : Int = _range_id_49678::Start;
-                        let _step_id_49686 : Int = _range_id_49678::Step;
-                        let _end_id_49691 : Int = _range_id_49678::End;
-                        while _step_id_49686 > 0 and _index_id_49681 <= _end_id_49691 or _step_id_49686 < 0 and _index_id_49681 >= _end_id_49691 {
-                            let i : Int = _index_id_49681;
+                        let _range_id_49094 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_49097 : Int = _range_id_49094::Start;
+                        let _step_id_49102 : Int = _range_id_49094::Step;
+                        let _end_id_49107 : Int = _range_id_49094::End;
+                        while _step_id_49102 > 0 and _index_id_49097 <= _end_id_49107 or _step_id_49102 < 0 and _index_id_49097 >= _end_id_49107 {
+                            let i : Int = _index_id_49097;
                             Adjoint CCNOT(ctls[i], ctls[i + 1], aux[i / 2]);
-                            _index_id_49681 += _step_id_49686;
+                            _index_id_49097 += _step_id_49102;
                         }
 
                     }
@@ -500,7 +500,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             CCH(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1 - Length(ctls) % 2);
-                            let _generated_ident_54708 : Unit = {
+                            let _generated_ident_54068 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 0);
                                 }
@@ -521,7 +521,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54708
+                            _generated_ident_54068
                         }
 
                     }
@@ -546,7 +546,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             CCH(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1 - Length(ctls) % 2);
-                            let _generated_ident_54722 : Unit = {
+                            let _generated_ident_54082 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 0);
                                 }
@@ -567,7 +567,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54722
+                            _generated_ident_54082
                         }
 
                     }
@@ -594,7 +594,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                         CRz(ctls[0], theta, qubit);
                     } else {
                         let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
-                        let _generated_ident_54778 : Unit = {
+                        let _generated_ident_54138 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
                                 AdjustForSingleControl(ctls, aux);
@@ -611,7 +611,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             _apply_res
                         };
                         ReleaseQubitArray(aux);
-                        _generated_ident_54778
+                        _generated_ident_54138
                     }
 
                 }
@@ -645,7 +645,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             Controlled CS([ctls[0]], (ctls[1], qubit));
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54806 : Unit = {
+                            let _generated_ident_54166 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -666,7 +666,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54806
+                            _generated_ident_54166
                         }
 
                     }
@@ -691,7 +691,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             Controlled Adjoint CS([ctls[0]], (ctls[1], qubit));
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54820 : Unit = {
+                            let _generated_ident_54180 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -712,7 +712,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54820
+                            _generated_ident_54180
                         }
 
                     }
@@ -739,7 +739,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                         CT(ctls[0], qubit);
                     } else {
                         let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
-                        let _generated_ident_54862 : Unit = {
+                        let _generated_ident_54222 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
                                 AdjustForSingleControl(ctls, aux);
@@ -756,7 +756,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             _apply_res
                         };
                         ReleaseQubitArray(aux);
-                        _generated_ident_54862
+                        _generated_ident_54222
                     }
 
                 }
@@ -773,7 +773,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                         Adjoint CT(ctls[0], qubit);
                     } else {
                         let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
-                        let _generated_ident_54876 : Unit = {
+                        let _generated_ident_54236 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
                                 AdjustForSingleControl(ctls, aux);
@@ -790,7 +790,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             _apply_res
                         };
                         ReleaseQubitArray(aux);
-                        _generated_ident_54876
+                        _generated_ident_54236
                     }
 
                 }
@@ -821,7 +821,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             __quantum__qis__ccx__body(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54890 : Unit = {
+                            let _generated_ident_54250 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -842,7 +842,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54890
+                            _generated_ident_54250
                         }
 
                     }
@@ -867,7 +867,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             __quantum__qis__ccx__body(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54904 : Unit = {
+                            let _generated_ident_54264 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -888,7 +888,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54904
+                            _generated_ident_54264
                         }
 
                     }
@@ -921,7 +921,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             CCZ(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54946 : Unit = {
+                            let _generated_ident_54306 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -942,7 +942,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54946
+                            _generated_ident_54306
                         }
 
                     }
@@ -967,7 +967,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             CCZ(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54960 : Unit = {
+                            let _generated_ident_54320 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -988,7 +988,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54960
+                            _generated_ident_54320
                         }
 
                     }
@@ -1037,13 +1037,13 @@ fn grover_sample_full_pipeline_reachable_items() {
         operation MResetEachZ(register : Qubit[]) : Result[] {
             mutable results : Result[] = [];
             {
-                let _array_id_50317 : Qubit[] = register;
-                let _len_id_50321 : Int = Length(_array_id_50317);
-                mutable _index_id_50326 : Int = 0;
-                while _index_id_50326 < _len_id_50321 {
-                    let qubit : Qubit = _array_id_50317[_index_id_50326];
+                let _array_id_49733 : Qubit[] = register;
+                let _len_id_49737 : Int = Length(_array_id_49733);
+                mutable _index_id_49742 : Int = 0;
+                while _index_id_49742 < _len_id_49737 {
+                    let qubit : Qubit = _array_id_49733[_index_id_49742];
                     results += [MResetZ(qubit)];
-                    _index_id_50326 += 1;
+                    _index_id_49742 += 1;
                 }
 
             }

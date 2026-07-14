@@ -2105,6 +2105,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "qdk_openqasm_parser"
+version = "0.0.0"
+dependencies = [
+ "bitflags 2.11.0",
+ "criterion 0.8.2",
+ "enum-iterator",
+ "expect-test",
+ "indenter",
+ "miette",
+ "num-bigint",
+ "num-traits",
+ "qsc_data_structures",
+ "rustc-hash",
+ "thiserror",
+]
+
+[[package]]
 name = "qdk_simulators"
 version = "0.0.0"
 dependencies = [
@@ -2121,6 +2138,7 @@ dependencies = [
  "num-complex",
  "num-traits",
  "paulimer",
+ "qsc_data_structures",
  "rand 0.10.1",
  "regex-lite",
  "rustc-hash",
@@ -2152,6 +2170,7 @@ dependencies = [
  "miette",
  "num-bigint",
  "num-complex",
+ "qdk_openqasm_parser",
  "qdk_simulators",
  "qsc_ast",
  "qsc_circuit",
@@ -2167,7 +2186,6 @@ dependencies = [
  "qsc_linter",
  "qsc_lowerer",
  "qsc_openqasm_compiler",
- "qsc_openqasm_parser",
  "qsc_parse",
  "qsc_partial_eval",
  "qsc_passes",
@@ -2403,29 +2421,13 @@ dependencies = [
  "indoc",
  "miette",
  "num-bigint",
+ "qdk_openqasm_parser",
  "qsc",
  "qsc_ast",
  "qsc_data_structures",
  "qsc_frontend",
  "qsc_hir",
- "qsc_openqasm_parser",
  "qsc_passes",
- "rustc-hash",
- "thiserror",
-]
-
-[[package]]
-name = "qsc_openqasm_parser"
-version = "0.0.0"
-dependencies = [
- "bitflags 2.11.0",
- "enum-iterator",
- "expect-test",
- "indenter",
- "miette",
- "num-bigint",
- "num-traits",
- "qsc_data_structures",
  "rustc-hash",
  "thiserror",
 ]
@@ -2496,11 +2498,11 @@ dependencies = [
  "futures",
  "log",
  "miette",
+ "qdk_openqasm_parser",
  "qsc_circuit",
  "qsc_data_structures",
  "qsc_frontend",
  "qsc_linter",
- "qsc_openqasm_parser",
  "qsc_project",
  "regex-lite",
  "rustc-hash",
@@ -3056,6 +3058,7 @@ name = "stim_compiler"
 version = "0.0.0"
 dependencies = [
  "enum-iterator",
+ "expect-test",
  "miette",
  "qdk_simulators",
  "qsc_data_structures",

@@ -72,10 +72,14 @@ struct Op {
     q1: u32,
     q2: u32,
     q3: u32,
+    policy: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
     // Entries in the unitary are: 00, 01, 02, 03, 10, 11, 12, 13, 20, ..., 32, 33
     // 1q matrix elements are stored in: 00, 01, 10, 11 (i.e., indices 0, 1, 4, and 5)
     unitary: array<vec2f, 16>,
-} // Struct size: 4 * 4 + 16 * 8 = 144 bytes (which is aligned to 16 bytes)
+} // Struct size: 4 * 4 + 16 * 8 = 160 bytes (which is aligned to 16 bytes)
 
 @group(0) @binding(2)
 var<storage, read> ops: array<Op>;
@@ -310,24 +314,37 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         return;
     }
 
-    // Before doing further work, if any qubit for the gate is lost, just skip by marking the op as ID
-     if (shot.qubit_state[op.q1].heat == -1.0) ||
-         (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ || op.id == OPID_SWAP || op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ || op.id == OPID_MAT2Q) &&
-       (shot.qubit_state[op.q2].heat == -1.0) {
-        shot.op_type = OPID_ID;
-        shot.op_idx = op_idx;
-        return;
+    // Before doing further work, if any qubit for the gate is lost, dispatch
+    // the gate's configured loss policy (stamped on op.policy).
+    let has_lost_operand = gate_has_lost_operand(shot_idx, op_idx, op.q1, op.q2);
+    if (has_lost_operand) {
+        handle_lost_operand_policy(shot_idx, op_idx, op.q1, op.q2);
     }
 
     if pauli_op_idx != 0 {
         if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-            apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
-            // This will have set up all the state we need.
+            // A 1-qubit gate has a single operand; if it is lost there is no
+            // surviving qubit to receive Pauli noise, so skip the noise.
+            if (!has_lost_operand) {
+                apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, op.q1);
+            }
             return;
         } else {
-            apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+            if (has_lost_operand) {
+                // The gate body was handled by the loss policy above. Still apply
+                // the attached Pauli noise to the surviving operand (if any).
+                apply_2q_pauli_noise_on_survivor(shot_idx, op_idx, pauli_op_idx, op.q1, op.q2);
+            } else {
+                apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, op.q1, op.q2);
+            }
             return;
         }
+    }
+
+    // If the gate has any lost operands (and no attached noise), the gate logic
+    // was completely handled inside `handle_lost_operand_policy`.
+    if (has_lost_operand) {
+        return;
     }
 
     // No noise to apply, just set up the shot to execute the op as-is

@@ -63,15 +63,15 @@ mod shape_tests;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, Expr, ExprId, ExprKind, Ident, Mutability, Package, PackageId, PackageLookup, Pat,
-        PatId, PatKind, Res, Stmt, StmtId, StmtKind, StringComponent,
+        BinOp, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup, StmtId, StmtKind,
+        StringComponent,
     },
     ty::{Prim, Ty},
 };
 
-use crate::{
-    EMPTY_EXEC_RANGE,
-    fir_builder::{alloc_block, alloc_bool_lit, alloc_expr, alloc_expr_stmt, alloc_semi_stmt},
+use crate::fir_builder::{
+    alloc_block, alloc_bool_lit, alloc_discard_pat, alloc_expr, alloc_expr_stmt, alloc_local_stmt,
+    alloc_local_var, alloc_local_var_expr, alloc_semi_stmt,
 };
 use qsc_data_structures::span::Span;
 use std::rc::Rc;
@@ -746,27 +746,15 @@ fn create_discard_let_stmt(
     expr_id: ExprId,
 ) -> StmtId {
     let ty = package.get_expr(expr_id).ty.clone();
-    let pat_id: PatId = assigner.next_pat();
-    package.pats.insert(
+    let pat_id = alloc_discard_pat(package, assigner, ty, Span::default());
+    alloc_local_stmt(
+        package,
+        assigner,
+        Mutability::Immutable,
         pat_id,
-        Pat {
-            id: pat_id,
-            span: Span::default(),
-            ty,
-            kind: PatKind::Discard,
-        },
-    );
-    let stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        stmt_id,
-        Stmt {
-            id: stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Local(Mutability::Immutable, pat_id, expr_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    stmt_id
+        expr_id,
+        Span::default(),
+    )
 }
 
 /// Pins a statement-carrying `inner` (Block/If/While with internal Returns)
@@ -795,43 +783,17 @@ fn bind_inner_and_return(
     inner: ExprId,
 ) -> Vec<StmtId> {
     let inner_ty = package.get_expr(inner).ty.clone();
-    let local_var_id = assigner.next_local();
-    let pat_id = assigner.next_pat();
-    package.pats.insert(
-        pat_id,
-        Pat {
-            id: pat_id,
-            span: Span::default(),
-            ty: inner_ty.clone(),
-            kind: PatKind::Bind(Ident {
-                id: local_var_id,
-                span: Span::default(),
-                name: Rc::from(super::symbols::RET_HOIST),
-            }),
-        },
-    );
-    let local_stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        local_stmt_id,
-        Stmt {
-            id: local_stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Local(Mutability::Immutable, pat_id, inner),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
+    let (local_var_id, local_stmt_id) = alloc_local_var(
+        package,
+        assigner,
+        super::symbols::RET_HOIST,
+        &inner_ty,
+        inner,
+        Mutability::Immutable,
     );
 
-    let var_expr_id = assigner.next_expr();
-    package.exprs.insert(
-        var_expr_id,
-        Expr {
-            id: var_expr_id,
-            span: Span::default(),
-            ty: inner_ty,
-            kind: ExprKind::Var(Res::Local(local_var_id), Vec::new()),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let var_expr_id =
+        alloc_local_var_expr(package, assigner, local_var_id, inner_ty, Span::default());
 
     // Rewrite the existing Return expression in place so it now wraps the
     // Var, then wrap it in a fresh Semi statement.

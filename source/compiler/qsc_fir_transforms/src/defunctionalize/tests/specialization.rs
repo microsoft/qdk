@@ -324,6 +324,114 @@ fn specialize_closure_with_captures() {
 }
 
 #[test]
+fn closure_callable_capture_specializations_keep_distinct_callees() {
+    let source = r#"
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+
+        function Wrap(inner : Qubit => Unit) : Qubit => Unit {
+            q => inner(q)
+        }
+
+        operation Main() : Unit {
+            use a = Qubit();
+            use b = Qubit();
+            ApplyOp(Wrap(H), a);
+            ApplyOp(Wrap(X), b);
+        }
+        "#;
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            function Wrap(inner : (Qubit => Unit)) : (Qubit => Unit) {
+                / * closure item = 4 captures = [inner] * / _lambda_4
+            }
+            operation Main() : Unit {
+                let a : Qubit = __quantum__rt__qubit_allocate();
+                let b : Qubit = __quantum__rt__qubit_allocate();
+                ApplyOp_Empty_(Wrap_AdjCtl_(H), a);
+                ApplyOp_Empty_(Wrap_AdjCtl_(X), b);
+                __quantum__rt__qubit_release(b);
+                __quantum__rt__qubit_release(a);
+            }
+            operation _lambda_4(inner : (Qubit => Unit), q : Qubit) : Unit {
+                inner(q)
+            }
+            operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            function Wrap_AdjCtl_(inner : (Qubit => Unit is Adj + Ctl)) : (Qubit => Unit) {
+                / * closure item = 7 captures = [inner] * / _lambda_4
+            }
+            operation _lambda_4(inner : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                inner(q)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation ApplyOp(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            function Wrap(inner : (Qubit => Unit)) : (Qubit => Unit) {
+                / * closure item = 4 captures = [inner] * / _lambda_4
+            }
+            operation Main() : Unit {
+                let a : Qubit = __quantum__rt__qubit_allocate();
+                let b : Qubit = __quantum__rt__qubit_allocate();
+                ApplyOp_Empty__H_(a);
+                ApplyOp_Empty__X_(b);
+                __quantum__rt__qubit_release(b);
+                __quantum__rt__qubit_release(a);
+            }
+            operation _lambda_4(inner : (Qubit => Unit), q : Qubit) : Unit {
+                inner(q)
+            }
+            operation ApplyOp_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            function Wrap_AdjCtl_(inner : (Qubit => Unit is Adj + Ctl)) : (Qubit => Unit) {
+                inner
+            }
+            operation _lambda_4(inner : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                inner(q)
+            }
+            function Wrap_AdjCtl__H_() : (Qubit => Unit) {
+                H
+            }
+            operation ApplyOp_Empty__H_(q : Qubit) : Unit {
+                H(q);
+            }
+            function Wrap_AdjCtl__X_() : (Qubit => Unit) {
+                X
+            }
+            operation ApplyOp_Empty__X_(q : Qubit) : Unit {
+                X(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+
+    assert!(
+        after.contains("H(q);"),
+        "Wrap(H) should specialize to a concrete H call:\n{after}"
+    );
+    assert!(
+        after.contains("X(q);"),
+        "Wrap(X) should specialize to a concrete X call distinct from Wrap(H):\n{after}"
+    );
+}
+
+#[test]
 fn specialize_closure_capture_types_preserved() {
     check_rewrite(
         r#"
@@ -1216,14 +1324,6 @@ fn multiple_callable_parameters_specialize_independently() {
                 f(q);
                 g(q);
             }
-            operation ApplyTwo_AdjCtl__AdjCtl__H_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(q);
-                g(q);
-            }
-            operation ApplyTwo_AdjCtl__AdjCtl__X_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                X(q);
-                g(q);
-            }
             operation ApplyTwo_AdjCtl__AdjCtl__H__X_(q : Qubit) : Unit {
                 H(q);
                 X(q);
@@ -1234,18 +1334,23 @@ fn multiple_callable_parameters_specialize_independently() {
     );
 }
 
-/// Focused coverage for `reindex_sibling_field_access` with more than two
-/// callable fields in a single tuple-typed parameter.
+/// Three statically-resolved callable fields in a single tuple-typed parameter
+/// are removed together in one combined specialization.
 ///
-/// The two-callable-field case only exercises the `Collapse` arm (removing one
-/// of two siblings leaves a single element, so the tuple slot collapses). With
-/// three callable fields the first removal leaves a two-element tuple, so the
-/// later siblings must be *reindexed* (shifted down by one) rather than
-/// collapsed — that is the `Reindex` arm. A field-index mix-up here would emit
-/// the per-field gates out of order or dispatch the wrong callable, so the
-/// snapshot pins `First -> H`, `Second -> X`, `Third -> Y` in that order.
+/// When every field of the tuple-valued parameter is a concrete callable, the
+/// group is combine-eligible per `super::is_combined_eligible`, so the whole
+/// `ops` slot is dropped in a single pass rather than removed one field at a
+/// time across iterations. The snapshot pins the single collapsed
+/// specialization `RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_(q)` with the fields
+/// inlined in order `First -> H`, `Second -> X`, `Third -> Y`; a field-index
+/// mix-up would inline the gates out of order or dispatch the wrong callable.
+///
+/// The per-field `reindex_sibling_field_access` path, which shifts surviving
+/// siblings down as each is removed, is exercised only when the group is not
+/// combine-eligible, for example when the tuple's fields are only partially
+/// covered by concrete callables.
 #[test]
-fn three_callable_field_tuple_param_reindexes_siblings() {
+fn three_callable_field_tuple_param_combines_into_one_spec() {
     check_rewrite(
         r#"
         operation RunOps(ops : (Qubit => Unit, Qubit => Unit, Qubit => Unit), q : Qubit) : Unit {
@@ -1299,36 +1404,6 @@ fn three_callable_field_tuple_param_reindexes_siblings() {
                 second(q);
                 third(q);
             }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__H_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl)), q : Qubit) : Unit {
-                let (second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
-                H(q);
-                second(q);
-                third(q);
-            }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__X_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl)), q : Qubit) : Unit {
-                let (second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
-                X(q);
-                second(q);
-                third(q);
-            }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__Y_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl)), q : Qubit) : Unit {
-                let (second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
-                Y(q);
-                second(q);
-                third(q);
-            }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__H__X_(ops : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                let third : (Qubit => Unit is Adj + Ctl) = ops;
-                H(q);
-                X(q);
-                third(q);
-            }
-            operation RunOps_AdjCtl__AdjCtl__AdjCtl__H__Y_(ops : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                let third : (Qubit => Unit is Adj + Ctl) = ops;
-                H(q);
-                Y(q);
-                third(q);
-            }
             operation RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_(q : Qubit) : Unit {
                 H(q);
                 X(q);
@@ -1338,6 +1413,188 @@ fn three_callable_field_tuple_param_reindexes_siblings() {
             Main()
         "#]],
     );
+}
+
+/// The combined rewrite reduces a non-inline argument: a single tuple-valued
+/// parameter HOF called with a pre-bound tuple local such as `let ops = (H, X,
+/// Y); RunOps(ops)` rather than an inline tuple literal.
+///
+/// Because the argument is `Var(ops)`, the rewrite cannot drop tuple slots in
+/// place; it projects the surviving slots through the local's initializer. Here
+/// every field is a global callable removed together, so the reduced call takes
+/// no arguments, the now-dead `let ops` binding is pruned, and the collapsed
+/// specialization inlines `H, X, Y` in order. A projection error would leave the
+/// arrow-typed `let ops` binding behind or pass a stale full-arity argument.
+#[test]
+fn bound_tuple_arg_combines_into_one_spec() {
+    check_rewrite(
+        r#"
+        operation RunOps(ops : (Qubit => Unit, Qubit => Unit, Qubit => Unit)) : Unit {
+            use q = Qubit();
+            let (first, second, third) = ops;
+            first(q);
+            second(q);
+            third(q);
+        }
+        operation Main() : Unit {
+            let ops = (H, X, Y);
+            RunOps(ops);
+        }
+        "#,
+        &expect![[r#"
+            BEFORE:
+            operation RunOps(ops : ((Qubit => Unit), (Qubit => Unit), (Qubit => Unit))) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : (Qubit => Unit), second : (Qubit => Unit), third : (Qubit => Unit)) = ops;
+                first(q);
+                second(q);
+                third(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Main() : Unit {
+                let ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl)) = (H, X, Y);
+                RunOps_AdjCtl__AdjCtl__AdjCtl_(ops);
+            }
+            operation RunOps_AdjCtl__AdjCtl__AdjCtl_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl))) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
+                first(q);
+                second(q);
+                third(q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation RunOps(ops : ((Qubit => Unit), (Qubit => Unit), (Qubit => Unit))) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : (Qubit => Unit), second : (Qubit => Unit), third : (Qubit => Unit)) = ops;
+                first(q);
+                second(q);
+                third(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Main() : Unit {
+                RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_();
+            }
+            operation RunOps_AdjCtl__AdjCtl__AdjCtl_(ops : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl), (Qubit => Unit is Adj + Ctl))) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), third : (Qubit => Unit is Adj + Ctl)) = ops;
+                first(q);
+                second(q);
+                third(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation RunOps_AdjCtl__AdjCtl__AdjCtl__H__X__Y_() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                H(q);
+                X(q);
+                Y(q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn indexed_callable_array_preserves_duplicate_global_positions() {
+    let source = r#"
+        operation ApplyAt(ops : (Qubit => Unit)[], idx : Int, q : Qubit) : Unit {
+            ops[idx](q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyAt([H, H, X], 1, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let mut matching_targets = Vec::new();
+    for item in package.items.values() {
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        if !decl.name.name.starts_with("ApplyAt") || decl.name.name.as_ref() == "ApplyAt" {
+            continue;
+        }
+        let mut targets = Vec::new();
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |_expr_id, expr| {
+                if let fir::ExprKind::Call(callee_id, _) = &expr.kind
+                    && let Some(target) = call_target_name(&fir_store, package, *callee_id)
+                    && matches!(target.as_str(), "H" | "X")
+                {
+                    targets.push(target);
+                }
+            },
+        );
+        targets.sort();
+        matching_targets.push((decl.name.name.to_string(), targets));
+    }
+
+    assert!(
+        matching_targets
+            .iter()
+            .any(|(_, targets)| targets == &["H", "H", "X"]),
+        "expected one ApplyAt specialization to dispatch [H, H, X], got {matching_targets:?}"
+    );
+}
+
+#[test]
+fn struct_copy_surviving_field_is_forwarded_after_callable_field_removal() {
+    let source = r#"
+        struct Config { Op : Qubit => Unit, Data : Int }
+        operation Run(config : Config, q : Qubit) : Unit {
+            if config.Data == 1 {
+                config.Op(q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let base = new Config { Op = X, Data = 1 };
+            Run(new Config { ...base, Op = H }, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let mut found = false;
+    for expr in package.exprs.values() {
+        let fir::ExprKind::Call(callee_id, args_id) = &expr.kind else {
+            continue;
+        };
+        let Some(target) = call_target_name(&fir_store, package, *callee_id) else {
+            continue;
+        };
+        if !target.starts_with("Run") || target == "Run" {
+            continue;
+        }
+
+        let args = package.get_expr(*args_id);
+        let fir::ExprKind::Tuple(elements) = &args.kind else {
+            panic!("specialized Run call should receive Data and q, got {args:?}");
+        };
+        assert_eq!(
+            elements.len(),
+            2,
+            "specialized Run call must keep copied Data and q"
+        );
+        assert!(
+            matches!(
+                package.get_expr(elements[0]).ty,
+                qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Int)
+            ),
+            "first specialized Run argument must be the surviving copied Int field"
+        );
+        found = true;
+    }
+    assert!(found, "expected a specialized Run call for H");
 }
 
 #[test]
@@ -2215,6 +2472,70 @@ fn specialize_nested_callable_transitive_alias() {
             operation Wrapper_AdjCtl__H_(pair : Int, q : Qubit) : Unit {
                 let _ : Int = pair;
                 H(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn specialize_nested_callable_through_aggregate_alias() {
+    check_rewrite(
+        r#"
+        operation Wrapper(pair : (Qubit => Unit, Int), q : Qubit) : Unit {
+            let alias = pair;
+            let (op, n) = alias;
+            op(q);
+            let _ = n;
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Wrapper((H, 42), q);
+        }
+        "#,
+        &expect![[r#"
+            BEFORE:
+            operation Wrapper(pair : ((Qubit => Unit), Int), q : Qubit) : Unit {
+                let alias : ((Qubit => Unit), Int) = pair;
+                let (op : (Qubit => Unit), n : Int) = alias;
+                op(q);
+                let _ : Int = n;
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Wrapper_AdjCtl_((H, 42), q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Wrapper_AdjCtl_(pair : ((Qubit => Unit is Adj + Ctl), Int), q : Qubit) : Unit {
+                let alias : ((Qubit => Unit is Adj + Ctl), Int) = pair;
+                let (op : (Qubit => Unit is Adj + Ctl), n : Int) = alias;
+                op(q);
+                let _ : Int = n;
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Wrapper(pair : ((Qubit => Unit), Int), q : Qubit) : Unit {
+                let (op : (Qubit => Unit), n : Int) = pair;
+                op(q);
+                let _ : Int = n;
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Wrapper_AdjCtl__H_(42, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Wrapper_AdjCtl_(pair : ((Qubit => Unit is Adj + Ctl), Int), q : Qubit) : Unit {
+                let (op : (Qubit => Unit is Adj + Ctl), n : Int) = pair;
+                op(q);
+                let _ : Int = n;
+            }
+            operation Wrapper_AdjCtl__H_(pair : Int, q : Qubit) : Unit {
+                let n : Int = pair;
+                H(q);
+                let _ : Int = n;
             }
             // entry
             Main()
@@ -3339,6 +3660,1236 @@ fn inline_closure_capture_threads_correct_value() {
             }
             operation Apply_Empty__closure_(q : Qubit, __capture_0 : Int) : Unit {
                 _lambda_3(__capture_0, q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A struct-capturing closure invoked through a `Controlled` dispatch must
+/// thread its capture all the way to the controlled call. Here the closure
+/// captures a `StatePreparationParams` struct (a partial application of
+/// `ApplyStatePreparation`) and is forwarded into an inner closure that issues
+/// `Controlled prepareOp([control], systems)` under a loop.
+///
+/// The correct post-fix rewrite retargets that controlled call to the concrete
+/// operation while threading the captured struct, i.e.
+/// `Controlled ApplyStatePreparation([control], (__capture_0, systems))`. This
+/// guards against a silent re-drop where the control layer wraps the base input
+/// and the capture is lost, leaving `Controlled ApplyStatePreparation([control], systems)`.
+#[test]
+fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
+    let source = r#"
+        struct StatePreparationParams {
+            rowMap : Int[],
+            stateVector : Double[],
+            expansionOps : Int[][],
+            numQubits : Int
+        }
+
+        operation ApplyStatePreparation(params : StatePreparationParams, qs : Qubit[]) : Unit is Adj + Ctl {
+            if Length(params.expansionOps) != 0 {
+                X(qs[0]);
+            }
+        }
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + 1];
+            let op = MakeControlledPrepSelPrepOp(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+        }
+
+        operation Main() : Unit {
+            let params = new StatePreparationParams {
+                rowMap = [0],
+                stateVector = [1.0, 0.0],
+                expansionOps = [],
+                numQubits = 1
+            };
+            let prep = ApplyStatePreparation(params, _);
+            MakeControlledPrepSelPrepCircuit(prep, SelectIdentity, 1, 1);
+        }
+        "#;
+    check_errors(source, &expect!["(no error)"]);
+    check_rewrite(
+        source,
+        &expect![[r#"
+        BEFORE:
+        newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
+        operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
+            body ... {
+                if Length(params::expansionOps) != 0 {
+                    X(qs[0]);
+                }
+
+            }
+            adjoint ... {
+                if Length(params::expansionOps) != 0 {
+                    Adjoint X(qs[0]);
+                }
+
+            }
+            controlled (ctls, ...) {
+                if Length(params::expansionOps) != 0 {
+                    Controlled X(ctls, qs[0]);
+                }
+
+            }
+            controlled adjoint (ctls, ...) {
+                if Length(params::expansionOps) != 0 {
+                    Controlled Adjoint X(ctls, qs[0]);
+                }
+
+            }
+        }
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+            body ... {}
+            adjoint ... {}
+            controlled (ctls, ...) {}
+            controlled adjoint (ctls, ...) {}
+        }
+        function MakeControlledPrepSelPrepOp(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+            / * closure item = 7 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
+        }
+        operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
+            let control : Qubit = __quantum__rt__qubit_allocate();
+            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+            let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+            ReleaseQubitArray(systems);
+            __quantum__rt__qubit_release(control);
+        }
+        operation Main() : Unit {
+            let params : __UDT_Item_1__Package_2_ = new StatePreparationParams {
+                rowMap = [0],
+                stateVector = [1., 0.],
+                expansionOps = [],
+                numQubits = 1
+            };
+            let prep : (Qubit[] => Unit is Adj + Ctl) = {
+                let arg : __UDT_Item_1__Package_2_ = params;
+                / * closure item = 8 captures = [arg] * / _lambda_8
+            };
+            MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prep, SelectIdentity, 1, 1);
+        }
+        operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            {
+                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                {
+                    let _range_id_341 : Range = 0..power - 1;
+                    mutable _index_id_344 : Int = _range_id_341::Start;
+                    let _step_id_349 : Int = _range_id_341::Step;
+                    let _end_id_354 : Int = _range_id_341::End;
+                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        let _ : Int = _index_id_344;
+                        Controlled prepareOp([control], systems);
+                        Controlled selectOp([control], (systems, ancilla));
+                        _index_id_344 += _step_id_349;
+                    }
+
+                }
+
+            }
+
+        }
+        operation _lambda_8(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
+            body ... {
+                ApplyStatePreparation(arg, hole)
+            }
+            adjoint ... {
+                Adjoint ApplyStatePreparation(arg, hole)
+            }
+            controlled (ctls, ...) {
+                Controlled ApplyStatePreparation(ctls, (arg, hole))
+            }
+            controlled adjoint (ctls, ...) {
+                Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
+            }
+        }
+        function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+            / * closure item = 10 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
+        }
+        operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            {
+                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                {
+                    let _range_id_341 : Range = 0..power - 1;
+                    mutable _index_id_344 : Int = _range_id_341::Start;
+                    let _step_id_349 : Int = _range_id_341::Step;
+                    let _end_id_354 : Int = _range_id_341::End;
+                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        let _ : Int = _index_id_344;
+                        Controlled prepareOp([control], systems);
+                        Controlled selectOp([control], (systems, ancilla));
+                        _index_id_344 += _step_id_349;
+                    }
+
+                }
+
+            }
+
+        }
+        operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
+            let control : Qubit = __quantum__rt__qubit_allocate();
+            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+            let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+            ReleaseQubitArray(systems);
+            __quantum__rt__qubit_release(control);
+        }
+        // entry
+        Main()
+
+        AFTER:
+        newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
+        operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
+            body ... {
+                if Length(params::expansionOps) != 0 {
+                    X(qs[0]);
+                }
+
+            }
+            adjoint ... {
+                if Length(params::expansionOps) != 0 {
+                    Adjoint X(qs[0]);
+                }
+
+            }
+            controlled (ctls, ...) {
+                if Length(params::expansionOps) != 0 {
+                    Controlled X(ctls, qs[0]);
+                }
+
+            }
+            controlled adjoint (ctls, ...) {
+                if Length(params::expansionOps) != 0 {
+                    Controlled Adjoint X(ctls, qs[0]);
+                }
+
+            }
+        }
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+            body ... {}
+            adjoint ... {}
+            controlled (ctls, ...) {}
+            controlled adjoint (ctls, ...) {}
+        }
+        function MakeControlledPrepSelPrepOp(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+            / * closure item = 7 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
+        }
+        operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
+            let control : Qubit = __quantum__rt__qubit_allocate();
+            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+            let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+            ReleaseQubitArray(systems);
+            __quantum__rt__qubit_release(control);
+        }
+        operation Main() : Unit {
+            let params : __UDT_Item_1__Package_2_ = new StatePreparationParams {
+                rowMap = [0],
+                stateVector = [1., 0.],
+                expansionOps = [],
+                numQubits = 1
+            };
+            MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(1, 1, params);
+        }
+        operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            {
+                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                {
+                    let _range_id_341 : Range = 0..power - 1;
+                    mutable _index_id_344 : Int = _range_id_341::Start;
+                    let _step_id_349 : Int = _range_id_341::Step;
+                    let _end_id_354 : Int = _range_id_341::End;
+                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        let _ : Int = _index_id_344;
+                        Controlled prepareOp([control], systems);
+                        Controlled selectOp([control], (systems, ancilla));
+                        _index_id_344 += _step_id_349;
+                    }
+
+                }
+
+            }
+
+        }
+        operation _lambda_8(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
+            body ... {
+                ApplyStatePreparation(arg, hole)
+            }
+            adjoint ... {
+                Adjoint ApplyStatePreparation(arg, hole)
+            }
+            controlled (ctls, ...) {
+                Controlled ApplyStatePreparation(ctls, (arg, hole))
+            }
+            controlled adjoint (ctls, ...) {
+                Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
+            }
+        }
+        function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+            ()
+        }
+        operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            {
+                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                {
+                    let _range_id_341 : Range = 0..power - 1;
+                    mutable _index_id_344 : Int = _range_id_341::Start;
+                    let _step_id_349 : Int = _range_id_341::Step;
+                    let _end_id_354 : Int = _range_id_341::End;
+                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        let _ : Int = _index_id_344;
+                        Controlled prepareOp([control], systems);
+                        Controlled selectOp([control], (systems, ancilla));
+                        _index_id_344 += _step_id_349;
+                    }
+
+                }
+
+            }
+
+        }
+        operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
+            let control : Qubit = __quantum__rt__qubit_allocate();
+            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+            _lambda_7(prepareOp, selectOp, numSystemQubits, power, (control, systems));
+            ReleaseQubitArray(systems);
+            __quantum__rt__qubit_release(control);
+        }
+        operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : Unit {
+            let control : Qubit = __quantum__rt__qubit_allocate();
+            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+            _lambda_7_closure__SelectIdentity_(numSystemQubits, power, (control, systems), __capture_0);
+            ReleaseQubitArray(systems);
+            __quantum__rt__qubit_release(control);
+        }
+        function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
+            / * closure item = 14 captures = [numSystemQubits, power] * / _lambda_7
+        }
+        operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            {
+                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                {
+                    let _range_id_341 : Range = 0..power - 1;
+                    mutable _index_id_344 : Int = _range_id_341::Start;
+                    let _step_id_349 : Int = _range_id_341::Step;
+                    let _end_id_354 : Int = _range_id_341::End;
+                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        let _ : Int = _index_id_344;
+                        Controlled _lambda_8([control], systems);
+                        Controlled SelectIdentity([control], (systems, ancilla));
+                        _index_id_344 += _step_id_349;
+                    }
+
+                }
+
+            }
+
+        }
+        operation _lambda_7_closure__SelectIdentity_(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[]), __capture_0 : __UDT_Item_1__Package_2_) : Unit {
+            {
+                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                {
+                    let _range_id_341 : Range = 0..power - 1;
+                    mutable _index_id_344 : Int = _range_id_341::Start;
+                    let _step_id_349 : Int = _range_id_341::Step;
+                    let _end_id_354 : Int = _range_id_341::End;
+                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        let _ : Int = _index_id_344;
+                        Controlled _lambda_8([control], (__capture_0, systems));
+                        Controlled SelectIdentity([control], (systems, ancilla));
+                        _index_id_344 += _step_id_349;
+                    }
+
+                }
+
+            }
+
+        }
+        // entry
+        Main()
+    "#]],
+    );
+}
+
+/// A closure that captures a struct built from a factory function's own
+/// parameters must be rebuilt from caller-scope values when it is specialized
+/// into a different callable.
+///
+/// `Main` calls the factory `MakeStatePreparationOp`, which builds a
+/// `StatePreparationParams` struct from its parameters and returns a
+/// partial-application closure capturing that struct. The closure is forwarded
+/// through the `MakeControlledPrepSelPrepCircuit` wrapper.
+///
+/// Because the captured struct references the factory's parameters, it cannot
+/// be copied as-is into `Main`, which does not bind those parameters.
+/// Specialization must rebind each struct field to the argument the factory was
+/// called with — `[0]`, `[1.0, 0.0]`, `[]`, and `1` — so the struct is rooted
+/// entirely in caller-scope values.
+///
+/// The test expects no errors and passing `PostDefunc` invariants.
+#[test]
+fn producer_scope_struct_capture_reconstructed_in_caller() {
+    let source = r#"
+        struct StatePreparationParams {
+            rowMap : Int[],
+            stateVector : Double[],
+            expansionOps : Int[][],
+            numQubits : Int
+        }
+
+        operation ApplyStatePreparation(params : StatePreparationParams, qs : Qubit[]) : Unit is Adj + Ctl {
+            if Length(params.expansionOps) != 0 {
+                X(qs[0]);
+            }
+        }
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeStatePreparationOp(
+            rowMap : Int[],
+            stateVector : Double[],
+            expansionOps : Int[][],
+            numQubits : Int
+        ) : Qubit[] => Unit is Adj + Ctl {
+            let params = new StatePreparationParams {
+                rowMap = rowMap,
+                stateVector = stateVector,
+                expansionOps = expansionOps,
+                numQubits = numQubits
+            };
+            ApplyStatePreparation(params, _)
+        }
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + 1];
+            let op = MakeControlledPrepSelPrepOp(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+        }
+
+        operation Main() : Unit {
+            let prep = MakeStatePreparationOp([0], [1.0, 0.0], [], 1);
+            MakeControlledPrepSelPrepCircuit(prep, SelectIdentity, 1, 1);
+        }
+        "#;
+    check_errors(source, &expect!["(no error)"]);
+    // The invariant check is the point of this test: the captured struct must be
+    // rebuilt from caller-scope values, or the `PostDefunc` local-variable
+    // consistency check fails.
+    check_invariants(source);
+}
+
+/// A captured struct whose field is a computed value referencing the factory's
+/// parameters through pure function calls and operators must still specialize.
+///
+/// Here `numQubits` is `Length(stateVector) + Length(rowMap)`. Rebuilding the
+/// captured struct in `Main` requires rebinding the parameter references inside
+/// the computed field to the caller-scope arguments `[1.0, 0.0]` and `[0]`.
+/// Because `Length` is a pure function and `+` has no side effects, the field
+/// can be safely reconstructed from caller values.
+///
+/// The test expects genuine specialization: no errors and passing `PostDefunc`
+/// invariants. A decline to a dynamic call would instead emit a
+/// `DynamicCallable` error and fail the assertion.
+#[test]
+fn producer_scope_struct_capture_computed_field_specializes() {
+    let source = r#"
+        struct StatePreparationParams {
+            rowMap : Int[],
+            stateVector : Double[],
+            expansionOps : Int[][],
+            numQubits : Int
+        }
+
+        operation ApplyStatePreparation(params : StatePreparationParams, qs : Qubit[]) : Unit is Adj + Ctl {
+            if params.numQubits != 0 {
+                X(qs[0]);
+            }
+        }
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeStatePreparationOp(
+            rowMap : Int[],
+            stateVector : Double[],
+            expansionOps : Int[][]
+        ) : Qubit[] => Unit is Adj + Ctl {
+            let params = new StatePreparationParams {
+                rowMap = rowMap,
+                stateVector = stateVector,
+                expansionOps = expansionOps,
+                numQubits = Length(stateVector) + Length(rowMap)
+            };
+            ApplyStatePreparation(params, _)
+        }
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + 1];
+            let op = MakeControlledPrepSelPrepOp(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+        }
+
+        operation Main() : Unit {
+            let prep = MakeStatePreparationOp([0], [1.0, 0.0], []);
+            MakeControlledPrepSelPrepCircuit(prep, SelectIdentity, 1, 1);
+        }
+        "#;
+    check_errors(source, &expect!["(no error)"]);
+    // Passing `check_invariants` proves genuine specialization. It runs
+    // defunctionalization, asserts there are no defunctionalization errors, and
+    // checks `PostDefunc` consistency; a decline to dynamic would emit a
+    // `DynamicCallable` error and fail the assertion.
+    check_invariants(source);
+}
+
+/// A captured struct whose field is computed by an operation call must not be
+/// rebuilt in the caller; specialization declines to a dynamic call instead.
+///
+/// Here `numQubits` is `CountQubits(rowMap)`, where `CountQubits` is an
+/// operation. Relocating an operation call into caller-scope argument
+/// construction could change observable ordering or duplicate the call, so
+/// specialization refuses to reconstruct the field. Instead it declines the
+/// closure to a dynamic call site and emits the recoverable `DynamicCallable`
+/// diagnostic.
+///
+/// This confirms the purity check does not over-decline: the pure-function
+/// computed field above still specializes, while this operation-valued field
+/// declines cleanly rather than panicking.
+#[test]
+fn producer_scope_struct_capture_operation_field_declines_to_dynamic() {
+    let source = r#"
+        struct StatePreparationParams {
+            rowMap : Int[],
+            numQubits : Int
+        }
+
+        operation CountQubits(arr : Int[]) : Int {
+            return Length(arr);
+        }
+
+        operation ApplyStatePreparation(params : StatePreparationParams, qs : Qubit[]) : Unit is Adj + Ctl {
+            if params.numQubits != 0 {
+                X(qs[0]);
+            }
+        }
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        operation MakeStatePreparationOp(rowMap : Int[]) : Qubit[] => Unit is Adj + Ctl {
+            let params = new StatePreparationParams {
+                rowMap = rowMap,
+                numQubits = CountQubits(rowMap)
+            };
+            ApplyStatePreparation(params, _)
+        }
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + 1];
+            let op = MakeControlledPrepSelPrepOp(prepareOp, selectOp, numSystemQubits, power);
+            op(control, systems);
+        }
+
+        operation Main() : Unit {
+            let prep = MakeStatePreparationOp([0]);
+            MakeControlledPrepSelPrepCircuit(prep, SelectIdentity, 1, 1);
+        }
+        "#;
+    // The operation-call computed field cannot be safely rebuilt in the caller,
+    // so the closure declines to a dynamic call site and emits the recoverable
+    // `DynamicCallable` diagnostic rather than panicking.
+    check_errors(
+        source,
+        &expect![[r#"
+            callable argument could not be resolved statically
+            callable argument could not be resolved statically"#]],
+    );
+}
+
+/// A mixed branch-split call can combine a dispatched callable field with a
+/// single-valued producer closure while leaving another field of the same tuple
+/// parameter live.
+///
+/// The combined specialization must remove only the callable fields from
+/// `pair`; dropping the whole tuple parameter deletes the destructuring that
+/// binds `target` and leaves the inlined calls using an unbound local. The
+/// snapshot pins the surviving `target` binding in both dispatch leaves.
+#[test]
+fn mixed_branch_split_partial_tuple_field_coverage_preserves_surviving_field() {
+    check_rewrite(
+        r#"
+        operation Run(pair : (Qubit => Unit, Qubit => Unit, Qubit)) : Unit {
+            let (first, second, target) = pair;
+            first(target);
+            second(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let choose = M(q) == One;
+            let first = if choose { H } else { X };
+            let angle = 0.25;
+            Run((first, target => Rz(angle, target), q));
+        }
+        "#,
+        &expect![[r#"
+            BEFORE:
+            operation Run(pair : ((Qubit => Unit), (Qubit => Unit), Qubit)) : Unit {
+                let (first : (Qubit => Unit), second : (Qubit => Unit), target : Qubit) = pair;
+                first(target);
+                second(target);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let choose : Bool = M(q) == One;
+                let first : (Qubit => Unit is Adj + Ctl) = if choose {
+                    H
+                } else {
+                    X
+                };
+                let angle : Double = 0.25;
+                Run_AdjCtl__Empty_(first, / * closure item = 3 captures = [angle] * / _lambda_3, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(angle : Double, target : Qubit) : Unit {
+                Rz(angle, target)
+            }
+            operation Run_AdjCtl__Empty_(pair : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit), Qubit)) : Unit {
+                let (first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit), target : Qubit) = pair;
+                first(target);
+                second(target);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Run(pair : ((Qubit => Unit), (Qubit => Unit), Qubit)) : Unit {
+                let (first : (Qubit => Unit), second : (Qubit => Unit), target : Qubit) = pair;
+                first(target);
+                second(target);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let choose : Bool = M(q) == One;
+                let angle : Double = 0.25;
+                if choose {
+                    Run_AdjCtl__Empty__H__closure_(q, angle)
+                } else {
+                    Run_AdjCtl__Empty__X__closure_(q, angle)
+                };
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(angle : Double, target : Qubit) : Unit {
+                Rz(angle, target)
+            }
+            operation Run_AdjCtl__Empty_(pair : ((Qubit => Unit is Adj + Ctl), (Qubit => Unit), Qubit)) : Unit {
+                let (first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit), target : Qubit) = pair;
+                first(target);
+                second(target);
+            }
+            operation Run_AdjCtl__Empty__H__closure_(pair : Qubit, __capture_0 : Double) : Unit {
+                let target : Qubit = pair;
+                H(target);
+                _lambda_3(__capture_0, target);
+            }
+            operation Run_AdjCtl__Empty__X__closure_(pair : Qubit, __capture_0 : Double) : Unit {
+                let target : Qubit = pair;
+                X(target);
+                _lambda_3(__capture_0, target);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A mixed branch-split group with a `Dynamic` sibling is intentionally not a
+/// combined per-candidate specialization.
+///
+/// The unresolved `third` argument must surface as `DynamicCallable`. The
+/// producer closure sibling may still get a transient per-row spec while that
+/// diagnostic is collected, but tracking it as consumed would clear its body or
+/// trip the internal consistency panic. This test uses more than `MULTI_CAP`
+/// array elements to force the sibling to `Dynamic` and asserts the pass returns
+/// diagnostics instead of panicking.
+#[test]
+fn mixed_branch_split_dynamic_sibling_reports_error_without_panic() {
+    use std::fmt::Write as _;
+
+    const ELEMENTS: usize = 1001;
+
+    let mut defs = String::new();
+    let mut elems = String::new();
+    for i in 0..ELEMENTS {
+        writeln!(defs, "        operation Op{i}(q : Qubit) : Unit {{}}").expect("write succeeds");
+        if i > 0 {
+            elems.push_str(", ");
+        }
+        write!(elems, "Op{i}").expect("write succeeds");
+    }
+
+    let source = format!(
+        r#"
+{defs}
+        operation Run(
+            first : Qubit => Unit,
+            second : Qubit => Unit,
+            third : Qubit => Unit,
+            q : Qubit
+        ) : Unit {{
+            first(q);
+            second(q);
+            third(q);
+        }}
+        operation Main() : Unit {{
+            use q = Qubit();
+            let choose = M(q) == One;
+            let first = if choose {{ Op0 }} else {{ Op1 }};
+            let angle = 0.25;
+            let ops = [{elems}];
+            for third in ops {{
+                Run(first, target => Rz(angle, target), third, q);
+            }}
+        }}
+        "#
+    );
+
+    check_errors(
+        &source,
+        &expect![[r#"
+            callable argument could not be resolved statically
+            callable argument could not be resolved statically"#]],
+    );
+}
+
+#[test]
+fn single_element_callable_array_into_struct_field_survives_as_array() {
+    // A single-element callable array threaded into a callee that indexes it
+    // (`arr[0]`) and stores the result in a struct field must survive
+    // specialization as a one-element array literal. Collapsing the forwarded
+    // array to the scalar callable would leave `arr[0]` indexing a non-array
+    // value, so the specialized body keeps `[AddOne][0]`.
+    check_rewrite(
+        r#"
+        struct Holder { Cb : (Int => Int) }
+        operation Pick(arr : (Int => Int)[]) : Holder {
+            let f = arr[0];
+            new Holder { Cb = f }
+        }
+        operation Main() : Int {
+            let ops : (Int => Int)[] = [AddOne];
+            let h = Pick(ops);
+            h.Cb(3)
+        }
+        operation AddOne(x : Int) : Int { x + 1 }
+        "#,
+        &expect![[r#"
+            BEFORE:
+            newtype Holder = ((Int => Int), );
+            operation Pick(arr : (Int => Int)[]) : __UDT_Item_1__Package_2_ {
+                let f : (Int => Int) = arr[0];
+                new Holder {
+                    Cb = f
+                }
+
+            }
+            operation Main() : Int {
+                let ops : (Int => Int)[] = [AddOne];
+                let h : __UDT_Item_1__Package_2_ = Pick_Empty_(ops);
+                h::Cb(3)
+            }
+            operation AddOne(x : Int) : Int {
+                x + 1
+            }
+            operation Pick_Empty_(arr : (Int => Int)[]) : __UDT_Item_1__Package_2_ {
+                let f : (Int => Int) = arr[0];
+                new Holder {
+                    Cb = f
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            newtype Holder = ((Int => Int), );
+            operation Pick(arr : (Int => Int)[]) : __UDT_Item_1__Package_2_ {
+                let f : (Int => Int) = arr[0];
+                new Holder {
+                    Cb = f
+                }
+
+            }
+            operation Main() : Int {
+                let ops : (Int => Int)[] = [AddOne];
+                let h : __UDT_Item_1__Package_2_ = Pick_Empty__AddOne_();
+                h::Cb(3)
+            }
+            operation AddOne(x : Int) : Int {
+                x + 1
+            }
+            operation Pick_Empty_(arr : (Int => Int)[]) : __UDT_Item_1__Package_2_ {
+                let f : (Int => Int) = arr[0];
+                new Holder {
+                    Cb = f
+                }
+
+            }
+            operation Pick_Empty__AddOne_() : __UDT_Item_1__Package_2_ {
+                let f : (Int => Int) = [AddOne][0];
+                new Holder {
+                    Cb = f
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A single-element tuple parameter `(Qubit => Unit,)` whose only field is a
+/// capturing producer closure routes through the per-row singular path. Removing
+/// the consumed field empties the parameter's tuple, so the specialized input
+/// drops the emptied slot and keeps only the threaded capture. The rebuilt call
+/// argument must likewise supply only the capture and never prepend the emptied
+/// slot, so the specialized input pattern and the call argument stay arity
+/// matched.
+#[test]
+fn single_element_producer_tuple_param_drops_slot_and_threads_capture() {
+    check_rewrite(
+        r#"
+        operation Rotate(angle : Double, q : Qubit) : Unit { Rx(angle, q); }
+        function Make(angle : Double) : (Qubit => Unit) { return Rotate(angle, _); }
+        operation ApplyTup(ops : (Qubit => Unit,)) : Unit {
+            use q = Qubit();
+            let (a,) = ops;
+            a(q);
+            a(q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            ApplyTup((Make(0.5),));
+        }
+        "#,
+        &expect![[r#"
+            BEFORE:
+            operation Rotate(angle : Double, q : Qubit) : Unit {
+                Rx(angle, q);
+            }
+            function Make(angle : Double) : (Qubit => Unit) {
+                return {
+                    let arg : Double = angle;
+                    / * closure item = 5 captures = [arg] * / _lambda_5
+                };
+            }
+            operation ApplyTup(ops : ((Qubit => Unit), )) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (a : (Qubit => Unit), ) = ops;
+                a(q);
+                a(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Main() : Unit {
+                ApplyTup_Empty_(Make(0.5), );
+            }
+            operation _lambda_5(arg : Double, hole : Qubit) : Unit {
+                Rotate(arg, hole)
+            }
+            operation ApplyTup_Empty_(ops : ((Qubit => Unit), )) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (a : (Qubit => Unit), ) = ops;
+                a(q);
+                a(q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Rotate(angle : Double, q : Qubit) : Unit {
+                Rx(angle, q);
+            }
+            function Make(angle : Double) : (Qubit => Unit) {
+                return {
+                    let arg : Double = angle;
+                    ()
+                };
+            }
+            operation ApplyTup(ops : ((Qubit => Unit), )) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (a : (Qubit => Unit), ) = ops;
+                a(q);
+                a(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Main() : Unit {
+                ApplyTup_Empty__closure_(0.5, );
+            }
+            operation _lambda_5(arg : Double, hole : Qubit) : Unit {
+                Rotate(arg, hole)
+            }
+            operation ApplyTup_Empty_(ops : ((Qubit => Unit), )) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (a : (Qubit => Unit), ) = ops;
+                a(q);
+                a(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation ApplyTup_Empty__closure_(__capture_0 : Double, ) : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                _lambda_5(__capture_0, q);
+                _lambda_5(__capture_0, q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A `for` loop over a callable array desugars to a `Length(array)` call and an
+/// indexed read of the array. `Length` is an intrinsic that consumes its
+/// argument as data and never invokes it, so it must not be treated as a
+/// higher-order function: the array argument has to survive so `Length` and the
+/// indexed read stay well-formed. Here the loop element `op` (candidates
+/// `[H, X]`) is dispatched into the two-parameter `ApplyTwo` alongside a
+/// single-valued global sibling `Y` in a different slot. The rewrite keeps both
+/// dispatch candidates, threads the sibling into each specialized leaf, and
+/// leaves the `Length(_array_id)` call unspecialized.
+#[test]
+fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
+    let source = r#"
+        operation ApplyTwo(f : Qubit => Unit, g : Qubit => Unit, q : Qubit) : Unit {
+            f(q);
+            g(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let ops = [H, X];
+            for op in ops {
+                ApplyTwo(op, Y, q);
+            }
+        }
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation ApplyTwo(f : (Qubit => Unit), g : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+                g(q);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let ops : (Qubit => Unit is Adj + Ctl)[] = [H, X];
+                let _generated_ident_84 : Unit = {
+                    let _array_id_51 : (Qubit => Unit is Adj + Ctl)[] = ops;
+                    let _len_id_55 : Int = Length(_array_id_51);
+                    mutable _index_id_60 : Int = 0;
+                    while _index_id_60 < _len_id_55 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_51[_index_id_60];
+                        ApplyTwo_AdjCtl__AdjCtl_(op, Y, q);
+                        _index_id_60 += 1;
+                    }
+
+                };
+                __quantum__rt__qubit_release(q);
+                _generated_ident_84
+            }
+            operation ApplyTwo_AdjCtl__AdjCtl_(f : (Qubit => Unit is Adj + Ctl), g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                f(q);
+                g(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation ApplyTwo(f : (Qubit => Unit), g : (Qubit => Unit), q : Qubit) : Unit {
+                f(q);
+                g(q);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let ops : (Qubit => Unit is Adj + Ctl)[] = [H, X];
+                let _generated_ident_84 : Unit = {
+                    let _array_id_51 : (Qubit => Unit is Adj + Ctl)[] = ops;
+                    let _len_id_55 : Int = Length(_array_id_51);
+                    mutable _index_id_60 : Int = 0;
+                    while _index_id_60 < _len_id_55 {
+                        if _index_id_60 == 0 {
+                            ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
+                        } else {
+                            ApplyTwo_AdjCtl__AdjCtl__X__Y_(q)
+                        };
+                        _index_id_60 += 1;
+                    }
+
+                };
+                __quantum__rt__qubit_release(q);
+                _generated_ident_84
+            }
+            operation ApplyTwo_AdjCtl__AdjCtl_(f : (Qubit => Unit is Adj + Ctl), g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                f(q);
+                g(q);
+            }
+            operation ApplyTwo_AdjCtl__AdjCtl__H_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                H(q);
+                g(q);
+            }
+            operation ApplyTwo_AdjCtl__AdjCtl__X_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                X(q);
+                g(q);
+            }
+            operation ApplyTwo_AdjCtl__AdjCtl__Y_(f : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                f(q);
+                Y(q);
+            }
+            operation ApplyTwo_AdjCtl__AdjCtl__H__Y_(q : Qubit) : Unit {
+                H(q);
+                Y(q);
+            }
+            operation ApplyTwo_AdjCtl__AdjCtl__X__Y_(q : Qubit) : Unit {
+                X(q);
+                Y(q);
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A callable array is forwarded into a higher-order function that receives it
+/// as a plain array parameter and iterates over it, mirroring the shape of the
+/// Deutsch-Jozsa sample where a list of oracles is looped over and each is run
+/// through a driver operation. The forwarding operation `RunEach` takes the
+/// callable array by value and its own `for` loop desugars to a `Length` call
+/// plus an indexed read. The array must survive intact so `Length` and the
+/// index stay well-formed, and the inner `Run(op, q)` dispatch is specialized
+/// per candidate.
+#[test]
+fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
+    let source = r#"
+        operation Run(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation RunEach(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+            for op in ops {
+                Run(op, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            RunEach([H, X], q);
+        }
+        "#;
+    check_invariants(source);
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Run(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            operation RunEach(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+                {
+                    let _array_id_55 : (Qubit => Unit)[] = ops;
+                    let _len_id_59 : Int = Length(_array_id_55);
+                    mutable _index_id_64 : Int = 0;
+                    while _index_id_64 < _len_id_59 {
+                        let op : (Qubit => Unit) = _array_id_55[_index_id_64];
+                        Run_Empty_(op, q);
+                        _index_id_64 += 1;
+                    }
+
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                RunEach_AdjCtl_([H, X], q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Run_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            operation RunEach_AdjCtl_(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit {
+                {
+                    let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = ops;
+                    let _len_id_59 : Int = Length(_array_id_55);
+                    mutable _index_id_64 : Int = 0;
+                    while _index_id_64 < _len_id_59 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
+                        Run_Empty_(op, q);
+                        _index_id_64 += 1;
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Run(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            operation RunEach(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+                {
+                    let _array_id_55 : (Qubit => Unit)[] = ops;
+                    let _len_id_59 : Int = Length(_array_id_55);
+                    mutable _index_id_64 : Int = 0;
+                    while _index_id_64 < _len_id_59 {
+                        let op : (Qubit => Unit) = _array_id_55[_index_id_64];
+                        Run_Empty_(op, q);
+                        _index_id_64 += 1;
+                    }
+
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                RunEach_AdjCtl__H__X_(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Run_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
+                op(q);
+            }
+            operation RunEach_AdjCtl_(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit {
+                {
+                    let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = ops;
+                    let _len_id_59 : Int = Length(_array_id_55);
+                    mutable _index_id_64 : Int = 0;
+                    while _index_id_64 < _len_id_59 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
+                        Run_Empty_(op, q);
+                        _index_id_64 += 1;
+                    }
+
+                }
+
+            }
+            operation RunEach_AdjCtl__H__X_(q : Qubit) : Unit {
+                {
+                    let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = [H, X];
+                    let _len_id_59 : Int = Length(_array_id_55);
+                    mutable _index_id_64 : Int = 0;
+                    while _index_id_64 < _len_id_59 {
+                        if _index_id_64 == 0 {
+                            Run_Empty__H_(q)
+                        } else {
+                            Run_Empty__X_(q)
+                        };
+                        _index_id_64 += 1;
+                    }
+
+                }
+
+            }
+            operation Run_Empty__H_(q : Qubit) : Unit {
+                H(q);
+            }
+            operation Run_Empty__X_(q : Qubit) : Unit {
+                X(q);
             }
             // entry
             Main()

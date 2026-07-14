@@ -407,6 +407,28 @@ impl ApplicationGeneratorSet {
         }
         compute_kind
     }
+
+    /// Generates the compute kind of a call assuming the callee is emitted as an IR function, in which case all
+    /// arguments are considered dynamic and variable. This helps understand when emitting an IR function uses different
+    /// capabilities compared to inlining it.
+    #[must_use]
+    pub fn generate_ir_function_application_compute_kind(&self) -> ComputeKind {
+        let mut compute_kind = self.inherent;
+        for param_application in &self.dynamic_param_applications {
+            match param_application {
+                ParamApplication::Element(param_compute_kind) => {
+                    compute_kind = compute_kind.aggregate(param_compute_kind.variable);
+                }
+                ParamApplication::Array(array_param_application) => {
+                    compute_kind = compute_kind.aggregate(array_param_application.dynamic_size);
+                }
+            }
+        }
+        if !matches!(compute_kind, ComputeKind::Static) {
+            compute_kind.set_variable_value_kind();
+        }
+        compute_kind
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -545,13 +567,16 @@ impl ComputeKind {
         };
 
         // Determine the aggregated runtime features, use the value kind equivalent from self or the default.
-        let (runtime_features, value_kind) = match self {
+        let (mut runtime_features, value_kind) = match self {
             Self::Static => (runtime_features, default_value_kind),
             Self::Dynamic {
                 runtime_features: self_runtime_features,
                 value_kind: self_value_kind,
             } => (self_runtime_features | runtime_features, self_value_kind),
         };
+
+        // We don't propagate the `MustBeInlined` runtime feature because it is only relevant at call expressions.
+        runtime_features.remove(RuntimeFeatureFlags::MustBeInlined);
 
         // Return the aggregated compute kind.
         ComputeKind::Dynamic {
@@ -696,6 +721,10 @@ bitflags! {
         const UseOfDynamicGeneric = 1 << 28;
         /// A callable allocates qubits (directly or transitively).
         const QubitAllocation = 1 << 29;
+        /// A dynamic release of a qubit.
+        const UseOfDynamicQubitRelease = 1 << 30;
+        /// A callable whose required features mean it must be inlined rather than emitted as an IR function.
+        const MustBeInlined = 1 << 31;
     }
 }
 
@@ -808,6 +837,9 @@ impl RuntimeFeatureFlags {
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicQubitRelease) {
+            capabilities |= TargetCapabilityFlags::DynamicQubitAllocation;
         }
         capabilities
     }

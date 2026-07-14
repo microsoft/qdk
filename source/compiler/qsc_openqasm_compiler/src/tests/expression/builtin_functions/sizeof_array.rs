@@ -14,7 +14,7 @@ fn sizeof_with_non_existent_dimension_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.SizeofInvalidDimension
+            Qdk.Qasm.Lowerer.SizeofInvalidDimension
 
               x requested dimension 4 but array has 1 dimensions
                ,-[Test.qasm:3:9]
@@ -156,7 +156,7 @@ fn sizeof_with_8_dimensional_array_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NotSupported
+            Qdk.Qasm.Lowerer.NotSupported
 
               x arrays with more than 7 dimensions are not supported
                ,-[Test.qasm:2:9]
@@ -166,7 +166,7 @@ fn sizeof_with_8_dimensional_array_errors() {
              3 |         sizeof(a);
                `----
 
-            Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `sizeof` for inputs: (unknown)
               | Overloads available are:
@@ -192,7 +192,7 @@ fn sizeof_with_0_dimensional_array_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NotSupported
+            Qdk.Qasm.Lowerer.NotSupported
 
               x arrays with 0 dimensions are not supported
                ,-[Test.qasm:2:9]
@@ -202,7 +202,7 @@ fn sizeof_with_0_dimensional_array_errors() {
              3 |         sizeof(a);
                `----
 
-            Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `sizeof` for inputs: (unknown)
               | Overloads available are:
@@ -229,7 +229,7 @@ fn sizeof_with_non_const_dim_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.ExprMustBeConst
+            Qdk.Qasm.Lowerer.ExprMustBeConst
 
               x expression must be const
                ,-[Test.qasm:4:19]
@@ -239,7 +239,7 @@ fn sizeof_with_non_const_dim_errors() {
              5 |     
                `----
 
-            Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `sizeof` for inputs: (array[int, 1], uint)
               | Overloads available are:

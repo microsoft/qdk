@@ -14,7 +14,7 @@ pub enum Error {
         "using a bool value that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-bool"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicBool"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicBool"))]
     UseOfDynamicBool(#[label] Span),
 
     #[error("cannot use a dynamic integer value")]
@@ -22,7 +22,7 @@ pub enum Error {
         "using an integer value that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-integer"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicInt"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicInt"))]
     UseOfDynamicInt(#[label] Span),
 
     #[error("cannot use a dynamic Pauli value")]
@@ -30,7 +30,7 @@ pub enum Error {
         "using a Pauli value that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-pauli"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicPauli"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicPauli"))]
     UseOfDynamicPauli(#[label] Span),
 
     #[error("cannot use a dynamic Range value")]
@@ -38,7 +38,7 @@ pub enum Error {
         "using a Range value that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-range"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicRange"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicRange"))]
     UseOfDynamicRange(#[label] Span),
 
     #[error("cannot use a dynamic double value")]
@@ -46,7 +46,7 @@ pub enum Error {
         "using a double value that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-double"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicDouble"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicDouble"))]
     UseOfDynamicDouble(#[label] Span),
 
     #[error("cannot use a dynamic qubit")]
@@ -54,7 +54,7 @@ pub enum Error {
         "using a qubit whose allocation depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-qubit"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicQubit"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicQubit"))]
     UseOfDynamicQubit(#[label] Span),
 
     #[error("cannot use a dynamic Result")]
@@ -62,7 +62,7 @@ pub enum Error {
         "using a Result variable whose value depends on a measurement result is not supported by the current target"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-result"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicResult"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicResult"))]
     UseOfDynamicResult(#[label] Span),
 
     #[error("cannot use a dynamic tuple")]
@@ -70,7 +70,7 @@ pub enum Error {
         "using a tuple whose members depend on a measurement result is not supported by the current target"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-tuple"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicTuple"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicTuple"))]
     UseOfDynamicTuple(#[label] Span),
 
     #[error("cannot use a dynamic big integer value")]
@@ -78,7 +78,7 @@ pub enum Error {
         "using a big integer value that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-big-integer"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicBigInt"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicBigInt"))]
     UseOfDynamicBigInt(#[label] Span),
 
     #[error("cannot use a dynamic string value")]
@@ -86,7 +86,7 @@ pub enum Error {
         "using a string value that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-string"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicString"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicString"))]
     UseOfDynamicString(#[label] Span),
 
     #[error("cannot use a dynamic exponent")]
@@ -94,7 +94,7 @@ pub enum Error {
         "using an exponent that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-exponent"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicExponent"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicExponent"))]
     UseOfDynamicExponent(#[label] Span),
 
     #[error("cannot use an array with dynamic contents")]
@@ -102,7 +102,7 @@ pub enum Error {
         "using an array whose contents depend on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-array"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicArray"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicArray"))]
     UseOfDynamicArray(#[label] Span),
 
     #[error("cannot use a dynamically-sized array")]
@@ -110,7 +110,7 @@ pub enum Error {
         "using an array whose size depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamically-sized-array"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicallySizedArray"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicallySizedArray"))]
     UseOfDynamicallySizedArray(#[label] Span),
 
     #[error("cannot use a dynamic user-defined type")]
@@ -118,7 +118,7 @@ pub enum Error {
         "using a user-defined type in which one or more of its members depend on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-user-defined-type"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicUdt"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicUdt"))]
     UseOfDynamicUdt(#[label] Span),
 
     #[error("cannot use a dynamic function")]
@@ -126,7 +126,7 @@ pub enum Error {
         "using a function whose resolution depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-function"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicArrowFunction"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicArrowFunction"))]
     UseOfDynamicArrowFunction(#[label] Span),
 
     #[error("cannot use a dynamic operation")]
@@ -134,7 +134,7 @@ pub enum Error {
         "using an operation whose resolution depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-operation"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicArrowOperation"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicArrowOperation"))]
     UseOfDynamicArrowOperation(#[label] Span),
 
     #[error("cannot call a function or operation whose resolution is dynamic")]
@@ -142,7 +142,7 @@ pub enum Error {
         "calling a function or operation whose resolution depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#call-to-dynamic-callee"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.CallToDynamicCallee"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.CallToDynamicCallee"))]
     CallToDynamicCallee(#[label] Span),
 
     #[error("cannot perform a measurement within a dynamic scope")]
@@ -150,19 +150,19 @@ pub enum Error {
         "performing a measurement within a scope that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#measurement-within-a-dynamic-scope"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.MeasurementWithinDynamicScope"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.MeasurementWithinDynamicScope"))]
     MeasurementWithinDynamicScope(#[label] Span),
 
     #[error("cannot call a custom measurement")]
     #[diagnostic(help("cannot call a custom measurement in the configured target profile"))]
     #[diagnostic(url("https://aka.ms/qdk.qir#call-to-custom-measurement"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.CallToCustomMeasurement"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.CallToCustomMeasurement"))]
     CallToCustomMeasurement(#[label] Span),
 
     #[error("cannot call a custom reset")]
     #[diagnostic(help("cannot call a custom reset in the configured target profile"))]
     #[diagnostic(url("https://aka.ms/qdk.qir#call-to-custom-reset"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.CallToCustomReset"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.CallToCustomReset"))]
     CallToCustomReset(#[label] Span),
 
     #[error("cannot access an array using a dynamic index")]
@@ -170,7 +170,7 @@ pub enum Error {
         "accessing an array using an index that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-array-index"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicIndex"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicIndex"))]
     UseOfDynamicIndex(#[label] Span),
 
     #[error("cannot use a return within a dynamic scope")]
@@ -178,7 +178,7 @@ pub enum Error {
         "using a return within a scope that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#return-within-a-dynamic-scope"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.ReturnWithinDynamicScope"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.ReturnWithinDynamicScope"))]
     ReturnWithinDynamicScope(#[label] Span),
 
     #[error("cannot have a loop with a dynamic condition")]
@@ -186,7 +186,7 @@ pub enum Error {
         "using a loop with a condition that depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#loop-with-dynamic-condition"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.LoopWithDynamicCondition"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.LoopWithDynamicCondition"))]
     LoopWithDynamicCondition(#[label] Span),
 
     #[error("cannot use a bool value as an output")]
@@ -194,7 +194,7 @@ pub enum Error {
         "using a bool value as an output is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-bool-output"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfBoolOutput"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfBoolOutput"))]
     UseOfBoolOutput(#[label] Span),
 
     #[error("cannot use a double value as an output")]
@@ -202,7 +202,7 @@ pub enum Error {
         "using a Double as an output is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-double-output"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDoubleOutput"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDoubleOutput"))]
     UseOfDoubleOutput(#[label] Span),
 
     #[error("cannot use an integer value as an output")]
@@ -210,7 +210,7 @@ pub enum Error {
         "using an integer as an output is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-integer-output"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfIntOutput"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"))]
     UseOfIntOutput(#[label] Span),
 
     #[error("cannot use value with advanced type as an output")]
@@ -218,7 +218,7 @@ pub enum Error {
         "using a value of type callable, range, big integer, Pauli, Qubit or string as an output is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-advanced-output"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfAdvancedOutput"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"))]
     UseOfAdvancedOutput(#[label] Span),
 
     #[error("cannot use a dynamic generic parameter")]
@@ -226,8 +226,16 @@ pub enum Error {
         "using a generic parameter whose resolution depends on a measurement result is not supported by the configured target profile"
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-generic"))]
-    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicGeneric"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicGeneric"))]
     UseOfDynamicGeneric(#[label] Span),
+
+    #[error("cannot use a dynamic qubit release")]
+    #[diagnostic(help(
+        "non-deterministic qubit release, often from patterns like dynamic early returns, requires the dynamic qubit allocation feature and is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-qubit-release"))]
+    #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicQubitRelease"))]
+    UseOfDynamicQubitRelease(#[label] Span),
 }
 
 #[must_use]
@@ -322,6 +330,9 @@ pub fn generate_errors_from_runtime_features(
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
         errors.push(Error::UseOfDynamicGeneric(span));
+    }
+    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicQubitRelease) {
+        errors.push(Error::UseOfDynamicQubitRelease(span));
     }
     errors
 }

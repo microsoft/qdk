@@ -16,6 +16,10 @@ const MAX_QUBITS_PER_WORKGROUP: i32 = {{MAX_QUBITS_PER_WORKGROUP}};
 
 const ERR_INVALID_PROBS = 1u;
 const ERR_INVALID_THREAD_TOTAL = 2u;
+// A loss policy was stamped onto a gate that does not support it. The host
+// validates loss policies per gate before submission, so this indicates a bug.
+// Errors 3-31 are reserved for base.wgsl and adaptive.wgsl
+const ERR_UNSUPPORTED_LOSS_POLICY = 32u;
 
 // Tolerance for probabilities to sum to 1.0
 const PROB_THRESHOLD: f32 = 0.0001;
@@ -331,10 +335,294 @@ fn get_pauli_noise_idx(op_idx: u32) -> u32 {
     return 0u;
 }
 
+// From the starting index given, return the next index if loss noise, else 0
+fn get_loss_idx(op_idx: u32) -> u32 {
+    if (arrayLength(&ops) > (op_idx + 1)) {
+        let op = &ops[op_idx + 1];
+        if (op.id == OPID_LOSS_NOISE) {
+            return op_idx + 1u;
+        }
+    }
+    return 0u;
+}
 
-fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+// Loss policy values. These are stamped onto a gate op's `q3` field by the host
+// (see `LossPolicy::as_u32` on the Rust side) and tell the shader how to handle
+// the gate when one of its operands is lost. `0` means "no policy stamped",
+// which the shader treats the same as SKIP.
+const LOSS_POLICY_SKIP              = 0u;
+const LOSS_POLICY_PROPAGATE         = 1u;
+const LOSS_POLICY_DEGRADE           = 2u;
+const LOSS_POLICY_RESIDUAL_S_DAGGER = 3u;
+const LOSS_POLICY_APPLY_ANYWAY      = 4u;
+
+// Returns true if the gate at `op_idx` touches at least one lost qubit.
+// `q1`/`q2` are the (resolved) operands of the gate.
+fn gate_has_lost_operand(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> bool {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+    if (shot.qubit_state[q1].heat == -1.0) {
+        return true;
+    }
+    let is_2q = !is_1q_op(op.id);
+    return is_2q && (shot.qubit_state[q2].heat == -1.0);
+}
+
+// Builds a 4x4 (in shot.unitary) that applies the 1-qubit matrix `m` (given as
+// m00,m01,m10,m11) to `target_is_q2 ? q2 : q1` and identity to the other qubit
+// of the pair. The lost qubit is in the |0> state, so the identity factor keeps
+// it there. The 2-qubit basis is |q1 q2>, so the row/col index is
+// (2 * q1_bit + q2_bit).
+fn set_1q_on_pair_unitary(shot_idx: u32, target_is_q2: bool,
+                          m00: vec2f, m01: vec2f, m10: vec2f, m11: vec2f) {
+    let shot = &shots[shot_idx];
+    // Zero the whole 4x4 first.
+    for (var i = 0u; i < 16u; i++) {
+        shot.unitary[i] = vec2f(0.0, 0.0);
+    }
+    if target_is_q2 {
+        // Acts on q2 (low bit): block-diagonal diag(M, M).
+        // Top-left block (q1 = 0):
+        shot.unitary[0]  = m00; shot.unitary[1]  = m01;
+        shot.unitary[4]  = m10; shot.unitary[5]  = m11;
+        // Bottom-right block (q1 = 1):
+        shot.unitary[10] = m00; shot.unitary[11] = m01;
+        shot.unitary[14] = m10; shot.unitary[15] = m11;
+    } else {
+        // Acts on q1 (high bit): M (x) I.
+        shot.unitary[0]  = m00; shot.unitary[2]  = m01;
+        shot.unitary[8]  = m10; shot.unitary[10] = m11;
+        shot.unitary[5]  = m00; shot.unitary[7]  = m01;
+        shot.unitary[13] = m10; shot.unitary[15] = m11;
+    }
+}
+
+// Multiplies one row of the 4x4 pair unitary (in shot.unitary) by -i, in place.
+// Folding a diag(1, -i) = S-dagger factor on one qubit into a 2-qubit matrix
+// scales the rows whose target-qubit bit is 1 by -i. For a complex entry
+// (x + y i), (x + y i) * -i = y - x i.
+fn scale_pair_unitary_row_by_neg_i(shot_idx: u32, row: u32) {
+    let shot = &shots[shot_idx];
+    for (var c = 0u; c < 4u; c++) {
+        let e = shot.unitary[row * 4u + c];
+        shot.unitary[row * 4u + c] = vec2f(e.y, -e.x);
+    }
+}
+
+// Sets up the shot to execute a 2-qubit shot-buffer op on the gate's operands.
+fn finish_2q_shot_buffer(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) {
+    let shot = &shots[shot_idx];
+    shot.op_idx = op_idx;
+    shot.op_type = OPID_SHOT_BUFF_2Q;
+    shot.qubits_updated_last_op_mask = (1u << q1) | (1u << q2);
+}
+
+// Loses a single surviving `qubit` for the PROPAGATE policy: samples a
+// measurement outcome, collapses the qubit to that outcome and resets it to
+// |0>, and marks it lost (heat = -1.0). The collapse is expressed as a 2-qubit
+// tensor on the gate's operands (reset on `qubit`, identity on the lost
+// partner, which is already in |0>), reusing the standard shot-buffer execute
+// path. `qubit` must be one of the gate's two operands `q1`/`q2`.
+fn propagate_loss_to_qubit(shot_idx: u32, op_idx: u32, q1: u32, q2: u32, qubit: u32) {
+    let shot = &shots[shot_idx];
+
+    let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
+
+    // Reset instrument (project + move |1> into |0> slot), same as MResetZ:
+    //   result==0: [[1,0],[0,0]]
+    //   result==1: [[0,1],[0,0]]
+    let m00 = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
+    let m01 = select(vec2f(0.0, 0.0), vec2f(1.0, 0.0), result == 1u);
+    let m10 = vec2f(0.0, 0.0);
+    let m11 = vec2f(0.0, 0.0);
+
+    let target_is_q2 = (qubit == q2);
+    set_1q_on_pair_unitary(shot_idx, target_is_q2, m00, m01, m10, m11);
+
+    // Renormalize by the measured branch probability.
+    shot.renormalize = select(
+        1.0 / sqrt(shot.qubit_state[qubit].zero_probability),
+        1.0 / sqrt(shot.qubit_state[qubit].one_probability),
+        result == 1u);
+
+    // Mark the qubit lost and clear its definite-state bits so the probability
+    // pass recomputes it.
+    shot.qubit_state[qubit].heat = -1.0;
+    shot.qubit_is_0_mask = shot.qubit_is_0_mask & ~(1u << qubit);
+    shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~(1u << qubit);
+
+    finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
+}
+
+// Records an error `code` for `shot_idx` in both the diagnostics buffer and the
+// shot's result-code slot, mirroring the reporting done elsewhere in this file.
+// Used for conditions the host guarantees never occur (e.g. a loss policy that
+// is not valid for a given gate).
+fn report_shot_error(shot_idx: u32, code: u32) {
+    atomicCompareExchangeWeak(&diagnostics.error_code, 0u, code);
+    let err_index = (shot_idx + 1u) * RESULT_COUNT - 1u;
+    atomicCompareExchangeWeak(&results[err_index], 0u, code);
+}
+
+// Handles a gate whose operand(s) include at least one lost qubit, according to
+// the loss policy stamped on the op's `policy` field. `q1`/`q2` are the
+// (resolved) operands. The gate body is fully handled here (degraded unitary,
+// loss propagation, or turned into Id); the caller must not run the original
+// gate afterwards. Any attached Pauli noise is applied separately to the
+// surviving operand via `apply_2q_pauli_noise_on_survivor`.
+fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+    let is_1q = is_1q_op(op.id);
+    let is_2q = !is_1q;
+    let policy = op.policy;
+
+    // Loss policies only make sense for multi-qubit gates.
+    // If this is a single-qubit gate, skip it entirely.
+    if (is_1q) {
+        shot.op_type = OPID_ID;
+        shot.op_idx = op_idx;
+        return;
+    }
+
+    let q1_lost = shot.qubit_state[q1].heat == -1.0;
+    let q2_lost = is_2q && (shot.qubit_state[q2].heat == -1.0);
+    let has_survivor = is_2q && !(q1_lost && q2_lost);
+    // The surviving operand (only meaningful when has_survivor is true).
+    let survivor = select(q1, q2, q1_lost);
+    let survivor_is_q2 = q1_lost;
+
+    // SWAP is special: it physically relocates the two qubits, so their loss
+    // state is always exchanged regardless of the policy (the policy only
+    // governs whether the unitary runs). Handle it explicitly here.
+    if (op.id == OPID_SWAP) {
+        switch policy {
+            case LOSS_POLICY_PROPAGATE {
+                propagate_loss_to_qubit(shot_idx, op_idx, q1, q2, survivor);
+                return;
+            }
+            case LOSS_POLICY_RESIDUAL_S_DAGGER {
+                // Match the CPU/stabilizer SWAP + residual S-dagger semantics:
+                //   1. Apply the full SWAP (shot.unitary already holds it).
+                //   2. Apply S-dagger = diag(1, -i) to the (originally) lost
+                //      operand's position, which after the SWAP holds the
+                //      survivor's amplitudes.
+                //   3. Exchange the per-qubit loss flag (heat) of the operands.
+
+                // Fold the S-dagger into the SWAP matrix by scaling, by -i, the
+                // two rows of the |q1 q2> pair matrix whose lost-qubit bit is 1.
+                // q1 is the high bit (rows 2, 3); q2 is the low bit (rows 1, 3).
+                let lost_row = select(1u, 2u, q1_lost);
+                scale_pair_unitary_row_by_neg_i(shot_idx, lost_row);
+                scale_pair_unitary_row_by_neg_i(shot_idx, 3u);
+                // Exchange the per-qubit loss flag (heat) of the two operands.
+                let heat1 = shot.qubit_state[q1].heat;
+                shot.qubit_state[q1].heat = shot.qubit_state[q2].heat;
+                shot.qubit_state[q2].heat = heat1;
+                // The 2-qubit execute path skips amplitudes for qubits known to be
+                // in a definite state, which would skip the amplitudes SWAP needs to move.
+                // Clear those bits for both operands so the swap is actually applied.
+                shot.qubit_is_0_mask = shot.qubit_is_0_mask & ~((1u << q1) | (1u << q2));
+                shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~((1u << q1) | (1u << q2));
+                // shot.unitary now holds (S-dagger on lost) * SWAP.
+                finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
+                return;
+            }
+            case LOSS_POLICY_APPLY_ANYWAY {
+                // Exchange the per-qubit loss flag (heat) of the two operands.
+                let heat1 = shot.qubit_state[q1].heat;
+                shot.qubit_state[q1].heat = shot.qubit_state[q2].heat;
+                shot.qubit_state[q2].heat = heat1;
+                // The 2-qubit execute path skips amplitudes for qubits known to be
+                // in a definite state, which would skip the amplitudes SWAP needs to move.
+                // Clear those bits for both operands so the swap is actually applied.
+                shot.qubit_is_0_mask = shot.qubit_is_0_mask & ~((1u << q1) | (1u << q2));
+                shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~((1u << q1) | (1u << q2));
+                // shot.unitary already holds the SWAP matrix (set by the caller).
+                finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
+                return;
+            }
+            case LOSS_POLICY_SKIP {
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                return;
+            }
+            default {
+                // SWAP only supports SKIP, PROPAGATE, RESIDUAL_S_DAGGER, and
+                // APPLY_ANYWAY. Any other policy (e.g. DEGRADE) is rejected by
+                // the host, so reaching here indicates a bug.
+                report_shot_error(shot_idx, ERR_UNSUPPORTED_LOSS_POLICY);
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                return;
+            }
+        }
+    }
+
+    // APPLY_ANYWAY is only valid for SWAP, which is handled above. Reaching here
+    // with it on any other gate is rejected by the host, so it indicates a bug.
+    if (policy == LOSS_POLICY_APPLY_ANYWAY) {
+        report_shot_error(shot_idx, ERR_UNSUPPORTED_LOSS_POLICY);
+        shot.op_type = OPID_ID;
+        shot.op_idx = op_idx;
+        return;
+    }
+
+    if (policy == LOSS_POLICY_PROPAGATE && has_survivor) {
+        propagate_loss_to_qubit(shot_idx, op_idx, q1, q2, survivor);
+        return;
+    }
+
+    if (policy == LOSS_POLICY_RESIDUAL_S_DAGGER && has_survivor) {
+        // Apply S-dagger = diag(1, -i) to the surviving operand.
+        set_1q_on_pair_unitary(shot_idx, survivor_is_q2,
+            vec2f(1.0, 0.0), vec2f(0.0, 0.0),
+            vec2f(0.0, 0.0), vec2f(0.0, -1.0));
+        finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
+        return;
+    }
+
+    // DEGRADE is only valid for the two-qubit rotations (Rxx/Ryy/Rzz), so the
+    // op is guaranteed to be one of them when a survivor exists.
+    if (policy == LOSS_POLICY_DEGRADE && has_survivor) {
+        // Degrade the two-qubit rotation to its single-qubit version on the
+        // survivor. The op's unitary[0] holds cos(θ/2) for Rxx/Ryy; we recover
+        // the angle to build the 1-qubit rotation matrix.
+        let cos_half = op.unitary[0].x;
+        if (op.id == OPID_RXX) {
+            // Rx(θ) = [[c, -i s], [-i s, c]], where s = sin(θ/2).
+            let s = op.unitary[3].y * -1.0; // unitary[3] = (0, -sin(θ/2))
+            set_1q_on_pair_unitary(shot_idx, survivor_is_q2,
+                vec2f(cos_half, 0.0), vec2f(0.0, -s),
+                vec2f(0.0, -s), vec2f(cos_half, 0.0));
+        } else if (op.id == OPID_RYY) {
+            // Ry(θ) = [[c, -s], [s, c]], where s = sin(θ/2).
+            let s = op.unitary[3].y; // unitary[3] = (0, sin(θ/2)) for Ryy
+            set_1q_on_pair_unitary(shot_idx, survivor_is_q2,
+                vec2f(cos_half, 0.0), vec2f(-s, 0.0),
+                vec2f(s, 0.0), vec2f(cos_half, 0.0));
+        } else {
+            // Rzz -> Rz(θ). The GPU Rz convention is [[1, 0], [0, e^{iθ}]],
+            // and unitary[5] = e^{iθ} holds the full-angle phase.
+            let phase = op.unitary[5];
+            set_1q_on_pair_unitary(shot_idx, survivor_is_q2,
+                vec2f(1.0, 0.0), vec2f(0.0, 0.0),
+                vec2f(0.0, 0.0), phase);
+        }
+        finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
+        return;
+    }
+
+    // SKIP, or any policy when both operands are lost (no survivor to act on):
+    // skip the gate entirely.
+    shot.op_type = OPID_ID;
+    shot.op_idx = op_idx;
+}
+
+fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32, q1: u32) {
     // NOTE: Assumes that whatever prepared the program ensured that noise_op.q1 matches op.q1 and
-    // that op is a 1-qubit gate
+    // that op is a 1-qubit gate. `q1` is the resolved target qubit (may be
+    // dynamic for the adaptive interpreter, where op.q1 is only a placeholder).
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
     let noise_op = &ops[noise_idx];
@@ -373,7 +661,7 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         // sampled, schedule a loss commit for this qubit; a following
         // loss-commit op performs the measure + reset.
         if (rand < (p_x + p_z + p_y + p_loss)) {
-            shot.pending_loss_mask |= (1u << op.q1);
+            shot.pending_loss_mask |= (1u << q1);
         }
         // No noise. Set the op_type back to the op.id value if it's Id, MResetZ, MZ, or ResetZ, as they get handled specially in execute_op
         if (op.id == OPID_ID || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESETZ) {
@@ -389,11 +677,11 @@ fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     if (shot.op_type == OPID_ID || shot.op_type == OPID_RZ) {
         shot.qubits_updated_last_op_mask = 0u;
     } else {
-        shot.qubits_updated_last_op_mask = 1u << op.q1;
+        shot.qubits_updated_last_op_mask = 1u << q1;
     };
 }
 
-fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32, q1: u32, q2: u32) {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
     let noise_op = &ops[noise_idx];
@@ -427,8 +715,8 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
 
     // Schedule loss commits for any qubit whose sampled term is loss (L = 4).
     // A following loss-commit op performs the measure + reset.
-    if (q1_term == 4) { shot.pending_loss_mask |= (1u << op.q1); }
-    if (q2_term == 4) { shot.pending_loss_mask |= (1u << op.q2); }
+    if (q1_term == 4) { shot.pending_loss_mask |= (1u << q1); }
+    if (q2_term == 4) { shot.pending_loss_mask |= (1u << q2); }
 
     // A Pauli fault (X, Z, Y = 1, 2, 3) is fused into the gate by permuting its
     // rows. Loss (4) and identity (0) leave the gate unmodified for that qubit.
@@ -510,8 +798,148 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
     if (shot.op_type == OPID_CZ || shot.op_type == OPID_RZZ) {
         shot.qubits_updated_last_op_mask = 0u;
     } else  {
-        shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+        shot.qubits_updated_last_op_mask = (1u << q1 ) | (1u << q2);
     }
+}
+
+// Left-multiplies the 4x4 pair unitary already in `shot.unitary` by a single
+// Pauli (term: X=1, Z=2, Y=3) acting on `target_is_q2 ? q2 : q1`. This is the
+// same row permutation/negation that `apply_2q_pauli_noise` fuses, just applied
+// to the policy-degraded gate rather than the original op. Note the Y branch
+// uses real signs (i.e. -i*Y), matching `apply_2q_pauli_noise`; the resulting
+// global phase is unobservable for a Pauli noise channel.
+fn fuse_1q_pauli_on_pair_unitary(shot_idx: u32, target_is_q2: bool, term: u32) {
+    let si = i32(shot_idx);
+    var row_0 = getUnitaryRow(si, 0u);
+    var row_1 = getUnitaryRow(si, 1u);
+    var row_2 = getUnitaryRow(si, 2u);
+    var row_3 = getUnitaryRow(si, 3u);
+
+    if (!target_is_q2) {
+        // Acting on q1 (high bit): rows {0,1} <-> {2,3}.
+        if (term == 1u) {            // X
+            let o0 = row_0; let o1 = row_1;
+            row_0 = row_2; row_1 = row_3;
+            row_2 = o0;    row_3 = o1;
+        } else if (term == 3u) {     // Y
+            let o0 = row_0; let o1 = row_1;
+            row_0 = rowNeg(row_2); row_1 = rowNeg(row_3);
+            row_2 = o0;            row_3 = o1;
+        } else {                     // Z
+            row_2 = rowNeg(row_2); row_3 = rowNeg(row_3);
+        }
+    } else {
+        // Acting on q2 (low bit): rows {0,2} <-> {1,3}.
+        if (term == 1u) {            // X
+            let o0 = row_0; let o2 = row_2;
+            row_0 = row_1; row_2 = row_3;
+            row_1 = o0;    row_3 = o2;
+        } else if (term == 3u) {     // Y
+            let o0 = row_0; let o2 = row_2;
+            row_0 = rowNeg(row_1); row_2 = rowNeg(row_3);
+            row_1 = o0;            row_3 = o2;
+        } else {                     // Z
+            row_1 = rowNeg(row_1); row_3 = rowNeg(row_3);
+        }
+    }
+
+    setUnitaryRow(shot_idx, 0u, row_0);
+    setUnitaryRow(shot_idx, 1u, row_1);
+    setUnitaryRow(shot_idx, 2u, row_2);
+    setUnitaryRow(shot_idx, 3u, row_3);
+}
+
+// Applies the Pauli noise attached to a 2-qubit gate that had a lost operand.
+// The gate body itself was already handled by `handle_lost_operand_policy`
+// (which may have left a degraded 4x4 in `shot.unitary`, or turned the gate
+// into Id for SKIP). This mirrors the CPU `apply_fault`: the joint (q1, q2)
+// term is sampled, but only the operand still alive *after* the policy ran
+// receives its term; a lost operand gets nothing.
+//
+// Because this is only reached when the gate has at least one lost operand,
+// there is at most one surviving operand, so at most one single-qubit Pauli is
+// fused.
+fn apply_2q_pauli_noise_on_survivor(shot_idx: u32, op_idx: u32, noise_idx: u32, q1: u32, q2: u32) {
+    let shot = &shots[shot_idx];
+    let noise_op = &ops[noise_idx];
+
+    // Surviving operand(s) after the policy ran (alive => heat != -1.0).
+    let q1_alive = shot.qubit_state[q1].heat != -1.0;
+    let q2_alive = shot.qubit_state[q2].heat != -1.0;
+    // Both lost (e.g. PROPAGATE collapsed the survivor): nothing to apply.
+    if (!q1_alive && !q2_alive) {
+        return;
+    }
+
+    // Sample the joint (q1_term, q2_term) outcome (same encoding/layout as
+    // apply_2q_pauli_noise: I=0, X=1, Z=2, Y=3, L=4).
+    var rand = shot.rand_pauli;
+    var q1_term = 0;
+    var q2_term = 0;
+    for (var a = 0; a < 5; a = a + 1) {
+        for (var b = 0; b < 5; b = b + 1) {
+            let k = a * 5 + b;
+            if (k == 0) { continue; }
+            let slot = noise_op.unitary[k / 2];
+            let p_ab = select(slot.x, slot.y, (k & 1) == 1);
+            if (rand < p_ab) {
+                q1_term = a;
+                q2_term = b;
+                a = 5;
+                b = 5;
+            } else {
+                rand = rand - p_ab;
+            }
+        }
+    }
+
+    // The survivor's own term. (At most one operand is alive here.)
+    let survivor_is_q2 = !q1_alive;
+    let survivor = select(q1, q2, survivor_is_q2);
+    let term = select(q1_term, q2_term, survivor_is_q2);
+
+    // Loss (4): schedule a loss commit for the survivor; a later loss-commit op
+    // performs the measure + reset. The gate set up by the policy still runs.
+    if (term == 4) {
+        shot.pending_loss_mask |= (1u << survivor);
+        return;
+    }
+
+    // Identity (0): nothing to fuse; leave the policy's setup untouched.
+    if (term == 0) {
+        return;
+    }
+
+    // Pauli (X=1, Z=2, Y=3): fuse onto the survivor.
+    if (shot.op_type == OPID_SHOT_BUFF_2Q) {
+        // The policy left a degraded 4x4 in shot.unitary; left-multiply it by
+        // the survivor Pauli.
+        fuse_1q_pauli_on_pair_unitary(shot_idx, survivor_is_q2, u32(term));
+    } else {
+        // The policy turned the gate into Id (SKIP). Build a pair unitary that
+        // applies just the Pauli to the survivor and identity to the lost
+        // partner (which is in |0>). Real-sign Y matches the fuse path above.
+        if (term == 1) {        // X
+            set_1q_on_pair_unitary(shot_idx, survivor_is_q2,
+                vec2f(0.0, 0.0), vec2f(1.0, 0.0),
+                vec2f(1.0, 0.0), vec2f(0.0, 0.0));
+        } else if (term == 3) { // Y (real-sign, i.e. -i*Y)
+            set_1q_on_pair_unitary(shot_idx, survivor_is_q2,
+                vec2f(0.0, 0.0), vec2f(-1.0, 0.0),
+                vec2f(1.0, 0.0), vec2f(0.0, 0.0));
+        } else {                // Z
+            set_1q_on_pair_unitary(shot_idx, survivor_is_q2,
+                vec2f(1.0, 0.0), vec2f(0.0, 0.0),
+                vec2f(0.0, 0.0), vec2f(-1.0, 0.0));
+        }
+        finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
+    }
+
+    // The survivor's amplitudes may have been in a definite computational-basis
+    // state; clear its definite-state bits so the execute pass recomputes them
+    // after the Pauli (mirrors the SWAP handling in handle_lost_operand_policy).
+    shot.qubit_is_0_mask = shot.qubit_is_0_mask & ~(1u << survivor);
+    shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~(1u << survivor);
 }
 
 struct ShotParams {

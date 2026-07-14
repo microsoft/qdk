@@ -476,15 +476,8 @@ pub(crate) fn compile_stim_to_qir(
         |noise_config| unbind_noise_config(py, noise_config),
     );
 
-    let qir = stim_compiler::compile(source, &mut noise_config).map_err(|errors| {
-        StimError::new_err(
-            errors
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("\n"),
-        )
-    })?;
+    let qir = stim_compiler::compile(source, &mut noise_config)
+        .map_err(|errors| StimError::new_err(stim_compiler::format_stim_errors(errors)))?;
     Ok((qir, bind_stim_noise_config(py, &noise_config)?))
 }
 
@@ -598,6 +591,7 @@ fn estimate_qasm(
 /// Args:
 ///     source (str): An `OpenQASM` program. Alternatively, a callable can be provided,
 ///         which must be an already imported global callable.
+///     config (&CircuitConfig): Circuit generation options.
 ///     `read_file` (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
 ///     `list_directory` (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
 ///     `resolve_path` (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.

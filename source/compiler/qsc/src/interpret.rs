@@ -109,17 +109,17 @@ pub enum Error {
     #[diagnostic(transparent)]
     Circuit(#[from] qsc_circuit::Error),
     #[error("entry point not found")]
-    #[diagnostic(code("Qsc.Interpret.NoEntryPoint"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NoEntryPoint"))]
     NoEntryPoint,
     #[error("unsupported runtime capabilities for code generation")]
-    #[diagnostic(code("Qsc.Interpret.UnsupportedRuntimeCapabilities"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.UnsupportedRuntimeCapabilities"))]
     UnsupportedRuntimeCapabilities,
     #[error("expression does not evaluate to an operation")]
-    #[diagnostic(code("Qsc.Interpret.NotAnOperation"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NotAnOperation"))]
     #[diagnostic(help("provide the name of a callable or a lambda expression"))]
     NotAnOperation,
     #[error("value is not a global callable")]
-    #[diagnostic(code("Qsc.Interpret.NotACallable"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NotACallable"))]
     NotACallable,
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
@@ -352,28 +352,65 @@ impl Interpreter {
 
         let package = map_hir_package_to_fir(package_id);
 
-        // Run RCA early to surface capability violations at interpreter construction
-        // time rather than deferring to qirgen()/circuit(). The computed properties
-        // are intentionally discarded — only the `?` error propagation is used.
-        // Caching would not help because later backend paths clone the FIR store,
-        // run the transform pipeline, and re-run RCA on the transformed store.
+        // Validate capabilities at interpreter construction time rather than
+        // deferring to qirgen()/circuit(). To match what codegen actually emits,
+        // run the FIR transform pipeline on a throwaway clone of the FIR store, then
+        // run RCA on that transformed clone.
+        //
+        // The original `fir_store` is left un-transformed and remains the artifact used
+        // for execution and debugging.
+        //
+        // The transformed clone (and its computed properties) are discarded after
+        // validation.
         if capabilities != TargetCapabilityFlags::all() {
-            let _compute_properties = PassContext::run_fir_passes_on_fir(
-                &fir_store,
-                map_hir_package_to_fir(source_package_id),
-                capabilities,
-            )
-            .map_err(|caps_errors| {
-                let source_package = compiler
-                    .package_store()
-                    .get(source_package_id)
-                    .expect("package should exist in the package store");
+            let fir_package_id = map_hir_package_to_fir(source_package_id);
+            let source_package = compiler
+                .package_store()
+                .get(source_package_id)
+                .expect("package should exist in the package store");
 
-                caps_errors
-                    .into_iter()
-                    .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
-                    .collect::<Vec<_>>()
-            })?;
+            // The transform pipeline requires a package with an entry expression, and
+            // entry-less library packages and eval calls via the Python interop layer can
+            // arrive here. Guard the transform branch on the presence of an entry expression
+            // exactly like the language service does; when absent, fall back to
+            // running RCA on the original store.
+            let transformed_store = if fir_store.get(fir_package_id).entry.is_some() {
+                let mut transformed_store = fir_store.clone();
+                let transform_result = crate::fir_transforms::run_pipeline_with_diagnostics(
+                    &mut transformed_store,
+                    fir_package_id,
+                );
+                if !transform_result.errors.is_empty() {
+                    // Fatal transform errors reuse the existing FirTransform variant,
+                    // mapped exactly as codegen.rs does. They are not capability
+                    // failures, so they are not routed through Error::Pass.
+                    return Err(transform_result
+                        .errors
+                        .into_iter()
+                        .map(|e| {
+                            Error::FirTransform(WithSource::from_map(&source_package.sources, e))
+                        })
+                        .collect());
+                }
+                Some(transformed_store)
+            } else {
+                None
+            };
+
+            let store_for_rca = transformed_store.as_ref().unwrap_or(&fir_store);
+
+            // The computed properties are intentionally discarded — only the `?`
+            // error propagation is used to surface capability violations.
+            let _compute_properties =
+                PassContext::run_fir_passes_on_fir(store_for_rca, fir_package_id, capabilities)
+                    .map_err(|caps_errors| {
+                        caps_errors
+                            .into_iter()
+                            .map(|error| {
+                                Error::Pass(WithSource::from_map(&source_package.sources, error))
+                            })
+                            .collect::<Vec<_>>()
+                    })?;
         }
 
         Ok(Self {

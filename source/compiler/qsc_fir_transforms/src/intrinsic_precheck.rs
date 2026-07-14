@@ -25,14 +25,14 @@ use crate::reachability;
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("intrinsic callable `{0}` has unsupported parameter type `{1}`")]
-    #[diagnostic(code("Qsc.FirTransform.UnsupportedIntrinsicParamType"))]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.UnsupportedIntrinsicParamType"))]
     #[diagnostic(help(
         "intrinsic callable parameters cannot be non-empty tuples or user-defined types"
     ))]
     UnsupportedParamType(String, String, #[label("unsupported parameter type")] Span),
 
     #[error("intrinsic callable `{0}` has unsupported return type `{1}`")]
-    #[diagnostic(code("Qsc.FirTransform.UnsupportedIntrinsicReturnType"))]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.UnsupportedIntrinsicReturnType"))]
     #[diagnostic(help(
         "intrinsic callable return types cannot be non-empty tuples or user-defined types"
     ))]

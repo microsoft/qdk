@@ -15,7 +15,7 @@ fn array_concatenation_in_alias_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.InvalidTypeInAlias
+            Qdk.Qasm.Lowerer.InvalidTypeInAlias
 
               x invalid type in alias expression: array[int, 3]
                ,-[Test.qasm:4:13]
@@ -26,7 +26,7 @@ fn array_concatenation_in_alias_fails() {
                `----
               help: aliases can only be applied to quantum bits and registers
 
-            Qasm.Lowerer.InvalidTypeInAlias
+            Qdk.Qasm.Lowerer.InvalidTypeInAlias
 
               x invalid type in alias expression: array[int, 4]
                ,-[Test.qasm:4:18]
@@ -87,7 +87,7 @@ fn array_concatenation_with_different_widths_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: array[int[8], 3],
               | array[int[16], 4]
@@ -112,7 +112,7 @@ fn array_concatenation_with_different_types_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: array[int[8], 3],
               | array[uint[8], 4]
@@ -173,7 +173,7 @@ fn multidimensional_array_concatenation_with_different_widths_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: array[int[8], 4, 2],
               | array[int[16], 5, 2]
@@ -198,7 +198,7 @@ fn multidimensional_array_concatenation_with_different_types_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.InconsistentTypesInArrayConcatenation
+            Qdk.Qasm.Lowerer.InconsistentTypesInArrayConcatenation
 
               x inconsistent types in array concatenation expression: array[int[8], 4, 2],
               | array[uint[8], 5, 2]
