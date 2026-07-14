@@ -2,7 +2,6 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-import builtins
 from typing import Any, Callable, Dict, Optional, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
@@ -86,11 +85,10 @@ def circuit(
         prune_classical_qubits=prune_classical_qubits,
     )
 
-    if builtins.callable(source) and hasattr(source, "__global_callable"):
+    if isinstance(source, Callable) and hasattr(source, "__global_callable"):
+        args = python_args_to_interpreter_args(args)
         res = get_interpreter().circuit(
-            config,
-            callable=source.__global_callable,
-            args=python_args_to_interpreter_args(args),
+            config, callable=source.__global_callable, args=args
         )
     elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value
