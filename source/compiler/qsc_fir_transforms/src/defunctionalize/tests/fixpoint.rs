@@ -1573,13 +1573,225 @@ fn captured_closure_forwarded_to_nested_hof_converges() {
     check(
         source,
         &expect![[r#"
-            .lambda_6{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
             ApplyFirstStep: input_ty=(Qubit)[]
             ApplySecondStep: input_ty=(Qubit)[]
             ApplySequential<Empty, Empty>{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
-            ApplySequential<Empty, Empty>{closure}{ApplyThirdStep}{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplySequential<Empty, Empty>{closure}{ApplyThirdStep}: input_ty=(Qubit)[]
             ApplyThirdStep: input_ty=(Qubit)[]
             Main: input_ty=Unit"#]],
+    );
+}
+
+/// Regression: a partial application of a recursive higher-order function,
+/// forwarded as that same recursive HOF's own callable argument, converges.
+///
+/// `Repeat(Repeat(H, 1, _), n - 1, q)` lowers to a closure that captures the
+/// fixed callable `H` (and the literal `1`) and forwards them, as parameters, to
+/// a lifted lambda that re-invokes `Repeat`. Before the static closure-capture
+/// inlining prepass, the captured `H` could not be resolved statically and this
+/// construct errored with `DynamicCallable`. The prepass inlines the callable
+/// capture into the lifted body, normalizing the closure into the already
+/// converging capture-free explicit-lambda shape.
+///
+/// The `check_rewrite` snapshot locks the full converged specialization chain so
+/// a zero-error miscompile with wrong downstream routing (wrong callable,
+/// orphaned/duplicated specialization, or wrong recursion target) fails the test.
+/// The routing is `{H}` -> `{closure}` -> lifted lambda -> `{H}`, so `Repeat(H, 2, q)`
+/// applies `H` exactly twice.
+#[test]
+fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_invariants(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            Main: input_ty=Unit
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 3 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl_(H, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 5 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_Empty_(arg, arg_1, hole)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 3 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl__H_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(arg, hole)
+            }
+            operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_Empty_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(H, arg, hole)
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__closure_(H, arg, hole)
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// Companion to the self-forwarding recursive HOF case: the forwarded partial
+/// application targets a *different* recursive HOF (`RepeatB`), proving the
+/// static closure-capture inlining prepass is not a self-item special case.
+#[test]
+fn partial_app_of_recursive_hof_forwarded_to_sibling_recursive_hof_converges() {
+    let source = r#"
+        operation RepeatB(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                RepeatB(RepeatB(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            RepeatB(H, 2, q);
+        }
+        "#;
+    check_invariants(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            Main: input_ty=Unit
+            RepeatB<AdjCtl>{H}: input_ty=(Int, Qubit)
+            RepeatB<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            RepeatB<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            RepeatB<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
     );
 }
 

@@ -9,6 +9,10 @@
 //!
 //! # Responsibilities
 //!
+//! - Run the static closure-capture inlining that normalizes a partial
+//!   application closure into a capture-free explicit-lambda shape by inlining
+//!   statically-known callable captures into the lifted target body (via
+//!   [`inline_static_closure_captures`]).
 //! - Run the single-use local promotion that replaces single-use immutable
 //!   callable locals with direct references to their initializer (via
 //!   [`promote_single_use_callable_locals`]).
@@ -22,9 +26,9 @@
 
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
-    Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, LocalVarId, Mutability,
-    Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId,
-    StmtKind, UnOp,
+    Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId,
+    Mutability, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt,
+    StmtId, StmtKind, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_fir::visit::{self, Visitor};
@@ -44,9 +48,296 @@ pub(super) fn run(
     package_id: PackageId,
     reachable_expr_ids: &[ExprId],
 ) -> FxHashMap<ExprId, Span> {
+    inline_static_closure_captures(store, package_id, reachable_expr_ids);
     promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
     promote_adjacent_aggregate_callable_aliases(store, package_id);
     identity_closure_peephole(store, package_id, reachable_expr_ids)
+}
+
+/// A planned normalization of one partial-application closure: the statically
+/// known callable captures are inlined into the lifted target body, and the
+/// corresponding capture slots are dropped from both the closure's capture list
+/// and the target's input pattern.
+///
+/// This is computed under an immutable borrow and applied under a mutable
+/// borrow, mirroring [`promote_single_use_callable_locals`].
+struct ClosureCaptureInlining {
+    /// The closure expression whose capture list shrinks.
+    closure_expr_id: ExprId,
+    /// The rewritten capture list with the inlined capture slots removed.
+    new_captures: Vec<LocalVarId>,
+    /// The lifted target's top-level input tuple pattern id (rewritten in place).
+    target_input_pat_id: PatId,
+    /// The rewritten top-level tuple sub-pattern ids (inlined capture binds removed).
+    new_input_sub_pats: Vec<PatId>,
+    /// The rewritten top-level tuple type, aligned with `new_input_sub_pats`.
+    new_input_ty: Ty,
+    /// In-place body rewrites: each `Var(Res::Local(capture_param))` use in the
+    /// target body is overwritten with a clone of the capture's initializer kind.
+    body_rewrites: Vec<(ExprId, ExprKind)>,
+}
+
+/// Normalizes a partial-application closure into the capture-free explicit-lambda
+/// shape by inlining statically known callable captures into the lifted target
+/// body. A partial application such as `Repeat(H, 1, _)` lowers to a closure that
+/// captures the fixed arguments (`H` and `1`) and forwards them, as parameters, to
+/// a lifted lambda whose body re-invokes the callable. When the captured value is
+/// a global callable (`Var(Res::Item(_))`), the capture never carries information
+/// that a later analysis pass can resolve, so a partial application forwarded as a
+/// recursive higher-order function's own callable argument fails to converge.
+///
+/// Inlining the callable capture directly into the lifted body makes the closure
+/// structurally identical to the already-converging explicit-lambda form, so the
+/// remaining defunctionalization analysis resolves it without special handling.
+/// Non-callable captures (for example a literal `Int`) are left threaded, since
+/// they never block callable resolution.
+///
+/// # Before
+/// ```text
+/// let arg0 = H;                 // Var(Res::Item(H))
+/// let arg1 = 1;                 // Lit(Int)
+/// Closure([arg0, arg1], target) // target body: Repeat(p0, p1, hole)
+/// ```
+/// # After
+/// ```text
+/// Closure([arg1], target)       // target body: Repeat(H, p1, hole)
+/// ```
+///
+/// # Safety
+/// - A capture is inlined only when its enclosing initializer is a bare global
+///   item reference (`Var(Res::Item(_))`), so no enclosing local escapes into the
+///   lifted body.
+/// - The target must be referenced by exactly one closure across reachable code
+///   (`target_ref_count == 1`), so the in-place body rewrite never affects a
+///   target shared by a differently-captured closure.
+/// - The target's top-level input must be a flat tuple of bindings; nested or
+///   tuple-destructuring parameters are skipped as a safe no-op.
+/// - A capture parameter re-captured by a nested closure in the target body is
+///   skipped, since dropping the parameter would leave the nested closure with a
+///   dangling reference.
+fn inline_static_closure_captures(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    reachable_expr_ids: &[ExprId],
+) {
+    // Collect the planned inlinings using an immutable borrow.
+    let inlinings = {
+        let pkg = store.get(package_id);
+        collect_static_closure_capture_inlinings(pkg, reachable_expr_ids)
+    };
+
+    // Apply the planned inlinings using a mutable borrow.
+    if !inlinings.is_empty() {
+        let pkg = store.get_mut(package_id);
+        for inlining in inlinings {
+            for (expr_id, new_kind) in inlining.body_rewrites {
+                pkg.exprs
+                    .get_mut(expr_id)
+                    .expect("expression should exist")
+                    .kind = new_kind;
+            }
+            if let ExprKind::Closure(captures, _) = &mut pkg
+                .exprs
+                .get_mut(inlining.closure_expr_id)
+                .expect("expression should exist")
+                .kind
+            {
+                *captures = inlining.new_captures;
+            }
+            let pat = pkg
+                .pats
+                .get_mut(inlining.target_input_pat_id)
+                .expect("pattern should exist");
+            pat.kind = PatKind::Tuple(inlining.new_input_sub_pats);
+            pat.ty = inlining.new_input_ty;
+        }
+    }
+}
+
+/// Scans reachable closures and collects a [`ClosureCaptureInlining`] for each one
+/// whose statically known callable captures can be inlined into a singly-referenced
+/// lifted target. Capture-to-binding matching is scoped per owner boundary (via
+/// [`collect_promotion_scopes`]) because `LocalVarId`s are unique only within a
+/// single callable and collide across callables.
+fn collect_static_closure_capture_inlinings(
+    pkg: &Package,
+    reachable_expr_ids: &[ExprId],
+) -> Vec<ClosureCaptureInlining> {
+    let reachable: FxHashSet<ExprId> = reachable_expr_ids.iter().copied().collect();
+
+    // Count how many reachable closures reference each lifted target so the
+    // in-place body rewrite is only applied to singly-referenced targets.
+    let mut target_ref_count: FxHashMap<LocalItemId, usize> = FxHashMap::default();
+    for &expr_id in reachable_expr_ids {
+        if let ExprKind::Closure(_, target) = &pkg.get_expr(expr_id).kind {
+            *target_ref_count.entry(*target).or_default() += 1;
+        }
+    }
+
+    let mut inlinings = Vec::new();
+    for scope in collect_promotion_scopes(pkg) {
+        let callable_inits = collect_scope_callable_inits(pkg, &scope, &reachable);
+        if callable_inits.is_empty() {
+            continue;
+        }
+        for &expr_id in &scope.exprs {
+            if !reachable.contains(&expr_id) {
+                continue;
+            }
+            let ExprKind::Closure(captures, target) = &pkg.get_expr(expr_id).kind else {
+                continue;
+            };
+            if target_ref_count.get(target) != Some(&1) {
+                continue;
+            }
+            if let Some(inlining) =
+                plan_closure_capture_inlining(pkg, expr_id, captures, *target, &callable_inits)
+            {
+                inlinings.push(inlining);
+            }
+        }
+    }
+    inlinings
+}
+
+/// Collects the immutable `let arg = <item>;` bindings in one owner scope whose
+/// initializer is a bare global callable reference (`Var(Res::Item(_))`), keyed
+/// by the bound local. Only reachable initializers are considered.
+fn collect_scope_callable_inits(
+    pkg: &Package,
+    scope: &PromotionScope<'_>,
+    reachable: &FxHashSet<ExprId>,
+) -> FxHashMap<LocalVarId, ExprKind> {
+    let mut callable_inits = FxHashMap::default();
+    for &stmt_id in &scope.stmts {
+        let StmtKind::Local(Mutability::Immutable, pat_id, init_expr_id) =
+            &pkg.get_stmt(stmt_id).kind
+        else {
+            continue;
+        };
+        if !reachable.contains(init_expr_id) {
+            continue;
+        }
+        let PatKind::Bind(ident) = &pkg.get_pat(*pat_id).kind else {
+            continue;
+        };
+        let init_expr = pkg.get_expr(*init_expr_id);
+        if let ExprKind::Var(Res::Item(item_id), generic_args) = &init_expr.kind {
+            callable_inits.insert(
+                ident.id,
+                ExprKind::Var(Res::Item(*item_id), generic_args.clone()),
+            );
+        }
+    }
+    callable_inits
+}
+
+/// Plans the capture inlining for a single closure, or returns `None` when the
+/// closure does not match the normalizable shape (see [`inline_static_closure_captures`]
+/// for the applied safety conditions).
+fn plan_closure_capture_inlining(
+    pkg: &Package,
+    closure_expr_id: ExprId,
+    captures: &[LocalVarId],
+    target: LocalItemId,
+    callable_inits: &FxHashMap<LocalVarId, ExprKind>,
+) -> Option<ClosureCaptureInlining> {
+    let item = pkg.items.get(target)?;
+    let ItemKind::Callable(decl) = &item.kind else {
+        return None;
+    };
+    // Only Spec implementations have a rewritable body.
+    let CallableImpl::Spec(_) = &decl.implementation else {
+        return None;
+    };
+
+    // The top-level input must be a flat tuple of bindings; the first
+    // `captures.len()` binds are the capture parameters, aligned positionally
+    // with `captures`.
+    let input_pat = pkg.get_pat(decl.input);
+    let PatKind::Tuple(sub_pats) = &input_pat.kind else {
+        return None;
+    };
+    let num_captures = captures.len();
+    if sub_pats.len() < num_captures {
+        return None;
+    }
+    let mut param_vars = Vec::with_capacity(sub_pats.len());
+    for &sub_pat_id in sub_pats {
+        let PatKind::Bind(ident) = &pkg.get_pat(sub_pat_id).kind else {
+            return None;
+        };
+        param_vars.push(ident.id);
+    }
+    let capture_param_vars = &param_vars[..num_captures];
+
+    // Collect every expression in the target body so capture-parameter uses can
+    // be rewritten and nested re-captures detected.
+    let mut target_scope = PromotionScope::new(pkg);
+    target_scope.visit_callable_impl(&decl.implementation);
+    let mut recaptured: FxHashSet<LocalVarId> = FxHashSet::default();
+    for &expr_id in &target_scope.exprs {
+        if let ExprKind::Closure(inner_captures, _) = &pkg.get_expr(expr_id).kind {
+            recaptured.extend(inner_captures.iter().copied());
+        }
+    }
+
+    // Select the capture slots whose enclosing initializer is a known callable
+    // and whose parameter is not re-captured by a nested closure.
+    let mut inlined_indices: FxHashSet<usize> = FxHashSet::default();
+    let mut inlined_params: FxHashMap<LocalVarId, ExprKind> = FxHashMap::default();
+    for (index, (&capture_var, &param_var)) in captures.iter().zip(capture_param_vars).enumerate() {
+        if recaptured.contains(&param_var) {
+            continue;
+        }
+        if let Some(init_kind) = callable_inits.get(&capture_var) {
+            inlined_indices.insert(index);
+            inlined_params.insert(param_var, init_kind.clone());
+        }
+    }
+    if inlined_indices.is_empty() {
+        return None;
+    }
+
+    // Record the in-place body rewrites for each inlined capture parameter.
+    let mut body_rewrites = Vec::new();
+    for &expr_id in &target_scope.exprs {
+        if let ExprKind::Var(Res::Local(var), _) = &pkg.get_expr(expr_id).kind
+            && let Some(init_kind) = inlined_params.get(var)
+        {
+            body_rewrites.push((expr_id, init_kind.clone()));
+        }
+    }
+
+    // Drop the inlined capture slots from the closure capture list and the
+    // target's input tuple, recomputing the tuple type from the retained binds.
+    let new_captures: Vec<LocalVarId> = captures
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !inlined_indices.contains(index))
+        .map(|(_, &var)| var)
+        .collect();
+    let new_input_sub_pats: Vec<PatId> = sub_pats
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !inlined_indices.contains(index))
+        .map(|(_, &pat_id)| pat_id)
+        .collect();
+    let new_input_ty = Ty::Tuple(
+        new_input_sub_pats
+            .iter()
+            .map(|&pat_id| pkg.get_pat(pat_id).ty.clone())
+            .collect(),
+    );
+
+    Some(ClosureCaptureInlining {
+        closure_expr_id,
+        new_captures,
+        target_input_pat_id: decl.input,
+        new_input_sub_pats,
+        new_input_ty,
+        body_rewrites,
+    })
 }
 
 /// Promotes an adjacent, single-use aggregate local into a following tuple
