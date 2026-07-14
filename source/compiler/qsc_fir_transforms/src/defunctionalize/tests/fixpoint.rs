@@ -1111,155 +1111,155 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-            if value == 1 {
-                Controlled X([control], register[0]);
-            }
-
-        }
-        operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    ops[idx](controls[idx], targets);
-                    _index_id_186 += _step_id_191;
+            BEFORE:
+            operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+                if value == 1 {
+                    Controlled X([control], register[0]);
                 }
 
             }
+            operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
 
-        }
-        operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            ApplyInner_Empty_(ops, count, controls, targets);
-        }
-        operation Main() : Unit {
-            let qs : Qubit[] = AllocateQubitArray(3);
-            let controls : Qubit[] = qs[0..1];
-            let targets : Qubit[] = qs[2...];
-            let ops : ((Qubit, Qubit[]) => Unit)[] = [{
-                let arg : Int = 1;
-                / * closure item = 5 captures = [arg] * / _lambda_5
-            }, {
-                let arg : Int = 2;
-                / * closure item = 6 captures = [arg] * / _lambda_6
-            }];
-            ApplyOuter_Empty_(ops, 2, controls, targets);
-            ResetAll(qs);
-            ReleaseQubitArray(qs);
-        }
-        operation _lambda_5(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    ops[idx](controls[idx], targets);
-                    _index_id_186 += _step_id_191;
                 }
 
             }
-
-        }
-        operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            ApplyInner_Empty_(ops, count, controls, targets);
-        }
-        // entry
-        Main()
-
-        AFTER:
-        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-            if value == 1 {
-                Controlled X([control], register[0]);
+            operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
             }
+            operation Main() : Unit {
+                let qs : Qubit[] = AllocateQubitArray(3);
+                let controls : Qubit[] = qs[0..1];
+                let targets : Qubit[] = qs[2...];
+                let ops : ((Qubit, Qubit[]) => Unit)[] = [{
+                    let arg : Int = 1;
+                    / * closure item = 5 captures = [arg] * / _lambda_5
+                }, {
+                    let arg_1 : Int = 2;
+                    / * closure item = 6 captures = [arg_1] * / _lambda_6
+                }];
+                ApplyOuter_Empty_(ops, 2, controls, targets);
+                ResetAll(qs);
+                ReleaseQubitArray(qs);
+            }
+            operation _lambda_5(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
 
-        }
-        operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    ops[idx](controls[idx], targets);
-                    _index_id_186 += _step_id_191;
                 }
 
             }
+            operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            // entry
+            Main()
 
-        }
-        operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            ApplyInner_Empty_(ops, count, controls, targets);
-        }
-        operation Main() : Unit {
-            let qs : Qubit[] = AllocateQubitArray(3);
-            let controls : Qubit[] = qs[0..1];
-            let targets : Qubit[] = qs[2...];
-            ApplyOuter_Empty__closure__closure_(2, controls, targets, 1, 2);
-            ResetAll(qs);
-            ReleaseQubitArray(qs);
-        }
-        operation _lambda_5(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    ops[idx](controls[idx], targets);
-                    _index_id_186 += _step_id_191;
+            AFTER:
+            operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+                if value == 1 {
+                    Controlled X([control], register[0]);
                 }
 
             }
+            operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
 
-        }
-        operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            ApplyInner_Empty_(ops, count, controls, targets);
-        }
-        operation ApplyOuter_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
-            ApplyInner_Empty__closure__closure_(count, controls, targets, __capture_0, __capture_1);
-        }
-        operation ApplyInner_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    if idx == 0 {
-                        _lambda_5(__capture_0, (controls[idx], targets))
-                    } else {
-                        _lambda_6(__capture_1, (controls[idx], targets))
-                    };
-                    _index_id_186 += _step_id_191;
                 }
 
             }
+            operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            operation Main() : Unit {
+                let qs : Qubit[] = AllocateQubitArray(3);
+                let controls : Qubit[] = qs[0..1];
+                let targets : Qubit[] = qs[2...];
+                ApplyOuter_Empty__closure__closure_(2, controls, targets, 1, 2);
+                ResetAll(qs);
+                ReleaseQubitArray(qs);
+            }
+            operation _lambda_5(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
 
-        }
-        // entry
-        Main()
-    "#]],
+                }
+
+            }
+            operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            operation ApplyOuter_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
+                ApplyInner_Empty__closure__closure_(count, controls, targets, __capture_0, __capture_1);
+            }
+            operation ApplyInner_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        if idx == 0 {
+                            _lambda_5(__capture_0, (controls[idx], targets))
+                        } else {
+                            _lambda_6(__capture_1, (controls[idx], targets))
+                        };
+                        _index_id_186 += _step_id_191;
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

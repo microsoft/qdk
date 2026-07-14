@@ -58,7 +58,7 @@ use crate::package_assigners::PackageAssigners;
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
 use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
 use qsc_data_structures::functors::FunctorApp;
-use qsc_data_structures::span::Span;
+use qsc_data_structures::span::{PackageSpan, Span};
 use qsc_fir::fir::{
     ExprId, ExprKind, ItemId, ItemKind, LocalItemId, Package, PackageId, PackageLookup,
     PackageStore, Res, StoreExprId, StoreItemId,
@@ -335,7 +335,11 @@ fn accumulate_and_check_specialization_budget(
             } else {
                 (format!("Item({hof_id})"), Span::default())
             };
-            return Some(Error::RecursiveSpecialization(name, count, span));
+            return Some(Error::RecursiveSpecialization(
+                name,
+                count,
+                PackageSpan::new(hof_id.package, span),
+            ));
         }
     }
     None

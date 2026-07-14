@@ -530,7 +530,7 @@ pub enum Error {
     RecursiveSpecialization(
         String,
         usize,
-        #[label("recursive specialization budget exceeded here")] Span,
+        #[label("recursive specialization budget exceeded here")] PackageSpan,
     ),
 }
 
@@ -547,6 +547,7 @@ impl Error {
         match self {
             Self::DynamicCallable(span)
             | Self::UnsupportedMultipleCallableArrays(span)
+            | Self::RecursiveSpecialization(_, _, span)
             | Self::FixpointNotReached(_, _, span)
             | Self::ExcessiveSpecializations(_, _, span) => *span,
         }
