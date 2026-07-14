@@ -103,6 +103,11 @@ impl OutcomeSpecificSimulation {
     }
 
     /// Get the Clifford unitary encoding the current stabilizer state.
+    pub fn clifford(&self) -> &CliffordUnitary {
+        &self.clifford
+    }
+
+    /// Get the Clifford unitary encoding the current stabilizer state.
     ///
     /// This is the unitary R such that R|0⟩ equals the current state.
     pub fn state_encoder(&self) -> CliffordUnitary {

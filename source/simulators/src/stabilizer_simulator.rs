@@ -14,11 +14,16 @@ use operation::Operation;
 use outcome_specific_simulation::OutcomeSpecificSimulation;
 use paulimer::{PauliObservable, UnitaryOp};
 use pauliverse::Simulation;
-use rand::{SeedableRng as _, rngs::StdRng};
+use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
     sync::Arc,
 };
+
+fn seeded_randomness(seed: u64) -> (StdRng, u64) {
+    let mut seed_rng = StdRng::seed_from_u64(seed);
+    (StdRng::from_rng(&mut seed_rng), seed_rng.random())
+}
 
 /// A stabilizer simulator with the ability to simulate atom loss.
 pub struct StabilizerSimulator {
@@ -102,8 +107,9 @@ macro_rules! apply_noise {
 impl StabilizerSimulator {
     /// Sets the random seed of the simulator.
     pub fn set_seed(&mut self, seed: u64) {
-        self.rng = StdRng::seed_from_u64(seed);
-        self.state.set_seed(seed);
+        let (noise_rng, measurement_seed) = seeded_randomness(seed);
+        self.rng = noise_rng;
+        self.state.set_seed(measurement_seed);
     }
 
     /// Increment the simulation time by one.
@@ -272,12 +278,13 @@ impl Simulator for StabilizerSimulator {
     type StateDumpData = paulimer::clifford::CliffordUnitary;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
+        let (rng, measurement_seed) = seeded_randomness(u64::from(seed));
         Self {
             noise_config,
-            rng: StdRng::seed_from_u64(u64::from(seed)),
+            rng,
             state: OutcomeSpecificSimulation::new_with_seeded_random_outcomes(
                 num_qubits,
-                seed.into(),
+                measurement_seed,
             ),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
@@ -700,7 +707,7 @@ impl Simulator for StabilizerSimulator {
     }
 
     fn state_dump(&self) -> &Self::StateDumpData {
-        unimplemented!()
+        self.state.clifford()
     }
 }
 
