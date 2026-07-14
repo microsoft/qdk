@@ -2,12 +2,12 @@
 // Licensed under the MIT License.
 
 pub mod ast;
+use crate::error::WithSource;
 use crate::io::SourceResolver;
+use crate::source::SourceMap;
+use crate::span::Span;
 use ast::{Program, StmtKind};
 use mut_visit::MutVisitor;
-use qsc_data_structures::error::WithSource;
-use qsc_data_structures::source::SourceMap;
-use qsc_data_structures::span::Span;
 use scan::ParserContext;
 use std::path::Component;
 use std::path::Path;

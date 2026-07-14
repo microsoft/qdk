@@ -17,6 +17,7 @@
 mod ast_builder;
 pub mod compiler;
 mod functor_constraints;
+mod parser_types;
 mod types;
 
 #[cfg(test)]
@@ -51,10 +52,11 @@ impl Error {
 
 pub(crate) fn get_semantic_errors_from_lowering_result(
     res: &AnalysisResult,
+    source_map: &SourceMap,
 ) -> Vec<WithSource<crate::Error>> {
     res.errors
         .iter()
-        .map(|e| WithSource::from_map(&res.source_map, e.clone().into_error().into()))
+        .map(|e| WithSource::from_map(source_map, e.clone().into_error().into()))
         .collect()
 }
 

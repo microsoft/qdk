@@ -4,7 +4,7 @@
 use crate::compiler::{PragmaConfig, parse_and_compile_to_qsharp_ast_with_config};
 use crate::{
     CompilerConfig, OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
-    get_semantic_errors_from_lowering_result,
+    get_semantic_errors_from_lowering_result, parser_types::to_qsharp_source_map,
 };
 use expect_test::Expect;
 use miette::Report;
@@ -98,11 +98,12 @@ fn compile_with_config<S: Into<Arc<str>>>(
         }
     }
     assert!(!res.has_syntax_errors());
-    let errors = get_semantic_errors_from_lowering_result(&res);
+    let source_map = to_qsharp_source_map(&res.source_map);
+    let errors = get_semantic_errors_from_lowering_result(&res, &source_map);
     let program = res.program;
 
     let compiler = crate::compiler::QasmCompiler {
-        source_map: res.source_map,
+        source_map,
         config,
         stmts: vec![],
         symbols: res.symbols,
@@ -165,11 +166,12 @@ pub fn compile_all_with_config<P: Into<Arc<str>>>(
 ) -> miette::Result<QasmCompileUnit, Vec<Report>> {
     let res = parse_all(path, sources)?;
     assert!(!res.has_syntax_errors());
-    let errors = get_semantic_errors_from_lowering_result(&res);
+    let source_map = to_qsharp_source_map(&res.source_map);
+    let errors = get_semantic_errors_from_lowering_result(&res, &source_map);
     let program = res.program;
 
     let compiler = crate::compiler::QasmCompiler {
-        source_map: res.source_map,
+        source_map,
         config,
         stmts: vec![],
         symbols: res.symbols,

@@ -4,9 +4,9 @@
 use std::sync::Arc;
 
 use log::trace;
-use qsc::Span;
 use qsc::line_column::{Encoding, Position};
 use qsc::location::Location;
+use qsc::openqasm::span::Span;
 
 use crate::openqasm::map_spans_to_source_locations;
 

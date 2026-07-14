@@ -38,6 +38,7 @@ use crate::{
         map_qsharp_type_to_ast_ty, wrap_expr_in_parens,
     },
     get_semantic_errors_from_lowering_result,
+    parser_types::{ParserSpanExt, to_qsharp_source_map},
 };
 use qdk_openqasm_parser::semantic::ast as semast;
 use qdk_openqasm_parser::{
@@ -116,10 +117,11 @@ pub fn compile_to_qsharp_ast_with_config(
     res: AnalysisResult,
     config: CompilerConfig,
 ) -> QasmCompileUnit {
-    let errors = get_semantic_errors_from_lowering_result(&res);
+    let source_map = to_qsharp_source_map(&res.source_map);
+    let errors = get_semantic_errors_from_lowering_result(&res, &source_map);
     let program = res.program;
     let compiler = crate::compiler::QasmCompiler {
-        source_map: res.source_map,
+        source_map,
         config,
         stmts: vec![],
         symbols: res.symbols,
@@ -450,7 +452,7 @@ impl QasmCompiler {
                 if matches!(qsharp_ty, crate::types::Type::Angle) {
                     let message =
                         "use `float` types for passing input, using `angle` types".to_string();
-                    let kind = CompilerErrorKind::NotSupported(message, input.span);
+                    let kind = CompilerErrorKind::NotSupported(message, input.span.to_qsharp());
                     self.push_compiler_error(kind);
                 }
             }
@@ -498,8 +500,8 @@ impl QasmCompiler {
                 .iter()
                 .map(|s| {
                     let qsharp_ty = self.map_semantic_type_to_qsharp_type(&s.ty, s.ty_span);
-                    let ast_ty = map_qsharp_type_to_ast_ty(&qsharp_ty, s.ty_span);
-                    (&s.name, ast_ty, s.span, &s.ty)
+                    let ast_ty = map_qsharp_type_to_ast_ty(&qsharp_ty, s.ty_span.to_qsharp());
+                    (&s.name, ast_ty, s.span.to_qsharp(), &s.ty)
                 })
                 .collect::<Vec<_>>();
             let mut validation_stmts = Self::get_argument_validation_stmts(&args);
@@ -510,10 +512,12 @@ impl QasmCompiler {
             for s in input {
                 if self.assigned_input_symbols.contains(&s.name) {
                     let qsharp_ty = self.map_semantic_type_to_qsharp_type(&s.ty, s.ty_span);
-                    let init_expr = build_path_ident_expr(&s.name, s.span, s.span);
+                    let ty_span = s.ty_span.to_qsharp();
+                    let span = s.span.to_qsharp();
+                    let init_expr = build_path_ident_expr(&s.name, span, span);
                     let shadow_stmt = build_classical_decl(
                         &s.name, false, // mutable
-                        s.ty_span, s.span, s.span, &qsharp_ty, init_expr,
+                        ty_span, span, span, &qsharp_ty, init_expr,
                     );
                     validation_stmts.push(shadow_stmt);
                 }
@@ -546,8 +550,8 @@ impl QasmCompiler {
                     let qsharp_ty = self.map_semantic_type_to_qsharp_type(&s.ty, s.ty_span);
                     build_arg_pat(
                         s.name.clone(),
-                        s.span,
-                        map_qsharp_type_to_ast_ty(&qsharp_ty, s.ty_span),
+                        s.span.to_qsharp(),
+                        map_qsharp_type_to_ast_ty(&qsharp_ty, s.ty_span.to_qsharp()),
                     )
                 })
                 .collect(),
@@ -591,8 +595,8 @@ impl QasmCompiler {
                         )
                     })
                     .map(|symbol| {
-                        let ident =
-                            build_path_ident_expr(symbol.name.as_str(), symbol.span, symbol.span);
+                        let span = symbol.span.to_qsharp();
+                        let ident = build_path_ident_expr(symbol.name.as_str(), span, span);
 
                         build_array_reverse_expr(ident)
                     })
@@ -601,16 +605,11 @@ impl QasmCompiler {
                 output
                     .iter()
                     .map(|symbol| {
-                        let ident =
-                            build_path_ident_expr(symbol.name.as_str(), symbol.span, symbol.span);
+                        let span = symbol.span.to_qsharp();
+                        let ident = build_path_ident_expr(symbol.name.as_str(), span, span);
                         if matches!(symbol.ty, Type::Angle(..)) {
                             // we can't output a struct, so we need to convert it to a double
-                            build_angle_cast_call_by_name(
-                                "AngleAsDouble",
-                                ident,
-                                symbol.span,
-                                symbol.span,
-                            )
+                            build_angle_cast_call_by_name("AngleAsDouble", ident, span, span)
                         } else {
                             ident
                         }
@@ -695,7 +694,7 @@ impl QasmCompiler {
         {
             for annotation in &stmt.annotations {
                 self.push_compiler_error(CompilerErrorKind::InvalidAnnotationTarget(
-                    annotation.span,
+                    annotation.span.to_qsharp(),
                 ));
             }
         }
@@ -794,9 +793,9 @@ impl QasmCompiler {
         let decl = build_classical_decl(
             &symbol.name,
             is_const,
-            symbol.ty_span,
-            stmt.span,
-            symbol.span,
+            symbol.ty_span.to_qsharp(),
+            stmt.span.to_qsharp(),
+            symbol.span.to_qsharp(),
             &ty,
             expr,
         );
@@ -835,7 +834,7 @@ impl QasmCompiler {
     fn compile_assign_stmt(&mut self, stmt: &semast::AssignStmt) -> Option<qsast::Stmt> {
         let lhs = self.compile_expr(&stmt.lhs);
         let rhs = self.compile_expr(&stmt.rhs);
-        Some(build_assignment_statement(lhs, rhs, stmt.span))
+        Some(build_assignment_statement(lhs, rhs, stmt.span.to_qsharp()))
     }
 
     fn compile_indexed_assign_stmt(
@@ -850,7 +849,8 @@ impl QasmCompiler {
 
         // Compile the rhs, which already was casted to the type of the fully indexed lhs.
         let rhs = self.compile_expr(&stmt.rhs);
-        let rhs_span = stmt.rhs.span;
+        let parser_rhs_span = stmt.rhs.span;
+        let rhs_span = parser_rhs_span.to_qsharp();
 
         // Now we build a Block expr in which we will:
         //  1. Create a temp_var initialized to the partially indexed rhs casted to bitarray.
@@ -865,7 +865,7 @@ impl QasmCompiler {
             .expect("we only got here if ty is a sized int, uint, or angle");
         // 1.1 First we cast the partially indexed lhs to bitarray.
         let temp_var_stmt_init_expr = self.compile_expr(&semast::Expr {
-            span: rhs_span,
+            span: parser_rhs_span,
             kind: Box::new(semast::ExprKind::Cast(semast::Cast {
                 span: stmt.rhs.span,
                 ty: Type::BitArray(width, false),
@@ -897,7 +897,7 @@ impl QasmCompiler {
         }
 
         // 2.2 Assign the rhs to the fully indexed temp_var.
-        let update_stmt = build_assignment_statement(update_stmt_lhs, rhs, stmt.span);
+        let update_stmt = build_assignment_statement(update_stmt_lhs, rhs, stmt.span.to_qsharp());
 
         // 3. Return the modified temp_var casted back to the type of the partially indexed lhs.
         // 3.1 First we cast the temp_var back to the lhs type.
@@ -925,11 +925,11 @@ impl QasmCompiler {
             kind: Box::new(qsast::ExprKind::Block(Box::new(block))),
         };
 
-        Some(build_assignment_statement(lhs, rhs, stmt.span))
+        Some(build_assignment_statement(lhs, rhs, stmt.span.to_qsharp()))
     }
 
     fn compile_barrier_stmt(stmt: &semast::BarrierStmt) -> Option<qsast::Stmt> {
-        Some(build_barrier_call(stmt.span))
+        Some(build_barrier_call(stmt.span.to_qsharp()))
     }
 
     fn compile_box_stmt(&mut self, stmt: &semast::BoxStmt) -> Option<qsast::Stmt> {
@@ -965,7 +965,7 @@ impl QasmCompiler {
         let block = qsast::Block {
             id: qsast::NodeId::default(),
             stmts: boxed_list_from_iter(stmts),
-            span: stmt.span,
+            span: stmt.span.to_qsharp(),
         };
 
         Some(build_stmt_semi_from_expr(build_wrapped_block_expr(block)))
@@ -980,7 +980,7 @@ impl QasmCompiler {
         qsast::Block {
             id: qsast::NodeId::default(),
             stmts: boxed_list_from_iter(stmts),
-            span: block.span,
+            span: block.span.to_qsharp(),
         }
     }
 
@@ -1016,9 +1016,9 @@ impl QasmCompiler {
         let symbol = &self.symbols[decl.symbol_id].clone();
         let name = &symbol.name;
         let is_const = symbol.ty.is_const();
-        let ty_span = decl.ty_span;
-        let decl_span = decl.span;
-        let name_span = symbol.span;
+        let ty_span = decl.ty_span.to_qsharp();
+        let decl_span = decl.span.to_qsharp();
+        let name_span = symbol.span.to_qsharp();
         let qsharp_ty = self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span);
         let expr = decl.init_expr.as_ref();
 
@@ -1061,11 +1061,11 @@ impl QasmCompiler {
                 let name = symbol.name.clone();
                 let semantic_type = symbol.ty.clone();
                 let qsharp_ty = self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span);
-                let ast_type = map_qsharp_type_to_ast_ty(&qsharp_ty, symbol.ty_span);
+                let ast_type = map_qsharp_type_to_ast_ty(&qsharp_ty, symbol.ty_span.to_qsharp());
                 (
                     name.clone(),
                     ast_type.clone(),
-                    build_arg_pat(name, symbol.span, ast_type),
+                    build_arg_pat(name, symbol.span.to_qsharp(), ast_type),
                     semantic_type,
                 )
             })
@@ -1074,7 +1074,7 @@ impl QasmCompiler {
         let body = self.compile_block(&stmt.body);
         let body = Self::prepend_argument_validation_to_block(body, &args);
         let qsharp_ty = self.map_semantic_type_to_qsharp_type(return_type, stmt.return_type_span);
-        let return_type = map_qsharp_type_to_ast_ty(&qsharp_ty, stmt.return_type_span);
+        let return_type = map_qsharp_type_to_ast_ty(&qsharp_ty, stmt.return_type_span.to_qsharp());
         let kind = if stmt.has_qubit_params
             || annotations.iter().any(|annotation| {
                 Self::is_simulatable_intrinsic(annotation) || Self::is_noise_intrinsic(annotation)
@@ -1100,7 +1100,7 @@ impl QasmCompiler {
             attrs.push(build_attr(
                 QSHARP_QIR_INTRINSIC_ANNOTATION,
                 annotation.value.clone(),
-                annotation.span,
+                annotation.span.to_qsharp(),
             ));
         }
 
@@ -1111,9 +1111,9 @@ impl QasmCompiler {
             args,
             vec![],
             body,
-            symbol.span,
-            stmt.body.span,
-            stmt.span,
+            symbol.span.to_qsharp(),
+            stmt.body.span.to_qsharp(),
+            stmt.span.to_qsharp(),
             return_type,
             kind,
             None,
@@ -1132,12 +1132,15 @@ impl QasmCompiler {
     }
 
     fn compile_end_stmt(stmt: &semast::EndStmt) -> Option<qsast::Stmt> {
-        Some(build_end_stmt(stmt.span))
+        Some(build_end_stmt(stmt.span.to_qsharp()))
     }
 
     fn compile_expr_stmt(&mut self, stmt: &semast::ExprStmt) -> Option<qsast::Stmt> {
         let expr = self.compile_expr(&stmt.expr);
-        Some(build_stmt_semi_from_expr_with_span(expr, stmt.span))
+        Some(build_stmt_semi_from_expr_with_span(
+            expr,
+            stmt.span.to_qsharp(),
+        ))
     }
 
     fn compile_extern_stmt(&mut self, stmt: &semast::ExternDecl) -> Option<qsast::Stmt> {
@@ -1153,12 +1156,12 @@ impl QasmCompiler {
 
         Some(build_for_stmt(
             &loop_var.name,
-            loop_var.span,
+            loop_var.span.to_qsharp(),
             &qsharp_ty,
-            loop_var.ty_span,
+            loop_var.ty_span.to_qsharp(),
             iterable,
             body,
-            stmt.span,
+            stmt.span.to_qsharp(),
         ))
     }
 
@@ -1171,9 +1174,14 @@ impl QasmCompiler {
             .map(|stmt| self.compile_block(&Self::stmt_as_block(stmt)));
 
         let if_expr = if let Some(else_block) = else_block {
-            build_if_expr_then_block_else_block(condition, then_block, else_block, stmt.span)
+            build_if_expr_then_block_else_block(
+                condition,
+                then_block,
+                else_block,
+                stmt.span.to_qsharp(),
+            )
         } else {
-            build_if_expr_then_block(condition, then_block, stmt.span)
+            build_if_expr_then_block(condition, then_block, stmt.span.to_qsharp())
         };
 
         Some(build_stmt_semi_from_expr(if_expr))
@@ -1195,9 +1203,10 @@ impl QasmCompiler {
     ) -> qsast::Expr {
         let symbol = self.symbols[expr.callee_id].clone();
         let name = &symbol.name;
-        let name_span = expr.fn_name_span;
+        let name_span = expr.fn_name_span.to_qsharp();
+        let span = expr.span.to_qsharp();
         if expr.args.is_empty() {
-            build_call_no_params(name, &[], expr.span, expr.fn_name_span)
+            build_call_no_params(name, &[], span, name_span)
         } else {
             let args: Vec<_> = expr
                 .args
@@ -1206,18 +1215,18 @@ impl QasmCompiler {
                 .collect();
 
             if args.len() == 1 {
-                let operand_span = expr.args[0].span;
+                let operand_span = expr.args[0].span.to_qsharp();
                 let operand = args.into_iter().next().expect("there is one argument");
-                build_call_with_param(name, &[], operand, name_span, operand_span, expr.span)
+                build_call_with_param(name, &[], operand, name_span, operand_span, span)
             } else {
-                build_call_with_params(name, &[], args, name_span, expr.span)
+                build_call_with_params(name, &[], args, name_span, span)
             }
         }
     }
 
     fn compile_runtime_sizeof_expr(&mut self, expr: &semast::RuntimeSizeofExpr) -> qsast::Expr {
-        let span = expr.span;
-        let name_span = expr.fn_name_span;
+        let span = expr.span.to_qsharp();
+        let name_span = expr.fn_name_span.to_qsharp();
         let array = self.compile_expr(&expr.array);
         let dimension = self.compile_expr(&expr.dimension);
         let operands = vec![array, dimension];
@@ -1241,7 +1250,7 @@ impl QasmCompiler {
         expr: &semast::EvaluatedDurationofExpr,
     ) -> qsast::Expr {
         self.push_unsupported_error_message("durationof call", expr.span);
-        err_expr(expr.span)
+        err_expr(expr.span.to_qsharp())
     }
 
     fn compile_gate_call_stmt(&mut self, stmt: &semast::GateCall) -> Option<qsast::Stmt> {
@@ -1265,22 +1274,26 @@ impl QasmCompiler {
         // us the args for the call prior to wrapping in tuples for controls.
         let args: Vec<_> = args.into_iter().chain(gate_qubits).collect();
         let mut args = build_gate_call_param_expr(args, qubits.len());
-        let mut callee = build_path_ident_expr(&symbol.name, stmt.gate_name_span, stmt.span);
+        let stmt_span = stmt.span.to_qsharp();
+        let mut callee =
+            build_path_ident_expr(&symbol.name, stmt.gate_name_span.to_qsharp(), stmt_span);
 
         for modifier in &stmt.modifiers {
+            let modifier_span = modifier.span.to_qsharp();
+            let modifier_keyword_span = modifier.modifier_keyword_span.to_qsharp();
             match &modifier.kind {
                 semast::GateModifierKind::Inv => {
                     callee = build_unary_op_expr(
                         qsast::UnOp::Functor(qsast::Functor::Adj),
                         callee,
-                        modifier.modifier_keyword_span,
+                        modifier_keyword_span,
                     );
                 }
                 semast::GateModifierKind::Pow(expr) => {
                     let exponent_expr = self.compile_expr(expr);
                     args = build_tuple_expr(vec![exponent_expr, callee, args]);
                     callee =
-                        build_path_ident_expr("ApplyOperationPowerA", modifier.span, stmt.span);
+                        build_path_ident_expr("ApplyOperationPowerA", modifier_span, stmt_span);
                 }
                 semast::GateModifierKind::Ctrl(num_ctrls) => {
                     let num_ctrls = num_ctrls.get_const_u32()?;
@@ -1290,18 +1303,18 @@ impl QasmCompiler {
                         let kind = CompilerErrorKind::InvalidNumberOfQubitArgs(
                             num_ctrls as usize,
                             qubits.len(),
-                            modifier.span,
+                            modifier_span,
                         );
                         self.push_compiler_error(kind);
                         return None;
                     }
                     let ctrl = qubits.split_off(qubits.len().saturating_sub(num_ctrls as usize));
-                    let ctrls = build_expr_array_expr(ctrl, modifier.span);
+                    let ctrls = build_expr_array_expr(ctrl, modifier_span);
                     args = build_tuple_expr(vec![ctrls, args]);
                     callee = build_unary_op_expr(
                         qsast::UnOp::Functor(qsast::Functor::Ctl),
                         callee,
-                        modifier.modifier_keyword_span,
+                        modifier_keyword_span,
                     );
                 }
                 semast::GateModifierKind::NegCtrl(num_ctrls) => {
@@ -1312,25 +1325,25 @@ impl QasmCompiler {
                         let kind = CompilerErrorKind::InvalidNumberOfQubitArgs(
                             num_ctrls as usize,
                             qubits.len(),
-                            modifier.span,
+                            modifier_span,
                         );
                         self.push_compiler_error(kind);
                         return None;
                     }
                     let ctrl = qubits.split_off(qubits.len().saturating_sub(num_ctrls as usize));
-                    let ctrls = build_expr_array_expr(ctrl, modifier.span);
+                    let ctrls = build_expr_array_expr(ctrl, modifier_span);
                     let lit_0 = build_lit_int_expr(0, Span::default());
                     args = build_tuple_expr(vec![lit_0, callee, ctrls, args]);
                     callee = build_path_ident_expr(
                         "ApplyControlledOnInt",
-                        modifier.modifier_keyword_span,
-                        stmt.span,
+                        modifier_keyword_span,
+                        stmt_span,
                     );
                 }
             }
         }
 
-        let expr = build_gate_call_with_params_and_callee(args, callee, stmt.span);
+        let expr = build_gate_call_with_params_and_callee(args, callee, stmt_span);
         Some(build_stmt_semi_from_expr(expr))
     }
 
@@ -1359,9 +1372,9 @@ impl QasmCompiler {
         let symbol = symbol.clone();
         let name = &symbol.name;
         let is_const = symbol.ty.is_const();
-        let ty_span = stmt.ty_span; // todo
-        let decl_span = stmt.span;
-        let name_span = symbol.span;
+        let ty_span = stmt.ty_span.to_qsharp(); // todo
+        let decl_span = stmt.span.to_qsharp();
+        let name_span = symbol.span.to_qsharp();
         let qsharp_ty = self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span);
 
         let expr = stmt.init_expr.as_ref();
@@ -1416,7 +1429,7 @@ impl QasmCompiler {
                 }
                 self.push_compiler_error(CompilerErrorKind::InvalidBoxPragmaTarget(
                     value.to_string(),
-                    stmt.value_span.unwrap_or(stmt.span),
+                    stmt.value_span.unwrap_or(stmt.span).to_qsharp(),
                 ));
             }
             (PragmaKind::QdkBoxClose, Some(value)) => {
@@ -1431,11 +1444,13 @@ impl QasmCompiler {
                 }
                 self.push_compiler_error(CompilerErrorKind::InvalidBoxPragmaTarget(
                     value.to_string(),
-                    stmt.value_span.unwrap_or(stmt.span),
+                    stmt.value_span.unwrap_or(stmt.span).to_qsharp(),
                 ));
             }
             (PragmaKind::QdkBoxOpen | PragmaKind::QdkBoxClose, None) => {
-                self.push_compiler_error(CompilerErrorKind::MissingBoxPragmaTarget(stmt.span));
+                self.push_compiler_error(CompilerErrorKind::MissingBoxPragmaTarget(
+                    stmt.span.to_qsharp(),
+                ));
             }
             (PragmaKind::QdkQirProfile, Some(profile)) => {
                 // For this pragma, we only keep the first instance.
@@ -1452,13 +1467,13 @@ impl QasmCompiler {
                 }
                 self.push_compiler_error(CompilerErrorKind::InvalidProfilePragmaTarget(
                     profile.to_string(),
-                    stmt.value_span.unwrap_or(stmt.span),
+                    stmt.value_span.unwrap_or(stmt.span).to_qsharp(),
                 ));
             }
             (PragmaKind::QdkQirProfile, None) => {
                 self.push_compiler_error(CompilerErrorKind::InvalidProfilePragmaTarget(
                     String::new(),
-                    stmt.span,
+                    stmt.span.to_qsharp(),
                 ));
             }
         }
@@ -1483,11 +1498,11 @@ impl QasmCompiler {
                 let name = symbol.name.clone();
                 let semantic_type = symbol.ty.clone();
                 let qsharp_ty = self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span);
-                let ast_type = map_qsharp_type_to_ast_ty(&qsharp_ty, symbol.ty_span);
+                let ast_type = map_qsharp_type_to_ast_ty(&qsharp_ty, symbol.ty_span.to_qsharp());
                 (
                     name.clone(),
                     ast_type.clone(),
-                    build_arg_pat(name, symbol.span, ast_type),
+                    build_arg_pat(name, symbol.span.to_qsharp(), ast_type),
                     semantic_type,
                 )
             })
@@ -1501,11 +1516,11 @@ impl QasmCompiler {
                 let name = symbol.name.clone();
                 let semantic_type = symbol.ty.clone();
                 let qsharp_ty = self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span);
-                let ast_type = map_qsharp_type_to_ast_ty(&qsharp_ty, symbol.ty_span);
+                let ast_type = map_qsharp_type_to_ast_ty(&qsharp_ty, symbol.ty_span.to_qsharp());
                 (
                     name.clone(),
                     ast_type.clone(),
-                    build_arg_pat(name, symbol.span, ast_type),
+                    build_arg_pat(name, symbol.span.to_qsharp(), ast_type),
                     semantic_type,
                 )
             })
@@ -1530,7 +1545,7 @@ impl QasmCompiler {
             attrs.push(build_attr(
                 QSHARP_QIR_INTRINSIC_ANNOTATION,
                 annotation.value.clone(),
-                annotation.span,
+                annotation.span.to_qsharp(),
             ));
         }
 
@@ -1556,9 +1571,9 @@ impl QasmCompiler {
             cargs,
             qargs,
             body,
-            stmt.name_span,
-            stmt.body.span,
-            stmt.span,
+            stmt.name_span.to_qsharp(),
+            stmt.body.span.to_qsharp(),
+            stmt.span.to_qsharp(),
             build_path_ident_ty("Unit"),
             qsast::CallableKind::Operation,
             functors,
@@ -1568,16 +1583,15 @@ impl QasmCompiler {
 
     fn compile_annotation(&mut self, annotation: &semast::Annotation) -> Option<qsast::Attr> {
         let name = annotation.identifier.as_string();
+        let span = annotation.span.to_qsharp();
         match name.as_str() {
             QSHARP_QIR_INTRINSIC_ANNOTATION
             | QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION
-            | QSHARP_CONFIG_ANNOTATION => {
-                Some(build_attr(name, annotation.value.clone(), annotation.span))
-            }
+            | QSHARP_CONFIG_ANNOTATION => Some(build_attr(name, annotation.value.clone(), span)),
             QDK_CONFIG_ANNOTATION => Some(build_attr(
                 QSHARP_CONFIG_ANNOTATION,
                 annotation.value.clone(),
-                annotation.span,
+                span,
             )),
             QDK_QIR_INTRINSIC_ANNOTATION => {
                 // Map the QDK QIR intrinsic annotation to the simulatable intrinsic annotation
@@ -1585,7 +1599,7 @@ impl QasmCompiler {
                 Some(build_attr(
                     QSHARP_QIR_INTRINSIC_ANNOTATION,
                     annotation.value.clone(),
-                    annotation.span,
+                    span,
                 ))
             }
             QDK_QIR_NOISE_INTRINSIC_ANNOTATION => {
@@ -1594,13 +1608,13 @@ impl QasmCompiler {
                 Some(build_attr(
                     QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION,
                     annotation.value.clone(),
-                    annotation.span,
+                    span,
                 ))
             }
             _ => {
                 self.push_compiler_error(CompilerErrorKind::UnknownAnnotation(
                     format!("@{name}"),
-                    annotation.span,
+                    span,
                 ));
                 None
             }
@@ -1616,14 +1630,15 @@ impl QasmCompiler {
         }
 
         let name = &symbol.name;
-        let name_span = symbol.span;
+        let name_span = symbol.span.to_qsharp();
+        let stmt_span = stmt.span.to_qsharp();
 
         let stmt = match self.config.qubit_semantics {
             QubitSemantics::QSharp => {
-                build_managed_qubit_alloc(name, stmt.span, name_span, qsast::QubitSource::Fresh)
+                build_managed_qubit_alloc(name, stmt_span, name_span, qsast::QubitSource::Fresh)
             }
             QubitSemantics::Qiskit => {
-                build_managed_qubit_alloc(name, stmt.span, name_span, qsast::QubitSource::Dirty)
+                build_managed_qubit_alloc(name, stmt_span, name_span, qsast::QubitSource::Dirty)
             }
         };
         Some(stmt)
@@ -1641,24 +1656,26 @@ impl QasmCompiler {
         }
 
         let name = &symbol.name;
-        let name_span = symbol.span;
+        let name_span = symbol.span.to_qsharp();
+        let stmt_span = stmt.span.to_qsharp();
+        let size_span = stmt.size_span.to_qsharp();
         let size = stmt.size.get_const_u32()?;
 
         let stmt = match self.config.qubit_semantics {
             QubitSemantics::QSharp => managed_qubit_alloc_array(
                 name,
                 size,
-                stmt.span,
+                stmt_span,
                 name_span,
-                stmt.size_span,
+                size_span,
                 qsast::QubitSource::Fresh,
             ),
             QubitSemantics::Qiskit => managed_qubit_alloc_array(
                 name,
                 size,
-                stmt.span,
+                stmt_span,
                 name_span,
-                stmt.size_span,
+                size_span,
                 qsast::QubitSource::Dirty,
             ),
         };
@@ -1671,9 +1688,9 @@ impl QasmCompiler {
         let operand = self.compile_gate_operand(&stmt.operand);
         let operand_span = operand.span;
         let expr = if is_register {
-            build_reset_all_call(operand, stmt.reset_token_span, operand_span)
+            build_reset_all_call(operand, stmt.reset_token_span.to_qsharp(), operand_span)
         } else {
-            build_reset_call(operand, stmt.reset_token_span, operand_span)
+            build_reset_call(operand, stmt.reset_token_span.to_qsharp(), operand_span)
         };
         Some(build_stmt_semi_from_expr(expr))
     }
@@ -1682,9 +1699,9 @@ impl QasmCompiler {
         let expr = stmt.expr.as_ref().map(|expr| self.compile_expr(expr));
 
         let expr = if let Some(expr) = expr {
-            build_return_expr(expr, stmt.span)
+            build_return_expr(expr, stmt.span.to_qsharp())
         } else {
-            build_return_unit(stmt.span)
+            build_return_unit(stmt.span.to_qsharp())
         };
 
         Some(build_stmt_semi_from_expr(expr))
@@ -1707,7 +1724,7 @@ impl QasmCompiler {
                     .map(|label| {
                         let lhs = control.clone();
                         let rhs = self.compile_expr(label);
-                        build_binary_expr(false, qsast::BinOp::Eq, lhs, rhs, label.span)
+                        build_binary_expr(false, qsast::BinOp::Eq, lhs, rhs, label.span.to_qsharp())
                     })
                     .fold(None, |acc, expr| match acc {
                         None => Some(expr),
@@ -1751,11 +1768,11 @@ impl QasmCompiler {
         match &*stmt.body.kind {
             semast::StmtKind::Block(block) => {
                 let block = self.compile_block(block);
-                Some(build_while_stmt(condition, block, stmt.span))
+                Some(build_while_stmt(condition, block, stmt.span.to_qsharp()))
             }
             semast::StmtKind::Err => Some(qsast::Stmt {
                 id: NodeId::default(),
-                span: stmt.body.span,
+                span: stmt.body.span.to_qsharp(),
                 kind: Box::new(qsast::StmtKind::Err),
             }),
             _ => {
@@ -1763,9 +1780,9 @@ impl QasmCompiler {
                 let block = qsast::Block {
                     id: qsast::NodeId::default(),
                     stmts: boxed_list_from_iter([block_stmt]),
-                    span: stmt.span,
+                    span: stmt.span.to_qsharp(),
                 };
-                Some(build_while_stmt(condition, block, stmt.span))
+                Some(build_while_stmt(condition, block, stmt.span.to_qsharp()))
             }
         }
     }
@@ -1779,7 +1796,7 @@ impl QasmCompiler {
 
         match expr.kind.as_ref() {
             semast::ExprKind::Err => qsast::Expr {
-                span: expr.span,
+                span: expr.span.to_qsharp(),
                 ..Default::default()
             },
             semast::ExprKind::CapturedResolvedIdent(symbol_id) => {
@@ -1807,7 +1824,7 @@ impl QasmCompiler {
             }
             semast::ExprKind::Cast(cast) => self.compile_cast_expr(cast),
             semast::ExprKind::IndexedExpr(index_expr) => self.compile_indexed_expr(index_expr),
-            semast::ExprKind::Paren(pexpr) => self.compile_paren_expr(pexpr, expr.span),
+            semast::ExprKind::Paren(pexpr) => self.compile_paren_expr(pexpr, expr.span.to_qsharp()),
             semast::ExprKind::Measure(mexpr) => self.compile_measure_expr(mexpr, &expr.ty),
             semast::ExprKind::RuntimeSizeof(expr) => self.compile_runtime_sizeof_expr(expr),
             semast::ExprKind::Concat(concat) => self.compile_concat_expr(concat),
@@ -1817,7 +1834,11 @@ impl QasmCompiler {
         }
     }
 
-    fn compile_captured_ident_expr(&mut self, symbol_id: SymbolId, span: Span) -> qsast::Expr {
+    fn compile_captured_ident_expr(
+        &mut self,
+        symbol_id: SymbolId,
+        span: qdk_openqasm_parser::span::Span,
+    ) -> qsast::Expr {
         let symbol = &self.symbols[symbol_id];
         // when closing over a constant value we will have a const value
         // associated with the symbol, but due to scoping rule differences
@@ -1828,7 +1849,12 @@ impl QasmCompiler {
         self.compile_literal_expr(&value, span)
     }
 
-    fn compile_ident_expr(&mut self, symbol_id: SymbolId, span: Span) -> qsast::Expr {
+    fn compile_ident_expr(
+        &mut self,
+        symbol_id: SymbolId,
+        span: qdk_openqasm_parser::span::Span,
+    ) -> qsast::Expr {
+        let span = span.to_qsharp();
         let symbol = &self.symbols[symbol_id];
         match symbol.name.as_str() {
             "euler" | "ℇ" => build_math_call_no_params("E", span),
@@ -1856,17 +1882,27 @@ impl QasmCompiler {
             semast::UnaryOp::NotL => self.compile_logical_not_expr(&unary.expr, unary.span),
         }
     }
-    fn compile_neg_expr(&mut self, expr: &Expr, span: Span) -> qsast::Expr {
+    fn compile_neg_expr(
+        &mut self,
+        expr: &Expr,
+        span: qdk_openqasm_parser::span::Span,
+    ) -> qsast::Expr {
+        let span = span.to_qsharp();
         let compiled_expr = self.compile_expr(expr);
 
         if matches!(expr.ty, Type::Angle(..)) {
-            build_angle_cast_call_by_name("NegAngle", compiled_expr, span, expr.span)
+            build_angle_cast_call_by_name("NegAngle", compiled_expr, span, expr.span.to_qsharp())
         } else {
             build_unary_op_expr(qsast::UnOp::Neg, compiled_expr, span)
         }
     }
 
-    fn compile_bitwise_not_expr(&mut self, expr: &Expr, span: Span) -> qsast::Expr {
+    fn compile_bitwise_not_expr(
+        &mut self,
+        expr: &Expr,
+        span: qdk_openqasm_parser::span::Span,
+    ) -> qsast::Expr {
+        let span = span.to_qsharp();
         let compiled_expr = self.compile_expr(expr);
 
         if matches!(expr.ty, Type::Angle(..)) {
@@ -1875,7 +1911,7 @@ impl QasmCompiler {
                 &["Std", "OpenQASM", "Angle"],
                 compiled_expr,
                 span,
-                expr.span,
+                expr.span.to_qsharp(),
                 span,
             )
         } else {
@@ -1883,7 +1919,12 @@ impl QasmCompiler {
         }
     }
 
-    fn compile_logical_not_expr(&mut self, expr: &Expr, span: Span) -> qsast::Expr {
+    fn compile_logical_not_expr(
+        &mut self,
+        expr: &Expr,
+        span: qdk_openqasm_parser::span::Span,
+    ) -> qsast::Expr {
+        let span = span.to_qsharp();
         let expr = self.compile_expr(expr);
         build_unary_op_expr(qsast::UnOp::NotL, expr, span)
     }
@@ -1912,14 +1953,14 @@ impl QasmCompiler {
                 qsast::BinOp::Gt | qsast::BinOp::Gte | qsast::BinOp::Lt | qsast::BinOp::Lte
             )
         {
-            let span = binary.span();
+            let span = binary.span().to_qsharp();
             let lhs = build_qasm_convert_call_with_one_param("ResultAsInt", lhs, span, span);
             let rhs = build_qasm_convert_call_with_one_param("ResultAsInt", rhs, span, span);
             return build_binary_expr(false, op, lhs, rhs, span);
         }
 
         let is_assignment = false;
-        build_binary_expr(is_assignment, op, lhs, rhs, binary.span())
+        build_binary_expr(is_assignment, op, lhs, rhs, binary.span().to_qsharp())
     }
 
     fn compile_angle_binary_op(
@@ -2013,7 +2054,12 @@ impl QasmCompiler {
         build_math_call_from_exprs(fn_name, vec![lhs, rhs], span)
     }
 
-    fn compile_literal_expr(&mut self, lit: &LiteralKind, span: Span) -> qsast::Expr {
+    fn compile_literal_expr(
+        &mut self,
+        lit: &LiteralKind,
+        span: qdk_openqasm_parser::span::Span,
+    ) -> qsast::Expr {
+        let span = span.to_qsharp();
         match lit {
             LiteralKind::Angle(value) => build_lit_angle_expr(*value, span),
             LiteralKind::Array(value) => self.compile_array_literal(value, span),
@@ -2033,6 +2079,7 @@ impl QasmCompiler {
     }
 
     fn compile_cast_expr(&mut self, cast: &Cast) -> qsast::Expr {
+        let span = cast.span.to_qsharp();
         // Optimization: eliminate round-trip casts (e.g. Bit → UInt(1) → Bit)
         let inner = unwrap_parens(&cast.expr);
         if let semast::ExprKind::Cast(inner_cast) = inner.kind.as_ref()
@@ -2041,42 +2088,42 @@ impl QasmCompiler {
             let result = self.compile_expr(&inner_cast.expr);
             // Wrap in parens to preserve grouping, since the removed casts
             // acted as implicit grouping delimiters in the output.
-            return wrap_expr_in_parens(result, cast.span);
+            return wrap_expr_in_parens(result, span);
         }
 
         let expr = self.compile_expr(&cast.expr);
         let cast_expr = match cast.expr.ty {
             qdk_openqasm_parser::semantic::types::Type::Bit(_) => {
-                Self::cast_bit_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
+                Self::cast_bit_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
             qdk_openqasm_parser::semantic::types::Type::Bool(_) => {
-                Self::cast_bool_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
+                Self::cast_bool_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
             qdk_openqasm_parser::semantic::types::Type::Duration(_) => {
-                self.cast_duration_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
+                self.cast_duration_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
             qdk_openqasm_parser::semantic::types::Type::Angle(_, _) => {
-                Self::cast_angle_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
+                Self::cast_angle_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
             qdk_openqasm_parser::semantic::types::Type::Complex(_, _) => {
-                self.cast_complex_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
+                self.cast_complex_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
             qdk_openqasm_parser::semantic::types::Type::Float(_, _) => {
-                Self::cast_float_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
+                Self::cast_float_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
             qdk_openqasm_parser::semantic::types::Type::Int(_, _)
             | qdk_openqasm_parser::semantic::types::Type::UInt(_, _) => {
-                Self::cast_int_expr_to_ty(expr, &cast.expr.ty, &cast.ty, cast.span)
+                Self::cast_int_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
             qdk_openqasm_parser::semantic::types::Type::BitArray(size, _) => {
-                Self::cast_bit_array_expr_to_ty(expr, &cast.expr.ty, &cast.ty, size, cast.span)
+                Self::cast_bit_array_expr_to_ty(expr, &cast.expr.ty, &cast.ty, size, span)
             }
-            _ => err_expr(cast.span),
+            _ => err_expr(span),
         };
         if matches!(*cast_expr.kind, qsast::ExprKind::Err) {
             self.push_unsupported_error_message(
                 format!("casting {} to {} type", cast.expr.ty, cast.ty),
-                cast.span,
+                span,
             );
         }
         cast_expr
@@ -2085,7 +2132,7 @@ impl QasmCompiler {
     fn compile_indexed_expr(&mut self, index_expr: &IndexedExpr) -> qsast::Expr {
         let expr = self.compile_expr(&index_expr.collection);
         let index = self.compile_index(&index_expr.index);
-        build_index_expr(expr, index, index_expr.span)
+        build_index_expr(expr, index, index_expr.span.to_qsharp())
     }
 
     fn compile_paren_expr(&mut self, paren: &Expr, span: Span) -> qsast::Expr {
@@ -2100,10 +2147,10 @@ impl QasmCompiler {
     ) -> qsast::Expr {
         assert!(matches!(ty, Type::BitArray(..) | Type::Bit(..)));
 
-        let call_span = expr.span;
-        let name_span = expr.measure_token_span;
+        let call_span = expr.span.to_qsharp();
+        let name_span = expr.measure_token_span.to_qsharp();
         let arg = self.compile_gate_operand(&expr.operand);
-        let operand_span = expr.operand.span;
+        let operand_span = expr.operand.span.to_qsharp();
         if matches!(ty, Type::Bit(..)) {
             build_measure_call(arg, name_span, operand_span, call_span)
         } else {
@@ -2120,10 +2167,10 @@ impl QasmCompiler {
                 // catch any other errors
                 let message = "hardware qubit operands";
                 self.push_unsupported_error_message(message, op.span);
-                build_path_ident_expr(hw.name.clone(), hw.span, op.span)
+                build_path_ident_expr(hw.name.clone(), hw.span.to_qsharp(), op.span.to_qsharp())
             }
             GateOperandKind::Expr(expr) => self.compile_expr(expr),
-            GateOperandKind::Err => err_expr(op.span),
+            GateOperandKind::Err => err_expr(op.span.to_qsharp()),
         }
     }
 
@@ -2141,7 +2188,7 @@ impl QasmCompiler {
             .map(|expr| self.compile_expr(expr))
             .collect();
 
-        build_expr_array_expr(expr_list, set.span)
+        build_expr_array_expr(expr_list, set.span.to_qsharp())
     }
 
     fn compile_enumerable_set(&mut self, set: &semast::EnumerableSet) -> qsast::Expr {
@@ -2156,7 +2203,7 @@ impl QasmCompiler {
         let start = range.start.as_ref().map(|expr| self.compile_expr(expr));
         let step = range.step.as_ref().map(|expr| self.compile_expr(expr));
         let end = range.end.as_ref().map(|expr| self.compile_expr(expr));
-        build_range_expr(start, step, end, range.span)
+        build_range_expr(start, step, end, range.span.to_qsharp())
     }
 
     fn compile_array_literal(&mut self, array: &Array, span: Span) -> qsast::Expr {
@@ -2231,14 +2278,22 @@ impl QasmCompiler {
     }
 
     /// Pushes an unsupported error with the supplied message.
-    pub fn push_unsupported_error_message<S: AsRef<str>>(&mut self, message: S, span: Span) {
-        let kind = unsupported_err(message, span);
+    pub(crate) fn push_unsupported_error_message<S: AsRef<str>>(
+        &mut self,
+        message: S,
+        span: impl ParserSpanExt,
+    ) {
+        let kind = unsupported_err(message, span.to_qsharp());
         self.push_compiler_error(kind);
     }
 
     /// Pushes an unimplemented error with the supplied message.
-    pub fn push_unimplemented_error_message<S: AsRef<str>>(&mut self, message: S, span: Span) {
-        let kind = CompilerErrorKind::Unimplemented(message.as_ref().to_string(), span);
+    pub(crate) fn push_unimplemented_error_message<S: AsRef<str>>(
+        &mut self,
+        message: S,
+        span: impl ParserSpanExt,
+    ) {
+        let kind = CompilerErrorKind::Unimplemented(message.as_ref().to_string(), span.to_qsharp());
         self.push_compiler_error(kind);
     }
 
@@ -2636,10 +2691,10 @@ impl QasmCompiler {
     fn map_semantic_type_to_qsharp_type(
         &mut self,
         ty: &qdk_openqasm_parser::semantic::types::Type,
-        span: Span,
+        span: qdk_openqasm_parser::span::Span,
     ) -> crate::types::Type {
         let mut errors = Vec::new();
-        let mapped = Self::semantic_type_for_qsharp_type(ty, span, &mut errors);
+        let mapped = Self::semantic_type_for_qsharp_type(ty, span.to_qsharp(), &mut errors);
         for error in errors {
             self.push_compiler_error(error);
         }

@@ -1,8 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use num_bigint::BigInt;
-use qsc_data_structures::{
+use crate::{
     display::{
         write_field, write_header_with_span, write_indented_list, write_list_field,
         write_opt_field, writeln_field, writeln_header_with_span, writeln_list_field,
@@ -10,6 +9,7 @@ use qsc_data_structures::{
     },
     span::Span,
 };
+use num_bigint::BigInt;
 use std::{
     collections::VecDeque,
     fmt::{self, Display, Formatter},

@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::{index_map::IndexMap, span::Span};
 use core::f64;
-use qsc_data_structures::{index_map::IndexMap, span::Span};
 use rustc_hash::FxHashMap;
 use std::{rc::Rc, sync::Arc};
 
@@ -162,7 +162,7 @@ impl Symbol {
 
 impl std::fmt::Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use qsc_data_structures::display;
+        use crate::display;
         display::writeln_header_with_span(f, "Symbol", self.span)?;
         display::writeln_field(f, "name", &self.name)?;
         display::writeln_field(f, "type", &self.ty)?;

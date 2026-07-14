@@ -14,7 +14,6 @@ categories = ["parser-implementations", "compilers", "science"]
 
 [features]
 default = []
-internal = ["dep:qsc_data_structures"]
 fancy = ["miette/fancy-no-syscall"]
 
 [dependencies]
@@ -24,7 +23,6 @@ indenter = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 miette = { workspace = true }
-qsc_data_structures = { path = "../compiler/qsc_data_structures", optional = true }
 rustc-hash = { workspace = true }
 thiserror = { workspace = true }
 

@@ -13,11 +13,11 @@ use crate::{
         const_eval::ConstEvalError,
         types::{Type, can_cast_literal, can_cast_literal_with_value_knowledge},
     },
+    span::Span,
     stdlib::complex::Complex,
 };
 use core::f64;
 use num_bigint::BigInt;
-use qsc_data_structures::span::Span;
 use std::fmt::Write;
 use std::sync::LazyLock;
 

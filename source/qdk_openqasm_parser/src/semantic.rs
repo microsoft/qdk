@@ -6,9 +6,9 @@ use crate::io::SourceResolver;
 use crate::parser::ParseResult;
 use crate::parser::QasmSource;
 
+use crate::error::WithSource;
+use crate::source::SourceMap;
 pub(crate) use lowerer::Lowerer;
-use qsc_data_structures::error::WithSource;
-use qsc_data_structures::source::SourceMap;
 
 use std::sync::Arc;
 

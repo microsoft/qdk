@@ -15,30 +15,10 @@ pub mod stdlib;
 #[cfg(test)]
 pub(crate) mod tests;
 
-// When the `internal` feature is disabled, this crate builds standalone by
-// vendoring the shared data-structure types that are normally provided by the
-// in-repo `qsc_data_structures` crate. Aliasing the crate to itself as
-// `qsc_data_structures` lets the rest of the source keep its
-// `use qsc_data_structures::...` imports unchanged in both configurations, and
-// the crate-root re-exports below make the vendored modules reachable through
-// that path. The `error` module is re-exported separately (see `error.rs`)
-// because this crate already has its own top-level `error` module.
-#[cfg(not(feature = "internal"))]
-extern crate self as qsc_data_structures;
-
-// The vendored module tree holds minimal copies of the `qsc_data_structures`
-// modules (plus the `index_map` crate). It is only compiled for standalone
-// builds; the `internal` feature pulls in the real crates instead.
-#[cfg(not(feature = "internal"))]
 mod vendor;
 
-// Surface the vendored modules at the crate root so the `qsc_data_structures`
-// self-alias above resolves `qsc_data_structures::span` to `crate::span`,
-// `qsc_data_structures::index_map` to `crate::index_map`, and so on. `error` is
-// deliberately omitted here and re-exported from `error.rs` instead, to avoid
-// colliding with this crate's own top-level `error` module.
-#[cfg(not(feature = "internal"))]
-pub(crate) use vendor::{display, index_map, source, span};
+pub(crate) use vendor::{display, index_map};
+pub use vendor::{source, span};
 
 use std::sync::Arc;
 

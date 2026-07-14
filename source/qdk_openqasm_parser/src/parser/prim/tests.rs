@@ -15,7 +15,7 @@ use crate::{
 };
 use expect_test::expect;
 
-use qsc_data_structures::span::Span;
+use crate::span::Span;
 
 /// A `path` is a dot-separated list of idents like "Foo.Bar.Baz"
 /// this can be a namespace name (in an open statement or namespace declaration),

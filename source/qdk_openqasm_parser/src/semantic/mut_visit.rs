@@ -4,8 +4,6 @@
 // This is setting the foundation for passes and visitors in the QASM semantic analysis phase.
 #![allow(dead_code)]
 
-use qsc_data_structures::span::Span;
-
 use crate::{
     parser::ast::{Ident, Path, PathKind},
     semantic::{
@@ -25,6 +23,7 @@ use crate::{
         symbols::SymbolId,
         types::Type,
     },
+    span::Span,
 };
 
 pub trait MutVisitor: Sized {

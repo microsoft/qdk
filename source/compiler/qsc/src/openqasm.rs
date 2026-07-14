@@ -24,6 +24,14 @@ pub mod parser {
     pub use qdk_openqasm_parser::parser::*;
 }
 
+pub mod source {
+    pub use qdk_openqasm_parser::source::*;
+}
+
+pub mod span {
+    pub use qdk_openqasm_parser::span::*;
+}
+
 pub mod semantic {
     pub use qdk_openqasm_parser::semantic::*;
 }

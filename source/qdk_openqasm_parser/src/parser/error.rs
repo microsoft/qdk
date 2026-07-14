@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::span::Span;
 use miette::Diagnostic;
-use qsc_data_structures::span::Span;
 use thiserror::Error;
 
 use crate::lex::{self, TokenKind};

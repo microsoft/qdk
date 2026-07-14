@@ -58,7 +58,7 @@
 
 use super::WordKinds;
 use crate::lex::{Token, TokenKind};
-use qsc_data_structures::span::Span;
+use crate::span::Span;
 
 pub(crate) struct ValidWordCollector {
     cursor_offset: u32,

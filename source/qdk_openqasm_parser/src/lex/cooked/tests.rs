@@ -3,8 +3,8 @@
 
 use super::{Lexer, Token, TokenKind};
 use crate::lex::Delim;
+use crate::span::Span;
 use expect_test::{Expect, expect};
-use qsc_data_structures::span::Span;
 
 fn check(input: &str, expect: &Expect) {
     let actual: Vec<_> = Lexer::new(input).collect();

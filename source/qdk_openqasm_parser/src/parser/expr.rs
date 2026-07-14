@@ -7,9 +7,9 @@
 #[cfg(test)]
 pub(crate) mod tests;
 
+use crate::span::Span;
 use num_bigint::BigInt;
 use num_traits::Num;
-use qsc_data_structures::span::Span;
 
 use crate::{
     keyword::Keyword,

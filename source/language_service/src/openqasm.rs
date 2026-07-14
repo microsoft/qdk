@@ -7,7 +7,6 @@ mod rename;
 use std::sync::Arc;
 
 pub use definition::get_definition;
-use qsc::SourceMap;
 use qsc::line_column::Encoding;
 use qsc::line_column::Position;
 use qsc::line_column::Range;
@@ -17,11 +16,11 @@ use qsc::openqasm::semantic::passes::ReferenceFinder;
 use qsc::openqasm::semantic::passes::SymbolFinder;
 use qsc::openqasm::semantic::symbols::SymbolId;
 use qsc::openqasm::semantic::symbols::SymbolTable;
+use qsc::openqasm::source::SourceMap;
+use qsc::openqasm::span::Span;
 pub use references::get_references;
 pub use rename::get_rename;
 pub use rename::prepare_rename;
-
-use crate::compilation::source_position_to_package_offset;
 
 /// Tries to find a symbol in the given source at the specified position.
 /// returns the semantic parse result and the symbol ID if found.
@@ -45,10 +44,36 @@ fn find_symbol_in_sources(
     (res, id)
 }
 
+fn source_position_to_package_offset(
+    sources: &SourceMap,
+    source_name: &str,
+    source_position: Position,
+    position_encoding: Encoding,
+) -> u32 {
+    let source = sources
+        .find_by_name(source_name)
+        .expect("source should exist in the user source map");
+    let offset = source_position
+        .to_utf8_byte_offset(position_encoding, source.contents.as_ref())
+        .min(u32::try_from(source.contents.len()).expect("source length should fit into u32"));
+    source.offset + offset
+}
+
+fn into_range(position_encoding: Encoding, span: Span, source_map: &SourceMap) -> Range {
+    let source = source_map
+        .find_by_offset(span.lo)
+        .expect("source should exist for offset");
+    let span = qsc::Span {
+        lo: span.lo - source.offset,
+        hi: span.hi - source.offset,
+    };
+    Range::from_span(position_encoding, &source.contents, &span)
+}
+
 fn map_spans_to_source_locations(
     position_encoding: Encoding,
     source_map: &SourceMap,
-    spans: Vec<qsc::Span>,
+    spans: Vec<Span>,
 ) -> Vec<Location> {
     spans
         .into_iter()
@@ -58,11 +83,7 @@ fn map_spans_to_source_locations(
                 .expect("source should exist for offset");
             Location {
                 source: source.name.clone(),
-                range: Range::from_span(
-                    position_encoding,
-                    &source.contents,
-                    &(span - source.offset),
-                ),
+                range: into_range(position_encoding, span, source_map),
             }
         })
         .collect::<Vec<_>>()

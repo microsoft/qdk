@@ -1952,7 +1952,6 @@ dependencies = [
  "miette",
  "num-bigint",
  "num-traits",
- "qsc_data_structures",
  "rustc-hash",
  "thiserror",
 ]

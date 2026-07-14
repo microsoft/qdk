@@ -7,23 +7,7 @@ pub mod core;
 
 use crate::span::Span;
 use core::{set_indentation, with_indentation, write_list};
-use std::fmt::{self, Display, Formatter, Write};
-
-/// Displays values separated by the provided string.
-pub fn join(
-    f: &mut Formatter,
-    mut vals: impl Iterator<Item = impl Display>,
-    sep: &str,
-) -> fmt::Result {
-    if let Some(v) = vals.next() {
-        v.fmt(f)?;
-    }
-    for v in vals {
-        write!(f, "{sep}")?;
-        v.fmt(f)?;
-    }
-    Ok(())
-}
+use std::fmt::{self, Display, Write};
 
 /// Writes a list of elements to the given buffer or stream
 /// with an additional indentation level.
@@ -57,17 +41,6 @@ pub fn write_header_with_span(f: &mut impl Write, name: &str, span: Span) -> fmt
 /// Inserts a newline afterwards.
 pub fn writeln_header_with_span(f: &mut impl Write, name: &str, span: Span) -> fmt::Result {
     writeln!(f, "{name} {span}:")
-}
-
-/// Writes the name of a structure to the given buffer or stream.
-pub fn write_header(f: &mut impl Write, name: &str) -> fmt::Result {
-    write!(f, "{name}:")
-}
-
-/// Writes the name of a structure to the given buffer or stream.
-/// Inserts a newline afterwards.
-pub fn writeln_header(f: &mut impl Write, name: &str) -> fmt::Result {
-    writeln!(f, "{name}:")
 }
 
 /// Writes a field of a structure to the given buffer
@@ -167,22 +140,4 @@ where
         let mut indent = with_indentation(f);
         write!(indent, "{field_name}: <none>")
     }
-}
-
-/// Writes an optional field of a structure to the given buffer
-/// or stream with an additional indentation level.
-/// The field must be an iterable.
-/// Inserts a newline afterwards.
-pub fn writeln_opt_list_field<'write, 'itemref, 'item, T, I>(
-    f: &mut impl Write,
-    field_name: &str,
-    opt_vals: Option<I>,
-) -> fmt::Result
-where
-    'item: 'itemref,
-    T: Display + 'item,
-    I: IntoIterator<Item = &'itemref T>,
-{
-    write_opt_list_field(f, field_name, opt_vals)?;
-    writeln!(f)
 }

@@ -19,9 +19,9 @@ use super::{
     raw::{self, Number, Single},
 };
 use crate::keyword::Keyword;
+use crate::span::Span;
 use enum_iterator::Sequence;
 use miette::Diagnostic;
-use qsc_data_structures::span::Span;
 use std::{
     fmt::{self, Display, Formatter},
     iter::Peekable,

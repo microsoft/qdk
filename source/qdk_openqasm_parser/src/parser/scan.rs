@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::span::Span;
 use crate::{
     lex::{Lexer, Token, TokenKind},
     parser::completion::{collector::ValidWordCollector, word_kinds::WordKinds},
 };
-use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 

@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::span::Span;
+use crate::span::Span;
 
 use crate::parser::ast::{ConcatExpr, DefParameter, DefParameterType, DurationOfCall, QubitType};
 

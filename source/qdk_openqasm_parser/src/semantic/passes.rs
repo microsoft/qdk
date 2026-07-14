@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::span::Span;
-
 use crate::{
     semantic::{
         ast::{
@@ -19,6 +17,7 @@ use crate::{
             walk_qubit_array_decl, walk_qubit_decl, walk_resolved_function_call_expr,
         },
     },
+    span::Span,
     stdlib::duration::Duration,
 };
 

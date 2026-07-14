@@ -15,12 +15,12 @@ use super::types::compute_slice_components;
 use crate::semantic::Lowerer;
 
 use crate::semantic::types::binary_op_is_supported_for_types;
+use crate::span::Span;
 use crate::stdlib::angle;
 use crate::stdlib::duration::Duration;
 use crate::{convert::safe_i64_to_f64, semantic::types::Type};
 use miette::Diagnostic;
 use num_bigint::BigInt;
-use qsc_data_structures::span::Span;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Diagnostic, Eq, Error, PartialEq)]

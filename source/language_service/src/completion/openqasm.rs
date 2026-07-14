@@ -10,6 +10,7 @@ use qsc::openqasm::compiler::{
 use qsc::openqasm::parser::ast::PathKind;
 use qsc::openqasm::semantic::ast::{Annotation, Pragma};
 use qsc::openqasm::semantic::symbols::SymbolTable;
+use qsc::openqasm::span::Span;
 use qsc::target::Profile;
 
 use crate::{
@@ -130,7 +131,7 @@ fn pragma_or_annotation_completions(
     }
 }
 
-fn span_contains(span: qsc::Span, offset: u32) -> bool {
+fn span_contains(span: Span, offset: u32) -> bool {
     span.lo <= offset && offset <= span.hi
 }
 

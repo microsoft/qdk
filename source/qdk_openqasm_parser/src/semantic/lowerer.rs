@@ -23,10 +23,10 @@ use super::types::requires_symmetric_conversion;
 use super::types::try_promote_with_casting;
 use super::types::types_equal_except_const;
 use super::types::unary_op_can_be_applied_to_type;
+use crate::{error::WithSource, source::SourceMap, span::Span};
 use num_bigint::BigInt;
 use num_traits::FromPrimitive;
 use num_traits::Num;
-use qsc_data_structures::{error::WithSource, source::SourceMap, span::Span};
 use rustc_hash::FxHashMap;
 
 use super::symbols::{IOKind, Symbol, SymbolTable};

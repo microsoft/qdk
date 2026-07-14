@@ -14,7 +14,7 @@ use super::{
 use crate::lex::TokenKind;
 use crate::parser::ast::{IncompletePath, Path, PathKind};
 
-use qsc_data_structures::span::{Span, WithSpan};
+use crate::span::{Span, WithSpan};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum FinalSep {

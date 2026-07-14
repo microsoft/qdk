@@ -4,7 +4,7 @@
 #[cfg(test)]
 pub(crate) mod tests;
 
-use qsc_data_structures::span::Span;
+use crate::span::Span;
 use std::sync::Arc;
 
 use super::{

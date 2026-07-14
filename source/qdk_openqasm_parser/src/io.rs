@@ -2,9 +2,9 @@
 // Licensed under the MIT License.
 
 mod error;
+use crate::span::Span;
 pub use error::Error;
 pub use error::ErrorKind;
-use qsc_data_structures::span::Span;
 
 use std::sync::Arc;
 
