@@ -12,7 +12,7 @@ use crate::{
 };
 use operation::Operation;
 use outcome_specific_simulation::OutcomeSpecificSimulation;
-use paulimer::{PauliObservable, SparsePauli, UnitaryOp};
+use paulimer::{PauliObservable, UnitaryOp};
 use pauliverse::Simulation;
 use rand::{SeedableRng as _, rngs::StdRng};
 use std::{

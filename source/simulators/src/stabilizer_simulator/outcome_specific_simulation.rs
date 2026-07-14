@@ -1,71 +1,23 @@
 use binar::Bitwise;
-use paulimer::UnitaryOp;
-use paulimer::clifford::{Clifford, CliffordMutable, CliffordUnitary};
-use paulimer::pauli::{Pauli, PauliBits, PauliUnitary, anti_commutes_with, generic::PhaseExponent};
-use paulimer::pauli::{PauliBinaryOps, PauliMutable};
+use paulimer::{
+    UnitaryOp,
+    clifford::{Clifford, CliffordMutable, CliffordUnitary},
+    pauli::{
+        Pauli, PauliBinaryOps, PauliBits, PauliMutable, PauliUnitary, anti_commutes_with,
+        generic::PhaseExponent,
+    },
+};
 use pauliverse::{OutcomeId, Simulation};
-use rand::RngExt;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 
 type SparsePauli = paulimer::pauli::SparsePauli;
 
-/// Traditional stabilizer simulation with random measurement outcomes.
-///
-/// This simulator draws random measurement outcomes as needed during simulation,
-/// representing a single execution path through the quantum circuit. Each measurement
-/// with a random outcome is sampled and recorded, allowing adaptive circuits and
-/// noise injection based on concrete outcome values.
-///
-/// # Use Cases
-///
-/// - **Monte Carlo sampling**: Run many independent shots to estimate error rates
-/// - **Adaptive circuits**: Runtime measurement outcomes determine subsequent gates
-/// - **Dynamic noise injection**: Insert novel noise models based on circuit state
-/// - **Debugging circuits**: Trace specific execution paths with concrete outcomes
-///
-/// # Performance
-///
-/// - **Complexity**: `O(n_gates × n_qubits²)` worst-case per shot
-/// - **Best for**: Few shots or adaptive circuits where next gates depend on outcomes
-/// - **Compared to `OutcomeComplete`**: More efficient when `shots << n_random`, where `n_random` is the
-///   number of random measurements. `OutcomeComplete` becomes advantageous when you need
-///   many samples of the same circuit.
-/// - **Space**: `O(n_qubits² + n_measurements)`
-///
-/// # Examples
-///
-/// ```
-/// use pauliverse::{OutcomeSpecificSimulation, Simulation};
-/// use paulimer::{UnitaryOp, SparsePauli};
-///
-/// // Run multiple shots to collect outcome statistics
-/// for _ in 0..10 {
-///     let mut sim = OutcomeSpecificSimulation::new_with_random_outcomes(2);
-///     sim.unitary_op(UnitaryOp::Hadamard, &[0]);
-///     sim.unitary_op(UnitaryOp::ControlledX, &[0, 1]);
-///
-///     let observable: SparsePauli = "ZI".parse().unwrap();
-///     let outcome_id = sim.measure(&observable);
-///
-///     // Access the concrete measurement outcome
-///     if outcome_id < sim.outcome_count() {
-///         let _value = sim.outcome_vector()[outcome_id];
-///         // Process this shot's outcome for statistics...
-///     }
-/// }
-/// ```
-///
-/// # Alternatives
-///
-/// - Use [`crate::OutcomeCompleteSimulation`] when you need all possible outcomes
-/// - Use [`crate::OutcomeFreeSimulation`] when outcomes don't matter
-/// - Use [`crate::FaultySimulation`] for noisy simulations
 #[must_use]
 pub struct OutcomeSpecificSimulation {
-    clifford: CliffordUnitary, // R
+    clifford: CliffordUnitary,
     outcome_vector: Vec<bool>,
     bit_source: Box<dyn Iterator<Item = bool> + Send + Sync>,
-    random_outcome_indicator: Vec<bool>, // vec(p), [j] is true iff vec(p)_j = 1/2
+    random_outcome_indicator: Vec<bool>,
     num_random_bits: usize,
     qubit_count: usize,
 }
