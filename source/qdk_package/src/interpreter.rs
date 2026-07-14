@@ -676,7 +676,7 @@ impl Interpreter {
             Some(operation_name.into()),
             None,
         );
-        let res = qsc::openqasm::semantic::parse_sources(&sources);
+        let res = qsc::openqasm::analyze_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
         let (sources, errors, mut package, _, _) = unit.into_tuple();
 

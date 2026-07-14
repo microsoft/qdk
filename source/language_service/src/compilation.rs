@@ -252,7 +252,7 @@ impl Compilation {
             Some("program".into()),
             None,
         );
-        let res = qsc::openqasm::semantic::parse_sources(&sources);
+        let res = qsc::openqasm::analyze_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
         let target_profile = unit.profile().unwrap_or(Profile::Unrestricted);
         let CompileRawQasmResult(store, source_package_id, _, _sig, mut compile_errors, _) =

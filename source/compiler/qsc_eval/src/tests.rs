@@ -105,6 +105,76 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     }
 }
 
+/// Same as [`check_expr`], but compiles an additional user-authored library package that the
+/// entry package depends on. Package ids are `core` = 0, `std` = 1, `lib` = 2, entry = 3.
+fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
+    let mut fir_lowerer = qsc_lowerer::Lowerer::new();
+    let mut core = compile::core();
+    run_core_passes(&mut core);
+    let fir_store = fir::PackageStore::new();
+    // store can be empty since core doesn't have any dependencies
+    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let mut store = PackageStore::new(core);
+
+    let mut std = compile::std(&store, TargetCapabilityFlags::all());
+    assert!(std.errors.is_empty());
+    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
+    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
+    let std_id = store.insert(std);
+
+    let lib_sources = SourceMap::new([("lib".into(), lib.into())], None);
+    let mut lib_unit = compile(
+        &store,
+        &[(std_id, None)],
+        lib_sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    );
+    assert!(lib_unit.errors.is_empty(), "{:?}", lib_unit.errors);
+    let lib_pass_errors = run_default_passes(store.core(), &mut lib_unit, PackageType::Lib);
+    assert!(lib_pass_errors.is_empty(), "{lib_pass_errors:?}");
+    let lib_fir = fir_lowerer.lower_package(&lib_unit.package, &fir_store);
+    let lib_id = store.insert(lib_unit);
+
+    let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
+    let mut unit = compile(
+        &store,
+        &[(std_id, None), (lib_id, None)],
+        sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
+    assert!(pass_errors.is_empty(), "{pass_errors:?}");
+    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
+    let entry = unit_fir.entry_exec_graph.clone();
+    let id = store.insert(unit);
+
+    let mut fir_store = fir::PackageStore::new();
+    fir_store.insert(
+        map_hir_package_to_fir(qsc_hir::hir::PackageId::CORE),
+        core_fir,
+    );
+    fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
+    fir_store.insert(map_hir_package_to_fir(lib_id), lib_fir);
+    fir_store.insert(map_hir_package_to_fir(id), unit_fir);
+
+    let mut out = Vec::new();
+    match eval_graph(
+        entry,
+        &mut SparseSim::new(),
+        &fir_store,
+        ExecGraphConfig::NoDebug,
+        map_hir_package_to_fir(id),
+        &mut Env::default(),
+        &mut GenericReceiver::new(&mut out),
+    ) {
+        Ok(value) => expect.assert_eq(&value.to_string()),
+        Err((err, _)) => expect.assert_debug_eq(&err),
+    }
+}
+
 fn check_partial_eval_stmt(
     file: &str,
     expr: &str,
@@ -4258,5 +4328,75 @@ fn partial_eval_stmt_function_calls_from_library() {
                 Pats:
                     Pat 0 [5-6] [Type (Int)[]]: Bind: Ident 0 [5-6] "x""#]],
         &expect!["3"],
+    );
+}
+
+/// The span reported for an intrinsic call is attributed to the package that declares the
+/// callable. When caller and callee live in the same package, `PackageId(2)` is the entry package.
+#[test]
+fn intrinsic_callee_span_uses_own_package() {
+    check_expr(
+        indoc! {"
+            namespace Test {
+                operation Unrecognized() : Unit {
+                    body intrinsic;
+                }
+            }
+        "},
+        "Test.Unrecognized()",
+        &expect![[r#"
+            UnknownIntrinsic(
+                "Unrecognized",
+                PackageSpan {
+                    package: PackageId(
+                        2,
+                    ),
+                    span: Span {
+                        lo: 41,
+                        hi: 104,
+                    },
+                },
+            )
+        "#]],
+    );
+}
+
+/// When the callee lives in a dependency, the reported span must be attributed to the callee's
+/// package (`PackageId(2)`, the lib) rather than the package that is currently executing
+/// (`PackageId(3)`, the entry package). Attributing it to the caller yields an offset that does
+/// not exist in the caller's sources.
+#[test]
+fn intrinsic_callee_span_uses_callee_package_not_caller_package() {
+    check_expr_with_lib(
+        indoc! {"
+            namespace Lib {
+                operation Unrecognized() : Unit {
+                    body intrinsic;
+                }
+                export Unrecognized;
+            }
+        "},
+        indoc! {"
+            namespace Test {
+                operation Caller() : Unit {
+                    Lib.Unrecognized();
+                }
+            }
+        "},
+        "Test.Caller()",
+        &expect![[r#"
+            UnknownIntrinsic(
+                "Unrecognized",
+                PackageSpan {
+                    package: PackageId(
+                        2,
+                    ),
+                    span: Span {
+                        lo: 20,
+                        hi: 83,
+                    },
+                },
+            )
+        "#]],
     );
 }

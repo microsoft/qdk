@@ -13,7 +13,7 @@ use qsc_ast::ast::{
 };
 use qsc_data_structures::span::Span;
 
-use qdk_openqasm_parser::{semantic::types::Type, stdlib::angle::Angle};
+use qdk_openqasm::{semantic::types::Type, stdlib::angle::Angle};
 
 use crate::types::{ArrayDimensions, Complex};
 
@@ -1388,8 +1388,8 @@ pub(crate) fn build_barrier_call(span: Span) -> Stmt {
 pub(crate) fn build_argument_validation_stmts(name: &String, ty: &Type, span: Span) -> Vec<Stmt> {
     assert!(ty.is_array(), "Expected array type");
     assert!(
-        !matches!(ty, Type::DynArrayRef(..)),
-        "Unexpected dynamic array type"
+        !matches!(ty, Type::RankedArrayRef(..)),
+        "Unexpected ranked array reference type"
     );
 
     let message = Expr {

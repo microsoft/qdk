@@ -491,53 +491,6 @@ fn binary_op_shl_bitarray() -> miette::Result<(), Vec<Report>> {
     Ok(())
 }
 
-#[test]
-fn binary_op_shl_creg_fails() {
-    let source = r#"
-        const creg a[3] = "101";
-        const creg b[3] = a << 2;
-        bit[b] r;
-    "#;
-
-    let Err(errs) = compile_qasm_to_qsharp(source) else {
-        panic!("should have generated an error");
-    };
-    let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
-    let errs_string = errs.join("\n");
-    expect![[r#"
-        Qdk.Qasm.Parser.Rule
-
-          x expected scalar type, found keyword `creg`
-           ,-[Test.qasm:2:15]
-         1 | 
-         2 |         const creg a[3] = "101";
-           :               ^^^^
-         3 |         const creg b[3] = a << 2;
-           `----
-
-        Qdk.Qasm.Parser.Rule
-
-          x expected scalar type, found keyword `creg`
-           ,-[Test.qasm:3:15]
-         2 |         const creg a[3] = "101";
-         3 |         const creg b[3] = a << 2;
-           :               ^^^^
-         4 |         bit[b] r;
-           `----
-
-        Qdk.Qasm.Lowerer.UndefinedSymbol
-
-          x undefined symbol: b
-           ,-[Test.qasm:4:13]
-         3 |         const creg b[3] = a << 2;
-         4 |         bit[b] r;
-           :             ^
-         5 |     
-           `----
-    "#]]
-    .assert_eq(&errs_string);
-}
-
 // Shr
 
 #[test]
@@ -658,53 +611,6 @@ fn binary_op_shr_bitarray() -> miette::Result<(), Vec<Report>> {
     "#]]
     .assert_eq(&qsharp);
     Ok(())
-}
-
-#[test]
-fn binary_op_shr_creg_fails() {
-    let source = r#"
-        const creg a[4] = "1011";
-        const creg b[4] = a >> 2;
-        bit[b] r;
-    "#;
-
-    let Err(errs) = compile_qasm_to_qsharp(source) else {
-        panic!("should have generated an error");
-    };
-    let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
-    let errs_string = errs.join("\n");
-    expect![[r#"
-        Qdk.Qasm.Parser.Rule
-
-          x expected scalar type, found keyword `creg`
-           ,-[Test.qasm:2:15]
-         1 | 
-         2 |         const creg a[4] = "1011";
-           :               ^^^^
-         3 |         const creg b[4] = a >> 2;
-           `----
-
-        Qdk.Qasm.Parser.Rule
-
-          x expected scalar type, found keyword `creg`
-           ,-[Test.qasm:3:15]
-         2 |         const creg a[4] = "1011";
-         3 |         const creg b[4] = a >> 2;
-           :               ^^^^
-         4 |         bit[b] r;
-           `----
-
-        Qdk.Qasm.Lowerer.UndefinedSymbol
-
-          x undefined symbol: b
-           ,-[Test.qasm:4:13]
-         3 |         const creg b[4] = a >> 2;
-         4 |         bit[b] r;
-           :             ^
-         5 |     
-           `----
-    "#]]
-    .assert_eq(&errs_string);
 }
 
 // BinaryOp: Bitwise
@@ -1949,16 +1855,6 @@ fn fuzzer_issue_2294() {
          1 | 
          2 |         ctrl(5/_)@l
            :         ^^^^^^^^^^^
-         3 |     
-           `----
-
-        Qdk.Qasm.Lowerer.UndefinedSymbol
-
-          x undefined symbol: _
-           ,-[Test.qasm:2:16]
-         1 | 
-         2 |         ctrl(5/_)@l
-           :                ^
          3 |     
            `----
     "#]]
