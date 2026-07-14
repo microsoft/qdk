@@ -1185,6 +1185,125 @@ fn repeat_loop_fixup_should_be_unit_error() {
 }
 
 #[test]
+fn repeat_with_break_body_is_not_divergent() {
+    let (_, _, errors) = compile(
+        "namespace Test { function First<'T>() : 'T { repeat { break } until true } }",
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn repeat_with_continue_body_is_not_divergent() {
+    let (_, _, errors) = compile(
+        "namespace Test { function First<'T>() : 'T { repeat { continue } until true } }",
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn repeat_with_diverging_fixup_is_not_divergent() {
+    let (_, _, errors) = compile(
+        r#"namespace Test { function First<'T>() : 'T {
+            repeat {} until true fixup { fail "fixup" }
+        } }"#,
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn repeat_with_diverging_body_is_divergent() {
+    let (_, _, errors) = compile(
+        r#"namespace Test { function First<'T>() : 'T {
+            repeat { fail "body" } until true
+        } }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn repeat_with_diverging_until_is_divergent() {
+    let (_, _, errors) = compile(
+        r#"namespace Test { function First<'T>() : 'T {
+            repeat {} until fail "until"
+        } }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn repeat_with_break_bypasses_diverging_until() {
+    let (_, _, errors) = compile(
+        r#"namespace Test { function First<'T>() : 'T {
+            repeat { break } until fail "until"
+        } }"#,
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn repeat_with_continue_and_diverging_until_is_divergent() {
+    let (_, _, errors) = compile(
+        r#"namespace Test { function First<'T>() : 'T {
+            repeat { continue } until fail "until"
+        } }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn repeat_ignores_break_bound_to_nested_loop() {
+    let (_, _, errors) = compile(
+        r#"namespace Test { function First<'T>() : 'T {
+            repeat {
+                while true { break }
+                fail "body"
+            } until true
+        } }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
 fn if_cond_error() {
     check(
         "",
@@ -1718,6 +1837,105 @@ fn while_body_should_be_unit_error() {
             Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 11, hi: 16 }))))
         "##]],
     );
+}
+
+#[test]
+fn while_with_diverging_body_is_not_itself_divergent() {
+    check(
+        "namespace Test { function First<'T>() : 'T { while true { break } } }",
+        "",
+        &expect![[r#"
+            #7 35-37 "()" : Unit
+            #10 43-67 "{ while true { break } }" : Unit
+            #12 45-65 "while true { break }" : Unit
+            #13 51-55 "true" : Bool
+            #14 56-65 "{ break }" : Unit
+            #16 58-63 "break" : Unit
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 40, hi: 42 }))))
+        "#]],
+    );
+}
+
+#[test]
+fn for_with_break_body_is_not_divergent() {
+    let (_, _, errors) = compile(
+        "namespace Test { function First<'T>() : 'T { for _ in [1] { break } } }",
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn for_with_continue_body_is_not_divergent() {
+    let (_, _, errors) = compile(
+        "namespace Test { function First<'T>() : 'T { for _ in [1] { continue } } }",
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn for_with_diverging_body_is_divergent() {
+    let (_, _, errors) = compile(
+        "namespace Test { function First<'T>() : 'T { for _ in [1] { fail \"body\" } } }",
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn while_with_break_body_is_not_divergent() {
+    let (_, _, errors) = compile(
+        "namespace Test { function First<'T>() : 'T { while true { break } } }",
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn while_with_continue_body_is_not_divergent() {
+    let (_, _, errors) = compile(
+        "namespace Test { function First<'T>() : 'T { while true { continue } } }",
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn while_with_diverging_body_is_divergent() {
+    let (_, _, errors) = compile(
+        "namespace Test { function First<'T>() : 'T { while true { fail \"body\" } } }",
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
 #[test]

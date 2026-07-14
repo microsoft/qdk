@@ -40,6 +40,123 @@ async fn no_error() {
 }
 
 #[tokio::test]
+async fn generic_function_returning_break_does_not_crash() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    updater
+        .update_document(
+            "single/foo.qs",
+            1,
+            r#"@EntryPoint(Adaptive)
+operation Main() : Int {
+    let f2: Int = First();
+    use qq = Qubit[5];
+    mutable total = 0;
+    for q in qq {
+        if MResetZ(q) == One {
+            total += 1;
+            Message("{continue}");
+        }
+    }
+    total
+}
+
+function First<'T>() : 'T {
+    while (true) {
+        break
+    }
+}"#,
+            "qsharp",
+        )
+        .await;
+
+    expect_errors(
+        &errors,
+        &expect![[r#"
+            [
+              uri: "single/foo.qs" version: Some(1) errors: [
+                type error
+                  [single/foo.qs] ['T]
+              ],
+            ]"#]],
+    );
+}
+
+#[tokio::test]
+async fn generic_function_returning_repeat_break_does_not_crash() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    updater
+        .update_document(
+            "single/foo.qs",
+            1,
+            r#"@EntryPoint()
+operation Main() : Int {
+    First()
+}
+
+function First<'T>() : 'T {
+    repeat {
+        break
+    } until true
+}"#,
+            "qsharp",
+        )
+        .await;
+
+    expect_errors(
+        &errors,
+        &expect![[r#"
+            [
+              uri: "single/foo.qs" version: Some(1) errors: [
+                type error
+                  [single/foo.qs] ['T]
+              ],
+            ]"#]],
+    );
+}
+
+#[tokio::test]
+async fn generic_function_returning_for_break_does_not_crash() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    updater
+        .update_document(
+            "single/foo.qs",
+            1,
+            r#"@EntryPoint()
+operation Main() : Int {
+    First()
+}
+
+function First<'T>() : 'T {
+    for _ in [1] {
+        break
+    }
+}"#,
+            "qsharp",
+        )
+        .await;
+
+    expect_errors(
+        &errors,
+        &expect![[r#"
+            [
+              uri: "single/foo.qs" version: Some(1) errors: [
+                type error
+                  [single/foo.qs] ['T]
+              ],
+            ]"#]],
+    );
+}
+
+#[tokio::test]
 async fn clear_error() {
     let errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
