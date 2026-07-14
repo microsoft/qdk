@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence, cast
 
 import cirq
 import numpy as np
@@ -43,7 +43,7 @@ class NeutralAtomCirqResult(cirq.ResultDict):
         params: cirq.ParamResolver,
         measurements: Dict[str, np.ndarray],
         raw_shots: List[Any],
-        measurement_dict: Dict[str, Sequence[int]],
+        measurement_dict: Mapping[str, Sequence[int]],
     ) -> None:
         super().__init__(params=params, measurements=measurements)
         self.raw_shots = raw_shots
@@ -110,7 +110,7 @@ class NeutralAtomCirqResult(cirq.ResultDict):
 # ---------------------------------------------------------------------------
 
 
-def measurement_dict(circuit: cirq.Circuit) -> Dict[str, List[int]]:
+def measurement_dict(circuit: cirq.AbstractCircuit) -> Dict[str, List[int]]:
     """Extract ``{measurement_key: [global_qubit_indices]}`` from a Cirq circuit.
 
     Qubit indices are determined by ``sorted(circuit.all_qubits())``, matching
@@ -128,8 +128,9 @@ def measurement_dict(circuit: cirq.Circuit) -> Dict[str, List[int]]:
     key_to_qubits: Dict[str, List[int]] = {}
 
     for op in circuit.all_operations():
-        if isinstance(op.gate, cirq.MeasurementGate):
-            key = op.gate.key
+        gate = op.gate
+        if isinstance(gate, cirq.MeasurementGate):
+            key = cast(cirq.MeasurementGate, gate).key
             if key not in key_to_qubits:
                 keys_in_order.append(key)
                 key_to_qubits[key] = []
@@ -215,7 +216,7 @@ def _split_registers(bitstring: str, key_lengths: List[int]) -> List[str]:
 
 def _shots_to_rows(
     shots: Sequence[Any],
-    measurement_dict_data: Optional[Dict[str, Sequence[int]]] = None,
+    measurement_dict_data: Optional[Mapping[str, Sequence[int]]] = None,
 ) -> Dict[str, List[List[int]]]:
     """Convert raw simulation shots to ``{key: [[bit_per_shot]]}`` filtering loss.
 
@@ -288,6 +289,8 @@ def to_cirq_result(
     """
     if param_resolver is None:
         param_resolver = cirq.ParamResolver({})
+    else:
+        param_resolver = cirq.ParamResolver(param_resolver)
 
     normalized = meas_dict or {"m": []}
     shots_by_key = _shots_to_rows(raw_shots, normalized)
