@@ -1,55 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-
-/// # Summary
-/// Encodes a non-negative integer into a qubit register using a
-/// little-endian binary representation.
-///
-/// # Description
-/// Interprets `val` as an unsigned little-endian integer and flips the
-/// qubits of `reg` whose corresponding bit is set, so that the register
-/// ends up in the computational basis state |`val`⟩. The register is
-/// assumed to start in the all-zeros state |0⟩; applying the operation to
-/// a register that is not in the all-zeros state instead performs a
-/// bitwise XOR of `val` into the register.
-///
-/// In the little-endian convention `reg[0]` holds the least significant
-/// bit. Only the low `Length(reg)` bits of `val` are written; any higher
-/// bits are silently ignored.
-///
-/// # Input
-/// ## val
-/// The non-negative integer to encode.
-/// ## reg
-/// The little-endian qubit register to write into. Expected to be in the
-/// |0⟩ state.
-operation ApplyBigInt(val : BigInt, reg : Qubit[]) : Unit is Adj + Ctl {
-    let bits = Std.Convert.BigIntAsBoolArray(val, Length(reg));
-    ApplyPauliFromBitString(PauliX, true, bits, reg);
-}
-
-/// # Summary
-/// Measures a qubit register in the computational basis and returns its
-/// content as an unsigned little-endian integer.
-///
-/// # Description
-/// Measures every qubit of `reg` in the Pauli Z basis and interprets the
-/// results as an unsigned little-endian integer, where `reg[0]` holds the
-/// least significant bit. Each qubit is reset to the |0⟩ state after the
-/// measurement, so the register can be safely released or reused.
-///
-/// # Input
-/// ## reg
-/// The little-endian qubit register to measure. Reset to the |0⟩ state on
-/// return.
-///
-/// # Output
-/// The integer value encoded in `reg`, in the range `0 .. 2^Length(reg) - 1`.
-operation MeasureBigInt(reg : Qubit[]) : BigInt {
-    let result = Std.Measurement.MResetEachZ(reg);
-    Std.Convert.BoolArrayAsBigInt(Std.Convert.ResultArrayAsBoolArray(result))
-}
+import Std.Arrays.ForEach;
+import Std.Arrays.Zipped;
+import Std.Diagnostics.Fact;
+import Std.Measurement.MeasureBigInt;
 
 /// # Summary
 /// Runs an arithmetic operation on classical inputs and returns the
@@ -88,7 +43,7 @@ operation TestArithmeticOp(
     sizes : Int[],
     vals : BigInt[]
 ) : BigInt[] {
-    Std.Diagnostics.Fact(Length(sizes) == Length(vals), "sizes and vals must have the same length.");
+    Fact(Length(sizes) == Length(vals), "sizes and vals must have the same length.");
     let n = Length(sizes);
     mutable total = 0;
     for sz in sizes {
@@ -101,11 +56,11 @@ operation TestArithmeticOp(
         set regs += [allQubits[offset..offset + sz - 1]];
         set offset += sz;
     }
-    Std.Arrays.ForEach(Std.ArithmeticTestUtils.ApplyBigInt, Std.Arrays.Zipped(vals, regs));
+    ForEach(ApplyXorInPlaceL, Zipped(vals, regs));
 
     op(regs);
 
-    Std.Arrays.ForEach(Std.ArithmeticTestUtils.MeasureBigInt, regs)
+    ForEach(MeasureBigInt, regs)
 }
 
 

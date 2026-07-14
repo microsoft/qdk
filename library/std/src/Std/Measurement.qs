@@ -3,8 +3,9 @@
 
 
 import Std.Core.*;
-import Std.Intrinsic.*;
+import Std.Convert.*;
 import Std.Diagnostics.*;
+import Std.Intrinsic.*;
 import QIR.Intrinsic.*;
 import QIR.Runtime.*;
 
@@ -163,6 +164,22 @@ operation MeasureInteger(target : Qubit[]) : Int {
 }
 
 /// # Summary
+/// Measures the content of a quantum register and converts it to an unsigned
+/// little-endian `BigInt`. The measurement is performed in the computational
+/// (`PauliZ`) basis, `target[0]` is treated as the least significant bit, and the
+/// input register is reset to the |00...0⟩ state.
+///
+/// # Input
+/// ## target
+/// A quantum register in the little-endian encoding.
+///
+/// # Output
+/// An unsigned integer that contains the measured value of `target`.
+operation MeasureBigInt(target : Qubit[]) : BigInt {
+    BoolArrayAsBigInt(ResultArrayAsBoolArray(MResetEachZ(target)))
+}
+
+/// # Summary
 /// Performs a single-qubit measurement in the Pauli Z basis, resetting the `target` to the |0⟩ state after the measurement.
 /// Additionally, it checks if the measurement result indicates a loss and returns `true` when a loss is detected. If the qubit
 /// is lost, the result value will not be `Zero` or `One` and any use of that result in a comparison will cause a runtime failure.
@@ -213,4 +230,4 @@ operation IsLossResult(res : Result) : Bool {
     __quantum__rt__read_loss(res)
 }
 
-export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MResetZChecked, IsLossResult;
+export MeasureAllZ, MeasureEachZ, MResetEachZ, MResetX, MResetY, MResetZ, MeasureInteger, MeasureBigInt, MResetZChecked, IsLossResult;
