@@ -9,8 +9,8 @@ execution within Jupyter notebooks.
 """
 
 from time import monotonic
-from IPython.display import display, clear_output
-from IPython.core.magic import register_cell_magic
+from IPython.display import display, clear_output  # type: ignore[import-not-found]
+from IPython.core.magic import register_cell_magic  # type: ignore[import-not-found]
 from ._native import QSharpError
 from ._interpreter import get_interpreter, qsharp_value_to_python_value
 from . import telemetry_events
