@@ -157,6 +157,29 @@ function First<'T>() : 'T {
 }
 
 #[tokio::test]
+async fn entry_point_returning_repeat_with_fail_does_not_crash() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    updater
+        .update_document(
+            "single/foo.qs",
+            1,
+            r#"@EntryPoint(Adaptive)
+operation Main() : Int {
+    repeat {
+        fail "hello"
+    } until 1 < 2
+}"#,
+            "qsharp",
+        )
+        .await;
+
+    expect_errors(&errors, &expect!["[]"]);
+}
+
+#[tokio::test]
 async fn clear_error() {
     let errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());

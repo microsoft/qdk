@@ -712,13 +712,15 @@ fn check_non_unit_block_tail(package: &Package, block_id: BlockId, context: &str
 }
 
 /// Returns `true` if evaluating `expr_id` never yields a value because it always
-/// diverges (via `fail` or `return`).
+/// diverges (via `fail`, `return`, or a compound control-flow expression whose
+/// evaluated path always diverges).
 ///
 /// Typeck assigns a divergent expression a fresh divergent type that defaults to
 /// `Unit` when left unconstrained, so a divergent trailing expression can
 /// legitimately carry a type that differs from its enclosing non-Unit block. The
 /// predicate stays conservative: any unrecognized shape is treated as
-/// non-divergent so genuine value-type mismatches still surface.
+/// non-divergent so genuine value-type mismatches still surface. Loop divergence
+/// mirrors typeck, which propagates divergence from a `while` condition or body.
 fn expr_diverges(package: &Package, expr_id: ExprId) -> bool {
     match &package.get_expr(expr_id).kind {
         ExprKind::Fail(_) | ExprKind::Return(_) => true,
@@ -726,20 +728,25 @@ fn expr_diverges(package: &Package, expr_id: ExprId) -> bool {
         ExprKind::If(_, then, Some(els)) => {
             expr_diverges(package, *then) && expr_diverges(package, *els)
         }
+        ExprKind::While(cond, body) => {
+            expr_diverges(package, *cond) || block_diverges(package, *body)
+        }
         _ => false,
     }
 }
 
-/// Returns `true` if `block_id` ends in a divergent trailing expression.
+/// Returns `true` if evaluating a statement in `block_id` always diverges.
 fn block_diverges(package: &Package, block_id: BlockId) -> bool {
     let block = package.get_block(block_id);
-    let Some(&stmt_id) = block.stmts.last() else {
-        return false;
-    };
-    match &package.get_stmt(stmt_id).kind {
-        StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => expr_diverges(package, *expr_id),
-        StmtKind::Local(..) | StmtKind::Item(_) => false,
-    }
+    block
+        .stmts
+        .iter()
+        .any(|&stmt_id| match &package.get_stmt(stmt_id).kind {
+            StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
+                expr_diverges(package, *expr_id)
+            }
+            StmtKind::Item(_) => false,
+        })
 }
 
 /// Verifies that all IDs referenced inside blocks, stmts, exprs, and pats

@@ -257,6 +257,25 @@ fn divergent_nested_if_fail_tail_passes_block_tail() {
 }
 
 #[test]
+fn divergent_repeat_fail_body_passes_block_tail() {
+    // Repeat lowering appends a synthetic condition update after the original
+    // body and wraps it in a while loop. The divergence check must still see
+    // the earlier fail when validating the enclosing non-Unit callable body.
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Int {
+                repeat {
+                    fail "hello"
+                } until 1 < 2
+            }
+        }
+    "#;
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
+    check(&store, pkg_id, InvariantLevel::PostAll);
+}
+
+#[test]
 fn nonunit_if_with_one_value_branch_passes_block_tail() {
     // Regression guard against over-broadening: a trailing `if` with one
     // value-producing branch (Int) is non-divergent and correctly typed Int,
