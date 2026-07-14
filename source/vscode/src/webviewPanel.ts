@@ -54,13 +54,6 @@ export function registerWebViewCommands(context: ExtensionContext) {
     }),
   );
 
-  context.subscriptions.push(
-    commands.registerCommand(`${qsharpExtensionId}.showBloch`, async () => {
-      const message = { command: "bloch" };
-      sendMessageToPanel({ panelType: "bloch" }, true, message);
-    }),
-  );
-
   const handleShowHistogram = async (resource?: vscode.Uri, expr?: string) => {
     clearCommandDiagnostics();
 
@@ -211,7 +204,6 @@ type PanelType =
   | "estimates"
   | "help"
   | "circuit"
-  | "bloch"
   | "documentation";
 
 const panels: Record<PanelType, { [id: string]: PanelDesc }> = {
@@ -219,7 +211,6 @@ const panels: Record<PanelType, { [id: string]: PanelDesc }> = {
   estimates: {},
   circuit: {},
   help: {},
-  bloch: {},
   documentation: {},
 };
 
@@ -228,7 +219,6 @@ const panelTypeToTitle: Record<PanelType, string> = {
   estimates: "QDK Estimates",
   circuit: "QDK Circuit",
   help: "Q# Help",
-  bloch: "Bloch Sphere",
   documentation: "Q# Documentation",
 };
 
@@ -266,10 +256,7 @@ function createPanel(
       QSharpWebViewType,
       title,
       {
-        // The Bloch sphere is a standalone interactive view, so open it in
-        // the active (main) editor column rather than beside the source.
-        // Other panels (help, circuit, histogram, etc.) open to the side.
-        viewColumn: type == "bloch" ? ViewColumn.Active : ViewColumn.Three,
+        viewColumn: ViewColumn.Three,
         preserveFocus: true,
       },
       {
@@ -306,10 +293,7 @@ export function sendMessageToPanel(
   message: any,
 ) {
   const panelRecord = getOrCreatePanel(panel.panelType, panel.id);
-  if (reveal)
-    panelRecord.panel.reveal(
-      panel.panelType == "bloch" ? ViewColumn.Active : ViewColumn.Beside,
-    );
+  if (reveal) panelRecord.panel.reveal(ViewColumn.Beside);
   if (message) panelRecord.panel.sendMessage(message);
 }
 
@@ -349,9 +333,8 @@ export class QSharpWebViewPanel {
 
     const katexCss = getUri(["out", "katex", "katex.min.css"]);
     const githubCss = getUri(["out", "katex", "github-markdown-dark.css"]);
-    const bundleName = this.type == "bloch" ? "bloch" : "webview";
-    const webviewCss = getUri(["out", "webview", `${bundleName}.css`]);
-    const webviewJs = getUri(["out", "webview", `${bundleName}.js`]);
+    const webviewCss = getUri(["out", "webview", "webview.css"]);
+    const webviewJs = getUri(["out", "webview", "webview.js"]);
     const resourcesUri = getUri(["resources"]);
 
     return /*html*/ `
@@ -426,7 +409,6 @@ export class QSharpViewViewPanelSerializer implements WebviewPanelSerializer {
       panelType !== "histogram" &&
       panelType !== "circuit" &&
       panelType !== "help" &&
-      panelType !== "bloch" &&
       panelType != "documentation"
     ) {
       // If it was loading when closed, that's fine

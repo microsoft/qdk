@@ -10,6 +10,7 @@ import {
 } from "qsharp-lang";
 import * as vscode from "vscode";
 import { initAzureWorkspaces } from "./azure/commands.js";
+import { registerBlochCommand } from "./blochPanel.js";
 import { CircuitEditorProvider } from "./circuitEditor.js";
 import { initProjectCreator } from "./createProject.js";
 import { activateDebugger } from "./debugger/activate.js";
@@ -99,6 +100,7 @@ export async function activate(
   await activateDebugger(context);
   registerCreateNotebookCommand(context);
   registerWebViewCommands(context);
+  registerBlochCommand(context);
   await initFileSystem(context);
   await initProjectCreator(context);
   if (vscode.env.uiKind !== vscode.UIKind.Web) {

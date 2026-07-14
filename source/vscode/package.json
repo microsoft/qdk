@@ -27,7 +27,8 @@
     "onDebugResolve:qsharp",
     "onDebugDynamicConfigurations:qsharp",
     "onFileSystem:qsharp-vfs",
-    "onWebviewPanel:qsharp-webview"
+    "onWebviewPanel:qsharp-webview",
+    "onWebviewPanel:qsharp-webview.bloch"
   ],
   "extensionKind": [
     "workspace",

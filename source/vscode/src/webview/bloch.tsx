@@ -31,8 +31,27 @@ setRenderer((input: string) => md.render(input));
 
 window.addEventListener("load", main);
 
+// The webview's persisted state. VS Code retains this across window reloads
+// but discards it when the panel is properly closed, so the sphere is only
+// restored on reload and starts fresh from |0> when reopened. The applied-gate
+// sequence is the canonical representation of the sphere's state; everything
+// else the widget shows is derived from it.
+type BlochWebviewState = { gates?: string };
+
 function main() {
-  render(<BlochSphere />, document.body);
+  const persisted = vscodeApi.getState() as BlochWebviewState | undefined;
+  const initialGates = persisted?.gates ?? "";
+
+  const onGatesChanged = (gates: string) => {
+    // Persist the latest gate sequence so a window reload replays back to the
+    // same sphere state.
+    vscodeApi.setState({ gates } satisfies BlochWebviewState);
+  };
+
+  render(
+    <BlochSphere initialGates={initialGates} onGatesChanged={onGatesChanged} />,
+    document.body,
+  );
   detectThemeChange(document.body, (isDark: boolean) => {
     updateStyleSheetTheme(
       isDark,
@@ -42,5 +61,4 @@ function main() {
       "dark.css",
     );
   });
-  vscodeApi.postMessage({ command: "ready" });
 }
