@@ -64,9 +64,11 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
         self.required_num_results = pyqir.required_num_results(func)
 
         super().run(mod)
+        assert self.required_num_qubits is not None
+        assert self.required_num_results is not None
         return (self.gates, self.required_num_qubits, self.required_num_results)
 
-    def _on_block(self, block):
+    def _on_block(self, block: pyqir.BasicBlock) -> None:
         if (
             block.terminator
             and block.terminator.opcode == pyqir.Opcode.BR
@@ -335,7 +337,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
     _counters: List[int] = []
     _process_fn = None
 
-    def process_output(self, bitstring: str):
+    def process_output(self, bitstring: str) -> str | list[Result]:
         if self._process_fn:
             return self._process_fn(
                 [
@@ -346,7 +348,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         else:
             return bitstring
 
-    def _on_function(self, function):
+    def _on_function(self, function: pyqir.Function) -> None:
         if pyqir.is_entry_point(function):
             super()._on_function(function)
             while len(self._closers) > 0:
@@ -355,7 +357,9 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
             if len(self._output_str) != 0:
                 self._process_fn = eval(f"lambda o: {self._output_str}")
 
-    def _on_rt_result_record_output(self, call, result, target):
+    def _on_rt_result_record_output(
+        self, call: pyqir.Call, result: pyqir.Value, target: pyqir.Value
+    ) -> None:
         self._output_str += f"o[{pyqir.ptr_id(result)}]"
         while len(self._counters) > 0:
             self._output_str += ","
@@ -367,14 +371,18 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
             else:
                 break
 
-    def _on_rt_array_record_output(self, call, value, target):
+    def _on_rt_array_record_output(
+        self, call: pyqir.Call, value: pyqir.IntConstant, target: pyqir.Value
+    ) -> None:
         self._output_str += "["
         self._closers.append("]")
         # if len(self._counters) > 0:
         #     self._counters[-1] -= 1
         self._counters.append(value.value)
 
-    def _on_rt_tuple_record_output(self, call, value, target):
+    def _on_rt_tuple_record_output(
+        self, call: pyqir.Call, value: pyqir.IntConstant, target: pyqir.Value
+    ) -> None:
         self._output_str += "("
         self._closers.append(")")
         # if len(self._counters) > 0:
@@ -388,10 +396,10 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
     tadj_func: Function
     cz_func: Function
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
-    def _on_module(self, module):
+    def _on_module(self, module: pyqir.Module) -> None:
         void = Type.void(module.context)
         qubit_ty = PointerType(Type.void(module.context))
 
@@ -436,7 +444,13 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
             )
         super()._on_module(module)
 
-    def _on_qis_ccx(self, call, ctrl1, ctrl2, target):
+    def _on_qis_ccx(
+        self,
+        call: pyqir.Call,
+        ctrl1: pyqir.Value,
+        ctrl2: pyqir.Value,
+        target: pyqir.Value,
+    ) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target])
         self.builder.call(self.tadj_func, [ctrl1])
@@ -687,7 +701,9 @@ class GpuSimulator:
                 )
             )
             self.gpu_context.set_program(
-                self.gates, self.required_num_qubits, self.required_num_results
+                cast(List[QirInstruction], self.gates),
+                self.required_num_qubits,
+                self.required_num_results,
             )
 
     def run_shots(self, shots: int, seed: Optional[int] = None) -> "GpuShotResults":
@@ -697,21 +713,22 @@ class GpuSimulator:
         """
         seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         if self._is_adaptive:
-            results = self.gpu_context.run_adaptive_shots(shots, seed=seed)
+            results = cast(dict[str, list[int] | list[str] | list[object]], self.gpu_context.run_adaptive_shots(shots, seed=seed))
+            assert self._recorder is not None
+            shot_result_codes = cast(list[int], results["shot_result_codes"])
+            shot_results = cast(list[str | object], results["shot_results"])
             for i, (shot_ret_code, shot_result) in enumerate(
-                zip(results["shot_result_codes"], results["shot_results"])
+                zip(shot_result_codes, shot_results)
             ):
                 if shot_ret_code == 0:
                     # If the ret_code was zero, we do an output recording pass
                     # on the output.
-                    results["shot_results"][i] = self._recorder.process_output(
-                        shot_result
-                    )
+                    shot_results[i] = self._recorder.process_output(cast(str, shot_result))
                 else:
                     # If the shot finished with a ret_code other than zero,
                     # we set the result to `None`.
-                    results["shot_results"][i] = None
-            return results
+                    shot_results[i] = None
+            return cast("GpuShotResults", results)
         return self.gpu_context.run_shots(shots, seed=seed)
 
 
