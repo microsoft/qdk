@@ -2,8 +2,10 @@
 # Licensed under the MIT License.
 
 from pyqir import (
+    Call,
     FloatConstant,
     const,
+    Module,
     Function,
     FunctionType,
     PointerType,
@@ -13,9 +15,11 @@ from pyqir import (
     Linkage,
     QirModuleVisitor,
     required_num_results,
+    Value,
 )
 from math import pi
 from ._utils import TOLERANCE
+from typing import cast
 
 
 class DecomposeMultiQubitToCZ(QirModuleVisitor):
@@ -31,7 +35,7 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
     rz_func: Function
     cz_func: Function
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         void = Type.void(module.context)
         qubit_ty = PointerType(Type.void(module.context))
         self.double_ty = Type.double(module.context)
@@ -103,7 +107,9 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
             )
         super()._on_module(module)
 
-    def _on_qis_ccx(self, call, ctrl1, ctrl2, target):
+    def _on_qis_ccx(
+        self, call: Call, ctrl1: Value, ctrl2: Value, target: Value
+    ) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target])
         self.builder.call(self.tadj_func, [ctrl1])
@@ -134,14 +140,14 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
         self.builder.call(self.h_func, [target])
         call.erase()
 
-    def _on_qis_cx(self, call, ctrl, target):
+    def _on_qis_cx(self, call: Call, ctrl: Value, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target])
         self.builder.call(self.cz_func, [ctrl, target])
         self.builder.call(self.h_func, [target])
         call.erase()
 
-    def _on_qis_cy(self, call, ctrl, target):
+    def _on_qis_cy(self, call: Call, ctrl: Value, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.sadj_func, [target])
         self.builder.call(self.h_func, [target])
@@ -150,7 +156,9 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
         self.builder.call(self.s_func, [target])
         call.erase()
 
-    def _on_qis_rxx(self, call, angle, target1, target2):
+    def _on_qis_rxx(
+        self, call: Call, angle: Value, target1: Value, target2: Value
+    ) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target2])
         self.builder.call(self.cz_func, [target2, target1])
@@ -161,7 +169,9 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
         self.builder.call(self.h_func, [target2])
         call.erase()
 
-    def _on_qis_ryy(self, call, angle, target1, target2):
+    def _on_qis_ryy(
+        self, call: Call, angle: Value, target1: Value, target2: Value
+    ) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.sadj_func, [target1])
         self.builder.call(self.sadj_func, [target2])
@@ -176,7 +186,9 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
         self.builder.call(self.s_func, [target1])
         call.erase()
 
-    def _on_qis_rzz(self, call, angle, target1, target2):
+    def _on_qis_rzz(
+        self, call: Call, angle: Value, target1: Value, target2: Value
+    ) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target1])
         self.builder.call(self.cz_func, [target2, target1])
@@ -187,7 +199,7 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
         self.builder.call(self.h_func, [target1])
         call.erase()
 
-    def _on_qis_swap(self, call, target1, target2):
+    def _on_qis_swap(self, call: Call, target1: Value, target2: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target2])
         self.builder.call(self.cz_func, [target1, target2])
@@ -211,7 +223,7 @@ class DecomposeSingleRotationToRz(QirModuleVisitor):
     sadj_func: Function
     rz_func: Function
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         void = Type.void(module.context)
         qubit_ty = PointerType(Type.void(module.context))
         self.double_ty = Type.double(module.context)
@@ -256,7 +268,7 @@ class DecomposeSingleRotationToRz(QirModuleVisitor):
             )
         super()._on_module(module)
 
-    def _on_qis_rx(self, call, angle, target):
+    def _on_qis_rx(self, call: Call, angle: Value, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target])
         self.builder.call(
@@ -266,7 +278,7 @@ class DecomposeSingleRotationToRz(QirModuleVisitor):
         self.builder.call(self.h_func, [target])
         call.erase()
 
-    def _on_qis_ry(self, call, angle, target):
+    def _on_qis_ry(self, call: Call, angle: Value, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.sadj_func, [target])
         self.builder.call(self.h_func, [target])
@@ -287,7 +299,7 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
     sx_func: Function
     rz_func: Function
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         void = Type.void(module.context)
         qubit_ty = PointerType(Type.void(module.context))
         self.double_ty = Type.double(module.context)
@@ -314,7 +326,7 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
             )
         super()._on_module(module)
 
-    def _on_qis_h(self, call, target):
+    def _on_qis_h(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(
             self.rz_func,
@@ -327,7 +339,7 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
         )
         call.erase()
 
-    def _on_qis_s(self, call, target):
+    def _on_qis_s(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(
             self.rz_func,
@@ -335,7 +347,7 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
         )
         call.erase()
 
-    def _on_qis_s_adj(self, call, target):
+    def _on_qis_s_adj(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(
             self.rz_func,
@@ -343,7 +355,7 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
         )
         call.erase()
 
-    def _on_qis_t(self, call, target):
+    def _on_qis_t(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(
             self.rz_func,
@@ -351,7 +363,7 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
         )
         call.erase()
 
-    def _on_qis_t_adj(self, call, target):
+    def _on_qis_t_adj(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(
             self.rz_func,
@@ -359,13 +371,13 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
         )
         call.erase()
 
-    def _on_qis_x(self, call, target):
+    def _on_qis_x(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.sx_func, [target])
         self.builder.call(self.sx_func, [target])
         call.erase()
 
-    def _on_qis_y(self, call, target):
+    def _on_qis_y(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.sx_func, [target])
         self.builder.call(self.sx_func, [target])
@@ -375,7 +387,7 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
         )
         call.erase()
 
-    def _on_qis_z(self, call, target):
+    def _on_qis_z(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         self.builder.call(
             self.rz_func,
@@ -397,7 +409,7 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
     s_func: Function
     sadj_func: Function
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         void = Type.void(module.context)
         qubit_ty = PointerType(Type.void(module.context))
         self.double_ty = Type.double(module.context)
@@ -435,35 +447,35 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
 
         super()._on_module(module)
 
-    def _on_qis_rz(self, call, angle, target):
+    def _on_qis_rz(self, call: Call, angle: Value, target: Value) -> None:
         if not isinstance(angle, FloatConstant):
             raise ValueError("Angle used in RZ must be a constant")
-        angle = angle.value
+        angle_value = cast(FloatConstant, angle).value
 
         self.builder.insert_before(call)
 
         if (
-            abs(angle - self.THREE_PI_OVER_2) < TOLERANCE
-            or abs(angle + self.PI_OVER_2) < TOLERANCE
+            abs(angle_value - self.THREE_PI_OVER_2) < TOLERANCE
+            or abs(angle_value + self.PI_OVER_2) < TOLERANCE
         ):
             self.builder.call(self.sadj_func, [target])
-        elif abs(angle - pi) < TOLERANCE or abs(angle + pi) < TOLERANCE:
+        elif abs(angle_value - pi) < TOLERANCE or abs(angle_value + pi) < TOLERANCE:
             self.builder.call(self.z_func, [target])
         elif (
-            abs(angle - self.PI_OVER_2) < TOLERANCE
-            or abs(angle + self.THREE_PI_OVER_2) < TOLERANCE
+            abs(angle_value - self.PI_OVER_2) < TOLERANCE
+            or abs(angle_value + self.THREE_PI_OVER_2) < TOLERANCE
         ):
             self.builder.call(self.s_func, [target])
         elif (
-            angle < TOLERANCE
-            or abs(angle - self.TWO_PI) < TOLERANCE
-            or abs(angle + self.TWO_PI) < TOLERANCE
+            angle_value < TOLERANCE
+            or abs(angle_value - self.TWO_PI) < TOLERANCE
+            or abs(angle_value + self.TWO_PI) < TOLERANCE
         ):
             # I, drop it
             pass
         else:
             raise ValueError(
-                f"Angle {angle} used in RZ is not a Clifford compatible rotation angle"
+                f"Angle {angle_value} used in RZ is not a Clifford compatible rotation angle"
             )
 
         call.erase()
@@ -478,7 +490,7 @@ class ReplaceResetWithMResetZ(QirModuleVisitor):
     mresetz_func: Function
     next_result_id: int
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         self.context = module.context
         void = Type.void(self.context)
         qubit_ty = PointerType(Type.void(self.context))
@@ -497,11 +509,11 @@ class ReplaceResetWithMResetZ(QirModuleVisitor):
             )
         super()._on_module(module)
 
-    def _on_function(self, function):
+    def _on_function(self, function: Function) -> None:
         self.next_result_id = required_num_results(function) or 0
         super()._on_function(function)
 
-    def _on_qis_reset(self, call, target):
+    def _on_qis_reset(self, call: Call, target: Value) -> None:
         self.builder.insert_before(call)
         # Create a new result identifier to ignore the measurement result
         result_id = result(self.context, self.next_result_id)

@@ -10,5 +10,6 @@
     "source/qdk_package/qdk/qre"
   ],
   "reportMissingModuleSource": "none", // Allow .pyi without .py
-  "typeCheckingMode": "basic"
+  "typeCheckingMode": "basic",
+  "reportMissingParameterType": "error"
 }

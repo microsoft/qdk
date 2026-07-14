@@ -3,4 +3,4 @@ matplotlib
 pandas>=2.1
 pandas-stubs
 pyqir>=0.12.5,<0.13
-pyright==1.1.410
+pyright==1.1.411

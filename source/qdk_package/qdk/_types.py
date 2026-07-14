@@ -321,7 +321,7 @@ class QirInputData:
 
     # The name of this method is defined
     # by the protocol and must remain unchanged.
-    def _repr_qir_(self, **kwargs) -> bytes:
+    def _repr_qir_(self, **kwargs: Any) -> bytes:
         return self._ll_str.encode("utf-8")
 
     def __str__(self) -> str:

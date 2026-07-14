@@ -17,7 +17,7 @@ from .. import telemetry_events
 
 def circuit(
     source: Optional[Union[str, Callable]] = None,
-    *args,
+    *args: Any,
     **kwargs: Any,
 ) -> Circuit:
     """
