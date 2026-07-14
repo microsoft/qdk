@@ -46,6 +46,7 @@ license = "MIT"
 version = "0.0.0"
 
 [workspace.dependencies]
+binar = "0.1.1"
 bitflags = "2.11"
 memchr = "2.8"
 clap = "4.4"
@@ -71,6 +72,8 @@ num-bigint = "0.4"
 num-complex = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
+paulimer = "0.1.2"
+pauliverse = "0.1.1"
 pprof = { version = "0.15", features = ["criterion", "flamegraph"] }
 probability = "0.20"
 proptest = "1.10"

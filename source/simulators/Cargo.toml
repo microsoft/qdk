@@ -9,7 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-binar = "0.1.1"
+binar = { workspace = true }
 bytemuck = { workspace = true }
 futures = { workspace = true }
 wgpu = { workspace = true }
@@ -22,8 +22,8 @@ num-traits = { workspace = true }
 qsc_data_structures = { path = "../compiler/qsc_data_structures" }
 regex-lite = { workspace = true }
 rustc-hash = { workspace = true }
-paulimer = "0.1.2"
-pauliverse = "0.1.1"
+paulimer = { workspace = true }
+pauliverse = { workspace = true }
 index_map = { path = "../index_map" }
 noisy_simulator = { path = "../noisy_simulator" }
 
