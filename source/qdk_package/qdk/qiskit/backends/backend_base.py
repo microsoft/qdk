@@ -129,13 +129,12 @@ class BackendBase(BackendV2, ABC):
         )
 
         if options is not None:
-            backend_options = self.options
-            assert backend_options is not None
             # we need to rename the seed_simulator to seed. This
             # is a convenience for aer users.
             # if the user passes in seed_simulator, we will rename it to seed
             # but only if the seed field is defined in the backend options.
-            if "seed_simulator" in options and "seed" in backend_options.data:
+            assert self.options is not None
+            if "seed_simulator" in options and "seed" in self.options.data:
                 warn("seed_simulator passed, but field is called seed.")
                 options["seed"] = options.pop("seed_simulator")
 
@@ -201,14 +200,13 @@ class BackendBase(BackendV2, ABC):
     def _build_target(self) -> Target:
         supports_barrier = self._qiskit_pass_options["supports_barrier"]
         supports_delay = self._qiskit_pass_options["supports_delay"]
-        options = self.options
-        assert options is not None
+        assert self.options is not None
 
         # explicitly set ``num_qubits`` to ``None`` to indicate a :class:`Target` representing a
         # simulator or other abstract machine that imposes no limits on the number of qubits.
         return QirTarget.build_target(
             num_qubits=None,
-            target_profile=options["target_profile"],
+            target_profile=self.options["target_profile"],
             supports_barrier=supports_barrier,
             supports_delay=supports_delay,
         )
