@@ -79,6 +79,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // for users who just want to scrub the trace without the editing chrome.
   const [controlsCollapsed, setControlsCollapsed] = useState(false);
 
+  // Whether the trace pane is collapsed, handing the reclaimed width to the
+  // sphere visualization. The measured trace width (--qs-trace-width) is
+  // retained while collapsed, so expanding restores the pane to its previous
+  // size without re-measuring. Starts collapsed so the sphere gets the full
+  // width when the widget first opens.
+  const [traceCollapsed, setTraceCollapsed] = useState(true);
+
   // Playback state. Mirrored as a ref because animation-completion
   // callbacks capture state at call time and would otherwise read it stale.
   // `animatingToIndexRef` is the index the in-flight animation heads toward,
@@ -870,7 +877,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   return (
     <div
-      class="qs-bloch"
+      class={"qs-bloch" + (traceCollapsed ? " qs-bloch-trace-collapsed" : "")}
       style={
         // Drive the trace column width from the measured content width
         // (--qs-trace-width). Unset until first measurement.
@@ -915,6 +922,93 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 <span class="qs-bloch-gate-overlay-label">Gate sequence:</span>{" "}
                 {gates.length > 0 ? gates.join("") : "\u2014"}
               </span>
+            </div>
+          )}
+          {/*
+            When the trace pane is collapsed, surface a small toggle to
+            reopen it, plus (when there are gates) a compact playback
+            transport so the animation can still be driven without the pane.
+            Mirrors the main transport minus the speed slider.
+          */}
+          {traceCollapsed && (
+            <div class="qs-bloch-trace-toggle-overlay">
+              {gates.length > 0 && (
+                <div
+                  class="qs-bloch-mini-transport"
+                  role="group"
+                  aria-label="Playback"
+                >
+                  <button
+                    type="button"
+                    onClick={jumpToStart}
+                    disabled={!canStepBack}
+                    title="Jump to start"
+                    aria-label="Jump to start"
+                  >
+                    {"\u23EE\uFE0E"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stepBack}
+                    disabled={!canStepBack}
+                    title="Step back"
+                    aria-label="Step back"
+                  >
+                    {"\u23EA\uFE0E"}
+                  </button>
+                  {isPlaying ? (
+                    <button
+                      type="button"
+                      onClick={pause}
+                      title="Pause"
+                      aria-label="Pause"
+                    >
+                      {"\u23F8\uFE0E"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={play}
+                      disabled={!canPlay}
+                      title={atEnd ? "Replay from start" : "Play from here"}
+                      aria-label={atEnd ? "Replay from start" : "Play"}
+                    >
+                      {atEnd ? "\u21BB" : "\u23F5\uFE0E"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={stepForward}
+                    disabled={!canStepForward}
+                    title="Step forward"
+                    aria-label="Step forward"
+                  >
+                    {"\u23E9\uFE0E"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={jumpToEnd}
+                    disabled={!canStepForward}
+                    title="Jump to end"
+                    aria-label="Jump to end"
+                  >
+                    {"\u23ED\uFE0E"}
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                class="qs-bloch-trace-toggle qs-bloch-trace-toggle-expand"
+                onClick={() => setTraceCollapsed(false)}
+                title="Show trace panel"
+                aria-label="Show trace panel"
+                aria-expanded={false}
+              >
+                <span class="qs-bloch-trace-toggle-icon" aria-hidden="true">
+                  {"\u00AB"}
+                </span>
+                <span class="qs-bloch-trace-toggle-label">Trace</span>
+              </button>
             </div>
           )}
         </div>
@@ -1205,22 +1299,37 @@ export function BlochSphere(props: BlochSphereProps = {}) {
         )}
       </div>
       <div class="qs-bloch-trace" style="font-size: 0.9em;">
-        <div class="qs-bloch-trace-inner">
+        <div class="qs-bloch-trace-inner" aria-hidden={traceCollapsed}>
           <div class="qs-bloch-trace-title">
             <span>Trace</span>
-            {gates.length > 0 && (
-              <span
-                class="qs-bloch-trace-step-counter"
-                aria-live="polite"
-                title={
-                  inInspectMode
-                    ? "Viewing an earlier step. Apply a gate to discard later steps."
-                    : "Current step / total steps"
-                }
+            <span class="qs-bloch-trace-title-right">
+              {gates.length > 0 && (
+                <span
+                  class="qs-bloch-trace-step-counter"
+                  aria-live="polite"
+                  title={
+                    inInspectMode
+                      ? "Viewing an earlier step. Apply a gate to discard later steps."
+                      : "Current step / total steps"
+                  }
+                >
+                  Step {cursor} / {gates.length}
+                </span>
+              )}
+              <button
+                type="button"
+                class="qs-bloch-trace-toggle"
+                onClick={() => setTraceCollapsed(true)}
+                title="Hide trace panel"
+                aria-label="Hide trace panel"
+                aria-expanded={true}
               >
-                Step {cursor} / {gates.length}
-              </span>
-            )}
+                <span class="qs-bloch-trace-toggle-label">Hide</span>
+                <span class="qs-bloch-trace-toggle-icon" aria-hidden="true">
+                  {"\u00BB"}
+                </span>
+              </button>
+            </span>
           </div>
           {/*
           Media transport controls: jump-to-start, step-back,

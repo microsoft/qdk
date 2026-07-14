@@ -87,8 +87,9 @@
    bare `button { ... }` so this stays a local override and never
    leaks into katas, circuits, or other widgets that style their own
    buttons. */
-.qs-bloch-trace button,
+.qs-bloch-trace button:not(.qs-bloch-trace-toggle),
 .qs-bloch-gate-editor button,
+.qs-bloch-mini-transport button,
 .qs-gate-buttons button {
   background: var(--qdk-menu-fill);
   color: var(--qdk-host-foreground);
@@ -97,19 +98,22 @@
   font-family: inherit;
   cursor: pointer;
 }
-.qs-bloch-trace button:hover:not(:disabled),
+.qs-bloch-trace button:not(.qs-bloch-trace-toggle):hover:not(:disabled),
 .qs-bloch-gate-editor button:hover:not(:disabled),
+.qs-bloch-mini-transport button:hover:not(:disabled),
 .qs-gate-buttons button:hover:not(:disabled) {
   background: var(--qdk-menu-fill-hover);
 }
-.qs-bloch-trace button:focus-visible,
+.qs-bloch-trace button:not(.qs-bloch-trace-toggle):focus-visible,
 .qs-bloch-gate-editor button:focus-visible,
+.qs-bloch-mini-transport button:focus-visible,
 .qs-gate-buttons button:focus-visible {
   outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
   outline-offset: 1px;
 }
-.qs-bloch-trace button:disabled,
+.qs-bloch-trace button:not(.qs-bloch-trace-toggle):disabled,
 .qs-bloch-gate-editor button:disabled,
+.qs-bloch-mini-transport button:disabled,
 .qs-gate-buttons button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -167,6 +171,14 @@
   /* Breathing room above the widget so its top border isn't flush against
      the host's tab/toolbar edge. */
   margin-top: 12px;
+}
+
+/* Collapsed trace: the column shrinks to zero and the sphere column
+   reclaims the full width. The pane stays in the DOM (clipped) so the
+   width-measurement fixed point survives; a small toggle floated over the
+   sphere reopens it. */
+.qs-bloch.qs-bloch-trace-collapsed {
+  grid-template-columns: minmax(280px, 1fr) 0;
 }
 
 /* Left column: the sphere visualization. It owns a fixed height (the
@@ -453,6 +465,89 @@
   letter-spacing: normal;
   opacity: 0.7;
 }
+/* When the trace pane is collapsed, the toggle + mini-transport cluster
+   occupies the bottom-right of the sphere stage, so pull the gate-sequence
+   overlay in from the right to keep the two from overlapping. */
+.qs-bloch-trace-collapsed .qs-bloch-gate-overlay {
+  right: 260px;
+}
+
+/* When the trace pane is collapsed, a small cluster floats over the
+   bottom-right of the sphere stage: a toggle that reopens the pane plus
+   (when there are gates) a compact playback transport. */
+.qs-bloch-trace-toggle-overlay {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Compact playback controls shown while the trace pane is collapsed, so
+   the animation can be driven (jump/step/play) without reopening the
+   pane. Mirrors the main transport in `.qs-bloch-media-controls` minus
+   the speed slider. */
+.qs-bloch-mini-transport {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 5px;
+  background: var(--qdk-background-accent);
+  border: 1px solid var(--qdk-widget-outline);
+}
+.qs-bloch-mini-transport button {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  font-size: 0.95em;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Labeled toggle that collapses (in the trace title bar) or reopens (in
+   the sphere overlay) the trace pane. A text label ("Hide" / "Trace")
+   paired with a chevron makes the action obvious rather than relying on a
+   bare glyph. Themed as a small button in both spots. */
+.qs-bloch-trace-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 0.85em;
+  line-height: 1;
+  /* Use the pane-body accent color, NOT --qdk-menu-fill: the title bar the
+     collapse button sits in is itself --qdk-menu-fill, so a menu-fill button
+     would be invisible (only its text would show). The accent fill gives it a
+     distinct surface -- the same contrast the gate buttons get by sitting on
+     the accent pane. */
+  background: var(--qdk-background-accent);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.qs-bloch-trace-toggle:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-trace-toggle:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-trace-toggle-icon {
+  font-size: 1.15em;
+  opacity: 0.8;
+}
+/* The expand toggle floated over the sphere is the primary way back to the
+   trace, so give it a touch more emphasis than the in-pane collapse button. */
+.qs-bloch-trace-toggle-expand {
+  font-weight: bold;
+}
 
 /* Subtle gear icon toggle that re-opens the gate controls. Sits at the
    left of the collapsed gate-sequence overlay row. A small, low-contrast
@@ -493,6 +588,12 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto;
   }
+  /* Keep the single-column stack even when collapsed (the two-column
+     collapsed override would otherwise win on specificity). */
+  .qs-bloch.qs-bloch-trace-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
   .qs-bloch-main {
     grid-column: 1;
     grid-row: 1;
@@ -505,6 +606,12 @@
        in the stacked layout so it has a box for the inner list to fill
        and scroll within. */
     height: 40vh;
+  }
+  /* Collapsed in the stacked layout: just drop the trace row entirely; the
+     sphere's overlay toggle reopens it. (The trace width var is unused in
+     the single-column layout, so hiding it has no measurement fallout.) */
+  .qs-bloch-trace-collapsed .qs-bloch-trace {
+    display: none;
   }
 }
 
@@ -536,10 +643,17 @@
   color: var(--qdk-host-foreground);
   border: 1px solid var(--qdk-widget-outline);
 }
+/* Collapsed: the column is zero-width, so drop the border too (it would
+   otherwise paint a 1px sliver at the sphere's right edge). The pane stays
+   in the DOM so the trace rows keep their layout and the width-measurement
+   fixed point survives an expand. */
+.qs-bloch-trace-collapsed .qs-bloch-trace {
+  border: none;
+}
 
 /* Absolutely-positioned content layer for the trace pane. Filling the
-   pane via `inset: 0` makes it match the grid-resolved pane height while
-   contributing nothing to the grid's own track sizing (see the note on
+   pane makes it match the grid-resolved pane height while contributing
+   nothing to the grid's own track sizing (see the note on
    `.qs-bloch-trace`). The flex column lays out the title, transport
    controls, speed slider, and the scrolling step list within it. */
 .qs-bloch-trace-inner {
@@ -547,6 +661,13 @@
   inset: 0;
   display: flex;
   flex-direction: column;
+}
+/* When collapsed the column is zero-width; hide the content with
+   `visibility` (which also drops it from the tab order) while preserving
+   its layout geometry, so each trace row keeps a valid `scrollWidth` for
+   the width measurement. */
+.qs-bloch-trace-collapsed .qs-bloch-trace-inner {
+  visibility: hidden;
 }
 
 /* Overlay in the top-left corner of the sphere canvas showing the
@@ -608,8 +729,15 @@
   border-bottom: 1px solid var(--qdk-widget-outline);
   background: var(--qdk-menu-fill);
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+/* Right-hand cluster of the title bar: the step counter (when present)
+   and the collapse toggle. */
+.qs-bloch-trace-title-right {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
