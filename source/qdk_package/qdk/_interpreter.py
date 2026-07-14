@@ -182,7 +182,7 @@ def get_config() -> Config:
     return _get_default_context()._config
 
 
-def python_args_to_interpreter_args(args) -> tuple[Any, ...] | None:
+def python_args_to_interpreter_args(args) -> Any:
     return _get_default_context()._python_args_to_interpreter_args(args)
 
 

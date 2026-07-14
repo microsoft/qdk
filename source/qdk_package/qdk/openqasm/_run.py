@@ -2,7 +2,6 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-import builtins
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union, Literal
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
@@ -46,7 +45,7 @@ def run(
     type: Optional[Literal["sparse", "clifford"]] = None,
     num_qubits: Optional[int] = None,
     **kwargs: Any,
-) -> List[Any]:
+) -> List[Any] | str:
     """
     Runs the given OpenQASM program for the given number of shots.
     Either a full program or a callable with arguments must be provided.
@@ -115,7 +114,8 @@ def run(
 
     callable = None
     source_str: Optional[str] = None
-    if builtins.callable(source) and hasattr(source, "__global_callable"):
+    if isinstance(source, Callable) and hasattr(source, "__global_callable"):
+        args = python_args_to_interpreter_args(args)
         callable = source.__global_callable
     elif isinstance(source, str):
         source_str = source
@@ -149,7 +149,7 @@ def run(
                 noise,
                 qubit_loss=qubit_loss,
                 callable=callable,
-                args=python_args_to_interpreter_args(args),
+                args=args,
                 seed=kwargs.get("seed"),
                 sim_type=type,
                 num_qubits=num_qubits,
@@ -211,7 +211,6 @@ def run(
     if as_bitstring:
         from ._utils import as_bitstring as convert_to_bitstring
 
-        converted_results: Any = convert_to_bitstring(results)
-        return converted_results
+        return convert_to_bitstring(results)
 
     return results
