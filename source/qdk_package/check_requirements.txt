@@ -1,6 +1,9 @@
 # Libraries that need to be installed to run Python static checks.
+azure-quantum>=3.8.0
+cirq-core>=1.6.1,<1.7
 matplotlib
 pandas>=2.1
 pandas-stubs
 pyqir>=0.12.5,<0.13
 pyright==1.1.411
+qiskit>=1.2.2,<3.0.0
