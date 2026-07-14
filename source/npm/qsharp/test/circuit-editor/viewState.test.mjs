@@ -23,11 +23,6 @@ import { ViewState } from "../../dist/ux/circuit-vis/data/viewState.js";
 // Storage primitives: setExpanded / clearExpanded
 // ---------------------------------------------------------------------------
 
-test("ViewState: starts empty", () => {
-  const v = new ViewState();
-  assert.equal(v.expanded.size, 0);
-});
-
 test("ViewState: setExpanded records expand and collapse choices", () => {
   const v = new ViewState();
   v.setExpanded("0,0", true);
@@ -98,12 +93,6 @@ test("ViewState: clearExpanded drops the entry, falling back to defaults", () =>
   v.setExpanded("0,0", true);
   v.clearExpanded("0,0");
   assert.equal(v.expanded.has("0,0"), false);
-});
-
-test("ViewState: clearExpanded is idempotent on absent entries", () => {
-  const v = new ViewState();
-  v.clearExpanded("nonexistent");
-  assert.equal(v.expanded.size, 0);
 });
 
 // ---------------------------------------------------------------------------

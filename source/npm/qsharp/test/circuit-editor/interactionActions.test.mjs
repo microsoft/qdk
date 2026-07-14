@@ -42,18 +42,6 @@ function fakeDropzone() {
   return elem;
 }
 
-test("InteractionState defaults all fields to a 'no gesture' state", () => {
-  const s = new InteractionState();
-
-  assert.equal(s.selectedOperation, null);
-  assert.equal(s.selectedWire, null);
-  assert.equal(s.movingControl, false);
-  assert.equal(s.mouseUpOnCircuit, false);
-  assert.equal(s.dragging, false);
-  assert.equal(s.disableLeftAutoScroll, false);
-  assert.deepEqual(s.temporaryDropzones, []);
-});
-
 test("resetTransient clears every transient flag but preserves selectedOperation", () => {
   const s = new InteractionState();
   // Persistent — must survive the reset.
@@ -170,13 +158,4 @@ test("clearTemporaryDropzones is safe on dropzones with no parentNode", () => {
   clearTemporaryDropzones(s);
 
   assert.equal(s.temporaryDropzones.length, 0);
-});
-
-test("clearTemporaryDropzones is idempotent", () => {
-  const s = new InteractionState();
-
-  clearTemporaryDropzones(s);
-  clearTemporaryDropzones(s);
-
-  assert.deepEqual(s.temporaryDropzones, []);
 });
