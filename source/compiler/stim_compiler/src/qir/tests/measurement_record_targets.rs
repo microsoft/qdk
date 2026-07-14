@@ -3,10 +3,14 @@
 
 use crate::qir::tests::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn cx_with_rec_control_yields_expected_qir() {
-    let source = "M 0\nCX rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        CX rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -58,7 +62,10 @@ fn cx_with_rec_control_yields_expected_qir() {
 
 #[test]
 fn cnot_with_rec_control_yields_expected_qir() {
-    let source = "M 0\nCNOT rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        CNOT rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -110,7 +117,10 @@ fn cnot_with_rec_control_yields_expected_qir() {
 
 #[test]
 fn zcx_with_rec_control_yields_expected_qir() {
-    let source = "M 0\nZCX rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        ZCX rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -162,7 +172,11 @@ fn zcx_with_rec_control_yields_expected_qir() {
 
 #[test]
 fn cx_with_older_rec_control_yields_expected_qir() {
-    let source = "M 0\nM 1\nCX rec[-2] 2";
+    let source = indoc! {"
+        M 0
+        M 1
+        CX rec[-2] 2
+    "};
     check(
         source,
         &expect![[r#"
@@ -216,7 +230,10 @@ fn cx_with_older_rec_control_yields_expected_qir() {
 
 #[test]
 fn cx_with_mixed_quantum_and_classical_pairs_yields_expected_qir() {
-    let source = "M 0\nCX rec[-1] 1 2 3";
+    let source = indoc! {"
+        M 0
+        CX rec[-1] 1 2 3
+    "};
     check(
         source,
         &expect![[r#"
@@ -270,7 +287,11 @@ fn cx_with_mixed_quantum_and_classical_pairs_yields_expected_qir() {
 
 #[test]
 fn cx_with_multiple_classical_pairs_yields_expected_qir() {
-    let source = "M 0\nM 1\nCX rec[-1] 2 rec[-2] 3";
+    let source = indoc! {"
+        M 0
+        M 1
+        CX rec[-1] 2 rec[-2] 3
+    "};
     check(
         source,
         &expect![[r#"
@@ -325,7 +346,10 @@ fn cx_with_multiple_classical_pairs_yields_expected_qir() {
 
 #[test]
 fn cx_with_rec_on_second_target_yields_error() {
-    let source = "M 0\nCX 0 rec[-1]";
+    let source = indoc! {"
+        M 0
+        CX 0 rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -343,7 +367,10 @@ fn cx_with_rec_on_second_target_yields_error() {
 
 #[test]
 fn cx_with_negated_rec_control_yields_error() {
-    let source = "M 0\nCX !rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        CX !rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -378,7 +405,11 @@ fn cx_with_rec_control_out_of_bounds_yields_error() {
 
 #[test]
 fn cx_with_two_rec_targets_yields_error() {
-    let source = "M 0\nM 1\nCX rec[-1] rec[-2]";
+    let source = indoc! {"
+        M 0
+        M 1
+        CX rec[-1] rec[-2]
+    "};
     check(
         source,
         &expect![[r#"
@@ -397,7 +428,10 @@ fn cx_with_two_rec_targets_yields_error() {
 
 #[test]
 fn cx_with_odd_targets_including_rec_yields_error() {
-    let source = "M 0\nCX rec[-1]";
+    let source = indoc! {"
+        M 0
+        CX rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -415,7 +449,10 @@ fn cx_with_odd_targets_including_rec_yields_error() {
 
 #[test]
 fn cy_with_rec_control_yields_expected_qir() {
-    let source = "M 0\nCY rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        CY rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -467,7 +504,10 @@ fn cy_with_rec_control_yields_expected_qir() {
 
 #[test]
 fn zcy_with_rec_control_yields_expected_qir() {
-    let source = "M 0\nZCY rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        ZCY rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -519,7 +559,10 @@ fn zcy_with_rec_control_yields_expected_qir() {
 
 #[test]
 fn cy_with_rec_on_second_target_yields_error() {
-    let source = "M 0\nCY 0 rec[-1]";
+    let source = indoc! {"
+        M 0
+        CY 0 rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -537,7 +580,10 @@ fn cy_with_rec_on_second_target_yields_error() {
 
 #[test]
 fn cy_with_negated_rec_control_yields_error() {
-    let source = "M 0\nCY !rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        CY !rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -555,7 +601,10 @@ fn cy_with_negated_rec_control_yields_error() {
 
 #[test]
 fn cz_with_rec_on_first_target_yields_expected_qir() {
-    let source = "M 0\nCZ rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        CZ rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -607,7 +656,10 @@ fn cz_with_rec_on_first_target_yields_expected_qir() {
 
 #[test]
 fn cz_with_rec_on_second_target_yields_expected_qir() {
-    let source = "M 0\nCZ 0 rec[-1]";
+    let source = indoc! {"
+        M 0
+        CZ 0 rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -659,7 +711,10 @@ fn cz_with_rec_on_second_target_yields_expected_qir() {
 
 #[test]
 fn zcz_with_rec_on_first_target_yields_expected_qir() {
-    let source = "M 0\nZCZ rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        ZCZ rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -711,7 +766,10 @@ fn zcz_with_rec_on_first_target_yields_expected_qir() {
 
 #[test]
 fn zcz_with_rec_on_second_target_yields_expected_qir() {
-    let source = "M 0\nZCZ 0 rec[-1]";
+    let source = indoc! {"
+        M 0
+        ZCZ 0 rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -763,7 +821,11 @@ fn zcz_with_rec_on_second_target_yields_expected_qir() {
 
 #[test]
 fn cz_with_two_rec_targets_yields_error() {
-    let source = "M 0\nM 1\nCZ rec[-1] rec[-2]";
+    let source = indoc! {"
+        M 0
+        M 1
+        CZ rec[-1] rec[-2]
+    "};
     check(
         source,
         &expect![[r#"
@@ -782,7 +844,10 @@ fn cz_with_two_rec_targets_yields_error() {
 
 #[test]
 fn cz_with_negated_rec_on_first_target_yields_error() {
-    let source = "M 0\nCZ !rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        CZ !rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -800,7 +865,10 @@ fn cz_with_negated_rec_on_first_target_yields_error() {
 
 #[test]
 fn cz_with_negated_rec_on_second_target_yields_error() {
-    let source = "M 0\nCZ 0 !rec[-1]";
+    let source = indoc! {"
+        M 0
+        CZ 0 !rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -818,7 +886,10 @@ fn cz_with_negated_rec_on_second_target_yields_error() {
 
 #[test]
 fn xcz_with_rec_on_second_target_yields_expected_qir() {
-    let source = "M 0\nXCZ 1 rec[-1]";
+    let source = indoc! {"
+        M 0
+        XCZ 1 rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -870,7 +941,10 @@ fn xcz_with_rec_on_second_target_yields_expected_qir() {
 
 #[test]
 fn xcz_with_rec_on_first_target_yields_error() {
-    let source = "M 0\nXCZ rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        XCZ rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -888,7 +962,10 @@ fn xcz_with_rec_on_first_target_yields_error() {
 
 #[test]
 fn xcz_with_negated_rec_on_second_target_yields_error() {
-    let source = "M 0\nXCZ 1 !rec[-1]";
+    let source = indoc! {"
+        M 0
+        XCZ 1 !rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -906,7 +983,10 @@ fn xcz_with_negated_rec_on_second_target_yields_error() {
 
 #[test]
 fn ycz_with_rec_on_second_target_yields_expected_qir() {
-    let source = "M 0\nYCZ 1 rec[-1]";
+    let source = indoc! {"
+        M 0
+        YCZ 1 rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -958,7 +1038,10 @@ fn ycz_with_rec_on_second_target_yields_expected_qir() {
 
 #[test]
 fn ycz_with_rec_on_first_target_yields_error() {
-    let source = "M 0\nYCZ rec[-1] 1";
+    let source = indoc! {"
+        M 0
+        YCZ rec[-1] 1
+    "};
     check(
         source,
         &expect![[r#"
@@ -976,7 +1059,10 @@ fn ycz_with_rec_on_first_target_yields_error() {
 
 #[test]
 fn ycz_with_negated_rec_on_second_target_yields_error() {
-    let source = "M 0\nYCZ 1 !rec[-1]";
+    let source = indoc! {"
+        M 0
+        YCZ 1 !rec[-1]
+    "};
     check(
         source,
         &expect![[r#"
@@ -993,21 +1079,85 @@ fn ycz_with_negated_rec_on_second_target_yields_error() {
 }
 
 #[test]
-fn cx_with_rec_control_crossing_prepare_boundary_yields_error() {
-    let source = "M 0\nPREPARE {\n    CX rec[-1] 1\n}";
+fn cx_with_rec_control_crossing_select_boundary_yields_error() {
+    let source = indoc! {"
+        M 0
+        SELECT {
+          CX rec[-1] 1
+        }
+    "};
     check(
         source,
         &expect![[r#"
             Qdk.Stim.Compiler.MeasurementRecordOutOfScope
 
-              x measurement record refers to a measurement outside the enclosing PREPARE
+              x measurement record refers to a measurement outside the enclosing SELECT
               | block
-               ,-[3:8]
-             2 | PREPARE {
-             3 |     CX rec[-1] 1
-               :        ^^^^^^^
+               ,-[3:6]
+             2 | SELECT {
+             3 |   CX rec[-1] 1
+               :      ^^^^^^^
              4 | }
                `----
         "#]],
+    );
+}
+
+#[test]
+fn top_level_classical_control_reaches_into_select() {
+    let source = indoc! {"
+        SELECT {
+          M 0
+        }
+        CX rec[-1] 1
+    "};
+    check(
+        source,
+        &expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          br label %select_0
+        select_0:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          call void @classical_control_cx(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__rt__array_record_output(i64 1, ptr null)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+          ret i64 0
+        }
+
+        define void @classical_control_cx(ptr %result, ptr %qubit) {
+        block_cx_entry:
+          %result_val = call i1 @__quantum__rt__read_result(ptr %result)
+          br i1 %result_val, label %block_cx_apply, label %block_cx_exit
+        block_cx_apply:
+          call void @__quantum__qis__x__body(ptr %qubit)
+          br label %block_cx_exit
+        block_cx_exit:
+          ret void
+        }
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__qis__x__body(ptr)
+        declare i1 @__quantum__rt__read_result(ptr)
+        declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__qis__m__body(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
     );
 }

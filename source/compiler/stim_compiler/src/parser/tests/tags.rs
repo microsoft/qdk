@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn instruction_with_tag() {
@@ -74,26 +75,30 @@ fn tag_with_args_and_targets() {
 #[test]
 fn tag_on_block_instruction() {
     check(
-        "REPEAT[t] 5 {\n    H 0\n}",
+        indoc! {"
+            REPEAT[t] 5 {
+              H 0
+            }
+        "},
         &expect![[r#"
-        Circuit [0-23]:
-            items:
-                Block [0-23]:
-                    block_instruction: Instruction [0-11]:
-                        name: REPEAT
-                        tag: t
-                        args: <empty>
-                        targets:
-                            Target [10-11]:
-                                kind: Qubit(5)
-                    items:
-                        Instruction [18-21]:
-                            name: H
-                            tag: <none>
+            Circuit [0-22]:
+                items:
+                    Block [0-21]:
+                        block_instruction: Instruction [0-11]:
+                            name: REPEAT
+                            tag: t
                             args: <empty>
                             targets:
-                                Target [20-21]:
-                                    kind: Qubit(0)"#]],
+                                Target [10-11]:
+                                    kind: Qubit(5)
+                        items:
+                            Instruction [16-19]:
+                                name: H
+                                tag: <none>
+                                args: <empty>
+                                targets:
+                                    Target [18-19]:
+                                        kind: Qubit(0)"#]],
     );
 }
 
