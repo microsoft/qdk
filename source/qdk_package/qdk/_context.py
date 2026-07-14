@@ -384,7 +384,7 @@ class Context:
         finally:
             visited.remove(obj_id)
 
-    def _python_args_to_interpreter_args(self, args: tuple[Any, ...]):
+    def _python_args_to_interpreter_args(self, args: Any) -> Any:
         """Turns `args` to the format expected by the Q# interpreter."""
         if len(args) == 0:
             return None
