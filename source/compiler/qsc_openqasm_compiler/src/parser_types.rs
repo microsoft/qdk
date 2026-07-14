@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use qdk_openqasm_parser::{source::SourceMap as ParserSourceMap, span::Span as ParserSpan};
+use qdk_openqasm::{source::SourceMap as ParserSourceMap, span::Span as ParserSpan};
 use qsc_data_structures::{source::SourceMap, span::Span};
 
 pub(crate) trait ParserSpanExt {

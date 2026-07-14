@@ -1941,7 +1941,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "qdk_openqasm_parser"
+name = "qdk_openqasm"
 version = "0.0.0"
 dependencies = [
  "bitflags",
@@ -2007,7 +2007,7 @@ dependencies = [
  "miette",
  "num-bigint",
  "num-complex",
- "qdk_openqasm_parser",
+ "qdk_openqasm",
  "qdk_simulators",
  "qsc_ast",
  "qsc_circuit",
@@ -2258,7 +2258,7 @@ dependencies = [
  "indoc",
  "miette",
  "num-bigint",
- "qdk_openqasm_parser",
+ "qdk_openqasm",
  "qsc",
  "qsc_ast",
  "qsc_data_structures",
@@ -2335,7 +2335,7 @@ dependencies = [
  "futures",
  "log",
  "miette",
- "qdk_openqasm_parser",
+ "qdk_openqasm",
  "qsc_circuit",
  "qsc_data_structures",
  "qsc_frontend",

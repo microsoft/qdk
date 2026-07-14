@@ -8,7 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use qdk_openqasm_parser::{analyze_source, parse_source, semantic::lower_parse_result};
+use qdk_openqasm::{analyze_source, parse_source, semantic::lower_parse_result};
 
 #[path = "../../benches/corpus.rs"]
 mod corpus;
@@ -238,7 +238,7 @@ fn run_stage(stage: Stage, corpus: &Corpus) -> Result<(), String> {
     Ok(())
 }
 
-fn parse(corpus: &Corpus) -> Result<qdk_openqasm_parser::parser::ParseResult, String> {
+fn parse(corpus: &Corpus) -> Result<qdk_openqasm::parser::ParseResult, String> {
     let mut resolver = corpus.resolver();
     let result = parse_source(
         corpus.source.clone(),
@@ -249,7 +249,7 @@ fn parse(corpus: &Corpus) -> Result<qdk_openqasm_parser::parser::ParseResult, St
     Ok(std::hint::black_box(result))
 }
 
-fn analyze(corpus: &Corpus) -> Result<qdk_openqasm_parser::semantic::AnalysisResult, String> {
+fn analyze(corpus: &Corpus) -> Result<qdk_openqasm::semantic::AnalysisResult, String> {
     let mut resolver = corpus.resolver();
     let result = analyze_source(
         corpus.source.clone(),
@@ -262,7 +262,7 @@ fn analyze(corpus: &Corpus) -> Result<qdk_openqasm_parser::semantic::AnalysisRes
 
 fn ensure_parse_success(
     corpus: &Corpus,
-    result: &qdk_openqasm_parser::parser::ParseResult,
+    result: &qdk_openqasm::parser::ParseResult,
 ) -> Result<(), String> {
     if result.has_errors() {
         return Err(format!(
@@ -276,7 +276,7 @@ fn ensure_parse_success(
 
 fn ensure_semantic_success(
     corpus: &Corpus,
-    result: &qdk_openqasm_parser::semantic::AnalysisResult,
+    result: &qdk_openqasm::semantic::AnalysisResult,
 ) -> Result<(), String> {
     if result.has_errors() {
         return Err(format!(

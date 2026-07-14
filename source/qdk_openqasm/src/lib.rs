@@ -53,7 +53,7 @@ use crate::{parser::ParseResult, semantic::AnalysisResult};
 /// Parse a self-contained program without a custom resolver:
 ///
 /// ```
-/// use qdk_openqasm_parser::{io::InMemorySourceResolver, parse_source};
+/// use qdk_openqasm::{io::InMemorySourceResolver, parse_source};
 ///
 /// let source = "OPENQASM 3.0; qubit q; h q;";
 /// let result = parse_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
@@ -63,7 +63,7 @@ use crate::{parser::ParseResult, semantic::AnalysisResult};
 /// Provide an in-memory resolver so `include` statements can be resolved:
 ///
 /// ```
-/// use qdk_openqasm_parser::{io::InMemorySourceResolver, parse_source};
+/// use qdk_openqasm::{io::InMemorySourceResolver, parse_source};
 ///
 /// let mut resolver = InMemorySourceResolver::from_iter([(
 ///     "gates.inc".into(),
@@ -118,7 +118,7 @@ pub fn parse_source<R: io::SourceResolver>(
 /// `stdgates.inc` standard library is resolved internally, so `h` is in scope:
 ///
 /// ```
-/// use qdk_openqasm_parser::{analyze_source, io::InMemorySourceResolver};
+/// use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
 ///
 /// let source = "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q;";
 /// let result = analyze_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
@@ -128,7 +128,7 @@ pub fn parse_source<R: io::SourceResolver>(
 /// Provide an in-memory resolver so custom `include` statements can be resolved:
 ///
 /// ```
-/// use qdk_openqasm_parser::{analyze_source, io::InMemorySourceResolver};
+/// use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
 ///
 /// let mut resolver = InMemorySourceResolver::from_iter([(
 ///     "gates.inc".into(),

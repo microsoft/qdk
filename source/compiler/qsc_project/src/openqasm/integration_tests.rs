@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use expect_test::expect;
-use qdk_openqasm_parser::semantic::AnalysisResult;
+use qdk_openqasm::semantic::AnalysisResult;
 
 use crate::{FileSystem, ProjectType, StdFs};
 use miette::Report;
@@ -31,7 +31,7 @@ fn parse_file_with_contents<P: AsRef<Path>>(
     let ProjectType::OpenQASM(sources) = project.project_type else {
         panic!("Expected OpenQASM project type");
     };
-    let result = qdk_openqasm_parser::semantic::parse_sources(&sources);
+    let result = qdk_openqasm::semantic::parse_sources(&sources);
     (
         test_file.as_ref().display().to_string().as_str().into(),
         result,

@@ -8,8 +8,8 @@ use crate::{
 };
 use expect_test::Expect;
 use miette::Report;
-use qdk_openqasm_parser::io::{InMemorySourceResolver, SourceResolver};
-use qdk_openqasm_parser::semantic::{AnalysisResult, parse_source};
+use qdk_openqasm::io::{InMemorySourceResolver, SourceResolver};
+use qdk_openqasm::semantic::{AnalysisResult, parse_source};
 use qsc::compile::compile_ast;
 use qsc::compile::package_store_with_stdlib;
 use qsc::interpret::Error;
@@ -538,7 +538,7 @@ pub(crate) fn compare_qasm_and_qasharp_asts(source: &str) {
         None,
         None,
     );
-    let mut resolver = qdk_openqasm_parser::io::InMemorySourceResolver::from_iter([]);
+    let mut resolver = qdk_openqasm::io::InMemorySourceResolver::from_iter([]);
     let unit = parse_and_compile_to_qsharp_ast_with_config(
         source,
         "source.qasm",

@@ -1,4 +1,4 @@
-# `qdk_openqasm_parser`
+# `qdk_openqasm`
 
 A standalone lexer, parser, and semantic analyzer for [OpenQASM 3](https://openqasm.com/).
 
@@ -33,7 +33,7 @@ Add the crate to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-qdk_openqasm_parser = "0.0.0"
+qdk_openqasm = "0.0.0"
 ```
 
 The crate is developed in the [Microsoft Quantum Development Kit repository](https://github.com/microsoft/qdk).
@@ -47,7 +47,7 @@ logical path, and an optional `SourceResolver` for `include` directives. Pass
 `None` when the program is self-contained:
 
 ```rust
-use qdk_openqasm_parser::{io::InMemorySourceResolver, parse_source};
+use qdk_openqasm::{io::InMemorySourceResolver, parse_source};
 
 let source = "OPENQASM 3.0; qubit q; h q;";
 let result = parse_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
@@ -57,7 +57,7 @@ assert!(!result.has_errors());
 Provide an in-memory resolver so `include` statements can be resolved:
 
 ```rust
-use qdk_openqasm_parser::{io::InMemorySourceResolver, parse_source};
+use qdk_openqasm::{io::InMemorySourceResolver, parse_source};
 
 let mut resolver = InMemorySourceResolver::from_iter([(
     "gates.inc".into(),
@@ -76,7 +76,7 @@ argument as `parse_source`. The `stdgates.inc` standard library is resolved
 internally, so a self-contained program can pass `None`:
 
 ```rust
-use qdk_openqasm_parser::{analyze_source, io::InMemorySourceResolver};
+use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
 
 let source = "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q;";
 let result = analyze_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
@@ -88,7 +88,7 @@ built-in `InMemorySourceResolver` maps include paths to their contents, which is
 handy for editors, notebooks, and tests:
 
 ```rust
-use qdk_openqasm_parser::{analyze_source, io::InMemorySourceResolver};
+use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
 
 let mut resolver = InMemorySourceResolver::from_iter([(
     "gates.inc".into(),
@@ -109,7 +109,7 @@ assert!(!result.has_errors());
 A successful `analyze_source` exposes the lowered program at `result.program`:
 
 ```rust
-use qdk_openqasm_parser::{analyze_source, io::InMemorySourceResolver};
+use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
 
 let result = analyze_source(
     "OPENQASM 3.0; qubit[2] q; U(0, 0, 0) q[0];",
@@ -131,11 +131,11 @@ graphical report (source snippets, labels, and help text):
 
 ```toml
 [dependencies]
-qdk_openqasm_parser = { version = "0.0.0", features = ["fancy"] }
+qdk_openqasm = { version = "0.0.0", features = ["fancy"] }
 ```
 
 ```rust
-use qdk_openqasm_parser::{analyze_source, io::InMemorySourceResolver};
+use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
 
 // `h` requires `include "stdgates.inc";`, so this reports a diagnostic.
 let result = analyze_source(

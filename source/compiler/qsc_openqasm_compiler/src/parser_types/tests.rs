@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use super::to_qsharp_source_map;
-use qdk_openqasm_parser::source::SourceMap as ParserSourceMap;
+use qdk_openqasm::source::SourceMap as ParserSourceMap;
 
 #[test]
 fn source_map_conversion_preserves_offsets() {

@@ -4,13 +4,13 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use qdk_openqasm_parser::{analyze_source, parse_source, semantic::lower_parse_result};
+use qdk_openqasm::{analyze_source, parse_source, semantic::lower_parse_result};
 
 mod corpus;
 
 use corpus::{Corpus, broadcast_gate, flat_gate, include_heavy};
 
-fn assert_parse_success(corpus: &Corpus, result: &qdk_openqasm_parser::parser::ParseResult) {
+fn assert_parse_success(corpus: &Corpus, result: &qdk_openqasm::parser::ParseResult) {
     assert!(
         !result.has_errors(),
         "{} parse corpus produced {} errors",
@@ -19,10 +19,7 @@ fn assert_parse_success(corpus: &Corpus, result: &qdk_openqasm_parser::parser::P
     );
 }
 
-fn assert_semantic_success(
-    corpus: &Corpus,
-    result: &qdk_openqasm_parser::semantic::AnalysisResult,
-) {
+fn assert_semantic_success(corpus: &Corpus, result: &qdk_openqasm::semantic::AnalysisResult) {
     assert!(
         !result.has_errors(),
         "{} semantic corpus produced {} errors",
@@ -31,7 +28,7 @@ fn assert_semantic_success(
     );
 }
 
-fn parse(corpus: &Corpus) -> qdk_openqasm_parser::parser::ParseResult {
+fn parse(corpus: &Corpus) -> qdk_openqasm::parser::ParseResult {
     let mut resolver = corpus.resolver();
     let result = parse_source(
         corpus.source.clone(),
@@ -42,7 +39,7 @@ fn parse(corpus: &Corpus) -> qdk_openqasm_parser::parser::ParseResult {
     result
 }
 
-fn analyze(corpus: &Corpus) -> qdk_openqasm_parser::semantic::AnalysisResult {
+fn analyze(corpus: &Corpus) -> qdk_openqasm::semantic::AnalysisResult {
     let mut resolver = corpus.resolver();
     let result = analyze_source(
         corpus.source.clone(),

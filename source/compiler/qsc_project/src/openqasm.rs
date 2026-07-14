@@ -5,7 +5,7 @@
 mod integration_tests;
 
 use super::{FileSystemAsync, Project};
-use qdk_openqasm_parser::parser::ast::{PathKind, Program, StmtKind};
+use qdk_openqasm::parser::ast::{PathKind, Program, StmtKind};
 use qsc_data_structures::target::Profile;
 use rustc_hash::FxHashSet;
 use std::{path::Path, str::FromStr as _, sync::Arc};
@@ -27,7 +27,7 @@ where
     let path = Arc::from(path.as_ref().to_string_lossy().as_ref());
     match source {
         Some(source) => {
-            let (program, _errors) = qdk_openqasm_parser::parser::parse(source.as_ref());
+            let (program, _errors) = qdk_openqasm::parser::parse(source.as_ref());
             target_profile = get_first_profile_pragma(&program);
             let includes = get_includes(&program, &path);
             pending_includes.extend(includes);
@@ -38,7 +38,7 @@ where
             match project_host.read_file(Path::new(path.as_ref())).await {
                 Ok((file, source)) => {
                     // load the root file
-                    let (program, _errors) = qdk_openqasm_parser::parser::parse(source.as_ref());
+                    let (program, _errors) = qdk_openqasm::parser::parse(source.as_ref());
                     target_profile = get_first_profile_pragma(&program);
                     let includes = get_includes(&program, &file);
                     pending_includes.extend(includes);
@@ -92,7 +92,7 @@ where
             .read_file(Path::new(resolved_path.as_ref()))
             .await
         {
-            let (program, _errors) = qdk_openqasm_parser::parser::parse(source.as_ref());
+            let (program, _errors) = qdk_openqasm::parser::parse(source.as_ref());
             let includes = get_includes(&program, &file);
             pending_includes.extend(includes);
             loaded_files.insert(file.clone());

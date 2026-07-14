@@ -1,5 +1,5 @@
 [package]
-name = "qdk_openqasm_parser"
+name = "qdk_openqasm"
 authors.workspace = true
 homepage.workspace = true
 repository.workspace = true

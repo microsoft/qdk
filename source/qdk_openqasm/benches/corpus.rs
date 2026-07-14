@@ -3,7 +3,7 @@
 
 use std::{fmt::Write as _, sync::Arc};
 
-use qdk_openqasm_parser::io::InMemorySourceResolver;
+use qdk_openqasm::io::InMemorySourceResolver;
 
 #[derive(Clone, Debug)]
 pub struct Corpus {

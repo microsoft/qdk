@@ -40,8 +40,8 @@ use crate::{
     get_semantic_errors_from_lowering_result,
     parser_types::{ParserSpanExt, to_qsharp_source_map},
 };
-use qdk_openqasm_parser::semantic::ast as semast;
-use qdk_openqasm_parser::{
+use qdk_openqasm::semantic::ast as semast;
+use qdk_openqasm::{
     io::SourceResolver,
     parser::ast::{List, PathKind, list_from_iter},
     semantic::{
@@ -105,9 +105,9 @@ pub fn parse_and_compile_to_qsharp_ast_with_config<
     config: CompilerConfig,
 ) -> QasmCompileUnit {
     let res = if let Some(resolver) = resolver {
-        qdk_openqasm_parser::semantic::parse_source(source, path, resolver)
+        qdk_openqasm::semantic::parse_source(source, path, resolver)
     } else {
-        qdk_openqasm_parser::semantic::parse(source, path)
+        qdk_openqasm::semantic::parse(source, path)
     };
     compile_to_qsharp_ast_with_config(res, config)
 }
@@ -589,10 +589,7 @@ impl QasmCompiler {
                     .iter()
                     .rev()
                     .filter(|symbol| {
-                        matches!(
-                            symbol.ty,
-                            qdk_openqasm_parser::semantic::types::Type::BitArray(..)
-                        )
+                        matches!(symbol.ty, qdk_openqasm::semantic::types::Type::BitArray(..))
                     })
                     .map(|symbol| {
                         let span = symbol.span.to_qsharp();
@@ -624,10 +621,7 @@ impl QasmCompiler {
                     .iter()
                     .rev()
                     .filter(|symbol| {
-                        matches!(
-                            symbol.ty,
-                            qdk_openqasm_parser::semantic::types::Type::BitArray(..)
-                        )
+                        matches!(symbol.ty, qdk_openqasm::semantic::types::Type::BitArray(..))
                     })
                     .map(|symbol| self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span))
                     .collect::<Vec<_>>()
@@ -673,7 +667,7 @@ impl QasmCompiler {
         }
     }
 
-    fn compile_stmts(&mut self, stmts: &[qdk_openqasm_parser::semantic::ast::Stmt]) {
+    fn compile_stmts(&mut self, stmts: &[qdk_openqasm::semantic::ast::Stmt]) {
         for stmt in stmts {
             let compiled_stmt = self.compile_stmt(stmt);
             if let Some(stmt) = compiled_stmt {
@@ -682,10 +676,7 @@ impl QasmCompiler {
         }
     }
 
-    fn compile_stmt(
-        &mut self,
-        stmt: &qdk_openqasm_parser::semantic::ast::Stmt,
-    ) -> Option<qsast::Stmt> {
+    fn compile_stmt(&mut self, stmt: &qdk_openqasm::semantic::ast::Stmt) -> Option<qsast::Stmt> {
         if !stmt.annotations.is_empty()
             && !matches!(
                 stmt.kind.as_ref(),
@@ -1047,7 +1038,7 @@ impl QasmCompiler {
                 // this can happen if the def statement shadows a non-def symbol
                 // Since the symbol is not a function, we assume it returns an error type.
                 // There is already an error reported for this case.
-                &Arc::from(qdk_openqasm_parser::semantic::types::Type::Err)
+                &Arc::from(qdk_openqasm::semantic::types::Type::Err)
             }
         };
 
@@ -1394,11 +1385,7 @@ impl QasmCompiler {
 
     fn compile_pragma_stmt(&mut self, stmt: &semast::Pragma) {
         fn is_parameterless_and_returns_void(args: &Arc<[Type]>, return_ty: &Arc<Type>) -> bool {
-            args.is_empty()
-                && matches!(
-                    &**return_ty,
-                    qdk_openqasm_parser::semantic::types::Type::Void
-                )
+            args.is_empty() && matches!(&**return_ty, qdk_openqasm::semantic::types::Type::Void)
         }
 
         let name_str = stmt
@@ -1419,7 +1406,7 @@ impl QasmCompiler {
         match (pragma, stmt.value.as_ref()) {
             (PragmaKind::QdkBoxOpen, Some(value)) => {
                 if let Ok(symbol) = self.symbols.get_symbol_by_name(value)
-                    && let qdk_openqasm_parser::semantic::types::Type::Function(args, return_ty) =
+                    && let qdk_openqasm::semantic::types::Type::Function(args, return_ty) =
                         &symbol.1.ty
                     && is_parameterless_and_returns_void(args, return_ty)
                 {
@@ -1434,7 +1421,7 @@ impl QasmCompiler {
             }
             (PragmaKind::QdkBoxClose, Some(value)) => {
                 if let Ok(symbol) = self.symbols.get_symbol_by_name(value)
-                    && let qdk_openqasm_parser::semantic::types::Type::Function(args, return_ty) =
+                    && let qdk_openqasm::semantic::types::Type::Function(args, return_ty) =
                         &symbol.1.ty
                     && is_parameterless_and_returns_void(args, return_ty)
                 {
@@ -1683,7 +1670,7 @@ impl QasmCompiler {
     }
 
     fn compile_reset_stmt(&mut self, stmt: &semast::ResetStmt) -> Option<qsast::Stmt> {
-        let is_register = matches!(stmt.operand.kind, qdk_openqasm_parser::semantic::ast::GateOperandKind::Expr(ref expr) if matches!(expr.ty, Type::QubitArray(..)));
+        let is_register = matches!(stmt.operand.kind, qdk_openqasm::semantic::ast::GateOperandKind::Expr(ref expr) if matches!(expr.ty, Type::QubitArray(..)));
 
         let operand = self.compile_gate_operand(&stmt.operand);
         let operand_span = operand.span;
@@ -1837,7 +1824,7 @@ impl QasmCompiler {
     fn compile_captured_ident_expr(
         &mut self,
         symbol_id: SymbolId,
-        span: qdk_openqasm_parser::span::Span,
+        span: qdk_openqasm::span::Span,
     ) -> qsast::Expr {
         let symbol = &self.symbols[symbol_id];
         // when closing over a constant value we will have a const value
@@ -1852,7 +1839,7 @@ impl QasmCompiler {
     fn compile_ident_expr(
         &mut self,
         symbol_id: SymbolId,
-        span: qdk_openqasm_parser::span::Span,
+        span: qdk_openqasm::span::Span,
     ) -> qsast::Expr {
         let span = span.to_qsharp();
         let symbol = &self.symbols[symbol_id];
@@ -1882,11 +1869,7 @@ impl QasmCompiler {
             semast::UnaryOp::NotL => self.compile_logical_not_expr(&unary.expr, unary.span),
         }
     }
-    fn compile_neg_expr(
-        &mut self,
-        expr: &Expr,
-        span: qdk_openqasm_parser::span::Span,
-    ) -> qsast::Expr {
+    fn compile_neg_expr(&mut self, expr: &Expr, span: qdk_openqasm::span::Span) -> qsast::Expr {
         let span = span.to_qsharp();
         let compiled_expr = self.compile_expr(expr);
 
@@ -1900,7 +1883,7 @@ impl QasmCompiler {
     fn compile_bitwise_not_expr(
         &mut self,
         expr: &Expr,
-        span: qdk_openqasm_parser::span::Span,
+        span: qdk_openqasm::span::Span,
     ) -> qsast::Expr {
         let span = span.to_qsharp();
         let compiled_expr = self.compile_expr(expr);
@@ -1922,7 +1905,7 @@ impl QasmCompiler {
     fn compile_logical_not_expr(
         &mut self,
         expr: &Expr,
-        span: qdk_openqasm_parser::span::Span,
+        span: qdk_openqasm::span::Span,
     ) -> qsast::Expr {
         let span = span.to_qsharp();
         let expr = self.compile_expr(expr);
@@ -1968,8 +1951,8 @@ impl QasmCompiler {
         op: qsast::BinOp,
         lhs: qsast::Expr,
         rhs: qsast::Expr,
-        lhs_ty: &qdk_openqasm_parser::semantic::types::Type,
-        rhs_ty: &qdk_openqasm_parser::semantic::types::Type,
+        lhs_ty: &qdk_openqasm::semantic::types::Type,
+        rhs_ty: &qdk_openqasm::semantic::types::Type,
     ) -> qsast::Expr {
         let span = Span {
             lo: lhs.span.lo,
@@ -2057,7 +2040,7 @@ impl QasmCompiler {
     fn compile_literal_expr(
         &mut self,
         lit: &LiteralKind,
-        span: qdk_openqasm_parser::span::Span,
+        span: qdk_openqasm::span::Span,
     ) -> qsast::Expr {
         let span = span.to_qsharp();
         match lit {
@@ -2093,29 +2076,29 @@ impl QasmCompiler {
 
         let expr = self.compile_expr(&cast.expr);
         let cast_expr = match cast.expr.ty {
-            qdk_openqasm_parser::semantic::types::Type::Bit(_) => {
+            qdk_openqasm::semantic::types::Type::Bit(_) => {
                 Self::cast_bit_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
-            qdk_openqasm_parser::semantic::types::Type::Bool(_) => {
+            qdk_openqasm::semantic::types::Type::Bool(_) => {
                 Self::cast_bool_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
-            qdk_openqasm_parser::semantic::types::Type::Duration(_) => {
+            qdk_openqasm::semantic::types::Type::Duration(_) => {
                 self.cast_duration_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
-            qdk_openqasm_parser::semantic::types::Type::Angle(_, _) => {
+            qdk_openqasm::semantic::types::Type::Angle(_, _) => {
                 Self::cast_angle_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
-            qdk_openqasm_parser::semantic::types::Type::Complex(_, _) => {
+            qdk_openqasm::semantic::types::Type::Complex(_, _) => {
                 self.cast_complex_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
-            qdk_openqasm_parser::semantic::types::Type::Float(_, _) => {
+            qdk_openqasm::semantic::types::Type::Float(_, _) => {
                 Self::cast_float_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
-            qdk_openqasm_parser::semantic::types::Type::Int(_, _)
-            | qdk_openqasm_parser::semantic::types::Type::UInt(_, _) => {
+            qdk_openqasm::semantic::types::Type::Int(_, _)
+            | qdk_openqasm::semantic::types::Type::UInt(_, _) => {
                 Self::cast_int_expr_to_ty(expr, &cast.expr.ty, &cast.ty, span)
             }
-            qdk_openqasm_parser::semantic::types::Type::BitArray(size, _) => {
+            qdk_openqasm::semantic::types::Type::BitArray(size, _) => {
                 Self::cast_bit_array_expr_to_ty(expr, &cast.expr.ty, &cast.ty, size, span)
             }
             _ => err_expr(span),
@@ -2143,7 +2126,7 @@ impl QasmCompiler {
     fn compile_measure_expr(
         &mut self,
         expr: &MeasureExpr,
-        ty: &qdk_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm::semantic::types::Type,
     ) -> qsast::Expr {
         assert!(matches!(ty, Type::BitArray(..) | Type::Bit(..)));
 
@@ -2314,8 +2297,8 @@ impl QasmCompiler {
     /// +----------------+-------+-----+------+-------+-------+-----+----------+-------+
     fn cast_angle_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
-        ty: &qdk_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm::semantic::types::Type,
+        ty: &qdk_openqasm::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Angle(..)));
@@ -2356,8 +2339,8 @@ impl QasmCompiler {
     /// +----------------+-------+-----+------+-------+-------+-----+----------+-------+
     fn cast_bit_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
-        ty: &qdk_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm::semantic::types::Type,
+        ty: &qdk_openqasm::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Bit(..)));
@@ -2404,8 +2387,8 @@ impl QasmCompiler {
 
     fn cast_bit_array_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
-        ty: &qdk_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm::semantic::types::Type,
+        ty: &qdk_openqasm::semantic::types::Type,
         size: u32,
         span: Span,
     ) -> qsast::Expr {
@@ -2447,8 +2430,8 @@ impl QasmCompiler {
     /// +----------------+-------+-----+------+-------+-------+-----+----------+-------+
     fn cast_bool_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
-        ty: &qdk_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm::semantic::types::Type,
+        ty: &qdk_openqasm::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Bool(..)));
@@ -2490,8 +2473,8 @@ impl QasmCompiler {
     fn cast_complex_expr_to_ty(
         &mut self,
         _expr: qsast::Expr,
-        _expr_ty: &qdk_openqasm_parser::semantic::types::Type,
-        _ty: &qdk_openqasm_parser::semantic::types::Type,
+        _expr_ty: &qdk_openqasm::semantic::types::Type,
+        _ty: &qdk_openqasm::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         self.push_unimplemented_error_message("cast complex expressions", span);
@@ -2501,8 +2484,8 @@ impl QasmCompiler {
     fn cast_duration_expr_to_ty(
         &mut self,
         _expr: qsast::Expr,
-        _expr_ty: &qdk_openqasm_parser::semantic::types::Type,
-        _ty: &qdk_openqasm_parser::semantic::types::Type,
+        _expr_ty: &qdk_openqasm::semantic::types::Type,
+        _ty: &qdk_openqasm::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         self.push_unimplemented_error_message("cast duration expressions", span);
@@ -2520,8 +2503,8 @@ impl QasmCompiler {
     /// Additional cast to complex
     fn cast_float_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
-        ty: &qdk_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm::semantic::types::Type,
+        ty: &qdk_openqasm::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Float(..)));
@@ -2593,8 +2576,8 @@ impl QasmCompiler {
     #[allow(clippy::too_many_lines)]
     fn cast_int_expr_to_ty(
         expr: qsast::Expr,
-        expr_ty: &qdk_openqasm_parser::semantic::types::Type,
-        ty: &qdk_openqasm_parser::semantic::types::Type,
+        expr_ty: &qdk_openqasm::semantic::types::Type,
+        ty: &qdk_openqasm::semantic::types::Type,
         span: Span,
     ) -> qsast::Expr {
         assert!(matches!(expr_ty, Type::Int(..) | Type::UInt(..)));
@@ -2690,8 +2673,8 @@ impl QasmCompiler {
 
     fn map_semantic_type_to_qsharp_type(
         &mut self,
-        ty: &qdk_openqasm_parser::semantic::types::Type,
-        span: qdk_openqasm_parser::span::Span,
+        ty: &qdk_openqasm::semantic::types::Type,
+        span: qdk_openqasm::span::Span,
     ) -> crate::types::Type {
         let mut errors = Vec::new();
         let mapped = Self::semantic_type_for_qsharp_type(ty, span.to_qsharp(), &mut errors);
@@ -2704,15 +2687,15 @@ impl QasmCompiler {
     /// Mapping from an `OpenQASM` semantic type to its Q# equivalent.
     /// Returns the mapped type and any errors that would have been pushed.
     fn semantic_type_for_qsharp_type(
-        ty: &qdk_openqasm_parser::semantic::types::Type,
+        ty: &qdk_openqasm::semantic::types::Type,
         span: Span,
         errs: &mut Vec<CompilerErrorKind>,
     ) -> crate::types::Type {
-        use qdk_openqasm_parser::semantic::types::Type;
+        use qdk_openqasm::semantic::types::Type;
         if ty.is_array()
             && matches!(
                 ty.array_dims(),
-                Some(qdk_openqasm_parser::semantic::types::ArrayDimensions::Err)
+                Some(qdk_openqasm::semantic::types::ArrayDimensions::Err)
             )
         {
             errs.push(unsupported_err("arrays with more than 7 dimensions", span));
@@ -2758,7 +2741,7 @@ impl QasmCompiler {
             Type::Array(array)
                 if !matches!(
                     array.base_ty,
-                    qdk_openqasm_parser::semantic::types::ArrayBaseType::Duration
+                    qdk_openqasm::semantic::types::ArrayBaseType::Duration
                 ) =>
             {
                 let dims = (&array.dims).into();
@@ -2815,25 +2798,25 @@ impl QasmCompiler {
     }
 
     fn make_qsharp_array_ty(
-        base_ty: &qdk_openqasm_parser::semantic::types::ArrayBaseType,
+        base_ty: &qdk_openqasm::semantic::types::ArrayBaseType,
         dims: crate::types::ArrayDimensions,
     ) -> crate::types::Type {
         match base_ty {
-            qdk_openqasm_parser::semantic::types::ArrayBaseType::Duration => unreachable!(),
-            qdk_openqasm_parser::semantic::types::ArrayBaseType::Bool => {
+            qdk_openqasm::semantic::types::ArrayBaseType::Duration => unreachable!(),
+            qdk_openqasm::semantic::types::ArrayBaseType::Bool => {
                 crate::types::Type::BoolArray(dims)
             }
-            qdk_openqasm_parser::semantic::types::ArrayBaseType::Angle(_) => {
+            qdk_openqasm::semantic::types::ArrayBaseType::Angle(_) => {
                 crate::types::Type::AngleArray(dims)
             }
-            qdk_openqasm_parser::semantic::types::ArrayBaseType::Complex(_) => {
+            qdk_openqasm::semantic::types::ArrayBaseType::Complex(_) => {
                 crate::types::Type::ComplexArray(dims)
             }
-            qdk_openqasm_parser::semantic::types::ArrayBaseType::Float(_) => {
+            qdk_openqasm::semantic::types::ArrayBaseType::Float(_) => {
                 crate::types::Type::DoubleArray(dims)
             }
-            qdk_openqasm_parser::semantic::types::ArrayBaseType::Int(width)
-            | qdk_openqasm_parser::semantic::types::ArrayBaseType::UInt(width) => {
+            qdk_openqasm::semantic::types::ArrayBaseType::Int(width)
+            | qdk_openqasm::semantic::types::ArrayBaseType::UInt(width) => {
                 if let Some(width) = width {
                     if *width > 64 {
                         crate::types::Type::BigIntArray(dims)
@@ -2849,8 +2832,8 @@ impl QasmCompiler {
 
     /// Returns `true` if both `OpenQASM` types map to the same Q# type without errors.
     fn maps_to_same_qsharp_type(
-        a: &qdk_openqasm_parser::semantic::types::Type,
-        b: &qdk_openqasm_parser::semantic::types::Type,
+        a: &qdk_openqasm::semantic::types::Type,
+        b: &qdk_openqasm::semantic::types::Type,
     ) -> bool {
         let mut errs = Vec::new();
         let ty_a = Self::semantic_type_for_qsharp_type(a, Span::default(), &mut errs);
