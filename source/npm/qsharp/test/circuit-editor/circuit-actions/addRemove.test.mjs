@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Add/remove mutator tests on flat (non-grouped) shapes against `CircuitModel`.
-// Group recursion and group-internal span widening live in `groupAddRemove.test.mjs`.
+// Add/remove mutator tests on flat (non-grouped) shapes against `CircuitModel`. Group recursion and
+// group-internal span widening live in `groupAddRemove.test.mjs`.
 
 // @ts-check
 
@@ -145,8 +145,8 @@ test("removeOperation from an interior wire leaves qubits.length untouched", () 
   addOperation(model, unitary("Z"), "2,0", 2);
   assert.equal(model.qubits.length, 3);
 
-  // Remove the middle op. Wire 1 is interior (wire 2 still used),
-  // so the trim leaves qubits.length at 3.
+  // Remove the middle op. Wire 1 is interior (wire 2 still used), so the trim leaves qubits.length
+  // at 3.
   removeOperation(model, "1,0");
 
   assert.equal(model.qubits.length, 3);
@@ -319,14 +319,13 @@ test("removeControl on a wire with no control returns false", () => {
 // addControl / removeControl: classical-ref entries don't shadow quantum controls
 // ---------------------------------------------------------------------------
 //
-// A classically-controlled op carries a classical-ref `{qubit, result}`
-// in both `.targets` and `.controls`. The control actions filter to
-// pure-quantum entries (`result === undefined`), so add/remove on the
-// classical-owner wire touches only the quantum entry.
+// A classically-controlled op carries a classical-ref `{qubit, result}` in both `.targets` and
+// `.controls`. The control actions filter to pure-quantum entries (`result === undefined`), so
+// add/remove on the classical-owner wire touches only the quantum entry.
 
 test("addControl: adding a quantum control on a wire that already has a classical-ref control succeeds", () => {
-  // M on q0 produces c_0.0; conditional X on q1 reads it. Adding a
-  // quantum control on q0 must succeed (the existing q0 entry is classical).
+  // M on q0 produces c_0.0; conditional X on q1 reads it. Adding a quantum control on q0 must
+  // succeed (the existing q0 entry is classical).
   const model = new CircuitModel(
     circuit(qubits(2, { 0: 1 }), [
       [meas(0)],
@@ -343,8 +342,8 @@ test("addControl: adding a quantum control on a wire that already has a classica
 });
 
 test("removeControl: removing a quantum control on a wire that also has a classical-ref control leaves the classical ref intact", () => {
-  // Conditional X on q2 has a quantum control on q0 AND reads c_0.0.
-  // Removing the q0 control drops only the quantum entry.
+  // Conditional X on q2 has a quantum control on q0 AND reads c_0.0. Removing the q0 control drops
+  // only the quantum entry.
   const model = new CircuitModel(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)],
@@ -384,8 +383,8 @@ test("removeControl: removing a control on a wire that only has a classical-ref 
 // ---------------------------------------------------------------------------
 
 test("addControl: top-level widening into a same-column sibling splits the column", () => {
-  // CNOT(target q0, control q1) shares col 0 with H@q2. Adding a
-  // control on q3 widens the CNOT to span q0..q3, overlapping H.
+  // CNOT(target q0, control q1) shares col 0 with H@q2. Adding a control on q3 widens the CNOT to
+  // span q0..q3, overlapping H.
   const model = new CircuitModel(
     circuit(4, [[gate("X", 0, { ctrls: [1] }), gate("H", 2)]]),
   );
@@ -398,8 +397,8 @@ test("addControl: top-level widening into a same-column sibling splits the colum
 });
 
 test("addControl: no overlap means no split", () => {
-  // CNOT(target q0, control q1) shares col 0 with H@q3. Adding a
-  // control on q2 keeps the CNOT span clear of H — no split.
+  // CNOT(target q0, control q1) shares col 0 with H@q3. Adding a control on q2 keeps the CNOT span
+  // clear of H — no split.
   const model = new CircuitModel(
     circuit(4, [[gate("X", 0, { ctrls: [1] }), gate("H", 3)]]),
   );
@@ -411,9 +410,8 @@ test("addControl: no overlap means no split", () => {
 });
 
 test("addControl: widening past MULTIPLE same-column siblings shifts every sibling right", () => {
-  // col 0 = [CNOT(target q0, control q1), Y@q2, Z@q3]. A control on
-  // the clear wire q4 widens the CNOT over both Y and Z. The split
-  // inserts ONE fresh column for the CNOT; siblings stay paired.
+  // col 0 = [CNOT(target q0, control q1), Y@q2, Z@q3]. A control on the clear wire q4 widens the
+  // CNOT over both Y and Z. The split inserts ONE fresh column for the CNOT; siblings stay paired.
   const model = new CircuitModel(
     circuit(5, [[gate("X", 0, { ctrls: [1] }), gate("Y", 2), gate("Z", 3)]]),
   );
@@ -429,8 +427,8 @@ test("addControl: widening past MULTIPLE same-column siblings shifts every sibli
 // ---------------------------------------------------------------------------
 
 test("addControl: refuses on a classically-controlled GROUP (groups never carry quantum controls by design)", () => {
-  // Groups (any op with children) may carry classical controls only —
-  // the editor refuses to author quantum controls on them.
+  // Groups (any op with children) may carry classical controls only — the editor refuses to author
+  // quantum controls on them.
   const model = new CircuitModel(
     circuit(qubits(4, { 0: 1 }), [
       [meas(0)],
@@ -452,8 +450,8 @@ test("addControl: refuses on a classically-controlled GROUP (groups never carry 
 });
 
 test("addControl: still succeeds on a classically-controlled single-target UNITARY (no children)", () => {
-  // A single-target classically-controlled unitary isn't multi-target,
-  // so a quantum control on a fresh wire is allowed.
+  // A single-target classically-controlled unitary isn't multi-target, so a quantum control on a
+  // fresh wire is allowed.
   const model = new CircuitModel(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)],
@@ -494,8 +492,8 @@ test("addControl: refuses on a plain group (no classical conditions)", () => {
 });
 
 test("removeControl: refuses on a multi-target / group op, leaving existing controls in place", () => {
-  // A group loaded with a pre-existing quantum control (e.g. from
-  // external data): the editor refuses to remove it.
+  // A group loaded with a pre-existing quantum control (e.g. from external data): the editor
+  // refuses to remove it.
   const model = new CircuitModel(
     circuit(4, [
       [group("Foo", [[gate("H", 1), gate("X", 2)]], { ctrls: [0] })],

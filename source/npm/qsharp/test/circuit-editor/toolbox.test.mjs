@@ -1,17 +1,15 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Toolbox editor-contract tests — cover the things interaction code
-// depends on:
+// Toolbox editor-contract tests — cover the things interaction code depends on:
 //
-//   - Each rendered toolbox item exposes a `[toolbox-item]` attribute
-//     and a `data-type` the dragController uses to look up the
-//     prototype op.
-//   - The optional Run button: present (and wired) only when a
-//     callback is provided, absent otherwise.
+//   - Each rendered toolbox item exposes a `[toolbox-item]` attribute and a `data-type` the
+//     dragController uses to look up the prototype op.
+//   - The optional Run button: present (and wired) only when a callback is provided, absent
+//     otherwise.
 //
-// Panel layout, title, and gate positions are visual concerns
-// covered by the snapshot suite in `test/circuits.js`.
+// Panel layout, title, and gate positions are visual concerns covered by the snapshot suite in
+// `test/circuits.js`.
 
 // @ts-check
 
@@ -44,19 +42,19 @@ afterEach(() => {
 });
 
 test("each toolbox item exposes a [toolbox-item] flag and a data-type matching its dictionary key", () => {
-  // `dragController.onToolboxMouseDown` selects on `[toolbox-item]`
-  // and reads `data-type` to look up the prototype op:
+  // `dragController.onToolboxMouseDown` selects on `[toolbox-item]` and reads `data-type` to look
+  // up the prototype op:
   //
-  //   const gateType = elem.getAttribute("data-type")!;
-  //   const proto = toolboxGateDictionary[gateType];
+  //   const gateType = elem.getAttribute("data-type")!; const proto =
+  //   toolboxGateDictionary[gateType];
   //
-  // Keying every assertion off `toolboxGateDictionary` means editing
-  // the toolbox gates updates this test automatically.
+  // Keying every assertion off `toolboxGateDictionary` means editing the toolbox gates updates this
+  // test automatically.
   const toolbox = createToolboxElement();
   const items = toolbox.querySelectorAll("[toolbox-item]");
 
-  // `dragController` checks for attribute presence; locking down
-  // "true" catches an accidental falsy swap.
+  // `dragController` checks for attribute presence; locking down "true" catches an accidental falsy
+  // swap.
   for (const item of Array.from(items)) {
     assert.equal(item.getAttribute("toolbox-item"), "true");
   }
@@ -71,9 +69,9 @@ test("each toolbox item exposes a [toolbox-item] flag and a data-type matching i
 });
 
 // ---------------------------------------------------------------------------
-// Run button — the only optional piece of the toolbox. Hosts that
-// can't run circuits (e.g. read-only previews) pass no callback and
-// should get no button at all, not a hidden one taking up space.
+// Run button — the only optional piece of the toolbox. Hosts that can't run circuits (e.g.
+// read-only previews) pass no callback and should get no button at all, not a hidden one taking up
+// space.
 // ---------------------------------------------------------------------------
 
 test("toolbox without runCallback renders no Run button", () => {
@@ -98,8 +96,8 @@ test("toolbox with runCallback renders exactly one Run button", () => {
   assert.equal(buttons.length, 1, "exactly one Run button expected");
 
   const button = buttons[0];
-  // Accessibility wiring set by `_createRunButton` — guards against
-  // a future refactor silently dropping the role/tabindex.
+  // Accessibility wiring set by `_createRunButton` — guards against a future refactor silently
+  // dropping the role/tabindex.
   assert.equal(button.getAttribute("role"), "button");
   assert.equal(button.getAttribute("tabindex"), "0");
   assert.equal(

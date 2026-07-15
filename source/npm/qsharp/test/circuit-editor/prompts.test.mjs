@@ -1,42 +1,32 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// prompts tests — covers the confirm-dialog side of
-// `editor/prompts.ts`: the generic confirm-dialog primitive
-// `createConfirmPrompt`, plus the operation-specific delete/move
-// flows built on it. The text-input primitive `_createInputPrompt`
-// and the `promptForArguments` flow also live in that file but are
-// not yet unit-tested.
+// prompts tests — covers the confirm-dialog side of `editor/prompts.ts`: the generic confirm-dialog
+// primitive `createConfirmPrompt`, plus the operation-specific delete/move flows built on it. The
+// text-input primitive `_createInputPrompt` and the `promptForArguments` flow also live in that
+// file but are not yet unit-tested.
 //
 // `createConfirmPrompt`:
-//   - DOM shape: `.prompt-overlay > .prompt-container >
-//     .prompt-message + .prompt-buttons > [OK, Cancel]`. The
-//     widget classes are load-bearing — the host page's CSS styles
-//     by them and the operation-flow tests locate buttons by them.
-//   - Click semantics: OK → `callback(true)` + overlay removed;
-//     Cancel → `callback(false)` + overlay removed.
-//   - Keyboard semantics: Enter → OK, Escape → Cancel, wired through
-//     a document-level capture-phase keydown listener so the prompt
-//     wins over any descendant input handler.
-//   - Listener lifecycle: the keydown listener is removed when the
-//     prompt closes (clicking OK or Cancel — including via Enter or
-//     Escape), so a subsequent key press doesn't re-invoke the
+//   - DOM shape: `.prompt-overlay > .prompt-container > .prompt-message + .prompt-buttons > [OK,
+//     Cancel]`. The widget classes are load-bearing — the host page's CSS styles by them and the
+//     operation-flow tests locate buttons by them.
+//   - Click semantics: OK → `callback(true)` + overlay removed; Cancel → `callback(false)` +
+//     overlay removed.
+//   - Keyboard semantics: Enter → OK, Escape → Cancel, wired through a document-level capture-phase
+//     keydown listener so the prompt wins over any descendant input handler.
+//   - Listener lifecycle: the keydown listener is removed when the prompt closes (clicking OK or
+//     Cancel — including via Enter or Escape), so a subsequent key press doesn't re-invoke the
 //     callback.
 //
-// `deleteOperationWithConfirmation`: fast paths (non-M, M with no
-//   classical consumers) skip the prompt and mutate + render
-//   immediately; the M-with-consumers path opens a confirm dialog
-//   whose message singularizes / pluralizes the consumer count, and
-//   only commits the cascade on OK.
+// `deleteOperationWithConfirmation`: fast paths (non-M, M with no classical consumers) skip the
+// prompt and mutate + render immediately; the M-with-consumers path opens a confirm dialog whose
+// message singularizes / pluralizes the consumer count, and only commits the cascade on OK.
 //
-// `moveOperationWithConfirmation`: same fast-path / prompt split,
-//   plus the three message-shape branches in
-//   `_buildMoveMConsumerMessage` (pure survivors, pure invalidated,
-//   mixed). `movingControl` is threaded through to `moveOperation`
-//   unchanged on the fast path.
+// `moveOperationWithConfirmation`: same fast-path / prompt split, plus the three message-shape
+// branches in `_buildMoveMConsumerMessage` (pure survivors, pure invalidated, mixed).
+// `movingControl` is threaded through to `moveOperation` unchanged on the fast path.
 //
-// Tests run under JSDOM and drive the dialog by querying for
-// `.prompt-button` elements.
+// Tests run under JSDOM and drive the dialog by querying for `.prompt-button` elements.
 
 // @ts-check
 
@@ -85,8 +75,8 @@ function getPrompt() {
 }
 
 /**
- * Open a confirm prompt over the current document and return a handle
- * to the located DOM parts plus two accessors:
+ * Open a confirm prompt over the current document and return a handle to the located DOM parts plus
+ * two accessors:
  *   - `result()`    — the value the callback last received (null until fired)
  *   - `callCount()` — how many times the callback has fired
  */
@@ -119,9 +109,8 @@ function assertPromptOpen(label = "prompt overlay must still be open") {
 }
 
 test("createConfirmPrompt: builds the expected DOM subtree under document.body", () => {
-  // Pinning the DOM shape because both the host page's CSS and
-  // the delete/move flow tests below rely on these specific class
-  // names and the button ordering (OK first, Cancel second).
+  // Pinning the DOM shape because both the host page's CSS and the delete/move flow tests below
+  // rely on these specific class names and the button ordering (OK first, Cancel second).
   const p = openPrompt("Confirm something?");
 
   assert.equal(p.overlay.parentNode, document.body);
@@ -154,9 +143,8 @@ test("createConfirmPrompt: Cancel button click fires callback(false) and removes
 });
 
 test("createConfirmPrompt: Enter key commits as if OK was clicked", () => {
-  // The document-level keydown listener is registered in capture
-  // phase, so dispatching a `keydown` from `document` directly
-  // exercises the same path real key events take in the browser.
+  // The document-level keydown listener is registered in capture phase, so dispatching a `keydown`
+  // from `document` directly exercises the same path real key events take in the browser.
   const p = openPrompt();
   pressKey("Enter");
 
@@ -173,13 +161,11 @@ test("createConfirmPrompt: Escape key cancels as if Cancel was clicked", () => {
 });
 
 test("createConfirmPrompt: keydown listener is removed after close — subsequent keys do not fire callback again", () => {
-  // After OK closes the prompt, the document-level handler MUST
-  // be uninstalled — otherwise a stray Enter elsewhere on the
-  // page would try to click a now-detached button and (worse)
-  // could double-fire the callback if a second prompt has since
-  // opened. The implementation uses `removeEventListener` with
-  // matching capture flag inside both click handlers; here we
-  // pin that contract.
+  // After OK closes the prompt, the document-level handler MUST be uninstalled — otherwise a stray
+  // Enter elsewhere on the page would try to click a now-detached button and (worse) could
+  // double-fire the callback if a second prompt has since opened. The implementation uses
+  // `removeEventListener` with matching capture flag inside both click handlers; here we pin that
+  // contract.
   const p = openPrompt();
 
   // First Enter → OK → callback fires once, prompt closes.
@@ -187,8 +173,7 @@ test("createConfirmPrompt: keydown listener is removed after close — subsequen
   assert.equal(p.callCount(), 1);
   assertPromptClosed();
 
-  // Subsequent Enter must NOT fire the now-closed prompt's
-  // callback again.
+  // Subsequent Enter must NOT fire the now-closed prompt's callback again.
   pressKey("Enter");
   assert.equal(
     p.callCount(),
@@ -198,9 +183,8 @@ test("createConfirmPrompt: keydown listener is removed after close — subsequen
 });
 
 test("createConfirmPrompt: keys other than Enter/Escape are ignored", () => {
-  // Defense-in-depth: typing inside the prompt (e.g. someone
-  // accidentally hitting a letter key) must not close it. Only
-  // Enter and Escape are honored.
+  // Defense-in-depth: typing inside the prompt (e.g. someone accidentally hitting a letter key)
+  // must not close it. Only Enter and Escape are honored.
   const p = openPrompt();
 
   pressKey("a");
@@ -216,13 +200,12 @@ test("createConfirmPrompt: keys other than Enter/Escape are ignored", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  Operation flows — deleteOperationWithConfirmation /
-//  moveOperationWithConfirmation
+//  Operation flows — deleteOperationWithConfirmation / moveOperationWithConfirmation
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * Query the currently-rendered confirm prompt. Returns null when
- * none is open. The first button is OK, the second is Cancel.
+ * Query the currently-rendered confirm prompt. Returns null when none is open. The first button is
+ * OK, the second is Cancel.
  */
 function getOpenPrompt() {
   const overlay = document.querySelector(".prompt-overlay");
@@ -247,9 +230,8 @@ function makeRenderSpy() {
 }
 
 /**
- * A unitary classically controlled by the measurement at "0,0"
- * (result register `(qubit 0, result 0)`). Every consumer in these
- * tests reads that same register, so this captures the shared shape.
+ * A unitary classically controlled by the measurement at "0,0" (result register `(qubit 0, result
+ * 0)`). Every consumer in these tests reads that same register, so this captures the shared shape.
  *
  * @param {string} name  gate name
  * @param {number} target  target wire
@@ -257,13 +239,12 @@ function makeRenderSpy() {
 const consumer = (name, target) => gate(name, target, { ctrls: [{ q: 0 }] });
 
 /**
- * Thin wrapper over `moveOperationWithConfirmation` that names its
- * positional argument soup. Defaults cover the common case (wires
- * unchanged, not moving a control, no new column).
+ * Thin wrapper over `moveOperationWithConfirmation` that names its positional argument soup.
+ * Defaults cover the common case (wires unchanged, not moving a control, no new column).
  *
  * @param {any} model
- * @param {{ from: string, to: string, fromWire?: number, toWire?: number,
- *           movingControl?: boolean, insertNewColumn?: boolean }} opts
+ * @param {{ from: string, to: string, fromWire?: number, toWire?: number, movingControl?: boolean,
+ *           insertNewColumn?: boolean }} opts
  * @param {() => void} renderFn
  */
 function moveWithConfirm(model, opts, renderFn) {
@@ -298,8 +279,8 @@ function flattenOps(/** @type {any} */ model) {
 // ---------------------------------------------------------------------------
 
 test("deleteOperationWithConfirmation: non-measurement op deletes immediately, no prompt", () => {
-  // Fast path: any non-M op bypasses the consumer-collection branch
-  // and dispatches straight to `removeOperation` + `renderFn`.
+  // Fast path: any non-M op bypasses the consumer-collection branch and dispatches straight to
+  // `removeOperation` + `renderFn`.
   const model = build(circuit(1, [[gate("H", 0)]]));
   const render = makeRenderSpy();
 
@@ -315,9 +296,8 @@ test("deleteOperationWithConfirmation: non-measurement op deletes immediately, n
 });
 
 test("deleteOperationWithConfirmation: measurement with NO classical consumers deletes immediately", () => {
-  // Second fast path: an M whose `collectMeasurementConsumers`
-  // returns `[]` (no consumer reads its result) also skips the
-  // prompt.
+  // Second fast path: an M whose `collectMeasurementConsumers` returns `[]` (no consumer reads its
+  // result) also skips the prompt.
   const model = build(circuit(qubits(1, { 0: 1 }), [[meas(0)]]));
   const render = makeRenderSpy();
 
@@ -329,9 +309,8 @@ test("deleteOperationWithConfirmation: measurement with NO classical consumers d
 });
 
 test("deleteOperationWithConfirmation: M with 1 consumer opens a SINGULAR prompt; OK cascades", () => {
-  // M produces (qubit=0, result=0); one classically-controlled X
-  // consumes it. Message must use the singular form; OK must
-  // cascade both ops away.
+  // M produces (qubit=0, result=0); one classically-controlled X consumes it. Message must use the
+  // singular form; OK must cascade both ops away.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [[meas(0)], [consumer("X", 1)]]),
   );
@@ -364,9 +343,8 @@ test("deleteOperationWithConfirmation: M with 1 consumer opens a SINGULAR prompt
 });
 
 test("deleteOperationWithConfirmation: M with 3 consumers opens a PLURAL prompt", () => {
-  // Pluralization branch: three consumers reading the same
-  // (qubit=0, result=0) register. OK-cascade behavior matches the
-  // singular case; this test asserts only on the message form.
+  // Pluralization branch: three consumers reading the same (qubit=0, result=0) register. OK-cascade
+  // behavior matches the singular case; this test asserts only on the message form.
   const model = build(
     circuit(qubits(4, { 0: 1 }), [
       [meas(0)],
@@ -387,8 +365,8 @@ test("deleteOperationWithConfirmation: M with 3 consumers opens a PLURAL prompt"
 });
 
 test("deleteOperationWithConfirmation: M-with-consumers Cancel makes NO mutations and does NOT render", () => {
-  // Pins the cancel path: model state byte-for-byte identical
-  // before and after, and `renderFn` was never called.
+  // Pins the cancel path: model state byte-for-byte identical before and after, and `renderFn` was
+  // never called.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [[meas(0)], [consumer("X", 1)]]),
   );
@@ -415,9 +393,8 @@ test("deleteOperationWithConfirmation: M-with-consumers Cancel makes NO mutation
 // ---------------------------------------------------------------------------
 
 test("moveOperationWithConfirmation: non-measurement op moves immediately, no prompt", () => {
-  // Fast path: ordinary unitary, no consumers to consider. The
-  // wrapper passes through to `moveOperation` with `movingControl`
-  // threaded as-is.
+  // Fast path: ordinary unitary, no consumers to consider. The wrapper passes through to
+  // `moveOperation` with `movingControl` threaded as-is.
   const model = build(circuit(2, [[gate("H", 0)], [gate("X", 1)]]));
   const render = makeRenderSpy();
 
@@ -433,15 +410,14 @@ test("moveOperationWithConfirmation: non-measurement op moves immediately, no pr
 });
 
 test("moveOperationWithConfirmation: M with NO consumers moves immediately, no prompt", () => {
-  // Second fast path: an M with no classical consumers can move
-  // freely. Same passthrough as the non-M case.
+  // Second fast path: an M with no classical consumers can move freely. Same passthrough as the
+  // non-M case.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [[meas(0)], [gate("H", 1)]]),
   );
   const render = makeRenderSpy();
 
-  // Move M to column 1 (it'd swap with H there); no consumers,
-  // no prompt.
+  // Move M to column 1 (it'd swap with H there); no consumers, no prompt.
   moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
 
   assert.equal(getOpenPrompt(), null);
@@ -449,9 +425,8 @@ test("moveOperationWithConfirmation: M with NO consumers moves immediately, no p
 });
 
 test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the update-only message", () => {
-  // Survivors-only partition: target column < every consumer's
-  // column. The M moves forward (or stays) so every consumer still
-  // comes after it; nothing gets deleted.
+  // Survivors-only partition: target column < every consumer's column. The M moves forward (or
+  // stays) so every consumer still comes after it; nothing gets deleted.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)], // column 0: the M
@@ -461,8 +436,8 @@ test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the u
   );
   const render = makeRenderSpy();
 
-  // Move the M to column 0 (its current spot) — still strictly
-  // before columns 1 and 2. Both consumers partition into survivors.
+  // Move the M to column 0 (its current spot) — still strictly before columns 1 and 2. Both
+  // consumers partition into survivors.
   moveWithConfirm(model, { from: "0,0", to: "0,0" }, render.fn);
 
   const prompt = getOpenPrompt();
@@ -480,9 +455,8 @@ test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the u
 });
 
 test("moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows the delete-only message", () => {
-  // Invalidated-only partition: target column >= every consumer's
-  // column — the M moves past all its consumers. Every consumer
-  // flips into the "will be deleted" bucket.
+  // Invalidated-only partition: target column >= every consumer's column — the M moves past all its
+  // consumers. Every consumer flips into the "will be deleted" bucket.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)], // column 0: the M
@@ -491,9 +465,8 @@ test("moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows the
   );
   const render = makeRenderSpy();
 
-  // Move M into column 1 (the consumer's column). Target column ==
-  // consumer's column → `inEarlierColumnThan` is false → consumer
-  // is invalidated.
+  // Move M into column 1 (the consumer's column). Target column == consumer's column →
+  // `inEarlierColumnThan` is false → consumer is invalidated.
   moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
 
   const prompt = getOpenPrompt();
@@ -511,10 +484,9 @@ test("moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows the
 });
 
 test("moveOperationWithConfirmation: M with MIXED consumers shows both clauses joined with '; '", () => {
-  // Mixed partition: target column splits the consumer list —
-  // some stay after (survivors → updated), some end up at-or-
-  // before (invalidated → deleted). Message must include BOTH
-  // clauses and the explicit '; ' separator.
+  // Mixed partition: target column splits the consumer list — some stay after (survivors →
+  // updated), some end up at-or-before (invalidated → deleted). Message must include BOTH clauses
+  // and the explicit '; ' separator.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)], // column 0: the M
@@ -524,8 +496,7 @@ test("moveOperationWithConfirmation: M with MIXED consumers shows both clauses j
   );
   const render = makeRenderSpy();
 
-  // Target column 1 → consumer at "1,0" invalidates, consumer at
-  // "2,0" survives.
+  // Target column 1 → consumer at "1,0" invalidates, consumer at "2,0" survives.
   moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
 
   const prompt = getOpenPrompt();
@@ -548,8 +519,7 @@ test("moveOperationWithConfirmation: M with MIXED consumers shows both clauses j
 });
 
 test("moveOperationWithConfirmation: M-with-consumers Cancel makes NO mutations and does NOT render", () => {
-  // Cancel-path symmetry with the delete wrapper: model frozen,
-  // renderFn untouched.
+  // Cancel-path symmetry with the delete wrapper: model frozen, renderFn untouched.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [[meas(0)], [consumer("X", 1)]]),
   );
@@ -571,10 +541,9 @@ test("moveOperationWithConfirmation: M-with-consumers Cancel makes NO mutations 
 });
 
 test("moveOperationWithConfirmation: M-with-consumers OK cascades through moveMeasurementWithDependents", () => {
-  // Sanity check on the OK branch with a mixed partition. After
-  // commit: the M moved to the target column, the survivor's
-  // classical control was remapped to the M's new wire, and the
-  // invalidated consumer is gone.
+  // Sanity check on the OK branch with a mixed partition. After commit: the M moved to the target
+  // column, the survivor's classical control was remapped to the M's new wire, and the invalidated
+  // consumer is gone.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)], // column 0: the M on wire 0
@@ -584,9 +553,8 @@ test("moveOperationWithConfirmation: M-with-consumers OK cascades through moveMe
   );
   const render = makeRenderSpy();
 
-  // Move M from (0,0) on wire 0 → target column 1 on wire 0 (no
-  // wire change). Consumer at "1,0" is invalidated; consumer at
-  // "2,0" survives.
+  // Move M from (0,0) on wire 0 → target column 1 on wire 0 (no wire change). Consumer at "1,0" is
+  // invalidated; consumer at "2,0" survives.
   moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
 
   const prompt = getOpenPrompt();
@@ -602,9 +570,9 @@ test("moveOperationWithConfirmation: M-with-consumers OK cascades through moveMe
     undefined,
     "invalidated X consumer must have been cascade-deleted",
   );
-  // The Y (survivor) must still exist. The exact remap is the
-  // contract of `moveMeasurementWithDependents`, covered in
-  // the circuit-actions/ suite (measurementCascade.test.mjs).
+  // The Y (survivor) must still exist. The exact remap is the contract of
+  // `moveMeasurementWithDependents`, covered in the circuit-actions/ suite
+  // (measurementCascade.test.mjs).
   assert.ok(
     allOps.find((o) => /** @type {any} */ (o).gate === "Y"),
     "survivor Y consumer must remain",

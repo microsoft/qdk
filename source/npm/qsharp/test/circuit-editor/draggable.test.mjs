@@ -1,23 +1,19 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Pure-helper unit tests for the editor's draggable module
-// (`ux/circuit-vis/editor/draggable.ts`). Locks down the geometry
-// and DOM-attribute contracts of the three exported helpers that
+// Pure-helper unit tests for the editor's draggable module (`ux/circuit-vis/editor/draggable.ts`).
+// Locks down the geometry and DOM-attribute contracts of the three exported helpers that
 // `dragController` and the rendering pipeline lean on:
 //
-//   - `makeDropzoneBox`: inter-column vs on-column geometry, the
-//     trailing-append column past the rightmost real column, and
-//     the `data-dropzone-*` attribute set used by `findParentArray`.
-//   - `createWireDropzone`: full-width wire-spanning dropzone Y math,
-//     the `isBetween` cases that target the gaps before the first /
-//     after the last wire.
-//   - `removeAllWireDropzones`: targets `.dropzone-full-wire` only
-//     and leaves other overlay children alone.
+//   - `makeDropzoneBox`: inter-column vs on-column geometry, the trailing-append column past the
+//     rightmost real column, and the `data-dropzone-*` attribute set used by `findParentArray`.
+//   - `createWireDropzone`: full-width wire-spanning dropzone Y math, the `isBetween` cases that
+//     target the gaps before the first / after the last wire.
+//   - `removeAllWireDropzones`: targets `.dropzone-full-wire` only and leaves other overlay
+//     children alone.
 //
-// End-to-end behaviour through `draw()` is covered by
-// `dropzones.test.mjs`. Helpers run in isolation against a hand-built
-// `LayoutScope` / `wireData` so geometry assertions hold without
+// End-to-end behaviour through `draw()` is covered by `dropzones.test.mjs`. Helpers run in
+// isolation against a hand-built `LayoutScope` / `wireData` so geometry assertions hold without
 // pulling in the layout pass.
 
 // @ts-check
@@ -53,11 +49,10 @@ afterEach(() => {
   jsdom = null;
 });
 
-// Geometry constants — kept in sync with `renderer/constants.ts` and
-// the private constants in `draggable.ts`. Locking these in test
-// fixtures makes the assertions self-documenting and catches the
-// "someone tweaked a padding constant and didn't realize the editor
-// math depended on it" regression.
+// Geometry constants — kept in sync with `renderer/constants.ts` and the private constants in
+// `draggable.ts`. Locking these in test fixtures makes the assertions self-documenting and catches
+// the "someone tweaked a padding constant and didn't realize the editor math depended on it"
+// regression.
 const GATE_PADDING = 6;
 const GATE_HEIGHT = 40;
 const MIN_GATE_WIDTH = 40;
@@ -67,8 +62,8 @@ const DROPZONE_PADDING_Y = 20;
 const REGISTER_HEIGHT = GATE_HEIGHT + GATE_PADDING * 2; // 52
 
 /**
- * Build a `LayoutScope` with the given column starts/widths. Mirrors
- * the shape `LayoutMap.scopes.get(prefix)` returns.
+ * Build a `LayoutScope` with the given column starts/widths. Mirrors the shape
+ * `LayoutMap.scopes.get(prefix)` returns.
  *
  * @param {number[]} columnXOffsets
  * @param {number[]} columnWidths
@@ -78,8 +73,8 @@ function makeScope(columnXOffsets, columnWidths) {
 }
 
 /**
- * Read a numeric SVG attribute. Fails the test loudly if the attribute
- * is missing — every helper here is expected to set the geometry attrs.
+ * Read a numeric SVG attribute. Fails the test loudly if the attribute is missing — every helper
+ * here is expected to set the geometry attrs.
  *
  * @param {SVGElement} elem
  * @param {string} name
@@ -93,9 +88,8 @@ function attrNum(elem, name) {
 // ─── makeDropzoneBox ────────────────────────────────────────────────
 
 test("makeDropzoneBox: inter-column band sits centered on the column's left edge", () => {
-  // Single column at x=100, width=60, single wire at y=200.
-  // Inter-column band straddles the gap to the *left* of this column,
-  // so its center is at colStartX - gatePadding (the renderer's
+  // Single column at x=100, width=60, single wire at y=200. Inter-column band straddles the gap to
+  // the *left* of this column, so its center is at colStartX - gatePadding (the renderer's
   // between-columns midpoint), with half-width INTER_COLUMN_HALF_WIDTH.
   const scope = makeScope([100], [60]);
   const wireData = [200];
@@ -116,8 +110,8 @@ test("makeDropzoneBox: inter-column band sits centered on the column's left edge
 });
 
 test("makeDropzoneBox: on-column box spans exactly the column's width", () => {
-  // Distinct columnWidths value so we can tell a column-width lookup
-  // apart from a fallback to `minGateWidth`.
+  // Distinct columnWidths value so we can tell a column-width lookup apart from a fallback to
+  // `minGateWidth`.
   const scope = makeScope([100, 200], [60, 90]);
   const wireData = [200];
 
@@ -134,8 +128,8 @@ test("makeDropzoneBox: on-column box spans exactly the column's width", () => {
 });
 
 test("makeDropzoneBox: trailing-append column synthesizes position past the rightmost real column", () => {
-  // Two real columns; ask for colIndex 2 (the trailing-append slot).
-  // Spacing rule: lastStart + lastWidth + gatePadding*2, width = minGateWidth.
+  // Two real columns; ask for colIndex 2 (the trailing-append slot). Spacing rule: lastStart +
+  // lastWidth + gatePadding*2, width = minGateWidth.
   const scope = makeScope([100, 200], [60, 90]);
   const wireData = [200];
 
@@ -165,9 +159,9 @@ test("makeDropzoneBox: stamps data-dropzone-location, -wire, and -inter-column a
 });
 
 test("makeDropzoneBox: nested pathPrefix produces hierarchical location string", () => {
-  // pathPrefix `"0,0"` (children of the top-level op at column 0 /
-  // opIndex 0). The location's wire-format is `<prefix>-<col>,<op>`,
-  // which `findParentArray` then walks back into the right `children` grid.
+  // pathPrefix `"0,0"` (children of the top-level op at column 0 / opIndex 0). The location's
+  // wire-format is `<prefix>-<col>,<op>`, which `findParentArray` then walks back into the right
+  // `children` grid.
   const scope = makeScope([100], [60]);
   const wireData = [200];
 
@@ -204,8 +198,8 @@ test("createWireDropzone: on-wire dropzone is centered on the wire Y and spans t
 });
 
 test("createWireDropzone: between-wires dropzone before the first wire offsets by half a register height", () => {
-  // isBetween + wireIndex=0 → Y centered at wireData[0] - registerHeight/2,
-  // i.e. midway between the (nonexistent) wire -1 and wire 0.
+  // isBetween + wireIndex=0 → Y centered at wireData[0] - registerHeight/2, i.e. midway between the
+  // (nonexistent) wire -1 and wire 0.
   const svg = makeSvg(600);
   const wireData = [100, 200];
 
@@ -217,8 +211,8 @@ test("createWireDropzone: between-wires dropzone before the first wire offsets b
 });
 
 test("createWireDropzone: between-wires dropzone after the last wire is offset past the bottom", () => {
-  // isBetween + wireIndex == wireData.length → Y centered past the
-  // last wire (the "add a qubit below" affordance).
+  // isBetween + wireIndex == wireData.length → Y centered past the last wire (the "add a qubit
+  // below" affordance).
   const svg = makeSvg(600);
   const wireData = [100, 200];
 
@@ -232,9 +226,8 @@ test("createWireDropzone: between-wires dropzone after the last wire is offset p
 // ─── removeAllWireDropzones ─────────────────────────────────────────
 
 test("removeAllWireDropzones: strips every .dropzone-full-wire and leaves other overlay children intact", () => {
-  // Mixed children: two wire dropzones and a regular `.dropzone` box
-  // (the kind `makeDropzoneBox` produces). Only the wire dropzones
-  // should be cleared.
+  // Mixed children: two wire dropzones and a regular `.dropzone` box (the kind `makeDropzoneBox`
+  // produces). Only the wire dropzones should be cleared.
   const svg = makeSvg(600);
   const wireData = [100, 200];
 

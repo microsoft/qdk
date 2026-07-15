@@ -1,11 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Remove-mutator tests on grouped shapes, driven through the public
-// `removeOperation` action. Counterpart to `addRemove.test.mjs`
-// (which covers the flat, non-grouped case). Focuses on stripping a
-// leaf inside a group and the ancestor-`.targets` narrowing that
-// follows the removal.
+// Remove-mutator tests on grouped shapes, driven through the public `removeOperation` action.
+// Counterpart to `addRemove.test.mjs` (which covers the flat, non-grouped case). Focuses on
+// stripping a leaf inside a group and the ancestor-`.targets` narrowing that follows the removal.
 
 // @ts-check
 
@@ -26,8 +24,7 @@ test("removeOperation strips a leaf inside an expanded group", () => {
 });
 
 test("removeOperation: removing a deep child narrows the group's targets", () => {
-  // Foo spans wires 0-1; removing the nested Y must narrow Foo's
-  // cached targets to just [0].
+  // Foo spans wires 0-1; removing the nested Y must narrow Foo's cached targets to just [0].
   const model = build(
     circuit(2, [[group("Foo", [[gate("H", 0)], [gate("Y", 1)]])]]),
   );
@@ -38,8 +35,8 @@ test("removeOperation: removing a deep child narrows the group's targets", () =>
 });
 
 test("removeOperation: cascade — removing across multiple nested groups narrows every ancestor", () => {
-  // Outer ⊃ Inner, one gate per inner column. Removing the nested Y
-  // narrows Inner to [0,1] and Outer in lockstep.
+  // Outer ⊃ Inner, one gate per inner column. Removing the nested Y narrows Inner to [0,1] and
+  // Outer in lockstep.
   const model = build(
     circuit(3, [
       [

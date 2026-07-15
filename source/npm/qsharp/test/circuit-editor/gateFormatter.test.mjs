@@ -2,21 +2,17 @@
 // Licensed under the MIT license.
 
 // gateFormatter unit tests — covers the pure-logic islands inside
-// `renderer/formatters/gateFormatter.ts` that the snapshot suite
-// catches only indirectly:
+// `renderer/formatters/gateFormatter.ts` that the snapshot suite catches only indirectly:
 //
-//   - `_getQuantumControlYs`: routing for mixed classical+quantum
-//     control arrays.
-//   - `_zoomButton`: the expand/collapse decision tree and the
-//     classical-control x-offset alignment.
-//   - `_classicalControls`: marker emission for classical controls
-//     on groups.
-//   - `_createGate`: the `classically-controlled-group` CSS-class
-//     hook the editor relies on.
+//   - `_getQuantumControlYs`: routing for mixed classical+quantum control arrays.
+//   - `_zoomButton`: the expand/collapse decision tree and the classical-control x-offset
+//     alignment.
+//   - `_classicalControls`: marker emission for classical controls on groups.
+//   - `_createGate`: the `classically-controlled-group` CSS-class hook the editor relies on.
 //
-// The bulk of the formatter (SVG primitives, `_unitary`, `_swap`,
-// `_oplus`) is covered by the snapshot suite in `test/circuits.js`;
-// duplicating that here would just re-spell the implementation.
+// The bulk of the formatter (SVG primitives, `_unitary`, `_swap`, `_oplus`) is covered by the
+// snapshot suite in `test/circuits.js`; duplicating that here would just re-spell the
+// implementation.
 
 // @ts-check
 
@@ -53,8 +49,8 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a minimal `GateRenderData` for tests. Defaults cover the
- * fields every code path reads; overrides on top.
+ * Build a minimal `GateRenderData` for tests. Defaults cover the fields every code path reads;
+ * overrides on top.
  *
  * @param {Partial<import("../../dist/ux/circuit-vis/renderer/gateRenderData.js").GateRenderData>} overrides
  */
@@ -74,13 +70,12 @@ function makeRenderData(overrides = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// _getQuantumControlYs — pure-data filter (no JSDOM needed, but the
-// `beforeEach` setup is harmless)
+// _getQuantumControlYs — pure-data filter (no JSDOM needed, but the `beforeEach` setup is harmless)
 // ---------------------------------------------------------------------------
 
 test("_getQuantumControlYs: keeps every quantum entry (no classical ids)", () => {
-  // classicalControlIds omitted entirely, or present with every
-  // slot undefined — either way all controls are quantum.
+  // classicalControlIds omitted entirely, or present with every slot undefined — either way all
+  // controls are quantum.
   assert.deepEqual(
     _getQuantumControlYs(makeRenderData({ controlsY: [40, 80, 120] })),
     [40, 80, 120],
@@ -106,10 +101,9 @@ test("_getQuantumControlYs: filters out every classical entry (numeric id)", () 
 });
 
 test("_getQuantumControlYs: in mixed arrays keeps quantum, drops classical (numeric id or null)", () => {
-  // Only entries whose classicalControlIds slot is `undefined` are
-  // quantum. A numeric id is a resolved classical ref; `null` is an
-  // unresolved one. Both route through the classical render path
-  // (a quantum entry would draw a stray dot on the qubit wire).
+  // Only entries whose classicalControlIds slot is `undefined` are quantum. A numeric id is a
+  // resolved classical ref; `null` is an unresolved one. Both route through the classical render
+  // path (a quantum entry would draw a stray dot on the qubit wire).
   assert.deepEqual(
     _getQuantumControlYs(
       makeRenderData({
@@ -161,9 +155,8 @@ test("_zoomButton: expanded group returns a collapse button", () => {
 });
 
 test("_zoomButton: expanded non-group (Unitary) returns a collapse button", () => {
-  // The `expanded` branch fires for any op type, not just groups
-  // — expanded ControlledUnitary / extracted-gate bodies also
-  // render a collapse chevron.
+  // The `expanded` branch fires for any op type, not just groups — expanded ControlledUnitary /
+  // extracted-gate bodies also render a collapse chevron.
   const btn = _zoomButton(
     makeRenderData({ type: GateType.Unitary, isExpanded: true }),
   );
@@ -173,8 +166,7 @@ test("_zoomButton: expanded non-group (Unitary) returns a collapse button", () =
 });
 
 test("_zoomButton: collapsed non-group returns null", () => {
-  // A plain non-group leaf has nothing to expand into, so no
-  // chevron is offered.
+  // A plain non-group leaf has nothing to expand into, so no chevron is offered.
   assert.equal(
     _zoomButton(makeRenderData({ type: GateType.Unitary, isExpanded: false })),
     null,
@@ -186,10 +178,9 @@ test("_zoomButton: collapsed non-group returns null", () => {
 });
 
 test("_zoomButton: classical-control op shifts the button right by controlCircleOffset", () => {
-  // When an op carries classical controls, the bounding box extends
-  // LEFT to make room for the dashed control circles. The chevron
-  // must align with the gate body's left edge (where the dashed box
-  // draws), not the bounding box's left edge.
+  // When an op carries classical controls, the bounding box extends LEFT to make room for the
+  // dashed control circles. The chevron must align with the gate body's left edge (where the dashed
+  // box draws), not the bounding box's left edge.
   const baseline = _zoomButton(
     makeRenderData({
       type: GateType.Group,
@@ -213,9 +204,8 @@ test("_zoomButton: classical-control op shifts the button right by controlCircle
     withClassicalControls?.querySelector("circle")?.getAttribute("cx"),
   );
 
-  // The bounding-box's left edge sits at `centerX - width/2` in
-  // both cases; the offset case adds `controlCircleOffset` to nudge
-  // the chevron into the body's column.
+  // The bounding-box's left edge sits at `centerX - width/2` in both cases; the offset case adds
+  // `controlCircleOffset` to nudge the chevron into the body's column.
   assert.equal(offsetCx - baselineCx, controlCircleOffset);
 });
 
@@ -224,8 +214,8 @@ test("_zoomButton: classical-control op shifts the button right by controlCircle
 // ---------------------------------------------------------------------------
 
 test("_classicalControls: emits one circle + connector per classical entry", () => {
-  // Each classical entry emits a dashed circle, a vertical dashed
-  // line, and a horizontal dashed line — three elements.
+  // Each classical entry emits a dashed circle, a vertical dashed line, and a horizontal dashed
+  // line — three elements.
   const elems = _classicalControls(
     50,
     makeRenderData({
@@ -234,8 +224,8 @@ test("_classicalControls: emits one circle + connector per classical entry", () 
     }),
   );
 
-  // _classicalControls pushes [horLine, vertLine, controlCircle]
-  // per entry, so 2 classical refs → 6 elements.
+  // _classicalControls pushes [horLine, vertLine, controlCircle] per entry, so 2 classical refs → 6
+  // elements.
   assert.equal(elems.length, 6);
 
   // Each control circle is a `<g class="classically-controlled-btn">`.
@@ -246,8 +236,8 @@ test("_classicalControls: emits one circle + connector per classical entry", () 
 });
 
 test("_classicalControls: skips undefined (quantum) entries in a mixed-control op", () => {
-  // Quantum entries (`undefined`) must NOT be drawn here —
-  // otherwise the qubit wire gets a stray dashed circle.
+  // Quantum entries (`undefined`) must NOT be drawn here — otherwise the qubit wire gets a stray
+  // dashed circle.
   const elems = _classicalControls(
     50,
     makeRenderData({
@@ -256,8 +246,7 @@ test("_classicalControls: skips undefined (quantum) entries in a mixed-control o
     }),
   );
 
-  // Two classical entries → 6 elements; the undefined slot adds
-  // nothing.
+  // Two classical entries → 6 elements; the undefined slot adds nothing.
   assert.equal(elems.length, 6);
   const btns = elems.filter(
     (e) => e.getAttribute("class") === "classically-controlled-btn",
@@ -266,11 +255,9 @@ test("_classicalControls: skips undefined (quantum) entries in a mixed-control o
 });
 
 test("_classicalControls: renders null id (unresolved) without crashing", () => {
-  // `null` marks a classical ref whose global id couldn't be
-  // resolved (e.g. a `.qsc` file missing `controlResultIds`
-  // metadata). The render path still draws the dashed circle with
-  // a literal "null" subscript label — the user needs to see
-  // something on the control wire.
+  // `null` marks a classical ref whose global id couldn't be resolved (e.g. a `.qsc` file missing
+  // `controlResultIds` metadata). The render path still draws the dashed circle with a literal
+  // "null" subscript label — the user needs to see something on the control wire.
   const elems = _classicalControls(
     50,
     makeRenderData({
@@ -284,8 +271,7 @@ test("_classicalControls: renders null id (unresolved) without crashing", () => 
     (e) => e.getAttribute("class") === "classically-controlled-btn",
   );
   assert.notEqual(btn, undefined);
-  // The tspan child carries the id-or-"null" subscript inside the
-  // `c<sub>…</sub>` label.
+  // The tspan child carries the id-or-"null" subscript inside the `c<sub>…</sub>` label.
   const tspan = btn?.querySelector("tspan");
   assert.equal(tspan?.textContent, "null");
 });
@@ -295,8 +281,8 @@ test("_classicalControls: renders null id (unresolved) without crashing", () => 
 // ---------------------------------------------------------------------------
 
 test("_createGate: toggles classically-controlled-group class on presence of classical controls", () => {
-  // The editor scopes CSS and selects wrappers via this class, so it
-  // must appear exactly when the op carries classical controls.
+  // The editor scopes CSS and selects wrappers via this class, so it must appear exactly when the
+  // op carries classical controls.
   const withClassical = _createGate(
     [],
     makeRenderData({

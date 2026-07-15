@@ -3,22 +3,18 @@
 
 // Measurement move / delete with downstream consumers.
 //
-// `collectMeasurementConsumers` walks the grid and finds every op
-// whose classical-ref `(qubit, result)` matches one of the M's
-// `results` entries. Both the prompt layer and the cascade
-// actions consume its output.
+// `collectMeasurementConsumers` walks the grid and finds every op whose classical-ref `(qubit,
+// result)` matches one of the M's `results` entries. Both the prompt layer and the cascade actions
+// consume its output.
 //
-// `removeMeasurementWithDependents` deletes a measurement together
-// with its downstream consumers, then keeps the surviving circuit
-// consistent. Test surface: predicate-match correctness, M-location
-// re-derivation after the cascade collapses columns, and the
-// renumber-then-remap pass for surviving Ms whose result indices shift.
+// `removeMeasurementWithDependents` deletes a measurement together with its downstream consumers,
+// then keeps the surviving circuit consistent. Test surface: predicate-match correctness,
+// M-location re-derivation after the cascade collapses columns, and the renumber-then-remap pass
+// for surviving Ms whose result indices shift.
 //
-// `moveMeasurementWithDependents` is the bulk of the new logic:
-// pre-/post-move (qubit, result) snapshotting, wire-level
-// renumbering remap propagation, survivor / invalidated
-// partition by object identity, and post-mutation overlap
-// resolution for changed visual spans.
+// `moveMeasurementWithDependents` is the bulk of the new logic: pre-/post-move (qubit, result)
+// snapshotting, wire-level renumbering remap propagation, survivor / invalidated partition by
+// object identity, and post-mutation overlap resolution for changed visual spans.
 
 // @ts-check
 
@@ -40,9 +36,8 @@ import {
   meas,
 } from "../_helpers.mjs";
 
-// Local shorthands over the shared helpers: these suites use the
-// "Measure" gate name (asserted in places) and classically-
-// controlled X consumers.
+// Local shorthands over the shared helpers: these suites use the "Measure" gate name (asserted in
+// places) and classically-controlled X consumers.
 const _mGate = (/** @type {number} */ q, /** @type {number} */ r) =>
   meas(q, { gate: "Measure", result: r });
 
@@ -72,9 +67,8 @@ test("collectMeasurementConsumers: finds a top-level classically-controlled cons
 });
 
 test("collectMeasurementConsumers: walks into nested children", () => {
-  // Consumer is buried two levels deep inside non-classically-
-  // controlled groups; the walker still finds it. The wrappers
-  // carry no classical ref in their `.controls`.
+  // Consumer is buried two levels deep inside non-classically-controlled groups; the walker still
+  // finds it. The wrappers carry no classical ref in their `.controls`.
   const model = build(
     circuit(2, [
       [_mGate(0, 0)],
@@ -94,17 +88,16 @@ test("collectMeasurementConsumers: walks into nested children", () => {
 });
 
 test("collectMeasurementConsumers: ancestor groups with propagated .targets are NOT flagged", () => {
-  // Simulates the post-`_deepRefreshDerivedTargets` state where
-  // the outer group's `.targets` cache has propagated the classical
-  // ref upward. Inspecting `.targets` (instead of just leaf
-  // consumers) would flag the Outer group and cascade-delete its
-  // unrelated sibling Y. The consumer scan must look at leaves only.
+  // Simulates the post-`_deepRefreshDerivedTargets` state where the outer group's `.targets` cache
+  // has propagated the classical ref upward. Inspecting `.targets` (instead of just leaf consumers)
+  // would flag the Outer group and cascade-delete its unrelated sibling Y. The consumer scan must
+  // look at leaves only.
   const outer = group("Outer", [
     [_ccx(1, 0, 0)], // the actual consumer
     [gate("Y", 2)], // unrelated sibling — purely quantum, MUST survive
   ]);
-  // PROPAGATED cache: rewrite the plain q0 target into the classical
-  // ref the inner X would push up through `_deepRefreshDerivedTargets`.
+  // PROPAGATED cache: rewrite the plain q0 target into the classical ref the inner X would push up
+  // through `_deepRefreshDerivedTargets`.
   outer.targets = outer.targets.map((/** @type {any} */ t) =>
     t.qubit === 0 ? { qubit: 0, result: 0 } : t,
   );
@@ -120,8 +113,8 @@ test("collectMeasurementConsumers: ancestor groups with propagated .targets are 
   );
   assert.equal(consumers[0].op.gate, "X");
 
-  // End-to-end: removing the M with this consumer set must leave
-  // the Y intact inside the (now-shrunken) Outer group.
+  // End-to-end: removing the M with this consumer set must leave the Y intact inside the
+  // (now-shrunken) Outer group.
   removeMeasurementWithDependents(
     model,
     "0,0",
@@ -168,9 +161,8 @@ test("removeMeasurementWithDependents: deletes M and all classical-ref consumers
 });
 
 test("removeMeasurementWithDependents: M's location is re-derived after the cascade collapses columns", () => {
-  // Consumer alone in col 0 collapses col 0; M shifts from col 1
-  // down to col 0. The action layer re-derives M by ref, not by
-  // the now-stale "1,0".
+  // Consumer alone in col 0 collapses col 0; M shifts from col 1 down to col 0. The action layer
+  // re-derives M by ref, not by the now-stale "1,0".
   const model = build(circuit(2, [[_ccx(1, 0, 0)], [_mGate(0, 0)]]));
   const consumers = collectMeasurementConsumers(model.componentGrid, "1,0");
   assert.equal(consumers.length, 1);
@@ -183,10 +175,9 @@ test("removeMeasurementWithDependents: M's location is re-derived after the casc
 });
 
 test("removeMeasurementWithDependents: surviving Ms' result-index renumbering propagates to their consumers", () => {
-  // M_a → result 0, M_b → result 1, both on wire 0. A consumer
-  // references (0, 1) — M_b. Deleting M_a renumbers M_b from
-  // result 1 → 0; the consumer's ref must remap to (0, 0) or the
-  // next render throws "Classical register ID 1 invalid".
+  // M_a → result 0, M_b → result 1, both on wire 0. A consumer references (0, 1) — M_b. Deleting
+  // M_a renumbers M_b from result 1 → 0; the consumer's ref must remap to (0, 0) or the next render
+  // throws "Classical register ID 1 invalid".
   const model = build(
     circuit(2, [[_mGate(0, 0)], [_mGate(0, 1)], [_ccx(1, 0, 1)]]),
   );
@@ -196,11 +187,9 @@ test("removeMeasurementWithDependents: surviving Ms' result-index renumbering pr
 
   removeMeasurementWithDependents(model, "0,0", []);
 
-  // The surviving ccx's classical-ref must remap (0,1) → (0,0) to
-  // track M_b's new result index.
+  // The surviving ccx's classical-ref must remap (0,1) → (0,0) to track M_b's new result index.
   expectOp(at(model, "1,0"), { X: { ctrls: [{ q: 0, r: 0 }] } });
-  // And the model's per-wire numResults must reflect the single
-  // surviving M.
+  // And the model's per-wire numResults must reflect the single surviving M.
   assert.equal(
     model.qubits[0].numResults,
     1,
@@ -213,9 +202,8 @@ test("removeMeasurementWithDependents: surviving Ms' result-index renumbering pr
 // ---------------------------------------------------------------------------
 
 test("moveMeasurementWithDependents: surviving consumer's classical-ref tracks the M's new wire", () => {
-  // M on wire 0, consumer in a later column on wire 2 with
-  // classical-ref (0, 0). M moves down to wire 1; the consumer's
-  // ref must become (1, 0).
+  // M on wire 0, consumer in a later column on wire 2 with classical-ref (0, 0). M moves down to
+  // wire 1; the consumer's ref must become (1, 0).
   const model = build(circuit(3, [[_mGate(0, 0)], [_ccx(2, 0, 0)]]));
   // Target column 0 is strictly before consumer column 1 → survives.
   const moved = moveMeasurementWithDependents(
@@ -234,9 +222,8 @@ test("moveMeasurementWithDependents: surviving consumer's classical-ref tracks t
 });
 
 test("moveMeasurementWithDependents: invalidated consumer is cascade-deleted", () => {
-  // M@col 0, ccx consumer@col 1, unrelated H@col 2. Moving M to
-  // "2,0" lands it in a column after the ccx, so the consumer is
-  // now in an earlier column — invalidated — and gets deleted.
+  // M@col 0, ccx consumer@col 1, unrelated H@col 2. Moving M to "2,0" lands it in a column after
+  // the ccx, so the consumer is now in an earlier column — invalidated — and gets deleted.
   const model = build(
     circuit(3, [[_mGate(0, 0)], [_ccx(1, 0, 0)], [gate("H", 2)]]),
   );
@@ -265,16 +252,15 @@ test("moveMeasurementWithDependents: invalidated consumer is cascade-deleted", (
 });
 
 test("moveMeasurementWithDependents: consumer of an UNMOVED M whose result index gets renumbered is also remapped", () => {
-  // Two Ms on wire 0 (results 0 and 1). A consumer of the SECOND
-  // M references (0, 1). Moving the FIRST M to wire 1 renumbers
-  // the remaining wire-0 M down to result 0, so the consumer must
-  // remap (0, 1) → (0, 0).
+  // Two Ms on wire 0 (results 0 and 1). A consumer of the SECOND M references (0, 1). Moving the
+  // FIRST M to wire 1 renumbers the remaining wire-0 M down to result 0, so the consumer must remap
+  // (0, 1) → (0, 0).
   const model = build(
     circuit(3, [[_mGate(0, 0)], [_mGate(0, 1)], [_ccx(2, 0, 1)]]),
   );
 
-  // Move M_first from wire 0 to wire 1. invalidatedConsumers=[]
-  // — the consumer is downstream of M_second (unmoved).
+  // Move M_first from wire 0 to wire 1. invalidatedConsumers=[] — the consumer is downstream of
+  // M_second (unmoved).
   const moved = moveMeasurementWithDependents(
     model,
     "0,0",
@@ -286,14 +272,13 @@ test("moveMeasurementWithDependents: consumer of an UNMOVED M whose result index
   );
   assert.ok(moved);
 
-  // Consumer of M_second must remap (0,1) → (0,0) after M_first's
-  // move triggered the wire-0 renumber.
+  // Consumer of M_second must remap (0,1) → (0,0) after M_first's move triggered the wire-0
+  // renumber.
   expectOp(at(model, "2,0"), { X: { ctrls: [{ q: 0, r: 0 }] } });
 });
 
 test("moveMeasurementWithDependents: M with no consumers behaves like a regular move", () => {
-  // Sanity check: the cascade overhead is a no-op when there's
-  // no consumer to remap or invalidate.
+  // Sanity check: the cascade overhead is a no-op when there's no consumer to remap or invalidate.
   const model = build(circuit(2, [[_mGate(0, 0)]]));
   const moved = moveMeasurementWithDependents(
     model,
@@ -310,22 +295,16 @@ test("moveMeasurementWithDependents: M with no consumers behaves like a regular 
 });
 
 test("moveMeasurementWithDependents: moving an M onto a wire that already has multiple Ms-with-consumers does not double-remap M results", () => {
-  // `_applyClassicalRefRemap` must skip producer registers
-  // (`.results` on measurements) and only remap consumer
-  // classical refs. Otherwise, after `_updateMeasurementLines`
-  // authoritatively renumbers result indices on the affected
-  // wire, walking those producer values back through the
-  // consumer remap can chain-react: each M's new result index
-  // happens to match another M's pre-move key, so `.results`
-  // gets remapped a second time — collapsing into duplicate
-  // result indices and orphaning consumers whose target M had
-  // its `.results` clobbered.
+  // `_applyClassicalRefRemap` must skip producer registers (`.results` on measurements) and only
+  // remap consumer classical refs. Otherwise, after `_updateMeasurementLines` authoritatively
+  // renumbers result indices on the affected wire, walking those producer values back through the
+  // consumer remap can chain-react: each M's new result index happens to match another M's pre-move
+  // key, so `.results` gets remapped a second time — collapsing into duplicate result indices and
+  // orphaning consumers whose target M had its `.results` clobbered.
   //
-  // Setup: three Ms with consumers spread across two wires.
-  // Wire 0 already has M_a (r=0) and M_b (r=1), each with a
-  // downstream classically-controlled gate. Wire 1 has M_c
-  // (r=0) with its own consumer. We move M_c onto wire 0 in
-  // front of M_a, which forces _updateMeasurementLines to
+  // Setup: three Ms with consumers spread across two wires. Wire 0 already has M_a (r=0) and M_b
+  // (r=1), each with a downstream classically-controlled gate. Wire 1 has M_c (r=0) with its own
+  // consumer. We move M_c onto wire 0 in front of M_a, which forces _updateMeasurementLines to
   // renumber wire 0 as: M_c=0, M_a=1, M_b=2.
   const model = build(
     circuit(3, [
@@ -338,14 +317,10 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
     ]),
   );
 
-  // Move M_c (col 2, idx 0) to wire 0, inserting a fresh column
-  // at position 0. After the move, wire 0's doc order is
-  // M_c, M_a, M_b → _updateMeasurementLines assigns
-  // r=0, 1, 2 respectively. The keyRemap must rewrite every
-  // consumer:
-  //   C_a "0:0" → "0:1" (M_a moved down)
-  //   C_b "0:1" → "0:2" (M_b moved down)
-  //   C_c "1:0" → "0:0" (M_c switched wires)
+  // Move M_c (col 2, idx 0) to wire 0, inserting a fresh column at position 0. After the move, wire
+  // 0's doc order is M_c, M_a, M_b → _updateMeasurementLines assigns r=0, 1, 2 respectively. The
+  // keyRemap must rewrite every consumer: C_a "0:0" → "0:1" (M_a moved down) C_b "0:1" → "0:2" (M_b
+  // moved down) C_c "1:0" → "0:0" (M_c switched wires)
   const moved = moveMeasurementWithDependents(
     model,
     "2,0",
@@ -357,8 +332,7 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
   );
   assert.ok(moved);
 
-  // Collect every M and every classically-controlled consumer
-  // in the post-move grid.
+  // Collect every M and every classically-controlled consumer in the post-move grid.
   /** @type {any[]} */
   const ms = [];
   /** @type {any[]} */
@@ -383,9 +357,8 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
     "all three consumers must still be present",
   );
 
-  // INVARIANT 1: every M's `.results` entry has a unique
-  // (qubit, result) key. The bug previously caused two Ms to
-  // share the same `.results` value.
+  // INVARIANT 1: every M's `.results` entry has a unique (qubit, result) key. The bug previously
+  // caused two Ms to share the same `.results` value.
   /** @type {Set<string>} */
   const resultKeys = new Set();
   for (const m of ms) {
@@ -399,10 +372,9 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
     }
   }
 
-  // INVARIANT 2: every consumer's classical ref points at a key
-  // that some M actually produces. The bug previously left
-  // consumers pointing at result indices no M owned (orphaned
-  // classical-control indicator).
+  // INVARIANT 2: every consumer's classical ref points at a key that some M actually produces. The
+  // bug previously left consumers pointing at result indices no M owned (orphaned classical-control
+  // indicator).
   for (const consumer of consumers) {
     const classicalRef = consumer.controls.find(
       (/** @type {any} */ c) => c.result !== undefined,
@@ -414,10 +386,8 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
     );
   }
 
-  // INVARIANT 3: on wire 0, result indices are assigned in
-  // doc order starting at 0 (the contract of
-  // _updateMeasurementLines). Verifies the renumbering itself
-  // wasn't corrupted by the remap walk.
+  // INVARIANT 3: on wire 0, result indices are assigned in doc order starting at 0 (the contract of
+  // _updateMeasurementLines). Verifies the renumbering itself wasn't corrupted by the remap walk.
   /** @type {number[]} */
   const wire0ResultsInDocOrder = [];
   for (const col of model.componentGrid) {

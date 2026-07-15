@@ -1,17 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Unit tests for `ViewState` — the per-session view-preference layer
-// that survives `Sqore.renderCircuit()` but is not persisted to the
-// `.qsc` file. See [viewState.ts](../../ux/circuit-vis/data/viewState.ts).
+// Unit tests for `ViewState` — the per-session view-preference layer that survives
+// `Sqore.renderCircuit()` but is not persisted to the `.qsc` file. See
+// [viewState.ts](../../ux/circuit-vis/data/viewState.ts).
 //
 // These tests are pure data — no JSDOM. They lock down:
 //   - Default state is empty.
 //   - setExpanded(true) and setExpanded(false) both record overrides.
-//   - Collapsing a parent prunes user overrides on its descendants
-//     so re-expanding doesn't resurface stale child choices.
-//   - applyTo writes overrides into a component grid, leaves
-//     non-overridden ops alone, and recurses into children.
+//   - Collapsing a parent prunes user overrides on its descendants so re-expanding doesn't
+//     resurface stale child choices.
+//   - applyTo writes overrides into a component grid, leaves non-overridden ops alone, and recurses
+//     into children.
 
 // @ts-check
 
@@ -33,9 +33,8 @@ test("ViewState: setExpanded records expand and collapse choices", () => {
 });
 
 test("ViewState: setExpanded(true) does NOT clear descendants", () => {
-  // Re-expanding a parent leaves descendant choices alone — the
-  // user's prior choices on the body of the group resurface when
-  // the group is shown again.
+  // Re-expanding a parent leaves descendant choices alone — the user's prior choices on the body of
+  // the group resurface when the group is shown again.
   const v = new ViewState();
   v.setExpanded("0,0", true);
   v.setExpanded("0,0-1,0", false);
@@ -48,8 +47,8 @@ test("ViewState: setExpanded(true) does NOT clear descendants", () => {
 });
 
 test("ViewState: setExpanded(false) prunes descendant overrides", () => {
-  // Collapsing a parent forgets descendant choices so re-expanding
-  // doesn't auto-spring previously-expanded children back open.
+  // Collapsing a parent forgets descendant choices so re-expanding doesn't auto-spring
+  // previously-expanded children back open.
   const v = new ViewState();
   v.setExpanded("0,0", true);
   v.setExpanded("0,0-1,0", true);
@@ -77,8 +76,8 @@ test("ViewState: setExpanded(false) prunes descendant overrides", () => {
 });
 
 test("ViewState: setExpanded(false) does not match prefix of unrelated location", () => {
-  // "0,10" is NOT a descendant of "0,1". The prune logic uses the `-` separator
-  // explicitly so location-string substrings can't accidentally match.
+  // "0,10" is NOT a descendant of "0,1". The prune logic uses the `-` separator explicitly so
+  // location-string substrings can't accidentally match.
   const v = new ViewState();
   v.setExpanded("0,1", true);
   v.setExpanded("0,10", true);
@@ -219,8 +218,8 @@ test("ViewState: applyTo recurses into children grids", () => {
 });
 
 test("ViewState: applyTo skips ops without a location attribute", () => {
-  // Defensive: ops without a location can't be addressed by viewState
-  // entries anyway. applyTo must not crash on them.
+  // Defensive: ops without a location can't be addressed by viewState entries anyway. applyTo must
+  // not crash on them.
   const v = new ViewState();
   v.setExpanded("0,0", true);
 
@@ -255,15 +254,14 @@ test("ViewState: applyTo skips ops without a location attribute", () => {
 // ---------------------------------------------------------------------------
 // rebase: key-migration across editor mutations.
 //
-// `Sqore` snapshots an op → location map after every render and calls
-// `rebase` at the start of the next render with the (oldLoc → newLoc | null)
-// derived from object identity. These tests pin down the pure-data
-// rewrite semantics that `Sqore.rebaseViewState()` relies on.
+// `Sqore` snapshots an op → location map after every render and calls `rebase` at the start of the
+// next render with the (oldLoc → newLoc | null) derived from object identity. These tests pin down
+// the pure-data rewrite semantics that `Sqore.rebaseViewState()` relies on.
 // ---------------------------------------------------------------------------
 
 test("ViewState: rebase rekeys entries to their new locations", () => {
-  // User expanded "0,1"; the op then shifted to "0,2" because a sibling
-  // was inserted ahead of it. The expanded state must follow the op.
+  // User expanded "0,1"; the op then shifted to "0,2" because a sibling was inserted ahead of it.
+  // The expanded state must follow the op.
   const v = new ViewState();
   v.setExpanded("0,1", true);
 
@@ -275,9 +273,8 @@ test("ViewState: rebase rekeys entries to their new locations", () => {
 });
 
 test("ViewState: rebase drops entries when the op is gone", () => {
-  // User expanded "1,0"; the op was then deleted (drag-out-delete).
-  // `null` in the remap signals "op no longer in the grid" and the
-  // entry must be dropped.
+  // User expanded "1,0"; the op was then deleted (drag-out-delete). `null` in the remap signals "op
+  // no longer in the grid" and the entry must be dropped.
   const v = new ViewState();
   v.setExpanded("1,0", true);
   v.setExpanded("0,0", false);
@@ -294,10 +291,9 @@ test("ViewState: rebase drops entries when the op is gone", () => {
 });
 
 test("ViewState: rebase leaves untracked keys untouched", () => {
-  // If the caller has no information about an old key (key absent from
-  // the remap), the entry must stay. This is the "safe default" path
-  // — Sqore exercises it on the very first render (no prior snapshot)
-  // and the rebase becomes a no-op.
+  // If the caller has no information about an old key (key absent from the remap), the entry must
+  // stay. This is the "safe default" path — Sqore exercises it on the very first render (no prior
+  // snapshot) and the rebase becomes a no-op.
   const v = new ViewState();
   v.setExpanded("0,0", true);
   v.setExpanded("1,0", false);
@@ -310,8 +306,8 @@ test("ViewState: rebase leaves untracked keys untouched", () => {
 });
 
 test("ViewState: rebase preserves the recorded value (true vs false)", () => {
-  // Migration must carry the user's collapse choice forward just as
-  // it carries an expand choice. Tests both polarities in one shot.
+  // Migration must carry the user's collapse choice forward just as it carries an expand choice.
+  // Tests both polarities in one shot.
   const v = new ViewState();
   v.setExpanded("0,0", true);
   v.setExpanded("0,1", false);
@@ -328,8 +324,8 @@ test("ViewState: rebase preserves the recorded value (true vs false)", () => {
 });
 
 test("ViewState: rebase is a no-op when newKey === oldKey", () => {
-  // Identity remap entries should not perturb the underlying map —
-  // they happen in droves on renders that don't shift any ops.
+  // Identity remap entries should not perturb the underlying map — they happen in droves on renders
+  // that don't shift any ops.
   const v = new ViewState();
   v.setExpanded("0,0", true);
 
@@ -340,10 +336,9 @@ test("ViewState: rebase is a no-op when newKey === oldKey", () => {
 });
 
 test("ViewState: rebase handles a key swap correctly", () => {
-  // Two ops swap positions. The remap names both. Each entry should
-  // end up at the other's old location. The order matters internally
-  // (snapshot pairs before mutating) but the visible result must be
-  // a clean swap regardless.
+  // Two ops swap positions. The remap names both. Each entry should end up at the other's old
+  // location. The order matters internally (snapshot pairs before mutating) but the visible result
+  // must be a clean swap regardless.
   const v = new ViewState();
   v.setExpanded("0,0", true);
   v.setExpanded("0,1", false);
@@ -361,13 +356,12 @@ test("ViewState: rebase handles a key swap correctly", () => {
 });
 
 test("ViewState: rebase rekeys nested locations the same way", () => {
-  // Descendant locations inside an expanded group follow the same
-  // rekey path — the algorithm is purely string-based.
+  // Descendant locations inside an expanded group follow the same rekey path — the algorithm is
+  // purely string-based.
   const v = new ViewState();
   v.setExpanded("0,1-1,0", true); // an op inside the group at 0,1
 
-  // Group itself shifted from 0,1 to 0,2 (sibling inserted), so the
-  // descendant also moves.
+  // Group itself shifted from 0,1 to 0,2 (sibling inserted), so the descendant also moves.
   v.rebase(new Map([["0,1-1,0", "0,2-1,0"]]));
 
   assert.equal(v.expanded.has("0,1-1,0"), false);

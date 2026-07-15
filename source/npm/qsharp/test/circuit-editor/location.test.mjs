@@ -1,9 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Location value-type tests — exercises the immutable `Location`
-// value type that owns hierarchical-address parse/compose for the
-// circuit editor. Pure-data, no JSDOM.
+// Location value-type tests — exercises the immutable `Location` value type that owns
+// hierarchical-address parse/compose for the circuit editor. Pure-data, no JSDOM.
 
 // @ts-check
 

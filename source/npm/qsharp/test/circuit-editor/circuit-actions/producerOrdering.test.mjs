@@ -1,12 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// `Location` + `collectExternalProducerLocations` + `moveOperation`
-// producer-ordering guards: an op carrying a classical-ref must
-// land strictly after the M that produces the result. Covers the
-// `Location.before` / `Location.inEarlierColumnThan` helpers that
-// back the dropzone filter and the action-layer safety net that
-// refuses drops violating the rule.
+// `Location` + `collectExternalProducerLocations` + `moveOperation` producer-ordering guards: an op
+// carrying a classical-ref must land strictly after the M that produces the result. Covers the
+// `Location.before` / `Location.inEarlierColumnThan` helpers that back the dropzone filter and the
+// action-layer safety net that refuses drops violating the rule.
 
 // @ts-check
 
@@ -32,8 +30,7 @@ const snapshot = (/** @type {any} */ model) =>
 // ---------------------------------------------------------------------------
 
 test("Location.before: document-order comparison", () => {
-  // Backs the dropzone-filter and moveOperation safety-net.
-  // Each row: [a, b, a.before(b), why].
+  // Backs the dropzone-filter and moveOperation safety-net. Each row: [a, b, a.before(b), why].
   /** @type {[string, string, boolean, string][]} */
   const cases = [
     ["0,0", "0,1", true, "same col, smaller op first"],
@@ -52,11 +49,10 @@ test("Location.before: document-order comparison", () => {
 });
 
 test("Location.inEarlierColumnThan: column-strict, ancestor-aware", () => {
-  // Backs the dropzone-filter and moveOperation safety-net for the
-  // "producer must precede consumer" rule. Unlike document-order
-  // `before`: two ops in the same column are simultaneous, and
-  // ancestor groups project their column down onto everything they
-  // contain. Each row: [a, b, a.inEarlierColumnThan(b), why].
+  // Backs the dropzone-filter and moveOperation safety-net for the "producer must precede consumer"
+  // rule. Unlike document-order `before`: two ops in the same column are simultaneous, and ancestor
+  // groups project their column down onto everything they contain. Each row: [a, b,
+  // a.inEarlierColumnThan(b), why].
   /** @type {[string, string, boolean, string][]} */
   const cases = [
     ["0,0", "1,0", true, "earlier top-level column"],
@@ -79,8 +75,8 @@ test("Location.inEarlierColumnThan: column-strict, ancestor-aware", () => {
 });
 
 // ---------------------------------------------------------------------------
-// collectExternalProducerLocations: only producers OUTSIDE the moved
-// subtree count as constraints on where the consumer can land.
+// collectExternalProducerLocations: only producers OUTSIDE the moved subtree count as constraints
+// on where the consumer can land.
 // ---------------------------------------------------------------------------
 
 test("collectExternalProducerLocations: classical control with external M", () => {
@@ -98,8 +94,8 @@ test("collectExternalProducerLocations: classical control with external M", () =
 });
 
 test("collectExternalProducerLocations: internal producer M is excluded", () => {
-  // Producer M lives INSIDE the moved subtree → it travels with
-  // the consumer, so it imposes no drop-target constraint.
+  // Producer M lives INSIDE the moved subtree → it travels with the consumer, so it imposes no
+  // drop-target constraint.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [
       [
@@ -126,8 +122,8 @@ test("collectExternalProducerLocations: internal producer M is excluded", () => 
 // ---------------------------------------------------------------------------
 
 test("moveOperation: refuses dropping a conditional before its producer M", () => {
-  // Dropping the conditional before its producing M would leave its
-  // classical ref pointing at a not-yet-produced register.
+  // Dropping the conditional before its producing M would leave its classical ref pointing at a
+  // not-yet-produced register.
   const model = build(circuit(qubits(2, { 0: 1 }), [[meas(0)], [ifGroup()]]));
   const before = snapshot(model);
 
@@ -139,8 +135,8 @@ test("moveOperation: refuses dropping a conditional before its producer M", () =
 });
 
 test("moveOperation: allows dropping a conditional AFTER its producer M", () => {
-  // Boundary check: the refusal mustn't over-trigger for a drop
-  // that lands strictly after the producer. Y@1 is filler.
+  // Boundary check: the refusal mustn't over-trigger for a drop that lands strictly after the
+  // producer. Y@1 is filler.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [[meas(0)], [gate("Y", 1)], [ifGroup()]]),
   );
@@ -152,8 +148,8 @@ test("moveOperation: allows dropping a conditional AFTER its producer M", () => 
 });
 
 test("moveOperation: allows moving a group whose classical producer is INTERNAL", () => {
-  // Producer M lives inside the moved subtree → no external
-  // constraint, so the move can go anywhere. Y@1 is filler.
+  // Producer M lives inside the moved subtree → no external constraint, so the move can go
+  // anywhere. Y@1 is filler.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [
       [gate("Y", 1)],
@@ -176,9 +172,8 @@ test("moveOperation: allows moving a group whose classical producer is INTERNAL"
 });
 
 test("moveOperation: refuses promoting a conditional to a sibling of the producer's outer group", () => {
-  // Producer M and consumer both start inside Outer. Promoting the
-  // consumer out to a top-level sibling at Outer's own column lands
-  // it in the same time-step as the producer → refuse.
+  // Producer M and consumer both start inside Outer. Promoting the consumer out to a top-level
+  // sibling at Outer's own column lands it in the same time-step as the producer → refuse.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [[group("Outer", [[meas(0)], [ifGroup()]])]]),
   );
@@ -191,8 +186,7 @@ test("moveOperation: refuses promoting a conditional to a sibling of the produce
 });
 
 test("moveOperation: allows promoting a conditional to a strictly later top-level column", () => {
-  // Boundary check: promotion to col 1 (strictly after Outer at
-  // col 0) must succeed. Y@1 is filler.
+  // Boundary check: promotion to col 1 (strictly after Outer at col 0) must succeed. Y@1 is filler.
   const model = build(
     circuit(qubits(2, { 0: 1 }), [
       [group("Outer", [[meas(0)], [ifGroup()]])],

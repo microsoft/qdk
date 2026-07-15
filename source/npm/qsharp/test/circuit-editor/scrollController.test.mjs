@@ -1,12 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// ScrollController tests — exercises the `enableAutoScroll` helper
-// against a JSDOM scrollable container. Verifies that mousemove
-// near each edge scrolls the appropriate axis, that mouseup
-// removes both document listeners, and that the
-// `disableLeftAutoScroll` flag is honored and lifted at the right
-// threshold.
+// ScrollController tests — exercises the `enableAutoScroll` helper against a JSDOM scrollable
+// container. Verifies that mousemove near each edge scrolls the appropriate axis, that mouseup
+// removes both document listeners, and that the `disableLeftAutoScroll` flag is honored and lifted
+// at the right threshold.
 
 // @ts-check
 
@@ -31,18 +29,17 @@ beforeEach(() => {
   globalThis.SVGElement = jsdom.window.SVGElement;
   globalThis.MouseEvent = jsdom.window.MouseEvent;
 
-  // Build a scrollable container at a known viewport position so the
-  // mousemove handler's edge-distance math has stable inputs.
+  // Build a scrollable container at a known viewport position so the mousemove handler's
+  // edge-distance math has stable inputs.
   scrollable = document.createElement("div");
-  // The controller's `getScrollableAncestor` checks computed
-  // overflowY/overflowX individually, not the shorthand.
+  // The controller's `getScrollableAncestor` checks computed overflowY/overflowX individually, not
+  // the shorthand.
   scrollable.style.overflowY = "auto";
   scrollable.style.overflowX = "auto";
   scrollable.style.width = "200px";
   scrollable.style.height = "200px";
-  // Stub getBoundingClientRect so the controller sees a fixed
-  // viewport rectangle for the scrollable ancestor. JSDOM's default
-  // returns zeros, which would put every cursor "near every edge."
+  // Stub getBoundingClientRect so the controller sees a fixed viewport rectangle for the scrollable
+  // ancestor. JSDOM's default returns zeros, which would put every cursor "near every edge."
   scrollable.getBoundingClientRect = () =>
     /** @type {DOMRect} */ ({
       top: 100,
@@ -57,9 +54,8 @@ beforeEach(() => {
     });
   document.body.appendChild(scrollable);
 
-  // The "circuitSvg" only matters as the starting point for the
-  // scrollable-ancestor walk. Append it to the scrollable so the
-  // walk terminates at our stub.
+  // The "circuitSvg" only matters as the starting point for the scrollable-ancestor walk. Append it
+  // to the scrollable so the walk terminates at our stub.
   circuitSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   scrollable.appendChild(circuitSvg);
 });
@@ -80,9 +76,8 @@ const releaseMouse = () =>
   document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
 
 /**
- * Create an InteractionState (with optional field overrides) and
- * arm `enableAutoScroll` against the fixture's circuitSvg. Returns
- * the interaction so tests can assert on flag state.
+ * Create an InteractionState (with optional field overrides) and arm `enableAutoScroll` against the
+ * fixture's circuitSvg. Returns the interaction so tests can assert on flag state.
  *
  * @param {Partial<InteractionState>} [overrides]
  */
@@ -155,8 +150,8 @@ test("disableLeftAutoScroll suppresses the left-edge scroll trigger", () => {
 test("disableLeftAutoScroll is lifted once the cursor moves far enough right", () => {
   const interaction = arm({ disableLeftAutoScroll: true });
 
-  // Threshold for lifting: clientX > leftBoundary + 3 * edgeThreshold
-  // = 100 + 150 = 250. A move past that releases the flag.
+  // Threshold for lifting: clientX > leftBoundary + 3 * edgeThreshold = 100 + 150 = 250. A move
+  // past that releases the flag.
   move(260, 200);
 
   assert.equal(interaction.disableLeftAutoScroll, false);

@@ -1,12 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// interactionActions tests — exercises the Action layer for the
-// editor's ephemeral session state (`InteractionState`) directly,
-// with **no JSDOM** for the pure-data helpers and a tiny stub
-// `parentNode` for the one DOM-touching helper. Together with the
-// `circuitActions` tests, this means the only editor logic that
-// still needs JSDOM is the actual event-listener wiring in
+// interactionActions tests — exercises the Action layer for the editor's ephemeral session state
+// (`InteractionState`) directly, with **no JSDOM** for the pure-data helpers and a tiny stub
+// `parentNode` for the one DOM-touching helper. Together with the `circuitActions` tests, this
+// means the only editor logic that still needs JSDOM is the actual event-listener wiring in
 // `CircuitEvents`.
 //
 
@@ -57,8 +55,8 @@ test("resetTransient clears every transient flag but preserves selectedOperation
 
   resetTransient(s);
 
-  // Persistent selection survives — that's the contract callers rely
-  // on so the context menu can still find its target after a reset.
+  // Persistent selection survives — that's the contract callers rely on so the context menu can
+  // still find its target after a reset.
   assert.equal(s.selectedOperation, op);
   // Everything else cleared.
   assert.equal(s.selectedWire, null);
@@ -101,8 +99,8 @@ test("beginToolboxDrag sets selection AND suppresses left auto-scroll", () => {
   beginToolboxDrag(s, template);
 
   assert.equal(s.selectedOperation, template);
-  // The whole point of the helper: these two have to move together,
-  // because forgetting the suppress-flag causes a runaway scroll bug.
+  // The whole point of the helper: these two have to move together, because forgetting the
+  // suppress-flag causes a runaway scroll bug.
   assert.equal(s.disableLeftAutoScroll, true);
 });
 
@@ -151,8 +149,8 @@ test("clearTemporaryDropzones removes each element from its parent and clears th
 
 test("clearTemporaryDropzones is safe on dropzones with no parentNode", () => {
   const s = new InteractionState();
-  // Simulates an element that's already been removed by something else
-  // — `clearTemporaryDropzones` must not throw on it.
+  // Simulates an element that's already been removed by something else — `clearTemporaryDropzones`
+  // must not throw on it.
   s.temporaryDropzones.push(/** @type {any} */ ({ parentNode: null }));
 
   clearTemporaryDropzones(s);

@@ -1,16 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// QubitController tests — exercises the qubit-line interaction
-// surface against a hand-built SVG fixture. Covers:
+// QubitController tests — exercises the qubit-line interaction surface against a hand-built SVG
+// fixture. Covers:
 //
-//   - Direct invocation of `removeQubitLineWithConfirmation` on a
-//     wire with zero operations (the no-prompt fast path).
-//   - Mousedown on a qubit label, which spawns the swap and
-//     insert-between dropzones, sets `selectedWire` / `dragging`,
-//     and creates the drag-ghost element.
-//   - Mouseup on a swap dropzone dispatches `moveQubit` and the
-//     render callback.
+//   - Direct invocation of `removeQubitLineWithConfirmation` on a wire with zero operations (the
+//     no-prompt fast path).
+//   - Mousedown on a qubit label, which spawns the swap and insert-between dropzones, sets
+//     `selectedWire` / `dragging`, and creates the drag-ghost element.
+//   - Mouseup on a swap dropzone dispatches `moveQubit` and the render callback.
 
 // @ts-check
 
@@ -42,10 +40,9 @@ afterEach(() => {
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /**
- * Build a fixture with an `svg.qviz` containing `n` qubit-label
- * `<text>` elements (data-wire 0..n-1) inside a `g.qubit-input-states`
- * group, plus the editor overlay layer that QubitController appends
- * dropzones into.
+ * Build a fixture with an `svg.qviz` containing `n` qubit-label `<text>` elements (data-wire
+ * 0..n-1) inside a `g.qubit-input-states` group, plus the editor overlay layer that QubitController
+ * appends dropzones into.
  */
 function buildFixture(/** @type {number} */ n) {
   const container = document.createElement("div");
@@ -80,9 +77,8 @@ function buildFixture(/** @type {number} */ n) {
 }
 
 /**
- * Construct a QubitController against the given fixture and a
- * fresh model. `wireData[i]` is set to a stable y-coordinate so
- * the dropzone layout math has stable inputs.
+ * Construct a QubitController against the given fixture and a fresh model. `wireData[i]` is set to
+ * a stable y-coordinate so the dropzone layout math has stable inputs.
  */
 function makeController(
   /** @type {any} */ container,
@@ -117,10 +113,9 @@ function makeController(
 }
 
 /**
- * One-call setup: build a model from a DSL circuit literal, a
- * fixture with one qubit label per wire, and a QubitController
- * wired to both. Returns the fixture pieces plus the controller
- * handles (including a `renderCalls()` accessor).
+ * One-call setup: build a model from a DSL circuit literal, a fixture with one qubit label per
+ * wire, and a QubitController wired to both. Returns the fixture pieces plus the controller handles
+ * (including a `renderCalls()` accessor).
  *
  * @param {any} circuitObj
  * @param {{ renderFn?: () => void }} [options]
@@ -136,8 +131,8 @@ const dispatchMouseDown = (/** @type {EventTarget} */ target) =>
   target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
 
 test("removeQubitLineWithConfirmation removes an empty wire without prompting", () => {
-  // Pre-populate wire 0 with an op so `removeTrailingUnusedQubits`
-  // doesn't trim every wire after the target removal.
+  // Pre-populate wire 0 with an op so `removeTrailingUnusedQubits` doesn't trim every wire after
+  // the target removal.
   const { model, controller, ctx, renderCalls } = setup(
     circuit(3, [[gate("H", 0)]]),
   );
@@ -145,8 +140,8 @@ test("removeQubitLineWithConfirmation removes an empty wire without prompting", 
   // Wire 1 has zero use count → no prompt.
   controller.removeQubitLineWithConfirmation(1);
 
-  // Wire 1 dropped; wire 2 (also zero-use) drops via the trailing
-  // trim that fires after each removal. Wire 0 (use count 1) stays.
+  // Wire 1 dropped; wire 2 (also zero-use) drops via the trailing trim that fires after each
+  // removal. Wire 0 (use count 1) stays.
   assert.equal(model.qubits.length, 1);
   assert.equal(model.qubits[0].id, 0);
   assert.equal(renderCalls(), 1);
@@ -163,17 +158,16 @@ test("removeQubitLineWithConfirmation prompts when the wire has operations", () 
 
   controller.removeQubitLineWithConfirmation(1);
 
-  // The prompt is attached to the document — the actual remove waits
-  // for user confirmation, so the model is unchanged at this point.
+  // The prompt is attached to the document — the actual remove waits for user confirmation, so the
+  // model is unchanged at this point.
   assert.equal(document.querySelectorAll(".prompt-overlay").length, 1);
   assert.equal(model.qubits.length, 2);
   assert.equal(renderCalls(), 0);
 });
 
 /**
- * Find a prompt button by its visible text. The prompt renders
- * exactly two buttons ("OK" and "Cancel") both with class
- * `prompt-button`, so text is the disambiguator.
+ * Find a prompt button by its visible text. The prompt renders exactly two buttons ("OK" and
+ * "Cancel") both with class `prompt-button`, so text is the disambiguator.
  */
 const findPromptButton = (/** @type {string} */ label) =>
   /** @type {HTMLButtonElement | undefined} */ (
@@ -221,15 +215,13 @@ test("removeQubitLineWithConfirmation OK click cascades removeQubitWithDependent
   assert.ok(okButton, "expected OK button on prompt");
   okButton.click();
 
-  // The H on wire 1 was removed via removeQubitWithDependents; only
-  // the X on wire 0 survives. Wire 1 itself was removed (trailing
-  // wire 2 was also unused so it was trimmed by
+  // The H on wire 1 was removed via removeQubitWithDependents; only the X on wire 0 survives. Wire
+  // 1 itself was removed (trailing wire 2 was also unused so it was trimmed by
   // removeTrailingUnusedQubits, leaving just wire 0).
   assert.equal(model.qubits.length, 1);
   assert.equal(model.qubits[0].id, 0);
-  // Surviving op is the X; renumbering may or may not shift its
-  // qubit index depending on removeQubit's behavior — assert only
-  // that the H is gone and the X remains.
+  // Surviving op is the X; renumbering may or may not shift its qubit index depending on
+  // removeQubit's behavior — assert only that the H is gone and the X remains.
   expectGrid(model, [["X"]]);
 
   // wireData was spliced in step with the model removal.
@@ -253,8 +245,7 @@ test("removeQubitLineWithConfirmation Cancel click leaves the model untouched an
   assert.ok(cancelButton, "expected Cancel button on prompt");
   cancelButton.click();
 
-  // Cancel must NOT mutate the model, NOT splice wireData, and
-  // NOT trigger a re-render.
+  // Cancel must NOT mutate the model, NOT splice wireData, and NOT trigger a re-render.
   assert.equal(model.qubits.length, 2);
   assert.equal(ctx.wireData.length, 3);
   assert.equal(renderCalls(), 0);
@@ -266,8 +257,8 @@ test("removeQubitLineWithConfirmation Cancel click leaves the model untouched an
 });
 
 // ---------------------------------------------------------------------------
-// Pointer interactions: label mousedown spawns dropzones; mouseup on a
-// swap dropzone dispatches moveQubit
+// Pointer interactions: label mousedown spawns dropzones; mouseup on a swap dropzone dispatches
+// moveQubit
 // ---------------------------------------------------------------------------
 
 test("mousedown on a qubit label sets selectedWire and dragging", () => {
@@ -286,14 +277,13 @@ test("mousedown on a label spawns swap and insert-between dropzones along OTHER 
 
   dispatchMouseDown(labels[1]);
 
-  // wireData has length n+1 (= 4) to account for the trailing ghost
-  // wire.
+  // wireData has length n+1 (= 4) to account for the trailing ghost wire.
   //
-  // Swap loop: targetWire = 0..wireData.length-2 (= 0, 1, 2), skip
-  // sourceWire (1) -> 2 dropzones at wires 0 and 2.
+  // Swap loop: targetWire = 0..wireData.length-2 (= 0, 1, 2), skip sourceWire (1) -> 2 dropzones at
+  // wires 0 and 2.
   //
-  // Between loop: i = 0..wireData.length-1 (= 0..3), skip sourceWire
-  // (1) and sourceWire+1 (2) -> 2 dropzones at i=0 and i=3.
+  // Between loop: i = 0..wireData.length-1 (= 0..3), skip sourceWire (1) and sourceWire+1 (2) -> 2
+  // dropzones at i=0 and i=3.
   //
   // Total = 4.
   const dropzones = overlay.querySelectorAll("[data-dropzone-wire]");
@@ -323,8 +313,8 @@ test("mouseup on a spawned swap dropzone calls moveQubit and renderFn", () => {
     new MouseEvent("mouseup", { bubbles: true }),
   );
 
-  // After the swap the H originally on wire 2 now lives on wire 0,
-  // and the X originally on wire 0 now lives on wire 2.
+  // After the swap the H originally on wire 2 now lives on wire 0, and the X originally on wire 0
+  // now lives on wire 2.
   expectGrid(model, [[{ H: 0 }, { X: 2 }]]);
   assert.equal(renderCalls(), 1);
 });

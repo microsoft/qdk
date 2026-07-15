@@ -1,12 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// CircuitModel tests — exercises the Data layer of the circuit
-// editor (`ux/circuit-vis/data/circuitModel.ts`) directly. Pure
-// data, no JSDOM. Covers the invariants the model maintains on
-// behalf of the Action layer: per-wire use counts, qubit-list
-// growth/trim, and the borrow-by-reference contract with the
-// underlying `Circuit`.
+// CircuitModel tests — exercises the Data layer of the circuit editor
+// (`ux/circuit-vis/data/circuitModel.ts`) directly. Pure data, no JSDOM. Covers the invariants the
+// model maintains on behalf of the Action layer: per-wire use counts, qubit-list growth/trim, and
+// the borrow-by-reference contract with the underlying `Circuit`.
 
 // @ts-check
 
@@ -27,8 +25,7 @@ function emptyCircuit(n) {
 }
 
 /**
- * Build a unitary op targeting `targetQubit`, optionally with
- * controls on `controlQubits`.
+ * Build a unitary op targeting `targetQubit`, optionally with controls on `controlQubits`.
  * @param {string} gate
  * @param {number} targetQubit
  * @param {number[]} [controlQubits]
@@ -115,8 +112,8 @@ test("constructor with measurement op counts only qubits, not result registers",
 
   const model = new CircuitModel(circuit);
 
-  // Wire 0 counted once for the qubit register; the result register
-  // (which has `result` defined) is excluded by the bounds check.
+  // Wire 0 counted once for the qubit register; the result register (which has `result` defined) is
+  // excluded by the bounds check.
   assert.deepEqual(model.qubitUseCounts, [1, 0, 0]);
 });
 
@@ -178,8 +175,8 @@ test("removeTrailingUnusedQubits drops only zero-count tail wires", () => {
 
   model.removeTrailingUnusedQubits();
 
-  // Wires 2 and 3 (trailing zeros) are gone; wires 0 and 1 stay
-  // because the trim stops at the first non-zero from the right.
+  // Wires 2 and 3 (trailing zeros) are gone; wires 0 and 1 stay because the trim stops at the first
+  // non-zero from the right.
   assert.equal(model.qubits.length, 2);
   assert.deepEqual(model.qubitUseCounts, [0, 1]);
 });
@@ -207,12 +204,10 @@ test("removeTrailingUnusedQubits: all-used is a no-op, all-unused empties the mo
 });
 
 test("removeTrailingUnusedQubits walks nested children, not just qubitUseCounts", () => {
-  // The trim must walk the actual op tree (including each group's
-  // derived `.targets`), not the incrementally-maintained
-  // `qubitUseCounts`. Groups can name wires in their derived
-  // `.targets` that the use-count cache no longer reflects;
-  // trusting the cache could drop a wire still referenced by a
-  // group, leaving the renderer with a stale row index.
+  // The trim must walk the actual op tree (including each group's derived `.targets`), not the
+  // incrementally-maintained `qubitUseCounts`. Groups can name wires in their derived `.targets`
+  // that the use-count cache no longer reflects; trusting the cache could drop a wire still
+  // referenced by a group, leaving the renderer with a stale row index.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
@@ -222,8 +217,8 @@ test("removeTrailingUnusedQubits walks nested children, not just qubitUseCounts"
           {
             kind: "unitary",
             gate: "Group",
-            // Group's own derived targets claim wire 3, even though
-            // the only nested child is on wire 0.
+            // Group's own derived targets claim wire 3, even though the only nested child is on
+            // wire 0.
             targets: [{ qubit: 0 }, { qubit: 3 }],
             children: [
               {
@@ -238,19 +233,16 @@ test("removeTrailingUnusedQubits walks nested children, not just qubitUseCounts"
     ],
   };
   const model = new CircuitModel(circuit);
-  // The constructor only walks top-level ops, so it counts the
-  // Group op's targets [0, 3] → useCounts = [1, 0, 0, 1].
-  // Now hand-corrupt qubitUseCounts to model the post-getChildTargets
-  // state: imagine a move that rewrote Group.targets and an
-  // intervening `_removeOp` zeroed out wire 3's counter even though
-  // Group still claims it.
+  // The constructor only walks top-level ops, so it counts the Group op's targets [0, 3] →
+  // useCounts = [1, 0, 0, 1]. Now hand-corrupt qubitUseCounts to model the post-getChildTargets
+  // state: imagine a move that rewrote Group.targets and an intervening `_removeOp` zeroed out wire
+  // 3's counter even though Group still claims it.
   model.qubitUseCounts = [1, 0, 0, 0];
 
   model.removeTrailingUnusedQubits();
 
-  // Wire 3 must NOT have been dropped, because Group's `.targets`
-  // still names it. (The renderer will read those targets and
-  // crash if wire 3 is gone.)
+  // Wire 3 must NOT have been dropped, because Group's `.targets` still names it. (The renderer
+  // will read those targets and crash if wire 3 is gone.)
   assert.equal(
     model.qubits.length,
     4,
@@ -259,9 +251,8 @@ test("removeTrailingUnusedQubits walks nested children, not just qubitUseCounts"
 });
 
 test("removeTrailingUnusedQubits is recursive into expanded-group children", () => {
-  // Even when the parent's derived `.targets` happens to be in
-  // sync, a wire used only deep inside a group's children must
-  // still keep the wire alive.
+  // Even when the parent's derived `.targets` happens to be in sync, a wire used only deep inside a
+  // group's children must still keep the wire alive.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
@@ -300,9 +291,8 @@ test("removeTrailingUnusedQubits is recursive into expanded-group children", () 
     ],
   };
   const model = new CircuitModel(circuit);
-  // Top-level constructor only sees Group's targets [0] → useCounts
-  // = [1, 0, 0]. Wire 2 is used only deep inside, so the counter
-  // is zero. The grid walk must keep wire 2.
+  // Top-level constructor only sees Group's targets [0] → useCounts = [1, 0, 0]. Wire 2 is used
+  // only deep inside, so the counter is zero. The grid walk must keep wire 2.
   assert.deepEqual(model.qubitUseCounts, [1, 0, 0]);
 
   model.removeTrailingUnusedQubits();

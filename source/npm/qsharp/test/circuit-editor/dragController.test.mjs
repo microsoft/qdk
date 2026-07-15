@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// DragController tests — exercises the drag-and-drop surface against
-// a hand-built SVG fixture. Each test focuses on a contract that
-// doesn't require the full `LayoutMap` / `process` rendering pipeline.
+// DragController tests — exercises the drag-and-drop surface against a hand-built SVG fixture. Each
+// test focuses on a contract that doesn't require the full `LayoutMap` / `process` rendering
+// pipeline.
 
 // @ts-check
 
@@ -64,8 +64,8 @@ function buildFixture() {
   ghostQubitLayer.setAttribute("class", "ghost-qubit-layer");
   overlay.appendChild(ghostQubitLayer);
 
-  // Toolbox item for the H gate. `getToolboxElems` selects on
-  // `[toolbox-item]`; the controller reads `data-type`.
+  // Toolbox item for the H gate. `getToolboxElems` selects on `[toolbox-item]`; the controller
+  // reads `data-type`.
   const toolboxItem = document.createElement("div");
   toolboxItem.setAttribute("toolbox-item", "");
   toolboxItem.setAttribute("data-type", "H");
@@ -82,8 +82,8 @@ function buildFixture() {
 }
 
 /**
- * Append a dropzone rect to the dropzone-layer at `(location, wire)`.
- * Returns the element so the caller can dispatch mouseup on it.
+ * Append a dropzone rect to the dropzone-layer at `(location, wire)`. Returns the element so the
+ * caller can dispatch mouseup on it.
  */
 function appendDropzone(
   /** @type {SVGElement} */ dropzoneLayer,
@@ -103,12 +103,11 @@ function appendDropzone(
 }
 
 /**
- * Construct a DragController + its `QubitController` dependency
- * against the fixture. `wireData` is filled with stable y-coords so
- * any spawned wire dropzones have somewhere to anchor.
+ * Construct a DragController + its `QubitController` dependency against the fixture. `wireData` is
+ * filled with stable y-coords so any spawned wire dropzones have somewhere to anchor.
  *
- * The returned `renderCalls()` accessor reports how many times the
- * controller asked for a re-render — most tests assert on this.
+ * The returned `renderCalls()` accessor reports how many times the controller asked for a re-render
+ * — most tests assert on this.
  */
 function makeController(
   /** @type {any} */ fixture,
@@ -138,9 +137,8 @@ function makeController(
     wireData,
     renderFn,
   };
-  // The drag controller uses the qubit controller for the
-  // qubit-label drag-out-delete path. We also need a qubit-input-states
-  // group so QubitController's constructor doesn't crash.
+  // The drag controller uses the qubit controller for the qubit-label drag-out-delete path. We also
+  // need a qubit-input-states group so QubitController's constructor doesn't crash.
   const labelGroup = document.createElementNS(SVG_NS, "g");
   labelGroup.setAttribute("class", "qubit-input-states");
   fixture.svg.insertBefore(labelGroup, fixture.overlay);
@@ -159,11 +157,10 @@ function makeController(
 }
 
 /**
- * Recursively stamp `dataAttributes.location` onto every op based on
- * its grid position — `"col,row"` at the top level, `"…-col,row"`
- * for nested children. Mirrors the location strings the editor
- * computes at render time, so the DSL-built circuits the tests feed
- * in resolve the same way the controller expects.
+ * Recursively stamp `dataAttributes.location` onto every op based on its grid position —
+ * `"col,row"` at the top level, `"…-col,row"` for nested children. Mirrors the location strings the
+ * editor computes at render time, so the DSL-built circuits the tests feed in resolve the same way
+ * the controller expects.
  *
  * @param {any[]} grid
  * @param {string} [prefix]
@@ -181,8 +178,8 @@ function assignLocations(grid, prefix = "") {
 }
 
 /**
- * Build a `CircuitModel` from a DSL circuit literal, stamping
- * grid-position locations onto every op first.
+ * Build a `CircuitModel` from a DSL circuit literal, stamping grid-position locations onto every op
+ * first.
  *
  * @param {any} circuitObj
  * @returns {any}
@@ -195,10 +192,9 @@ function buildModel(circuitObj) {
 /**
  * One-call test setup: fixture + located model + controller.
  *
- * `options.beforeController(fixture, model)` runs after the model is
- * built but before the controller is constructed — use it to seed
- * dropzones / gate elements that must exist when the controller
- * wires its listeners.
+ * `options.beforeController(fixture, model)` runs after the model is built but before the
+ * controller is constructed — use it to seed dropzones / gate elements that must exist when the
+ * controller wires its listeners.
  *
  * @param {any} circuitObj
  * @param {{ beforeController?: (fixture: any, model: any) => void }} [options]
@@ -212,8 +208,8 @@ function setup(circuitObj, options = {}) {
 }
 
 /**
- * Count how many ops named `name` appear anywhere in the model's
- * tree (top-level columns and every nested child grid).
+ * Count how many ops named `name` appear anywhere in the model's tree (top-level columns and every
+ * nested child grid).
  *
  * @param {any} model
  * @param {string} name
@@ -248,9 +244,8 @@ const dispatchMouseUp = (
   target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, ...init }));
 
 // ---------------------------------------------------------------
-// Basic gestures and lifecycle: toolbox drag, dropzone drop,
-// startAddingControl / startRemovingControl, off-circuit mouseup,
-// dispose()
+// Basic gestures and lifecycle: toolbox drag, dropzone drop, startAddingControl /
+// startRemovingControl, off-circuit mouseup, dispose()
 // ---------------------------------------------------------------
 
 test("toolbox mousedown sets selectedOperation to the toolbox prototype", () => {
@@ -284,8 +279,8 @@ test("dropzone mouseup after a toolbox drag adds the operation to the model", ()
 
   dispatchMouseUp(dropzone);
 
-  // Promise microtasks need to flush — onDropzoneMouseUp is async
-  // even when there are no params to prompt for.
+  // Promise microtasks need to flush — onDropzoneMouseUp is async even when there are no params to
+  // prompt for.
   return Promise.resolve().then(() => {
     assert.equal(model.componentGrid.length, 1);
     assert.equal(at(model, "0,0").gate, "H");
@@ -307,12 +302,10 @@ test("startAddingControl spawns one dropzone per non-target / non-control wire",
   const op = at(model, "0,0");
   /** @type {any} */ (dragController).startAddingControl(op, "0,0");
 
-  // wireData has length n+1 (= 5) including the trailing ghost wire.
-  // The controller iterates the full wireData length and excludes
-  // only target / existing-control wires — wires 0 (control) and 1
-  // (target) are skipped; wires 2, 3, and the ghost wire 4 each get
-  // a dropzone (3 total). Including the ghost wire is intentional:
-  // adding a control to it grows the circuit by one qubit.
+  // wireData has length n+1 (= 5) including the trailing ghost wire. The controller iterates the
+  // full wireData length and excludes only target / existing-control wires — wires 0 (control) and
+  // 1 (target) are skipped; wires 2, 3, and the ghost wire 4 each get a dropzone (3 total).
+  // Including the ghost wire is intentional: adding a control to it grows the circuit by one qubit.
   const dropzones = fixture.overlay.querySelectorAll(
     "[data-dropzone-wire]:not(.dropzone)",
   );
@@ -351,8 +344,8 @@ test("document mouseup off-circuit during a drag removes the source operation", 
     circuit(2, [[gate("H", 0)]]),
   );
 
-  // Simulate a drag in progress: source op is selected and ghost is
-  // out, but the mouseup never landed on the circuit surface.
+  // Simulate a drag in progress: source op is selected and ghost is out, but the mouseup never
+  // landed on the circuit surface.
   interaction.selectedOperation = at(model, "0,0");
   interaction.dragging = true;
   interaction.mouseUpOnCircuit = false;
@@ -375,8 +368,8 @@ test("dispose() removes document listeners so subsequent mouseup is a no-op", ()
 
   dragController.dispose();
 
-  // After dispose, the document mouseup handler is unregistered, so
-  // a drag-out-delete style dispatch should NOT mutate the model.
+  // After dispose, the document mouseup handler is unregistered, so a drag-out-delete style
+  // dispatch should NOT mutate the model.
   interaction.selectedOperation = at(model, "0,0");
   interaction.dragging = true;
   interaction.mouseUpOnCircuit = false;
@@ -389,17 +382,15 @@ test("dispose() removes document listeners so subsequent mouseup is a no-op", ()
 });
 
 // ---------------------------------------------------------------
-// onGateMouseDown on an expanded group. An expanded group renders
-// as `<g class="gate" data-expanded="true">`. The early return on
-// `data-expanded === "true"` means a mousedown on the group's own
-// box / label must NOT select the whole group — the user edits its
-// children individually, not the group as a unit.
+// onGateMouseDown on an expanded group. An expanded group renders as `<g class="gate"
+// data-expanded="true">`. The early return on `data-expanded === "true"` means a mousedown on the
+// group's own box / label must NOT select the whole group — the user edits its children
+// individually, not the group as a unit.
 // ---------------------------------------------------------------
 
 test("onGateMouseDown on an expanded group's box / label does not select the group", () => {
-  // Ordinary clicks on the expanded group's dashed box / label must
-  // leave `selectedOperation` untouched so the user can't grab the
-  // group as a whole when expanded.
+  // Ordinary clicks on the expanded group's dashed box / label must leave `selectedOperation`
+  // untouched so the user can't grab the group as a whole when expanded.
   /** @type {any} */
   let gateElem;
   const { interaction, dragController } = setup(
@@ -432,16 +423,14 @@ test("onGateMouseDown on an expanded group's box / label does not select the gro
 });
 
 // ---------------------------------------------------------------
-// commitAddControl must NOT duplicate the source op when the new
-// control's wire crosses a same-column sibling. The action layer's
-// `_resolveSpanChange` owns the cascade-aware split; the
+// commitAddControl must NOT duplicate the source op when the new control's wire crosses a
+// same-column sibling. The action layer's `_resolveSpanChange` owns the cascade-aware split; the
 // dragController must not run a second split of its own.
 // ---------------------------------------------------------------
 
 test("commitAddControl does not duplicate the source op when widening collides with a sibling", () => {
-  // 4 qubits. Column 0: [H on q0, Z on q3]. Adding a control on
-  // q3 to H widens H to span q0..q3 — overlaps Z, so the column
-  // must split.
+  // 4 qubits. Column 0: [H on q0, Z on q3]. Adding a control on q3 to H widens H to span q0..q3 —
+  // overlaps Z, so the column must split.
   const { model, fixture, dragController, renderCalls } = setup(
     circuit(4, [[gate("H", 0), gate("Z", 3)]]),
   );
@@ -449,8 +438,7 @@ test("commitAddControl does not duplicate the source op when widening collides w
   const hOp = at(model, "0,0");
   dragController.startAddingControl(hOp);
 
-  // Clicking the wire-pick dropzone for q3 widens H to span q0..q3
-  // — collides with Z.
+  // Clicking the wire-pick dropzone for q3 widens H to span q0..q3 — collides with Z.
   const dropzone = fixture.overlay.querySelector(
     '[data-dropzone-wire="3"]:not(.dropzone)',
   );
@@ -458,8 +446,7 @@ test("commitAddControl does not duplicate the source op when widening collides w
 
   dropzone.dispatchEvent(new MouseEvent("click", { button: 0, bubbles: true }));
 
-  // Action layer must have split the column: H alone in col 0,
-  // Z alone in col 1.
+  // Action layer must have split the column: H alone in col 0, Z alone in col 1.
   assert.equal(
     model.componentGrid.length,
     2,
@@ -480,8 +467,8 @@ test("commitAddControl does not duplicate the source op when widening collides w
     "Z must occupy col 1 alone",
   );
 
-  // H must appear exactly once in the grid. Count by gate name to
-  // catch any phantom duplicate wherever it ended up.
+  // H must appear exactly once in the grid. Count by gate name to catch any phantom duplicate
+  // wherever it ended up.
   const hCount = countGate(model, "H");
   assert.equal(
     hCount,
@@ -503,10 +490,9 @@ test("commitAddControl does not duplicate the source op when widening collides w
 });
 
 test("commitAddControl on a nested op does not duplicate when widening cascades to split the outer column", () => {
-  // Nested cousin of the previous test: adding a control to a child
-  // of Foo widens Foo's `.targets` to enclose the new wire; if that
-  // widened span overlaps a top-level sibling, the top-level column
-  // splits. Pin: no duplicate at either level.
+  // Nested cousin of the previous test: adding a control to a child of Foo widens Foo's `.targets`
+  // to enclose the new wire; if that widened span overlaps a top-level sibling, the top-level
+  // column splits. Pin: no duplicate at either level.
   const { model, fixture, dragController } = setup(
     circuit(4, [[group("Foo", [[gate("H", 0)]]), gate("X", 3)]]),
   );
@@ -514,9 +500,8 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
   const hOp = at(model, "0,0-0,0");
   dragController.startAddingControl(hOp);
 
-  // q3 is the X's wire — adding a control there widens H to
-  // q0..q3 → cascades up to widen Foo to q0..q3 → overlaps X
-  // → top-level col 0 must split.
+  // q3 is the X's wire — adding a control there widens H to q0..q3 → cascades up to widen Foo to
+  // q0..q3 → overlaps X → top-level col 0 must split.
   const dropzone = fixture.overlay.querySelector(
     '[data-dropzone-wire="3"]:not(.dropzone)',
   );
@@ -534,8 +519,7 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
     )}`,
   );
 
-  // H appears exactly once across the entire tree (no duplicate
-  // at the inner OR outer level).
+  // H appears exactly once across the entire tree (no duplicate at the inner OR outer level).
   const hCount = countGate(model, "H");
   const fooCount = countGate(model, "Foo");
   const xCount = countGate(model, "X");
@@ -547,21 +531,16 @@ test("commitAddControl on a nested op does not duplicate when widening cascades 
 });
 
 // ---------------------------------------------------------------
-// hideInvalidDropzones — the producer-before-consumer dropzone
-// filter and its reset cycle.
+// hideInvalidDropzones — the producer-before-consumer dropzone filter and its reset cycle.
 //
-// `hideInvalidDropzones(selectedLocation)` prevents dropping a
-// classically-conditional op into a column at-or-before its
-// producing measurement. It first calls `showAllDropzones` (the
-// reset half) so each drag starts clean; the layer-mouseup
-// teardown calls the same reset so a canceled drag doesn't leave
-// stale `display:none` marks for the next drag. `showAllDropzones`
-// has no standalone test — it's a trivial one-liner exercised
-// through both of its callers below.
+// `hideInvalidDropzones(selectedLocation)` prevents dropping a classically-conditional op into a
+// column at-or-before its producing measurement. It first calls `showAllDropzones` (the reset half)
+// so each drag starts clean; the layer-mouseup teardown calls the same reset so a canceled drag
+// doesn't leave stale `display:none` marks for the next drag. `showAllDropzones` has no standalone
+// test — it's a trivial one-liner exercised through both of its callers below.
 //
-// Tests invoke `hideInvalidDropzones` directly via
-// `/** @type {any} */` casts to focus on the filter contract; the
-// gate-mousedown tests cover the end-to-end mouse path.
+// Tests invoke `hideInvalidDropzones` directly via `/** @type {any} */` casts to focus on the
+// filter contract; the gate-mousedown tests cover the end-to-end mouse path.
 // ---------------------------------------------------------------
 
 /** Append a `.dropzone` rect with display:none preset (stale-mark fixture). */
@@ -576,10 +555,9 @@ function appendHiddenDropzone(
 }
 
 test("hideInvalidDropzones hides dropzones whose location is not strictly after the external producer", () => {
-  // Circuit: top-level col 0 has measurement M on q0 producing
-  // result 0; col 1 has consumer Z on q1 with classical control
-  // (q0, result 0). Drag the Z (selectedLocation "1,0"); the only
-  // external producer is M at "0,0".
+  // Circuit: top-level col 0 has measurement M on q0 producing result 0; col 1 has consumer Z on q1
+  // with classical control (q0, result 0). Drag the Z (selectedLocation "1,0"); the only external
+  // producer is M at "0,0".
   //
   // Dropzones we lay down in the layer:
   //   "0,0" → producer.col(0) NOT < target.col(0) → HIDE
@@ -619,13 +597,12 @@ test("hideInvalidDropzones hides dropzones whose location is not strictly after 
 });
 
 test("hideInvalidDropzones with no external producers leaves every dropzone visible AND clears stale marks", () => {
-  // Dragging an op with no classical-control dependencies: every
-  // dropzone stays visible, and any stale display:none marks left
-  // over from a prior drag are cleared (belt-and-suspenders reset).
+  // Dragging an op with no classical-control dependencies: every dropzone stays visible, and any
+  // stale display:none marks left over from a prior drag are cleared (belt-and-suspenders reset).
   const { fixture, dragController } = setup(circuit(2, [[gate("H", 0)]]));
 
-  // Two stale display:none dropzones simulating leftover state
-  // from a prior drag that had external producers.
+  // Two stale display:none dropzones simulating leftover state from a prior drag that had external
+  // producers.
   const dzStale1 = appendHiddenDropzone(fixture.dropzoneLayer, "0,0", 0);
   const dzStale2 = appendHiddenDropzone(fixture.dropzoneLayer, "1,0", 0);
 
@@ -642,9 +619,8 @@ test("hideInvalidDropzones with no external producers leaves every dropzone visi
 });
 
 test("hideInvalidDropzones skips dropzones missing data-dropzone-location (defensive)", () => {
-  // The pass reads `data-dropzone-location` off each `.dropzone`
-  // and skips entries where the attribute is missing. Defensive
-  // — the filter shouldn't crash if a stray `.dropzone` snuck into
+  // The pass reads `data-dropzone-location` off each `.dropzone` and skips entries where the
+  // attribute is missing. Defensive — the filter shouldn't crash if a stray `.dropzone` snuck into
   // the layer some other way.
   const { fixture, dragController } = setup(
     circuit(2, [
@@ -653,8 +629,7 @@ test("hideInvalidDropzones skips dropzones missing data-dropzone-location (defen
     ]),
   );
 
-  // A stray .dropzone with no location attr. Should be skipped
-  // (untouched) by the filter loop.
+  // A stray .dropzone with no location attr. Should be skipped (untouched) by the filter loop.
   const stray = document.createElementNS(SVG_NS, "rect");
   stray.setAttribute("class", "dropzone");
   fixture.dropzoneLayer.appendChild(stray);
@@ -669,10 +644,9 @@ test("hideInvalidDropzones skips dropzones missing data-dropzone-location (defen
 });
 
 test("container mouseup teardown clears stale per-dropzone display marks", () => {
-  // Pairs with `showAllDropzones` and `hideInvalidDropzones`:
-  // when a drag is canceled or its commit doesn't re-render, the
-  // layer-level mouseup must wipe any `display:none` marks the
-  // filter applied — otherwise the next drag inherits them.
+  // Pairs with `showAllDropzones` and `hideInvalidDropzones`: when a drag is canceled or its commit
+  // doesn't re-render, the layer-level mouseup must wipe any `display:none` marks the filter
+  // applied — otherwise the next drag inherits them.
   /** @type {any} */
   let dzHidden;
   /** @type {any} */
@@ -697,8 +671,7 @@ test("container mouseup teardown clears stale per-dropzone display marks", () =>
 });
 
 // ---------------------------------------------------------------
-// Remaining dragController paths. Each test pins a flow with a
-// distinct model-side contract:
+// Remaining dragController paths. Each test pins a flow with a distinct model-side contract:
 //
 //   - Ctrl+drag clone: source stays, copy lands at the target.
 //   - Document mouseup with `!dragging` is a no-op.
@@ -708,15 +681,14 @@ test("container mouseup teardown clears stale per-dropzone display marks", () =>
 // ---------------------------------------------------------------
 
 test("Ctrl+drag clone of a regular op: source stays, copy lands at the target", () => {
-  // Source: H on q0 in col 0. Target: an inter-column dropzone at
-  // "0,0" ("insert a new column before column 0") on wire 0.
-  // Copying (Ctrl) routes through `addOperation` instead of
-  // `moveOperationWithConfirmation`; the source must remain in
-  // place and the clone must land in a fresh column.
+  // Source: H on q0 in col 0. Target: an inter-column dropzone at "0,0" ("insert a new column
+  // before column 0") on wire 0. Copying (Ctrl) routes through `addOperation` instead of
+  // `moveOperationWithConfirmation`; the source must remain in place and the clone must land in a
+  // fresh column.
   //
-  // IMPORTANT: append the target dropzone BEFORE constructing the
-  // controller. `installDropzoneListeners` wires mouseup listeners
-  // at construction time; dropzones added later are inert.
+  // IMPORTANT: append the target dropzone BEFORE constructing the controller.
+  // `installDropzoneListeners` wires mouseup listeners at construction time; dropzones added later
+  // are inert.
   /** @type {any} */
   let targetDz;
   const { model, interaction, dragController, renderCalls } = setup(
@@ -738,10 +710,9 @@ test("Ctrl+drag clone of a regular op: source stays, copy lands at the target", 
   interaction.selectedWire = 0;
   interaction.dragging = true;
 
-  // ctrlKey on mouseup routes through the copying branch:
-  // `addOperation` is called with the source's `selectedWire` as
-  // the source wire, so the original H stays put and a deep-copy
-  // clone lands in the newly-inserted col 0.
+  // ctrlKey on mouseup routes through the copying branch: `addOperation` is called with the
+  // source's `selectedWire` as the source wire, so the original H stays put and a deep-copy clone
+  // lands in the newly-inserted col 0.
   targetDz.dispatchEvent(
     new MouseEvent("mouseup", { ctrlKey: true, bubbles: true }),
   );
@@ -764,8 +735,8 @@ test("Ctrl+drag clone of a regular op: source stays, copy lands at the target", 
 });
 
 test("document mouseup with !dragging is a no-op (no model change, no render)", () => {
-  // Mouseup events from unrelated UI must not trigger the
-  // drag-out-delete branch. The guard is `interaction.dragging`.
+  // Mouseup events from unrelated UI must not trigger the drag-out-delete branch. The guard is
+  // `interaction.dragging`.
   const { model, interaction, dragController, renderCalls } = setup(
     circuit(1, [[gate("H", 0)]]),
   );
@@ -784,14 +755,12 @@ test("document mouseup with !dragging is a no-op (no model change, no render)", 
 });
 
 test("qubit-drag-off (only selectedWire, no selectedOperation) removes the qubit line", () => {
-  // The document-mouseup handler delegates to
-  // `qubitController.removeQubitLineWithConfirmation` when a drag
-  // ends off-circuit with `selectedOperation == null` but
-  // `selectedWire != null` — a qubit label drag-off.
+  // The document-mouseup handler delegates to `qubitController.removeQubitLineWithConfirmation`
+  // when a drag ends off-circuit with `selectedOperation == null` but `selectedWire != null` — a
+  // qubit label drag-off.
   //
-  // The qubit controller skips the confirmation prompt when the
-  // qubit has zero ops attached, so we test against an unused qubit
-  // and assert the model shrinks.
+  // The qubit controller skips the confirmation prompt when the qubit has zero ops attached, so we
+  // test against an unused qubit and assert the model shrinks.
   const { model, interaction, dragController, renderCalls } = setup(
     circuit(2, [[gate("H", 0)]]),
   );
@@ -814,11 +783,10 @@ test("qubit-drag-off (only selectedWire, no selectedOperation) removes the qubit
 });
 
 test("drag-off with movingControl removes just the dragged control via removeControl (not the whole op)", () => {
-  // The movingControl branch of the document-mouseup drag-out path
-  // routes through `removeControl(selectedOperation, selectedWire)`,
-  // not `deleteOperationWithConfirmation`. The op stays in the
-  // grid with its `.controls` array shortened by one.
-  // The control on q1 is the one being dragged off.
+  // The movingControl branch of the document-mouseup drag-out path routes through
+  // `removeControl(selectedOperation, selectedWire)`, not `deleteOperationWithConfirmation`. The op
+  // stays in the grid with its `.controls` array shortened by one. The control on q1 is the one
+  // being dragged off.
   const { model, interaction, dragController, renderCalls } = setup(
     circuit(2, [[gate("H", 0, { ctrls: [1] })]]),
   );
@@ -835,8 +803,8 @@ test("drag-off with movingControl removes just the dragged control via removeCon
   assert.equal(model.componentGrid.length, 1);
   const op = at(model, "0,0");
   assert.equal(op.gate, "H");
-  // `removeControl` empties or nulls the controls array when the
-  // last control is removed; either is a "no controls" state.
+  // `removeControl` empties or nulls the controls array when the last control is removed; either is
+  // a "no controls" state.
   const remainingControls = op.controls ?? [];
   assert.equal(
     remainingControls.length,
@@ -850,13 +818,12 @@ test("drag-off with movingControl removes just the dragged control via removeCon
 });
 
 test("document mousedown clears wire dropzones in the SVG", () => {
-  // The wire-pick UIs (`startAddingControl`, qubit-label drag) drop
-  // `.dropzone-full-wire` rects into the SVG. The document-mousedown
-  // handler clears them so a click elsewhere dismisses the flow.
+  // The wire-pick UIs (`startAddingControl`, qubit-label drag) drop `.dropzone-full-wire` rects
+  // into the SVG. The document-mousedown handler clears them so a click elsewhere dismisses the
+  // flow.
   const { fixture, dragController } = setup(circuit(1, []));
 
-  // Inject two wire dropzones directly, mirroring what
-  // `createWireDropzone` produces.
+  // Inject two wire dropzones directly, mirroring what `createWireDropzone` produces.
   const wireDz1 = document.createElementNS(SVG_NS, "rect");
   wireDz1.setAttribute("class", "dropzone-full-wire");
   fixture.svg.appendChild(wireDz1);

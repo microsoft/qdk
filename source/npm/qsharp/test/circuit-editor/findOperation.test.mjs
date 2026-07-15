@@ -3,18 +3,16 @@
 
 // findOperation / findParentArray / findParentOperation tests.
 //
-// These are the location-walking helpers in `ux/circuit-vis/utils.ts`.
-// They share a single private bounds-checked walker, so the tests focus
-// on the contract every public helper must honor:
+// These are the location-walking helpers in `ux/circuit-vis/utils.ts`. They share a single private
+// bounds-checked walker, so the tests focus on the contract every public helper must honor:
 //
 //   - null / empty location → null
 //   - in-bounds location → the addressed thing
 //   - out-of-bounds location (top-level or nested) → null, never throw
 //
-// "Out of bounds" matters in practice because event handlers read
-// `data-location` attributes from the DOM, and those attributes can
-// outlive the model state they were written against (re-render races,
-// stale selection after an undo, hand-constructed locations, etc.).
+// "Out of bounds" matters in practice because event handlers read `data-location` attributes from
+// the DOM, and those attributes can outlive the model state they were written against (re-render
+// races, stale selection after an undo, hand-constructed locations, etc.).
 
 // @ts-check
 
@@ -41,9 +39,8 @@ function flatGrid() {
 }
 
 /**
- * Build a grid with one outer op (a "group") whose `children` is itself a
- * 1-column grid containing an inner X@0. The outer op lives at "0,0";
- * the inner op lives at "0,0-0,0".
+ * Build a grid with one outer op (a "group") whose `children` is itself a 1-column grid containing
+ * an inner X@0. The outer op lives at "0,0"; the inner op lives at "0,0-0,0".
  * @returns {ComponentGrid}
  */
 function nestedGrid() {
@@ -80,8 +77,8 @@ test("all three helpers return null for a null/empty location", () => {
 
 test("findOperation returns null (never throws) for out-of-bounds op indices", () => {
   const grid = nestedGrid();
-  // Out-of-bounds top-level column / op, out-of-bounds nested column / op,
-  // and a path below a missing ancestor.
+  // Out-of-bounds top-level column / op, out-of-bounds nested column / op, and a path below a
+  // missing ancestor.
   for (const loc of ["9,0", "0,9", "0,0-9,0", "0,0-0,9", "9,0-0,0"]) {
     assert.equal(findOperation(grid, loc), null, loc);
   }
@@ -89,8 +86,8 @@ test("findOperation returns null (never throws) for out-of-bounds op indices", (
 
 test("findParentArray/findParentOperation return null only when an ancestor is missing", () => {
   const grid = nestedGrid();
-  // The parent PATH is valid, so the containing grid is returned even when
-  // the addressed op index itself is out of bounds.
+  // The parent PATH is valid, so the containing grid is returned even when the addressed op index
+  // itself is out of bounds.
   assert.ok(findParentArray(grid, "9,0")); // root grid
   assert.ok(findParentArray(grid, "0,0-9,0")); // children grid
   // An ancestor in the path is missing → null.

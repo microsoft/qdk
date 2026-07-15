@@ -3,18 +3,15 @@
 
 // View-state stamp contract (`sqore-prev-location`).
 //
-// `moveOperation` deep-clones the source op, so the returned op
-// has a different identity than the one in `Sqore.lastLocationMap`.
-// A naive identity-keyed rebase in `Sqore.rebaseViewState` would
-// drop the ViewState entry for the moved op, causing user-set
-// expand/collapse choices to be lost. The most visible symptom
-// is on classically-controlled groups: when no ViewState entry
-// exists, the renderer's `hasClassicalControls && hasChildren`
-// default re-expands groups the user had explicitly collapsed.
+// `moveOperation` deep-clones the source op, so the returned op has a different identity than the
+// one in `Sqore.lastLocationMap`. A naive identity-keyed rebase in `Sqore.rebaseViewState` would
+// drop the ViewState entry for the moved op, causing user-set expand/collapse choices to be lost.
+// The most visible symptom is on classically-controlled groups: when no ViewState entry exists, the
+// renderer's `hasClassicalControls && hasChildren` default re-expands groups the user had
+// explicitly collapsed.
 //
-// `moveOperation` stamps `dataAttributes["sqore-prev-location"]`
-// on the new op with the pre-move location. Sqore consumes the
-// stamp as a fallback during rebase. These tests pin the stamp
+// `moveOperation` stamps `dataAttributes["sqore-prev-location"]` on the new op with the pre-move
+// location. Sqore consumes the stamp as a fallback during rebase. These tests pin the stamp
 // contract at the action layer.
 
 // @ts-check
@@ -50,8 +47,8 @@ test("moveOperation: stamp survives the deep-clone roundtrip even when source ha
 });
 
 test("moveOperation: stamp persists for a control-leg move on a group", () => {
-  // Control-leg move on a group takes a distinct `_moveY` branch but
-  // must still stamp prev-location for the ViewState transfer.
+  // Control-leg move on a group takes a distinct `_moveY` branch but must still stamp prev-location
+  // for the ViewState transfer.
   const model = build(
     circuit(4, [
       [group("Foo", [[gate("H", 1), gate("X", 2)]], { ctrls: [0] })],

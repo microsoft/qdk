@@ -6,13 +6,12 @@
 // Construction / extraction / assertion helpers for the
 // `circuit-editor/circuit-actions/group*.test.mjs` suites.
 //
-// Leading underscore keeps this file out of the `**/*.test.mjs`
-// discovery glob — it exports helpers, no tests of its own.
+// Leading underscore keeps this file out of the `**/*.test.mjs` discovery glob — it exports
+// helpers, no tests of its own.
 //
-// Helpers return plain literal-shape objects (no validation, no
-// class wrappers). They mirror what the model layer expects and
-// have everything cast to `any` at the boundary so test bodies
-// can stay free of `/** @type {any} */` ceremony.
+// Helpers return plain literal-shape objects (no validation, no class wrappers). They mirror what
+// the model layer expects and have everything cast to `any` at the boundary so test bodies can stay
+// free of `/** @type {any} */` ceremony.
 
 import assert from "node:assert/strict";
 import { CircuitModel } from "../../dist/ux/circuit-vis/data/circuitModel.js";
@@ -26,8 +25,8 @@ import { findOperation } from "../../dist/ux/circuit-vis/utils.js";
  * Build a qubits array.
  *
  * @param {number} n  number of qubits
- * @param {Record<number, number>} [results]  map from qubit index to
- *   `numResults`. Defaults to no `numResults` on any wire.
+ * @param {Record<number, number>} [results]  map from qubit index to `numResults`. Defaults to no
+ *   `numResults` on any wire.
  * @returns {any[]}
  */
 export const qubits = (n, results) =>
@@ -49,8 +48,7 @@ export const qubits = (n, results) =>
  *
  * @param {string} name
  * @param {number | number[]} target
- * @param {{ ctrls?: (number | { q: number, r?: number })[],
- *           conditional?: boolean }} [opts]
+ * @param {{ ctrls?: (number | { q: number, r?: number })[], conditional?: boolean }} [opts]
  * @returns {any}
  */
 export const gate = (name, target, opts) => {
@@ -95,14 +93,12 @@ export const meas = (qubit, opts) => ({
  *   ])
  *   group("Foo", [...], { ctrls: [3] })  // quantum-controlled group
  *
- * The group's `.targets` is auto-derived as the union of every
- * direct child's `.targets` and `.controls` quantum wires
- * (recursively for nested groups, since each nested group's own
- * `.targets` is similarly auto-derived). The group's own controls
- * (from `opts.ctrls`) live on `.controls`, not `.targets` — same as
- * the real `CircuitModel`. Pass `opts.span` to force a wider extent
- * than the children imply (e.g. a group that visually covers a wire
- * none of its children touch).
+ * The group's `.targets` is auto-derived as the union of every direct child's `.targets` and
+ * `.controls` quantum wires (recursively for nested groups, since each nested group's own
+ * `.targets` is similarly auto-derived). The group's own controls (from `opts.ctrls`) live on
+ * `.controls`, not `.targets` — same as the real `CircuitModel`. Pass `opts.span` to force a wider
+ * extent than the children imply (e.g. a group that visually covers a wire none of its children
+ * touch).
  *
  * @param {string} name
  * @param {any[][]} innerGrid  array of inner columns, each column an
@@ -135,8 +131,8 @@ export const group = (name, innerGrid, opts) => {
     }
   }
   const wires = [...childWires].sort((a, b) => a - b);
-  // `opts.span` overrides the derived extent when the group should
-  // visually cover wires its children don't all occupy.
+  // `opts.span` overrides the derived extent when the group should visually cover wires its
+  // children don't all occupy.
   const targetWires = opts?.span ?? wires;
 
   /** @type {any} */
@@ -152,9 +148,8 @@ export const group = (name, innerGrid, opts) => {
     );
   }
   if (opts?.conditional) out.isConditional = true;
-  // Mark the group as render-expanded (the renderer reads
-  // `dataAttributes.expanded` to show the body instead of a
-  // collapsed box).
+  // Mark the group as render-expanded (the renderer reads `dataAttributes.expanded` to show the
+  // body instead of a collapsed box).
   if (opts?.expanded) out.dataAttributes = { expanded: "true" };
   return out;
 };
@@ -162,12 +157,11 @@ export const group = (name, innerGrid, opts) => {
 /**
  * Build a circuit literal.
  *
- *   circuit(4, [[gate("H", 0)], [gate("X", 1)]])
- *   circuit(qubits(4, { 0: 1 }), [...])   // qubits with numResults
+ *   circuit(4, [[gate("H", 0)], [gate("X", 1)]]) circuit(qubits(4, { 0: 1 }), [...])   // qubits
+ *   with numResults
  *
  * @param {number | any[]} numQubitsOrQubits
- * @param {any[][]} grid  outer grid: array of columns, each column an
- *   array of ops
+ * @param {any[][]} grid  outer grid: array of columns, each column an array of ops
  * @returns {any}
  */
 export const circuit = (numQubitsOrQubits, grid) => ({
@@ -191,8 +185,8 @@ export const build = (circuitObj) => new CircuitModel(circuitObj);
 // ---------------------------------------------------------------
 
 /**
- * Look up an op in `model` by location string. Cast to `any` for
- * ergonomic property access in tests.
+ * Look up an op in `model` by location string. Cast to `any` for ergonomic property access in
+ * tests.
  *
  * @param {any} model
  * @param {string} location  e.g. `"0,0"`, `"0,0-1,0"`, `"0,0-0,0-1,0"`
@@ -217,8 +211,7 @@ export const ctrlWires = (op) =>
   (op.controls ?? []).map((/** @type {any} */ c) => c.qubit);
 
 /**
- * Gate names of every top-level column, as a 2D array.
- *   [["Foo", "X"], ["Z"]]
+ * Gate names of every top-level column, as a 2D array. [["Foo", "X"], ["Z"]]
  * @param {any} model
  * @returns {string[][]}
  */
@@ -317,20 +310,17 @@ export const assertExcludesWires = (op, ...excluded) => {
 // ---------------------------------------------------------------
 // Shape-DSL assertions.
 //
-// `expectGrid(model, gridSpec)` and `expectOp(op, opSpec)` match
-// against a declarative spec literal. Conventions:
+// `expectGrid(model, gridSpec)` and `expectOp(op, opSpec)` match against a declarative spec
+// literal. Conventions:
 //
-//   - Objects (op spec bodies) are SUBSET matches: only declared
-//     keys are checked.
-//   - Arrays (`wires`, `qubits`, `ctrls`, `results`, `componentGrid`
-//     columns, column components) are EXACT matches: length must
-//     agree. `targets` / `qubits` / `ctrls` / `results` are sorted
-//     before compare. Ops within a column / inner-column are
-//     matched ORDER-INDEPENDENTLY (greedy): each spec item is
-//     matched against any remaining actual op. Within a child
-//     grid, COLUMN order IS load-bearing (columns are temporal).
-//   - `children` is an ordered array of columns (temporal); each
-//     column's ops are matched order-independently.
+//   - Objects (op spec bodies) are SUBSET matches: only declared keys are checked.
+//   - Arrays (`wires`, `qubits`, `ctrls`, `results`, `componentGrid` columns, column components)
+//     are EXACT matches: length must agree. `targets` / `qubits` / `ctrls` / `results` are sorted
+//     before compare. Ops within a column / inner-column are matched ORDER-INDEPENDENTLY (greedy):
+//     each spec item is matched against any remaining actual op. Within a child grid, COLUMN order
+//     IS load-bearing (columns are temporal).
+//   - `children` is an ordered array of columns (temporal); each column's ops are matched
+//     order-independently.
 //
 // Op spec grammar:
 //   "H"                                 // gate name only, no further checks
@@ -466,9 +456,8 @@ const matchOp = (actual, spec, path) => {
 };
 
 /**
- * Try to match `actual` against `spec`. Returns true on success,
- * false on any mismatch. Used by `matchColumn` to greedy-pair
- * spec items with actual ops without depending on storage order.
+ * Try to match `actual` against `spec`. Returns true on success, false on any mismatch. Used by
+ * `matchColumn` to greedy-pair spec items with actual ops without depending on storage order.
  *
  * @param {any} actual
  * @param {any} spec
@@ -493,16 +482,15 @@ const matchColumn = (actualOps, specOps, path) => {
     specOps.length,
     `${path}: op count (got ${actualOps.length}, expected ${specOps.length})`,
   );
-  // Order-independent (greedy): for each spec item, claim the
-  // first unclaimed actual that matches. Column data order is
-  // essentially insertion order and not load-bearing — the
-  // renderer positions ops by wire, not by list index.
+  // Order-independent (greedy): for each spec item, claim the first unclaimed actual that matches.
+  // Column data order is essentially insertion order and not load-bearing — the renderer positions
+  // ops by wire, not by list index.
   const remaining = [...actualOps];
   specOps.forEach((spec, i) => {
     const idx = remaining.findIndex((op) => wouldMatchOp(op, spec));
     if (idx === -1) {
-      // Re-run match against the first remaining op to surface a
-      // useful diagnostic (gate-name mismatch, wires mismatch, etc).
+      // Re-run match against the first remaining op to surface a useful diagnostic (gate-name
+      // mismatch, wires mismatch, etc).
       matchOp(remaining[0], spec, `${path}[${i}]`);
       assert.fail(
         `${path}[${i}]: no remaining op in column matches spec ${JSON.stringify(spec)}`,
@@ -513,8 +501,8 @@ const matchColumn = (actualOps, specOps, path) => {
 };
 
 /**
- * Assert that `op` matches the given spec (subset on object keys,
- * exact on arrays). See the comment block above for grammar.
+ * Assert that `op` matches the given spec (subset on object keys, exact on arrays). See the comment
+ * block above for grammar.
  *
  * @param {any} op
  * @param {any} spec
@@ -522,8 +510,8 @@ const matchColumn = (actualOps, specOps, path) => {
 export const expectOp = (op, spec) => matchOp(op, spec, "op");
 
 /**
- * Assert that `model`'s top-level grid matches the given spec
- * (a 2D array: outer = columns, inner = ops per column).
+ * Assert that `model`'s top-level grid matches the given spec (a 2D array: outer = columns, inner =
+ * ops per column).
  *
  * @param {any} model
  * @param {any[][]} gridSpec

@@ -1,12 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Ancestor `.targets` cache refresh after a child mutation: when
-// a group's children change shape (via `addOperation`,
-// `removeOperation`, `addControl`, `removeControl`, or
-// `moveOperation`), every ancestor's eager `.targets` is
-// re-derived bottom-up in canonical `(qubit, result)` order that
-// the renderer (`_splitTargetsY`, `_unitary` box geometry) depends on.
+// Ancestor `.targets` cache refresh after a child mutation: when a group's children change shape
+// (via `addOperation`, `removeOperation`, `addControl`, `removeControl`, or `moveOperation`), every
+// ancestor's eager `.targets` is re-derived bottom-up in canonical `(qubit, result)` order that the
+// renderer (`_splitTargetsY`, `_unitary` box geometry) depends on.
 
 // @ts-check
 
@@ -35,8 +33,8 @@ import {
 // ---------------------------------------------------------------------------
 // addOperation / removeOperation: ancestor refresh.
 //
-// Both paths mutate a group's children, so the group's eager
-// `.targets` cache must be refreshed afterwards.
+// Both paths mutate a group's children, so the group's eager `.targets` cache must be refreshed
+// afterwards.
 // ---------------------------------------------------------------------------
 
 test("addOperation: adding a child to a group on a wire outside its span extends the group's targets", () => {
@@ -94,8 +92,8 @@ test("removeOperation: cascade — removing a deep child narrows nested ancestor
 // ---------------------------------------------------------------------------
 // addControl / removeControl: ancestor refresh.
 //
-// Adding/removing a control widens or narrows the op's wire span,
-// which must propagate into every ancestor's `.targets` cache.
+// Adding/removing a control widens or narrows the op's wire span, which must propagate into every
+// ancestor's `.targets` cache.
 // ---------------------------------------------------------------------------
 
 test("addControl: adding a control to a child op on a wire outside the group's span extends the group's targets", () => {
@@ -137,17 +135,15 @@ test("removeControl: removing the only control extending a group's span narrows 
 // ---------------------------------------------------------------------------
 // moveOperation: ancestor refresh.
 //
-// `moveOperation` re-derives each destination ancestor's `.targets`
-// from its post-move children. The target location string is
-// authoritative: dropping into group G makes G's `.targets` reflect
-// that, even when the drop wire was outside G's pre-move span. The
-// cascade walks innermost-out and stops at the first ancestor that
-// already encloses the widened child below it.
+// `moveOperation` re-derives each destination ancestor's `.targets` from its post-move children.
+// The target location string is authoritative: dropping into group G makes G's `.targets` reflect
+// that, even when the drop wire was outside G's pre-move span. The cascade walks innermost-out and
+// stops at the first ancestor that already encloses the widened child below it.
 // ---------------------------------------------------------------------------
 
 test("moveOperation extend: shift-drop onto a wire just outside group's span extends the group's targets", () => {
-  // With H now Foo's only child, Foo re-derives to [2]; the point is
-  // that q2 (outside the old span 0-1) is enclosed.
+  // With H now Foo's only child, Foo re-derives to [2]; the point is that q2 (outside the old span
+  // 0-1) is enclosed.
   const model = build(circuit(3, [[group("Foo", [[gate("H", 0)]])]]));
 
   // shift-extend H from q0 → q2
@@ -168,8 +164,8 @@ test("moveOperation extend: shift-drop onto a wire just outside group's span ext
 });
 
 test("moveOperation extend: shift-drop several wires past the span extends across the gap", () => {
-  // A non-contiguous span is unrepresentable; .targets is a set
-  // whose min/max define the rendered span, so it must reach q4.
+  // A non-contiguous span is unrepresentable; .targets is a set whose min/max define the rendered
+  // span, so it must reach q4.
   const model = build(circuit(5, [[group("Foo", [[gate("H", 0)]])]]));
 
   // shift-extend H from q0 → q4 (two-wire gap)
@@ -180,8 +176,8 @@ test("moveOperation extend: shift-drop several wires past the span extends acros
 });
 
 test("moveOperation extend: multi-wire source extends to cover its new top wire", () => {
-  // Grabbing CNOT by its target (q1) and dropping on q2 slides
-  // control 0→1 and target 1→2; Foo's new max must reach q2.
+  // Grabbing CNOT by its target (q1) and dropping on q2 slides control 0→1 and target 1→2; Foo's
+  // new max must reach q2.
   const model = build(
     circuit(4, [[group("Foo", [[gate("X", 1, { ctrls: [0] })]])]]),
   );
@@ -206,8 +202,8 @@ test("moveOperation extend: multi-wire source extends to cover its new top wire"
 });
 
 test("moveOperation extend: cascade refreshes nested ancestors whose span is now exceeded", () => {
-  // Cascade: Inner extends to enclose q2, then Outer (no longer
-  // enclosing Inner's new span) extends too.
+  // Cascade: Inner extends to enclose q2, then Outer (no longer enclosing Inner's new span) extends
+  // too.
   const model = build(
     circuit(3, [[group("Outer", [[group("Inner", [[gate("H", 0)]])]])]]),
   );
@@ -229,9 +225,8 @@ test("moveOperation extend: cascade refreshes nested ancestors whose span is now
 });
 
 test("moveOperation extend: cascade stops at first ancestor that already encloses the child", () => {
-  // Outer spans 0-3 (padding P0@q0, P3@q3); Inner spans 1-2. Dropping
-  // H onto q0 is inside Outer but outside Inner: Inner extends, Outer
-  // is already wide enough and the cascade early-exits.
+  // Outer spans 0-3 (padding P0@q0, P3@q3); Inner spans 1-2. Dropping H onto q0 is inside Outer but
+  // outside Inner: Inner extends, Outer is already wide enough and the cascade early-exits.
   const model = build(
     circuit(4, [
       [
@@ -262,9 +257,8 @@ test("moveOperation extend: cascade stops at first ancestor that already enclose
 });
 
 test("moveOperation extend: dest cascade is a no-op when dest is top-level, even when source-side prune empties the source group", () => {
-  // Moving Foo's only child to top level empties Foo: the source-side
-  // prune removes Foo while the dest-side cascade (top-level dest)
-  // is a no-op. Confirms the two halves don't interfere.
+  // Moving Foo's only child to top level empties Foo: the source-side prune removes Foo while the
+  // dest-side cascade (top-level dest) is a no-op. Confirms the two halves don't interfere.
   const model = build(
     circuit(3, [[group("Foo", [[gate("H", 0)]])], [gate("Y", 2)]]),
   );
@@ -280,9 +274,9 @@ test("moveOperation extend: dest cascade is a no-op when dest is top-level, even
 });
 
 test("moveOperation extend: external source dropped into group on off-span wire extends the group", () => {
-  // Cross-chain move: source lives OUTSIDE Foo, so the source-side
-  // refresh acts on H's old top-level ancestors. The dest-side
-  // cascade is the only thing keeping Foo's `.targets` honest here.
+  // Cross-chain move: source lives OUTSIDE Foo, so the source-side refresh acts on H's old
+  // top-level ancestors. The dest-side cascade is the only thing keeping Foo's `.targets` honest
+  // here.
   const model = build(
     circuit(3, [[gate("H", 2)], [group("Foo", [[gate("X", 0)]])]]),
   );
@@ -299,24 +293,21 @@ test("moveOperation extend: external source dropped into group on off-span wire 
   );
   assert.ok(moved, "move must succeed");
 
-  // Top-level col 0 (only had H) is now empty and pruned, so Foo
-  // lands at top-level "0,0".
+  // Top-level col 0 (only had H) is now empty and pruned, so Foo lands at top-level "0,0".
   assertEnclosesWires(at(model, "0,0"), 2);
 });
 
 // ---------------------------------------------------------------------------
 // Canonical target-order invariant.
 //
-// Refreshed group targets must be in canonical `(qubit, result)`
-// order — qubit-only refs before their classical-result siblings —
-// regardless of child iteration order. Renderer consumers
+// Refreshed group targets must be in canonical `(qubit, result)` order — qubit-only refs before
+// their classical-result siblings — regardless of child iteration order. Renderer consumers
 // (`_splitTargetsY`, `_unitary` box geometry) depend on this.
 // ---------------------------------------------------------------------------
 
 test("ancestor refresh: produces canonical (qubit, result) target order regardless of child-iteration order", () => {
-  // Child-iteration visits refs as [q2, c2.0, q0]; the refresh must
-  // re-sort to canonical (qubit index first; qubit-only before
-  // result-bearing for the same qubit).
+  // Child-iteration visits refs as [q2, c2.0, q0]; the refresh must re-sort to canonical (qubit
+  // index first; qubit-only before result-bearing for the same qubit).
   const model = build(
     circuit(3, [
       [

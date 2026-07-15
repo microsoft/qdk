@@ -1,16 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// KeyboardController tests — exercises the smallest controller in
-// isolation against a stub `InteractionContext`. Demonstrates the
-// controller-layer testability: a controller can be instantiated
-// against a hand-rolled context and asserted directly, without
-// spinning up the full editor (no Sqore, no LayoutMap, no actual
-// circuit).
+// KeyboardController tests — exercises the smallest controller in isolation against a stub
+// `InteractionContext`. Demonstrates the controller-layer testability: a controller can be
+// instantiated against a hand-rolled context and asserted directly, without spinning up the full
+// editor (no Sqore, no LayoutMap, no actual circuit).
 //
-// JSDOM is required because the controller installs document-level
-// keydown/keyup listeners. Other dependencies (`model`, `layoutMap`,
-// `circuitSvg`, etc.) are unused by this controller and stubbed
+// JSDOM is required because the controller installs document-level keydown/keyup listeners. Other
+// dependencies (`model`, `layoutMap`, `circuitSvg`, etc.) are unused by this controller and stubbed
 // minimally.
 //
 
@@ -73,9 +70,8 @@ const dispatchPlainKey = (/** @type {string} */ type) => {
 };
 
 /**
- * A placed gate: `dataAttributes.location` is what
- * getGateLocationString reads to distinguish a real placement from
- * a toolbox drag.
+ * A placed gate: `dataAttributes.location` is what getGateLocationString reads to distinguish a
+ * real placement from a toolbox drag.
  *
  * @param {string} [location]
  */
@@ -85,8 +81,7 @@ const placedGate = (location = "0,1") => ({
 });
 
 /**
- * A toolbox prototype: a selectedOperation with no location yet
- * (it gets one once dropped).
+ * A toolbox prototype: a selectedOperation with no location yet (it gets one once dropped).
  */
 const toolboxProto = () => ({ kind: "unitary" });
 

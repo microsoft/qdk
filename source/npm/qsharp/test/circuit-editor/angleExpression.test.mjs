@@ -1,16 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// angleExpression tests — direct coverage for the two helpers in
-// `angleExpression.ts` that drive the Edit Argument input prompt
-// in [contextMenu.ts](../../ux/circuit-vis/editor/contextMenu.ts):
+// angleExpression tests — direct coverage for the two helpers in `angleExpression.ts` that drive
+// the Edit Argument input prompt in [contextMenu.ts](../../ux/circuit-vis/editor/contextMenu.ts):
 //
-//   - `isValidAngleExpression(expr)` is the predicate the prompt
-//     consults on every keystroke to enable/disable OK. Anything it
-//     accepts ends up persisted into the operation's `args`.
-//   - `normalizeAngleExpression(expr)` runs BEFORE validation: it
-//     trims surrounding whitespace and folds case-insensitive `pi`
-//     to `π`. The persisted value is the normalized form, so OK's
+//   - `isValidAngleExpression(expr)` is the predicate the prompt consults on every keystroke to
+//     enable/disable OK. Anything it accepts ends up persisted into the operation's `args`.
+//   - `normalizeAngleExpression(expr)` runs BEFORE validation: it trims surrounding whitespace and
+//     folds case-insensitive `pi` to `π`. The persisted value is the normalized form, so OK's
 //     enabled state must agree with what the user sees after Save.
 
 // @ts-check
@@ -27,9 +24,8 @@ import {
 // ---------------------------------------------------------------------------
 
 test("isValidAngleExpression: plain numbers (positive, negative, decimal) are valid", () => {
-  // The simplest path — the prompt should accept any literal
-  // numeric value the user types, including the "5." trailing-dot
-  // form (mirroring JavaScript's `parseFloat` tolerance).
+  // The simplest path — the prompt should accept any literal numeric value the user types,
+  // including the "5." trailing-dot form (mirroring JavaScript's `parseFloat` tolerance).
   assert.equal(isValidAngleExpression("0"), true);
   assert.equal(isValidAngleExpression("5"), true);
   assert.equal(isValidAngleExpression("-5"), true);
@@ -40,10 +36,9 @@ test("isValidAngleExpression: plain numbers (positive, negative, decimal) are va
 });
 
 test("isValidAngleExpression: bare π is valid in all four case forms", () => {
-  // The prompt's placeholder example is `"π / 2.0"`; the user
-  // can type π directly via the on-screen π button, or use any
-  // case variant of `pi` which `normalizeAngleExpression` folds
-  // to π before this check runs.
+  // The prompt's placeholder example is `"π / 2.0"`; the user can type π directly via the on-screen
+  // π button, or use any case variant of `pi` which `normalizeAngleExpression` folds to π before
+  // this check runs.
   assert.equal(isValidAngleExpression("π"), true);
   assert.equal(isValidAngleExpression("pi"), true);
   assert.equal(isValidAngleExpression("Pi"), true);
@@ -51,16 +46,15 @@ test("isValidAngleExpression: bare π is valid in all four case forms", () => {
 });
 
 test("isValidAngleExpression: signed π is valid", () => {
-  // The `-π` and `+π` forms are the unary-sign-on-pi-factor path
-  // through the parser; pin both.
+  // The `-π` and `+π` forms are the unary-sign-on-pi-factor path through the parser; pin both.
   assert.equal(isValidAngleExpression("-π"), true);
   assert.equal(isValidAngleExpression("+π"), true);
   assert.equal(isValidAngleExpression("-pi"), true);
 });
 
 test("isValidAngleExpression: arithmetic combinations are valid", () => {
-  // The four supported binary operators, with both numbers and π.
-  // These mirror the prompt's example text ("π / 2.0", "2.0 * π").
+  // The four supported binary operators, with both numbers and π. These mirror the prompt's example
+  // text ("π / 2.0", "2.0 * π").
   assert.equal(isValidAngleExpression("2 + 3"), true);
   assert.equal(isValidAngleExpression("2 - 3"), true);
   assert.equal(isValidAngleExpression("2 * 3"), true);
@@ -79,10 +73,9 @@ test("isValidAngleExpression: parentheses (including nesting) are valid", () => 
 });
 
 test("isValidAngleExpression: leading/trailing whitespace is tolerated", () => {
-  // `normalizeAngleExpression` (called internally by the
-  // evaluator) trims; the prompt also normalizes the value
-  // BEFORE this predicate runs, so being lenient here matches
-  // what the user sees after the auto-trim.
+  // `normalizeAngleExpression` (called internally by the evaluator) trims; the prompt also
+  // normalizes the value BEFORE this predicate runs, so being lenient here matches what the user
+  // sees after the auto-trim.
   assert.equal(isValidAngleExpression("  π  "), true);
   assert.equal(isValidAngleExpression("\tπ / 2\n"), true);
 });
@@ -92,18 +85,16 @@ test("isValidAngleExpression: leading/trailing whitespace is tolerated", () => {
 // ---------------------------------------------------------------------------
 
 test("isValidAngleExpression: empty / whitespace-only input is invalid", () => {
-  // The prompt's default OK-disabled state for an empty input.
-  // `evaluateAngleExpression` short-circuits on a falsy `expr`
-  // or a falsy post-normalize string.
+  // The prompt's default OK-disabled state for an empty input. `evaluateAngleExpression`
+  // short-circuits on a falsy `expr` or a falsy post-normalize string.
   assert.equal(isValidAngleExpression(""), false);
   assert.equal(isValidAngleExpression(" "), false);
   assert.equal(isValidAngleExpression("\t\n"), false);
 });
 
 test("isValidAngleExpression: unknown characters are invalid", () => {
-  // Any character outside `[0-9.+\-*/()\sπ]` (after the `pi` →
-  // `π` fold) takes the tokenizer's "unknown character" fallthrough
-  // and returns undefined. Pin a few common typos.
+  // Any character outside `[0-9.+\-*/()\sπ]` (after the `pi` → `π` fold) takes the tokenizer's
+  // "unknown character" fallthrough and returns undefined. Pin a few common typos.
   assert.equal(isValidAngleExpression("π^2"), false);
   assert.equal(isValidAngleExpression("sin(π)"), false);
   assert.equal(isValidAngleExpression("π & 2"), false);
@@ -111,8 +102,8 @@ test("isValidAngleExpression: unknown characters are invalid", () => {
 });
 
 test("isValidAngleExpression: malformed numbers are invalid", () => {
-  // The number tokenizer requires `\d+(\.\d*)?` — no leading dot,
-  // no multiple decimals. Both are rejected.
+  // The number tokenizer requires `\d+(\.\d*)?` — no leading dot, no multiple decimals. Both are
+  // rejected.
   assert.equal(
     isValidAngleExpression(".5"),
     false,
@@ -126,26 +117,24 @@ test("isValidAngleExpression: malformed numbers are invalid", () => {
 });
 
 test("isValidAngleExpression: unbalanced parentheses are invalid", () => {
-  // `parseFactor`'s `lpar` branch requires a matching `rpar`
-  // and returns undefined if it doesn't see one. The "extra
-  // rpar" case fails the trailing `k !== toks.length` guard.
+  // `parseFactor`'s `lpar` branch requires a matching `rpar` and returns undefined if it doesn't
+  // see one. The "extra rpar" case fails the trailing `k !== toks.length` guard.
   assert.equal(isValidAngleExpression("(π"), false);
   assert.equal(isValidAngleExpression("π)"), false);
   assert.equal(isValidAngleExpression("((π)"), false);
 });
 
 test("isValidAngleExpression: trailing / dangling operators are invalid", () => {
-  // `parseExpr` / `parseTerm` call `parseFactor` after consuming
-  // an operator; if the RHS factor is missing, the parse returns
-  // undefined.
+  // `parseExpr` / `parseTerm` call `parseFactor` after consuming an operator; if the RHS factor is
+  // missing, the parse returns undefined.
   assert.equal(isValidAngleExpression("π +"), false);
   assert.equal(isValidAngleExpression("π *"), false);
   assert.equal(isValidAngleExpression("2 +"), false);
 });
 
 test("isValidAngleExpression: lone operators / empty parens are invalid", () => {
-  // No factor at all (operator only, empty parens) → parseFactor
-  // returns undefined on the first call.
+  // No factor at all (operator only, empty parens) → parseFactor returns undefined on the first
+  // call.
   assert.equal(isValidAngleExpression("+"), false);
   assert.equal(isValidAngleExpression("-"), false);
   assert.equal(isValidAngleExpression("*"), false);
@@ -153,21 +142,18 @@ test("isValidAngleExpression: lone operators / empty parens are invalid", () => 
 });
 
 test("isValidAngleExpression: infinite results (division by zero) are invalid", () => {
-  // The evaluator's final `!isFinite(result)` guard rejects
-  // `1/0` and friends — the prompt should not allow the user
-  // to commit an angle that would evaluate to ±Infinity.
+  // The evaluator's final `!isFinite(result)` guard rejects `1/0` and friends — the prompt should
+  // not allow the user to commit an angle that would evaluate to ±Infinity.
   assert.equal(isValidAngleExpression("1 / 0"), false);
   assert.equal(isValidAngleExpression("π / 0"), false);
   assert.equal(isValidAngleExpression("-1 / 0"), false);
 });
 
 test("isValidAngleExpression: adjacent factors without an operator are invalid", () => {
-  // Implicit multiplication isn't supported; "2π" is rejected
-  // even though it's a common math-notation shorthand. The
-  // parser leaves the `pi` token unconsumed after `parseFactor`
-  // returns `2`, then the trailing `k !== toks.length` guard
-  // trips. (If implicit-multiply support is added later, this
-  // test should be updated to expect `true`.)
+  // Implicit multiplication isn't supported; "2π" is rejected even though it's a common
+  // math-notation shorthand. The parser leaves the `pi` token unconsumed after `parseFactor`
+  // returns `2`, then the trailing `k !== toks.length` guard trips. (If implicit-multiply support
+  // is added later, this test should be updated to expect `true`.)
   assert.equal(isValidAngleExpression("2π"), false);
   assert.equal(isValidAngleExpression("π2"), false);
 });
@@ -177,18 +163,17 @@ test("isValidAngleExpression: adjacent factors without an operator are invalid",
 // ---------------------------------------------------------------------------
 
 test("normalizeAngleExpression: trims surrounding whitespace", () => {
-  // The prompt persists the normalized value, so leading/trailing
-  // whitespace must not survive into the operation's `args`.
+  // The prompt persists the normalized value, so leading/trailing whitespace must not survive into
+  // the operation's `args`.
   assert.equal(normalizeAngleExpression("  π  "), "π");
   assert.equal(normalizeAngleExpression("\tπ / 2\n"), "π / 2");
   assert.equal(normalizeAngleExpression(""), "");
 });
 
 test("normalizeAngleExpression: folds case-insensitive 'pi' → 'π'", () => {
-  // The π button on the prompt inserts the literal character, but
-  // users can also type any case variant of `pi`. Both must
-  // normalize to the same persisted form so `args` doesn't depend
-  // on which input path was used.
+  // The π button on the prompt inserts the literal character, but users can also type any case
+  // variant of `pi`. Both must normalize to the same persisted form so `args` doesn't depend on
+  // which input path was used.
   assert.equal(normalizeAngleExpression("pi"), "π");
   assert.equal(normalizeAngleExpression("Pi"), "π");
   assert.equal(normalizeAngleExpression("PI"), "π");
@@ -196,19 +181,17 @@ test("normalizeAngleExpression: folds case-insensitive 'pi' → 'π'", () => {
 });
 
 test("normalizeAngleExpression: folds 'pi' embedded inside an expression", () => {
-  // The fold is unanchored — every occurrence within an
-  // expression is replaced. Pin the common case (a `pi` factor
-  // inside an arithmetic expression).
+  // The fold is unanchored — every occurrence within an expression is replaced. Pin the common case
+  // (a `pi` factor inside an arithmetic expression).
   assert.equal(normalizeAngleExpression("pi / 2"), "π / 2");
   assert.equal(normalizeAngleExpression("2 * Pi + PI"), "2 * π + π");
   assert.equal(normalizeAngleExpression("(pi)"), "(π)");
 });
 
 test("normalizeAngleExpression: leaves already-normalized π untouched", () => {
-  // Idempotency — passing the output back through the normalizer
-  // must be a no-op. The prompt re-runs the normalize step on
-  // every input event, so this property is what keeps the OK
-  // button's enabled state stable.
+  // Idempotency — passing the output back through the normalizer must be a no-op. The prompt
+  // re-runs the normalize step on every input event, so this property is what keeps the OK button's
+  // enabled state stable.
   assert.equal(normalizeAngleExpression("π / 2"), "π / 2");
   assert.equal(normalizeAngleExpression("2 * π"), "2 * π");
   assert.equal(

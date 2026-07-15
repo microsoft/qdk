@@ -1,12 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// `moveQubit` / `removeQubit` and their interaction with
-// classical-control consumers of measurements. Exercises the
-// wire-permutation contract: every register reference (top-level,
-// nested, cached `.targets`, and classical-ref consumers) gets
-// rewritten by the same 1-to-1 function, with no result-index
-// renumbering.
+// `moveQubit` / `removeQubit` and their interaction with classical-control consumers of
+// measurements. Exercises the wire-permutation contract: every register reference (top-level,
+// nested, cached `.targets`, and classical-ref consumers) gets rewritten by the same 1-to-1
+// function, with no result-index renumbering.
 
 // @ts-check
 
@@ -90,8 +88,8 @@ test("moveQubit with isBetween=true inserts before the target wire", () => {
 });
 
 test("removeQubitWithDependents strips ops on the wire and drops it", () => {
-  // The public cascade: remove every op touching the doomed wire,
-  // then rewire the higher indices down.
+  // The public cascade: remove every op touching the doomed wire, then rewire the higher indices
+  // down.
   const model = build(
     circuit(3, [[gate("X", 0)], [gate("H", 1)], [gate("Z", 2)]]),
   );
@@ -124,8 +122,7 @@ test("removeQubit: shifts wire indices on ops nested inside groups", () => {
 
   removeQubit(model, 0);
 
-  // Removing wire 0 shifts every >0 wire down: nested H 2 → 1, Foo's
-  // cached targets [1,2] → [0,1].
+  // Removing wire 0 shifts every >0 wire down: nested H 2 → 1, Foo's cached targets [1,2] → [0,1].
   expectOp(at(model, "0,0"), {
     Foo: { targets: [0, 1], children: [[{ H: 1 }]] },
   });
@@ -138,8 +135,7 @@ test("moveQubit: swaps wire indices on ops nested inside groups", () => {
 
   moveQubit(model, 0, 1, false);
 
-  // Swap propagates into nested ops; column re-sorts so X (now wire 0)
-  // precedes H (now wire 1).
+  // Swap propagates into nested ops; column re-sorts so X (now wire 0) precedes H (now wire 1).
   const innerOps = at(model, "0,0").children[0].components;
   expectOp(innerOps[0], { X: 0 });
   expectOp(innerOps[1], { H: 1 });
@@ -155,8 +151,8 @@ test("moveQubit: refreshes group `.targets` cache after wire swap", () => {
 });
 
 test("moveQubit: resolves nested-group overlaps introduced by widening", () => {
-  // Swapping wires 0 and 1 keeps the H/X span non-overlapping, so the
-  // nested column stays single (no split, no corruption).
+  // Swapping wires 0 and 1 keeps the H/X span non-overlapping, so the nested column stays single
+  // (no split, no corruption).
   const model = build(
     circuit(2, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
   );
@@ -167,9 +163,8 @@ test("moveQubit: resolves nested-group overlaps introduced by widening", () => {
 });
 
 test("moveQubit: swap inside a group splits a nested column when a child's control moves over a sibling", () => {
-  // Swapping wires 1 and 2 widens CX's span to 0-2 (ctrl 1 → 2) and
-  // lands H on wire 1, between CX's target and control — forcing a
-  // collision-split of the nested column.
+  // Swapping wires 1 and 2 widens CX's span to 0-2 (ctrl 1 → 2) and lands H on wire 1, between CX's
+  // target and control — forcing a collision-split of the nested column.
   const model = build(
     circuit(3, [
       [group("Foo", [[gate("X", 0, { ctrls: [1] }), gate("H", 2)]])],
@@ -217,10 +212,9 @@ test("moveQubit: swap inside a group splits a nested column when a child's contr
 // ---------------------------------------------------------------------------
 // moveQubit + Ms-with-classical-consumers
 //
-// `moveQubit` rewrites every register reference (consumer classical
-// refs AND measurement `.results`) by the same 1-to-1 wire-permutation,
-// without renumbering result indices. Invariant: every consumer must
-// still reference a real, unique (qubit, result) key some M produces.
+// `moveQubit` rewrites every register reference (consumer classical refs AND measurement
+// `.results`) by the same 1-to-1 wire-permutation, without renumbering result indices. Invariant:
+// every consumer must still reference a real, unique (qubit, result) key some M produces.
 // ---------------------------------------------------------------------------
 
 test("moveQubit: classical-control consumer follows a moved M's qubit index", () => {
@@ -236,9 +230,8 @@ test("moveQubit: classical-control consumer follows a moved M's qubit index", ()
 });
 
 test("moveQubit: swap of two wires that both have Ms with consumers preserves per-wire uniqueness", () => {
-  // M_a (wire 0) and M_b (wire 1) hold the SAME result index 0. The
-  // wire-permutation keeps them on distinct wires, so (qubit, result)
-  // keys stay unique without any renumbering.
+  // M_a (wire 0) and M_b (wire 1) hold the SAME result index 0. The wire-permutation keeps them on
+  // distinct wires, so (qubit, result) keys stay unique without any renumbering.
   const model = build(
     circuit(3, [
       [_mGate(0, 0)],
@@ -262,9 +255,8 @@ test("moveQubit: swap of two wires that both have Ms with consumers preserves pe
 });
 
 test("moveQubit: swap of a wire carrying multiple Ms keeps the consumer chain in sync", () => {
-  // Wire 0 carries M_a (r=0) and M_b (r=1); wire 1 is empty. Swapping
-  // moves both Ms 0 → 1 with result indices preserved (the destination
-  // wire had no Ms to collide with).
+  // Wire 0 carries M_a (r=0) and M_b (r=1); wire 1 is empty. Swapping moves both Ms 0 → 1 with
+  // result indices preserved (the destination wire had no Ms to collide with).
   const model = build(
     circuit(3, [
       [_mGate(0, 0)],
@@ -288,8 +280,8 @@ test("moveQubit: swap of a wire carrying multiple Ms keeps the consumer chain in
 });
 
 test("moveQubit isBetween: moving a wire past one with Ms-with-consumers remaps every party in lockstep", () => {
-  // Move wire 0 to between wires 2 and 3 → new order [1, 2, 0, 3],
-  // remapping old→new: 0→2, 1→0, 2→1, 3→3.
+  // Move wire 0 to between wires 2 and 3 → new order [1, 2, 0, 3], remapping old→new: 0→2, 1→0,
+  // 2→1, 3→3.
   const model = build(
     circuit(4, [
       [_mGate(1, 0)],
@@ -313,9 +305,8 @@ test("moveQubit isBetween: moving a wire past one with Ms-with-consumers remaps 
 });
 
 test("moveQubit: swap remaps a classical-control consumer buried inside a group", () => {
-  // Consumer is two groups deep on wire 2; wrapper `.targets` set by
-  // hand to keep them on wire 2 only. Swapping wires 0 and 1 must still
-  // reach the buried consumer's classical ref.
+  // Consumer is two groups deep on wire 2; wrapper `.targets` set by hand to keep them on wire 2
+  // only. Swapping wires 0 and 1 must still reach the buried consumer's classical ref.
   const model = build(
     circuit(3, [
       [_mGate(0, 0)],
