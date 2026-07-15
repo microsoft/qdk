@@ -2,16 +2,16 @@
 // Licensed under the MIT License.
 
 //! This test validates that all `#[diagnostic(code("..."))]` attributes in the
-//! source tree follow the naming convention: the first segment must be a known
-//! prefix (`Qsc`, `Qasm`, `Stim`, or `Qre`), followed by one or more
-//! `PascalCase` segments containing only ASCII alphanumeric characters.
+//! source tree follow the naming convention: the first segment must be "Qdk",
+//! the second must be a known value (`Qsc`, `Qasm`, `Stim`, or `Qre`), and the
+//! remainder must be `PascalCase` segments containing only ASCII alphanumeric
+//! characters.
 //!
-//! For example: `Qsc.Resolve.NotFound`, `Qasm.Lowerer.CannotCast`.
+//! For example: `Qdk.Qsc.Resolve.NotFound`, `Qdk.Qasm.Lowerer.CannotCast`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Recursively collect all `.rs` files under `dir`.
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -26,11 +26,6 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Check that a diagnostic code string matches the convention:
-/// two or more dot-separated segments where the first segment is a known
-/// prefix (`Qsc`, `Qasm`, `Stim`, or `Qre`) and subsequent segments each
-/// start with an uppercase ASCII letter and contain only ASCII alphanumeric
-/// characters.
 fn is_valid_diagnostic_code(code: &str) -> bool {
     let parts: Vec<&str> = code.split('.').collect();
     parts.len() >= 3
@@ -43,7 +38,6 @@ fn is_valid_diagnostic_code(code: &str) -> bool {
         })
 }
 
-/// Extract all diagnostic code strings from source text.
 /// Looks for lines that are attributes like: `#[diagnostic(code("SomeCode"))]`
 fn extract_diagnostic_codes(source: &str, path: &Path) -> Vec<(usize, String)> {
     // Don't do anything clever about wrapped lines since codes are short
@@ -94,7 +88,7 @@ fn all_diagnostic_codes_follow_naming_convention() {
     assert!(
         failures.is_empty(),
         "The following diagnostic codes do not follow the naming convention \
-         (expected dot-separated PascalCase segments, e.g. \"Qsc.Resolve.NotFound\"):\n{}",
+         (expected dot-separated PascalCase segments, e.g. \"Qdk.Qsc.Resolve.NotFound\"):\n{}",
         failures.join("\n")
     );
 }
