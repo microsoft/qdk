@@ -10,9 +10,9 @@ fn check_classical_function_incrementer() {
         indoc::indoc! {"{
             let n = 10;
             use q1 = Qubit[n];
-            Std.ArithmeticTestUtils.ApplyBigInt(100L, q1);
+            ApplyXorInPlaceL(100L, q1);
             Std.ArithmeticTestUtils.ApplyClassicalFunction((x) -> x + 11L, q1);
-            Std.ArithmeticTestUtils.MeasureBigInt(q1)
+            Std.Measurement.MeasureBigInt(q1)
         }"},
         &Value::BigInt(111i64.into()),
     );
@@ -24,9 +24,9 @@ fn check_classical_function_double() {
         indoc::indoc! {"{
             let n = 10;
             use q1 = Qubit[n];
-            Std.ArithmeticTestUtils.ApplyBigInt(100L, q1);
+            ApplyXorInPlaceL(100L, q1);
             Std.ArithmeticTestUtils.ApplyClassicalFunction((x) -> x * 2L, q1);
-            Std.ArithmeticTestUtils.MeasureBigInt(q1)
+            Std.Measurement.MeasureBigInt(q1)
         }"},
         &Value::BigInt(200i64.into()),
     );
@@ -37,11 +37,11 @@ fn check_classical_function_adder() {
     test_expression(
         indoc::indoc! {"{
             use (q1, q2) = (Qubit[10], Qubit[10]);
-            Std.ArithmeticTestUtils.ApplyBigInt(100L, q1);
-            Std.ArithmeticTestUtils.ApplyBigInt(55L, q2);
-            Std.ArithmeticTestUtils.ApplyClassicalFunction2((x, y) -> (x, x+y), q1, q2);
+            ApplyXorInPlaceL(100L, q1);
+            ApplyXorInPlaceL(55L, q2);
+            Std.ArithmeticTestUtils.ApplyClassicalFunctionN(args -> [args[0], args[0]+args[1]], [q1, q2]);
             ResetAll(q1);
-            Std.ArithmeticTestUtils.MeasureBigInt(q2)
+            Std.Measurement.MeasureBigInt(q2)
         }"},
         &Value::BigInt(155i64.into()),
     );

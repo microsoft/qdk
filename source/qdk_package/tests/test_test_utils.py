@@ -169,8 +169,9 @@ def test_classical_function_unary(context: Context):
 def test_classical_function_binary(context: Context):
     n = 10
     context.eval("""
+    import Std.ArithmeticTestUtils.ApplyClassicalFunctionN;
     operation AddClassical(qx: Qubit[], qy: Qubit[]) : Unit {
-        Std.ArithmeticTestUtils.ApplyClassicalFunction2((x, y) -> (x, x+y), qx, qy);
+        ApplyClassicalFunctionN(a -> [a[0], a[0]+a[1]], [qx, qy]);
     }
     """)
 
@@ -184,9 +185,9 @@ def test_classical_function_binary(context: Context):
 def test_classical_function_ternary(context: Context):
     n = 10
     context.eval("""
-    import Std.ArithmeticTestUtils.ApplyClassicalFunction3;
+    import Std.ArithmeticTestUtils.ApplyClassicalFunctionN;
     operation MultiplyClassical(qx: Qubit[], qy: Qubit[], qz: Qubit[]) : Unit {
-        ApplyClassicalFunction3((x, y, z) -> (x, y, z^^^(x*y)), qx, qy, qz);
+        ApplyClassicalFunctionN(a -> [a[0], a[1], a[2]^^^(a[0]*a[1])], [qx, qy, qz]);
     }
     """)
 
