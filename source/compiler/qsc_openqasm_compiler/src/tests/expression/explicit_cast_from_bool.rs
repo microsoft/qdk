@@ -47,7 +47,7 @@ fn bool_to_duration_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type duration
                ,-[Test.qasm:3:9]
@@ -181,7 +181,7 @@ fn bool_to_angle_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type angle
                ,-[Test.qasm:3:9]
@@ -203,7 +203,7 @@ fn bool_to_sized_angle_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type angle[32]
                ,-[Test.qasm:3:9]
@@ -229,7 +229,7 @@ fn bool_to_complex_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type complex[float]
                ,-[Test.qasm:3:9]
@@ -251,7 +251,7 @@ fn bool_to_sized_complex_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type bool to type complex[float[32]]
                ,-[Test.qasm:3:9]

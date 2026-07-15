@@ -45,7 +45,7 @@ class Device:
             zone.set_offset(offset)
             offset += zone.row_count * self.column_count
 
-        self.home_locs = []
+        self.home_locs: list[tuple[int, int]] = []
         self._init_home_locs()
 
     def _init_home_locs(self):

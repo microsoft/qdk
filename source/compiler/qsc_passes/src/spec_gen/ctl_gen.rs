@@ -18,7 +18,7 @@ pub enum Error {
     #[diagnostic(help(
         "each operation called inside an operation with compiler-generated controlled specializations must support the controlled functor"
     ))]
-    #[diagnostic(code("Qsc.CtlGen.MissingCtlFunctor"))]
+    #[diagnostic(code("Qdk.Qsc.CtlGen.MissingCtlFunctor"))]
     MissingCtlFunctor(#[label] Span),
 }
 

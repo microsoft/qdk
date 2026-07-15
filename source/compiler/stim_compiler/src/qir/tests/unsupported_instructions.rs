@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn heralded_erase_yields_unsupported_error() {
@@ -10,7 +11,7 @@ fn heralded_erase_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: HERALDED_ERASE
                ,----
@@ -27,7 +28,7 @@ fn heralded_pauli_channel_1_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: HERALDED_PAULI_CHANNEL_1
                ,----
@@ -40,58 +41,58 @@ fn heralded_pauli_channel_1_yields_unsupported_error() {
 
 #[test]
 fn i_error_yields_unsupported_error() {
-    let source = "
-# does nothing
-I_ERROR 0
+    let source = indoc! {"
+        # does nothing
+        I_ERROR 0
 
-# does nothing with probability 0.1, else does nothing
-I_ERROR(0.1) 0
+        # does nothing with probability 0.1, else does nothing
+        I_ERROR(0.1) 0
 
-# doesn't require a probability argument
-I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
+        # doesn't require a probability argument
+        I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
 
-# checks for you that the disjoint probabilities in the arguments are legal
-I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
-";
+        # checks for you that the disjoint probabilities in the arguments are legal
+        I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
+    "};
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: I_ERROR
-               ,-[3:1]
-             2 | # does nothing
-             3 | I_ERROR 0
+               ,-[2:1]
+             1 | # does nothing
+             2 | I_ERROR 0
                : ^^^^^^^^^
-             4 | 
+             3 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: I_ERROR
-               ,-[6:1]
-             5 | # does nothing with probability 0.1, else does nothing
-             6 | I_ERROR(0.1) 0
+               ,-[5:1]
+             4 | # does nothing with probability 0.1, else does nothing
+             5 | I_ERROR(0.1) 0
                : ^^^^^^^^^^^^^^
-             7 | 
+             6 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: I_ERROR
-                ,-[9:1]
-              8 | # doesn't require a probability argument
-              9 | I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
-                : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-             10 | 
-                `----
+               ,-[8:1]
+             7 | # doesn't require a probability argument
+             8 | I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+             9 | 
+               `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: I_ERROR
-                ,-[12:1]
-             11 | # checks for you that the disjoint probabilities in the arguments are legal
-             12 | I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
+                ,-[11:1]
+             10 | # checks for you that the disjoint probabilities in the arguments are legal
+             11 | I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
                 : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                 `----
         "#]],
@@ -100,58 +101,58 @@ I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
 
 #[test]
 fn ii_error_yields_unsupported_error() {
-    let source = "
-# does nothing
-II_ERROR 0 1
+    let source = indoc! {"
+        # does nothing
+        II_ERROR 0 1
 
-# does nothing with probability 0.1, else does nothing
-II_ERROR(0.1) 0 1
+        # does nothing with probability 0.1, else does nothing
+        II_ERROR(0.1) 0 1
 
-# checks for you that the targets are two-qubit pairs
-II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
+        # checks for you that the targets are two-qubit pairs
+        II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
 
-# checks for you that the disjoint probabilities in the arguments are legal
-II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
-";
+        # checks for you that the disjoint probabilities in the arguments are legal
+        II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
+    "};
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: II_ERROR
-               ,-[3:1]
-             2 | # does nothing
-             3 | II_ERROR 0 1
+               ,-[2:1]
+             1 | # does nothing
+             2 | II_ERROR 0 1
                : ^^^^^^^^^^^^
-             4 | 
+             3 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: II_ERROR
-               ,-[6:1]
-             5 | # does nothing with probability 0.1, else does nothing
-             6 | II_ERROR(0.1) 0 1
+               ,-[5:1]
+             4 | # does nothing with probability 0.1, else does nothing
+             5 | II_ERROR(0.1) 0 1
                : ^^^^^^^^^^^^^^^^^
-             7 | 
+             6 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: II_ERROR
-                ,-[9:1]
-              8 | # checks for you that the targets are two-qubit pairs
-              9 | II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
-                : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-             10 | 
-                `----
+               ,-[8:1]
+             7 | # checks for you that the targets are two-qubit pairs
+             8 | II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+             9 | 
+               `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: II_ERROR
-                ,-[12:1]
-             11 | # checks for you that the disjoint probabilities in the arguments are legal
-             12 | II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
+                ,-[11:1]
+             10 | # checks for you that the disjoint probabilities in the arguments are legal
+             11 | II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
                 : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                 `----
         "#]],
@@ -164,7 +165,7 @@ fn pauli_channel_1_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: PAULI_CHANNEL_1
                ,----
@@ -181,7 +182,7 @@ fn pauli_channel_2_yields_unsupported_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: PAULI_CHANNEL_2
                ,----
@@ -194,58 +195,58 @@ fn pauli_channel_2_yields_unsupported_error() {
 
 #[test]
 fn mpp_yields_unsupported_error() {
-    let source = "
-# Measure the two-body +X1*Y2 observable.
-MPP X1*Y2
+    let source = indoc! {"
+        # Measure the two-body +X1*Y2 observable.
+        MPP X1*Y2
 
-# Measure the one-body -Z5 observable.
-MPP !Z5
+        # Measure the one-body -Z5 observable.
+        MPP !Z5
 
-# Measure the two-body +X1*Y2 observable and also the three-body -Z3*Z4*Z5 observable.
-MPP X1*Y2 !Z3*Z4*Z5
+        # Measure the two-body +X1*Y2 observable and also the three-body -Z3*Z4*Z5 observable.
+        MPP X1*Y2 !Z3*Z4*Z5
 
-# Noisily measure +Z1+Z2 and +X1*X2 (independently flip each reported result 0.1% of the time).
-MPP(0.001) Z1*Z2 X1*X2
-";
+        # Noisily measure +Z1+Z2 and +X1*X2 (independently flip each reported result 0.1% of the time).
+        MPP(0.001) Z1*Z2 X1*X2
+    "};
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: MPP
-               ,-[3:1]
-             2 | # Measure the two-body +X1*Y2 observable.
-             3 | MPP X1*Y2
+               ,-[2:1]
+             1 | # Measure the two-body +X1*Y2 observable.
+             2 | MPP X1*Y2
                : ^^^^^^^^^
-             4 | 
+             3 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: MPP
-               ,-[6:1]
-             5 | # Measure the one-body -Z5 observable.
-             6 | MPP !Z5
+               ,-[5:1]
+             4 | # Measure the one-body -Z5 observable.
+             5 | MPP !Z5
                : ^^^^^^^
-             7 | 
+             6 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: MPP
-                ,-[9:1]
-              8 | # Measure the two-body +X1*Y2 observable and also the three-body -Z3*Z4*Z5 observable.
-              9 | MPP X1*Y2 !Z3*Z4*Z5
-                : ^^^^^^^^^^^^^^^^^^^
-             10 | 
-                `----
+               ,-[8:1]
+             7 | # Measure the two-body +X1*Y2 observable and also the three-body -Z3*Z4*Z5 observable.
+             8 | MPP X1*Y2 !Z3*Z4*Z5
+               : ^^^^^^^^^^^^^^^^^^^
+             9 | 
+               `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: MPP
-                ,-[12:1]
-             11 | # Noisily measure +Z1+Z2 and +X1*X2 (independently flip each reported result 0.1% of the time).
-             12 | MPP(0.001) Z1*Z2 X1*X2
+                ,-[11:1]
+             10 | # Noisily measure +Z1+Z2 and +X1*X2 (independently flip each reported result 0.1% of the time).
+             11 | MPP(0.001) Z1*Z2 X1*X2
                 : ^^^^^^^^^^^^^^^^^^^^^^
                 `----
         "#]],
@@ -254,84 +255,84 @@ MPP(0.001) Z1*Z2 X1*X2
 
 #[test]
 fn spp_yields_unsupported_error() {
-    let source = "
-# Perform an S gate on qubit 1.
-SPP Z1
+    let source = indoc! {"
+        # Perform an S gate on qubit 1.
+        SPP Z1
 
-# Perform a SQRT_X gate on qubit 1.
-SPP X1
+        # Perform a SQRT_X gate on qubit 1.
+        SPP X1
 
-# Perform a SQRT_X_DAG gate on qubit 1.
-SPP !X1
+        # Perform a SQRT_X_DAG gate on qubit 1.
+        SPP !X1
 
-# Perform a SQRT_XX gate between qubit 1 and qubit 2.
-SPP X1*X2
+        # Perform a SQRT_XX gate between qubit 1 and qubit 2.
+        SPP X1*X2
 
-# Perform a SQRT_YY gate between qubit 1 and 2, and a SQRT_ZZ_DAG between qubit 3 and 4.
-SPP Y1*Y2 !Z1*Z2
+        # Perform a SQRT_YY gate between qubit 1 and 2, and a SQRT_ZZ_DAG between qubit 3 and 4.
+        SPP Y1*Y2 !Z1*Z2
 
-# Phase the -1 eigenspace of -X1*Y2*Z3 by i.
-SPP !X1*Y2*Z3
-";
+        # Phase the -1 eigenspace of -X1*Y2*Z3 by i.
+        SPP !X1*Y2*Z3
+    "};
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP
-               ,-[3:1]
-             2 | # Perform an S gate on qubit 1.
-             3 | SPP Z1
+               ,-[2:1]
+             1 | # Perform an S gate on qubit 1.
+             2 | SPP Z1
                : ^^^^^^
-             4 | 
+             3 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP
-               ,-[6:1]
-             5 | # Perform a SQRT_X gate on qubit 1.
-             6 | SPP X1
+               ,-[5:1]
+             4 | # Perform a SQRT_X gate on qubit 1.
+             5 | SPP X1
                : ^^^^^^
-             7 | 
+             6 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP
-                ,-[9:1]
-              8 | # Perform a SQRT_X_DAG gate on qubit 1.
-              9 | SPP !X1
-                : ^^^^^^^
-             10 | 
-                `----
+               ,-[8:1]
+             7 | # Perform a SQRT_X_DAG gate on qubit 1.
+             8 | SPP !X1
+               : ^^^^^^^
+             9 | 
+               `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP
-                ,-[12:1]
-             11 | # Perform a SQRT_XX gate between qubit 1 and qubit 2.
-             12 | SPP X1*X2
+                ,-[11:1]
+             10 | # Perform a SQRT_XX gate between qubit 1 and qubit 2.
+             11 | SPP X1*X2
                 : ^^^^^^^^^
-             13 | 
+             12 | 
                 `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP
-                ,-[15:1]
-             14 | # Perform a SQRT_YY gate between qubit 1 and 2, and a SQRT_ZZ_DAG between qubit 3 and 4.
-             15 | SPP Y1*Y2 !Z1*Z2
+                ,-[14:1]
+             13 | # Perform a SQRT_YY gate between qubit 1 and 2, and a SQRT_ZZ_DAG between qubit 3 and 4.
+             14 | SPP Y1*Y2 !Z1*Z2
                 : ^^^^^^^^^^^^^^^^
-             16 | 
+             15 | 
                 `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP
-                ,-[18:1]
-             17 | # Phase the -1 eigenspace of -X1*Y2*Z3 by i.
-             18 | SPP !X1*Y2*Z3
+                ,-[17:1]
+             16 | # Phase the -1 eigenspace of -X1*Y2*Z3 by i.
+             17 | SPP !X1*Y2*Z3
                 : ^^^^^^^^^^^^^
                 `----
         "#]],
@@ -340,84 +341,84 @@ SPP !X1*Y2*Z3
 
 #[test]
 fn spp_dag_yields_unsupported_error() {
-    let source = "
-# Perform an S_DAG gate on qubit 1.
-SPP_DAG Z1
+    let source = indoc! {"
+        # Perform an S_DAG gate on qubit 1.
+        SPP_DAG Z1
 
-# Perform a SQRT_X_DAG gate on qubit 1.
-SPP_DAG X1
+        # Perform a SQRT_X_DAG gate on qubit 1.
+        SPP_DAG X1
 
-# Perform a SQRT_X gate on qubit 1.
-SPP_DAG !X1
+        # Perform a SQRT_X gate on qubit 1.
+        SPP_DAG !X1
 
-# Perform a SQRT_XX_DAG gate between qubit 1 and qubit 2.
-SPP_DAG X1*X2
+        # Perform a SQRT_XX_DAG gate between qubit 1 and qubit 2.
+        SPP_DAG X1*X2
 
-# Perform a SQRT_YY_DAG gate between qubit 1 and 2, and a SQRT_ZZ between qubit 3 and 4.
-SPP_DAG Y1*Y2 !Z1*Z2
+        # Perform a SQRT_YY_DAG gate between qubit 1 and 2, and a SQRT_ZZ between qubit 3 and 4.
+        SPP_DAG Y1*Y2 !Z1*Z2
 
-# Phase the -1 eigenspace of -X1*Y2*Z3 by -i.
-SPP_DAG !X1*Y2*Z3
-";
+        # Phase the -1 eigenspace of -X1*Y2*Z3 by -i.
+        SPP_DAG !X1*Y2*Z3
+    "};
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
-               ,-[3:1]
-             2 | # Perform an S_DAG gate on qubit 1.
-             3 | SPP_DAG Z1
+               ,-[2:1]
+             1 | # Perform an S_DAG gate on qubit 1.
+             2 | SPP_DAG Z1
                : ^^^^^^^^^^
-             4 | 
+             3 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
-               ,-[6:1]
-             5 | # Perform a SQRT_X_DAG gate on qubit 1.
-             6 | SPP_DAG X1
+               ,-[5:1]
+             4 | # Perform a SQRT_X_DAG gate on qubit 1.
+             5 | SPP_DAG X1
                : ^^^^^^^^^^
-             7 | 
+             6 | 
                `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
-                ,-[9:1]
-              8 | # Perform a SQRT_X gate on qubit 1.
-              9 | SPP_DAG !X1
-                : ^^^^^^^^^^^
-             10 | 
-                `----
+               ,-[8:1]
+             7 | # Perform a SQRT_X gate on qubit 1.
+             8 | SPP_DAG !X1
+               : ^^^^^^^^^^^
+             9 | 
+               `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
-                ,-[12:1]
-             11 | # Perform a SQRT_XX_DAG gate between qubit 1 and qubit 2.
-             12 | SPP_DAG X1*X2
+                ,-[11:1]
+             10 | # Perform a SQRT_XX_DAG gate between qubit 1 and qubit 2.
+             11 | SPP_DAG X1*X2
                 : ^^^^^^^^^^^^^
-             13 | 
+             12 | 
                 `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
-                ,-[15:1]
-             14 | # Perform a SQRT_YY_DAG gate between qubit 1 and 2, and a SQRT_ZZ between qubit 3 and 4.
-             15 | SPP_DAG Y1*Y2 !Z1*Z2
+                ,-[14:1]
+             13 | # Perform a SQRT_YY_DAG gate between qubit 1 and 2, and a SQRT_ZZ between qubit 3 and 4.
+             14 | SPP_DAG Y1*Y2 !Z1*Z2
                 : ^^^^^^^^^^^^^^^^^^^^
-             16 | 
+             15 | 
                 `----
 
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: SPP_DAG
-                ,-[18:1]
-             17 | # Phase the -1 eigenspace of -X1*Y2*Z3 by -i.
-             18 | SPP_DAG !X1*Y2*Z3
+                ,-[17:1]
+             16 | # Phase the -1 eigenspace of -X1*Y2*Z3 by -i.
+             17 | SPP_DAG !X1*Y2*Z3
                 : ^^^^^^^^^^^^^^^^^
                 `----
         "#]],
@@ -426,24 +427,23 @@ SPP_DAG !X1*Y2*Z3
 
 #[test]
 fn repeat_yields_unsupported_error() {
-    let source = "
-REPEAT 10 {
-    CNOT 0 1
-    CNOT 2 1
-    M 1
-}
-";
+    let source = indoc! {"
+        REPEAT 10 {
+          CNOT 0 1
+          CNOT 2 1
+          M 1
+        }
+    "};
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedInstruction
+            Qdk.Stim.Compiler.UnsupportedInstruction
 
               x unsupported instruction: REPEAT
-               ,-[2:1]
-             1 | 
-             2 | REPEAT 10 {
+               ,-[1:1]
+             1 | REPEAT 10 {
                : ^^^^^^^^^
-             3 |     CNOT 0 1
+             2 |   CNOT 0 1
                `----
         "#]],
     );

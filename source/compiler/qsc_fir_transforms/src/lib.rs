@@ -153,12 +153,12 @@ pub enum PipelineError {
 
     /// A pinned item requested by a caller was not present in the FIR store.
     #[error("pinned item {0} does not exist")]
-    #[diagnostic(code("Qsc.FirTransform.MissingPinnedItem"))]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.MissingPinnedItem"))]
     MissingPinnedItem(StoreItemId),
 
     /// A pinned item requested by a caller was present but was not a callable.
     #[error("pinned item {0} is not a callable")]
-    #[diagnostic(code("Qsc.FirTransform.PinnedItemNotCallable"))]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.PinnedItemNotCallable"))]
     PinnedItemNotCallable(StoreItemId),
 
     /// The tuple-decompose <-> argument-promotion fixed-point loop did not converge within
@@ -167,7 +167,7 @@ pub enum PipelineError {
     #[error(
         "tuple-decompose/argument-promotion fixed-point loop did not converge within {0} rounds"
     )]
-    #[diagnostic(code("Qsc.FirTransform.TupleDecomposeArgPromoteFixpointNotReached"))]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.TupleDecomposeArgPromoteFixpointNotReached"))]
     #[diagnostic(severity(Warning))]
     TupleDecomposeArgPromoteFixpointNotReached(usize),
 }
@@ -256,7 +256,6 @@ pub enum PipelineStage {
 ///
 /// In every fatal case the intermediate FIR intentionally violates downstream
 /// invariants, so running later passes would produce misleading failures.
-#[allow(clippy::too_many_lines)]
 fn run_pipeline_to_impl(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -323,7 +322,56 @@ fn run_pipeline_to_impl(
         &skipped,
     );
 
-    let defunc_diagnostics = defunctionalize::defunctionalize(store, package_id, &mut assigners);
+    let defunc_lowering_done = run_defunc_and_lowering_stages(
+        store,
+        package_id,
+        stage,
+        &mut result,
+        &mut assigners,
+        &skipped,
+    );
+    if defunc_lowering_done {
+        return result;
+    }
+
+    if run_arg_promote_stages(
+        store,
+        package_id,
+        stage,
+        &mut result,
+        &mut assigners,
+        &skipped,
+    ) {
+        return result;
+    }
+
+    finalize_pipeline(
+        store,
+        package_id,
+        stage,
+        &mut result,
+        pinned_items,
+        &skipped,
+    );
+    result
+}
+
+/// Runs the defunctionalization and structural lowering stages: defunc, UDT
+/// erasure, tuple-comparison lowering, and tuple decomposition, checking the
+/// matching invariant after each.
+///
+/// Returns `true` when the requested `stage` is reached (or a fatal
+/// defunctionalization error occurs), signalling the caller to stop and return
+/// the accumulated `result`.
+fn run_defunc_and_lowering_stages(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    stage: PipelineStage,
+    result: &mut PipelineResult,
+    assigners: &mut PackageAssigners,
+    skipped: &FxHashSet<StoreItemId>,
+) -> bool {
+    let defunc_diagnostics = defunctionalize::defunctionalize(store, package_id, assigners);
     let (warnings, fatal_errors): (Vec<_>, Vec<_>) = defunc_diagnostics
         .into_iter()
         .partition(defunctionalize::Error::is_warning);
@@ -335,103 +383,123 @@ fn run_pipeline_to_impl(
         .extend(warnings.into_iter().map(PipelineError::from));
     if !fatal_errors.is_empty() {
         result.errors = fatal_errors.into_iter().map(PipelineError::from).collect();
-        return result;
+        return true;
     }
 
     invariants::check_with_skip(
         store,
         package_id,
         invariants::InvariantLevel::PostDefunc,
-        &skipped,
+        skipped,
     );
     if matches!(stage, PipelineStage::Defunc) {
-        return result;
+        return true;
     }
 
-    udt_erase::erase_udts(store, package_id, &mut assigners);
+    udt_erase::erase_udts(store, package_id, assigners);
     invariants::check_with_skip(
         store,
         package_id,
         invariants::InvariantLevel::PostUdtErase,
-        &skipped,
+        skipped,
     );
     if matches!(stage, PipelineStage::UdtErase) {
-        return result;
+        return true;
     }
 
-    tuple_compare_lower::lower_tuple_comparisons(store, package_id, &mut assigners);
+    tuple_compare_lower::lower_tuple_comparisons(store, package_id, assigners);
     invariants::check_with_skip(
         store,
         package_id,
         invariants::InvariantLevel::PostTupleCompLower,
-        &skipped,
+        skipped,
     );
     if matches!(stage, PipelineStage::TupleCompLower) {
-        return result;
+        return true;
     }
 
-    tuple_decompose::tuple_decompose(store, package_id, &mut assigners);
+    tuple_decompose::tuple_decompose(store, package_id, assigners);
     invariants::check_with_skip(
         store,
         package_id,
         invariants::InvariantLevel::PostTupleDecompose,
-        &skipped,
+        skipped,
     );
-    if matches!(stage, PipelineStage::TupleDecompose) {
-        return result;
-    }
+    matches!(stage, PipelineStage::TupleDecompose)
+}
 
-    arg_promote::arg_promote(store, package_id, &mut assigners);
+/// Runs the argument-promotion stages: the initial `arg_promote`, the
+/// tuple-decompose/arg-promote fixed point, and the one-shot post-loop
+/// call-argument-type normalization, checking `PostArgPromote` after each.
+///
+/// Returns `true` when the requested `stage` is reached, signalling the caller
+/// to stop and return the accumulated `result`.
+fn run_arg_promote_stages(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    stage: PipelineStage,
+    result: &mut PipelineResult,
+    assigners: &mut PackageAssigners,
+    skipped: &FxHashSet<StoreItemId>,
+) -> bool {
+    arg_promote::arg_promote(store, package_id, assigners);
     invariants::check_with_skip(
         store,
         package_id,
         invariants::InvariantLevel::PostArgPromote,
-        &skipped,
+        skipped,
     );
     if matches!(stage, PipelineStage::ArgPromote) {
-        return result;
+        return true;
     }
 
-    tuple_decompose_arg_promote_fixed_point(
-        store,
-        package_id,
-        &mut result,
-        &mut assigners,
-        &skipped,
-    );
+    tuple_decompose_arg_promote_fixed_point(store, package_id, result, assigners, skipped);
 
     // Call-argument-type normalization is idempotent and candidate-neutral, so
     // it is hoisted to run exactly once after the loop converges rather than
     // per round (per-round runs cause `(T,)` wrapping churn that pollutes
     // change detection).
-    arg_promote::normalize_reachable_call_arg_types(store, package_id, &mut assigners);
+    arg_promote::normalize_reachable_call_arg_types(store, package_id, assigners);
     invariants::check_with_skip(
         store,
         package_id,
         invariants::InvariantLevel::PostArgPromote,
-        &skipped,
+        skipped,
     );
-    if matches!(stage, PipelineStage::TupleDecompose2) {
-        return result;
-    }
+    matches!(stage, PipelineStage::TupleDecompose2)
+}
 
+/// Runs the backend stages after all structural transforms: pinned-item
+/// validation, item dead-code elimination, execution-graph rebuild, and the
+/// final `PostAll` invariant walk.
+///
+/// Mutates `result` in place; a fatal pinned-item validation error stops the
+/// backend early with the errors recorded on `result`.
+fn finalize_pipeline(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    stage: PipelineStage,
+    result: &mut PipelineResult,
+    pinned_items: &[StoreItemId],
+    skipped: &FxHashSet<StoreItemId>,
+) {
     // Item DCE: remove unreachable callable items and dead type items.
     // Callers may pin items via `pinned_items` to keep them (and their
     // transitive dependencies) alive through DCE and exec-graph-rebuild.
     let pinned_errors = validate_pinned_items(store, pinned_items);
     if !pinned_errors.is_empty() {
         result.errors = pinned_errors;
-        return result;
+        return;
     }
     run_item_dce_and_gc(store, package_id, pinned_items);
     invariants::check_with_skip(
         store,
         package_id,
         invariants::InvariantLevel::PostItemDce,
-        &skipped,
+        skipped,
     );
     if matches!(stage, PipelineStage::ItemDce) {
-        return result;
+        return;
     }
 
     // Exec graphs are rebuilt unconditionally for every reachable spec in every
@@ -441,7 +509,7 @@ fn run_pipeline_to_impl(
     // graphs are validated by the `PostAll` invariant walk below.
     exec_graph_rebuild::rebuild_exec_graphs(store, package_id, pinned_items);
     if matches!(stage, PipelineStage::ExecGraphRebuild) {
-        return result;
+        return;
     }
 
     // PostAll uses entry-only reachability. Pinned items (original target kept
@@ -450,9 +518,8 @@ fn run_pipeline_to_impl(
         store,
         package_id,
         invariants::InvariantLevel::PostAll,
-        &skipped,
+        skipped,
     );
-    result
 }
 
 /// Fixed-point loop over tuple-decompose and argument promotion. `arg_promote`

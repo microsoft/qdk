@@ -66,7 +66,7 @@ from .estimator._estimator import LogicalCounts
 # Check if we are running in a Jupyter notebook to use the IPython display function
 _in_jupyter = False
 try:
-    from IPython.display import display
+    from IPython.display import display  # type: ignore[import-not-found]
 
     if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
         _in_jupyter = True  # Jupyter notebook or qtconsole
@@ -81,7 +81,7 @@ except:
 def ipython_helper():
     try:
         if __IPYTHON__:  # type: ignore
-            from IPython.display import display
+            from IPython.display import display  # type: ignore[import-not-found]
     except NameError:
         pass
 
@@ -387,7 +387,7 @@ class Context:
         finally:
             visited.remove(obj_id)
 
-    def _python_args_to_interpreter_args(self, args: tuple[Any, ...]):
+    def _python_args_to_interpreter_args(self, args: Any) -> Any:
         """Turns `args` to the format expected by the Q# interpreter."""
         if len(args) == 0:
             return None

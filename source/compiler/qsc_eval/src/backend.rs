@@ -1390,7 +1390,7 @@ impl Backend for CliffordSim {
         Err("adjoint T gate is not supported in Clifford simulation".to_string())
     }
 
-    fn custom_intrinsic(&mut self, name: &str, _arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
             "GlobalPhase"
@@ -1413,9 +1413,14 @@ impl Backend for CliffordSim {
             "Apply" => Some(Err(
                 "arbitrary unitary application not supported in Clifford simulation".to_string(),
             )),
-            "PostSelectZ" => Some(Err(
-                "post-selection not supported in Clifford simulation".to_string()
-            )),
+            "PostSelectZ" => {
+                let [result, qubit] = unwrap_tuple(arg);
+                let id = qubit.unwrap_qubit().deref().0;
+                let Value::Result(val::Result::Val(val)) = result else {
+                    panic!("first argument to PostSelectZ should be a measurement result");
+                };
+                Some(self.sim.post_select_z(val, id).map(|()| Value::unit()))
+            }
             _ => None,
         }
     }

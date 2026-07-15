@@ -43,3 +43,18 @@ class ValidateNoConditionalBranches(QirModuleVisitor):
         ):
             raise ValueError("programs with branching control flow are not supported")
         super()._on_block(block)
+
+
+class ValidateNoFunctionCalls(QirModuleVisitor):
+    """
+    Ensure the program does not call non-inlined functions (such as gate
+    definitions emitted as separate functions). Tracing renders the program as a
+    single, straight-line schedule and cannot follow a call into another function
+    body, so the operations defined there would be dropped and mis-visualized. A
+    non-entry function with a body is such a definition (declarations of the
+    supported intrinsics have no body).
+    """
+
+    def _on_function(self, function):
+        if not is_entry_point(function) and len(function.basic_blocks) > 0:
+            raise ValueError("programs with function calls are not supported")

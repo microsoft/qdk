@@ -355,6 +355,11 @@ impl<'a> Analyzer<'a> {
             self.analyze_expr_call_with_static_callee(callee_expr_id, args_expr_id)
         };
 
+        // Cache the `MustBeInlined` runtime feature flag if it was set on the compute kind of the call expression.
+        // This allows it to be added again later after aggregating the runtime features of the callee and arguments expressions,
+        // which may have cleared that flag.
+        let must_inline = matches!(compute_kind, ComputeKind::Dynamic { runtime_features, .. } if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined));
+
         // If this call happens within a dynamic scope, there might be additional runtime features being used.
         let application_instance = self.get_current_application_instance();
         if !application_instance.active_dynamic_scopes.is_empty() {
@@ -395,6 +400,15 @@ impl<'a> Analyzer<'a> {
             compute_kind.aggregate_runtime_features(callee_expr_compute_kind, ValueKind::Constant);
         compute_kind =
             compute_kind.aggregate_runtime_features(args_expr_compute_kind, ValueKind::Constant);
+
+        if must_inline
+            && let ComputeKind::Dynamic {
+                runtime_features, ..
+            } = &mut compute_kind
+        {
+            *runtime_features |= RuntimeFeatureFlags::MustBeInlined;
+        }
+
         compute_kind
     }
 
@@ -450,6 +464,19 @@ impl<'a> Analyzer<'a> {
         };
         let mut compute_kind =
             application_generator_set.generate_application_compute_kind(&arg_compute_kinds);
+        let ir_function_compute_kind =
+            application_generator_set.generate_ir_function_application_compute_kind();
+
+        // If the target capabitlies allow for emitting IR functions, we need to check if the callable can be emitted or must be inlined.
+        let must_inline = self
+            .target_capabilities
+            .contains(TargetCapabilityFlags::CallSupport)
+            && self.check_must_inline(
+                callable_decl,
+                &arg_compute_kinds,
+                &mut compute_kind,
+                ir_function_compute_kind,
+            );
 
         // Aggregate the runtime features of the qubit controls expressions.
         let mut has_variable_controls = false;
@@ -506,7 +533,58 @@ impl<'a> Analyzer<'a> {
             }
         }
 
+        if must_inline
+            && let ComputeKind::Dynamic {
+                runtime_features, ..
+            } = &mut compute_kind
+        {
+            *runtime_features |= RuntimeFeatureFlags::MustBeInlined;
+        }
+
         compute_kind
+    }
+
+    fn check_must_inline(
+        &self,
+        callable_decl: &'a CallableDecl,
+        arg_compute_kinds: &[ComputeKind],
+        compute_kind: &mut ComputeKind,
+        ir_function_compute_kind: ComputeKind,
+    ) -> bool {
+        // We should not try to emit the body of a function that has all static or constant arguments as an IR function.
+        // These can be fully computed at partial eval time, and may contribute unnecessary advanced runtime features to the program.
+        // We do emit operations, as those may have side effects separate from their capabilities, such as gate calls.
+        let is_operation_or_dynamic_function_invocation = callable_decl.kind
+            == CallableKind::Operation
+            || arg_compute_kinds.iter().any(|k| k.is_variable_value_kind());
+
+        // If the the callable is an operation (or a function with variable arguments)...
+        is_operation_or_dynamic_function_invocation
+            // ...and the computed runtime features of the resulting IR function is dynamic...
+            && if let ComputeKind::Dynamic {
+                runtime_features, ..
+            } = &ir_function_compute_kind
+            // ...and the computed runtime features of the resulting IR function does not require qubit allocation when the target doesn't support it...
+            && (!runtime_features.contains(RuntimeFeatureFlags::QubitAllocation) || self.target_capabilities.contains(TargetCapabilityFlags::DynamicQubitAllocation))
+            // ...and the computed runtime features of the function do not involve call to unresolved callee...
+            && !runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
+            // ...and those computed runtime features are all supported by the target capabilities...
+            && get_missing_runtime_features(*runtime_features, self.target_capabilities)
+                .is_empty()
+                // ...and the callable's output type is a primitive type that can be returned from an IR function...
+                && (matches!(
+                    &callable_decl.output,
+                    Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
+                ) || callable_decl.output == Ty::UNIT)
+            {
+                // ...then we can emit the callable as an IR function, and we update the compute kind of the call expression to reflect the
+                // capabilities of that IR function.
+                *compute_kind = compute_kind.aggregate(ir_function_compute_kind);
+                false
+            } else {
+                // Otherwise, the callable must be inlined.
+                true
+            }
     }
 
     fn analyze_expr_call_with_static_callee(

@@ -1319,6 +1319,52 @@ mod given_interpreter {
         }
 
         #[test]
+        fn qirgen_from_callable_with_nested_closure_arg_generates_inner_effect() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation InvokeOne(op : Qubit => Unit) : Unit {
+                        use q = Qubit();
+                        op(q);
+                    }
+
+                    function MakeRz(theta : Double) : Qubit => Unit {
+                        Rz(theta, _)
+                    }
+
+                    function MakeOuter(inner : Qubit => Unit) : Qubit => Unit {
+                        inner(_)
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let invoke_one = user_global(&interpreter, "InvokeOne");
+
+            let (closure_result, closure_output) = line(
+                &mut interpreter,
+                "let inner = MakeRz(4.0); MakeOuter(inner)",
+            );
+            assert!(
+                closure_output.is_empty(),
+                "unexpected output while creating nested closure: {closure_output}"
+            );
+            let outer = closure_result.expect("expected nested closure value");
+
+            let qir = interpreter
+                .qirgen_from_callable(&invoke_one, outer)
+                .expect("expected success");
+
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__rz__body(double 4.0,")
+                    .count(),
+                1,
+                "expected one inner captured rotation in QIR:\n{qir}"
+            );
+        }
+
+        #[test]
         fn qirgen_from_callable_with_arrow_input_reports_runtime_capability_errors() {
             let mut interpreter = get_interpreter_with_capabilities(
                 TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,

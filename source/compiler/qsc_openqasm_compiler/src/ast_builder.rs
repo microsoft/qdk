@@ -13,13 +13,13 @@ use qsc_ast::ast::{
 };
 use qsc_data_structures::span::Span;
 
-use qsc_openqasm_parser::{
-    parser::ast::{List, list_from_iter},
-    semantic::types::Type,
-    stdlib::angle::Angle,
-};
+use qdk_openqasm_parser::{semantic::types::Type, stdlib::angle::Angle};
 
 use crate::types::{ArrayDimensions, Complex};
+
+fn list_from_iter<T>(iter: impl IntoIterator<Item = T>) -> Box<[Box<T>]> {
+    iter.into_iter().map(Box::new).collect()
+}
 
 pub(crate) fn build_managed_qubit_alloc<S>(
     name: S,
@@ -1464,7 +1464,7 @@ pub(crate) fn build_function_or_operation(
     return_type: Ty,
     kind: CallableKind,
     functors: Option<FunctorExpr>,
-    attrs: List<Attr>,
+    attrs: Box<[Box<Attr>]>,
 ) -> Stmt {
     let args = cargs
         .into_iter()

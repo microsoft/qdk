@@ -1012,7 +1012,7 @@ fn eval_method_result_comparison() {
         .pop()
         .expect("error should exist");
 
-    expect!["Qsc.Eval.ResultComparisonUnsupported"].assert_eq(
+    expect!["Qdk.Qsc.Eval.ResultComparisonUnsupported"].assert_eq(
         &circuit_err
             .code()
             .expect("error code should exist")

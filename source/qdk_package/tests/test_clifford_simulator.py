@@ -16,7 +16,6 @@ from qdk.simulation import NoiseConfig
 from qdk.simulation._simulation import run_qir_clifford
 from qdk._device._atom import NeutralAtomDevice
 from qdk._device._atom._decomp import DecomposeRzAnglesToCliffordGates
-from qdk._device._atom._validate import ValidateNoConditionalBranches
 from qdk import TargetProfile, Result
 
 current_file_path = Path(__file__)
@@ -75,7 +74,6 @@ def expect_distribution(
 def transform_to_clifford(input) -> str:
     native_qir = NeutralAtomDevice().compile(input)
     module = pyqir.Module.from_ir(pyqir.Context(), str(native_qir))
-    ValidateNoConditionalBranches().run(module)
     DecomposeRzAnglesToCliffordGates().run(module)
     return str(module)
 
@@ -303,147 +301,69 @@ def test_clifford_run_no_noise():
     assert output == [[Result.Zero] * 16], "Expected result of 0s with pi/2 angles."
 
 
+QSHARP_OP_25_QUBITS = """
+operation Test() : Result[] {
+  use qs = Qubit[25]; X(qs[0]); CZ(qs[23], qs[24]); MResetEachZ(qs)
+}"""
+
+
 def test_clifford_run_bitflip_noise():
     """Bitflip noise for Clifford simulator."""
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qsharp.eval(QSHARP_OP_25_QUBITS)
 
-    p_noise = 0.005
+    p_noise = 0.2
     noise = NoiseConfig()
-    noise.rx.set_bitflip(p_noise)
-    noise.rzz.set_pauli_noise("XX", p_noise)
-    noise.mresetz.set_bitflip(p_noise)
-
-    output = qsharp.run(
-        "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 10.0, 10)",
-        shots=10_000,
-        noise=noise,
-        seed=17,
-        type="clifford",
-    )
-    result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
-    # Reasonable results obtained from manual run
+    noise.x.set_bitflip(p_noise)
+    noise.cz.set_pauli_noise("XX", p_noise)
     expect = {
-        "0000000001000000": 0.0084,
-        "0000010000000000": 0.0079,
-        "0001000000000000": 0.0087,
-        "0000100000000000": 0.0096,
-        "0000000000000000": 0.1412,
-        "0011000000000000": 0.0066,
-        "0000000001100000": 0.0082,
-        "1100000000000000": 0.0072,
-        "0000000000000011": 0.0083,
-        "0000000000100010": 0.0091,
-        "0000000000000010": 0.0074,
-        "0100010000000000": 0.0058,
-        "0000000001000100": 0.0078,
-        "0000011000000000": 0.0067,
-        "0010000000000000": 0.0089,
-        "0000000000000110": 0.0085,
-        "0000000000100000": 0.0091,
-        "0000000010001000": 0.007,
-        "0000001000000000": 0.008,
-        "0000100010000000": 0.0078,
-        "1000100000000000": 0.0086,
-        "1000000000000000": 0.0067,
-        "0000000000010001": 0.0073,
-        "0001000100000000": 0.0085,
-        "0000110000000000": 0.0075,
-        "0000000000000001": 0.0076,
-        "0110000000000000": 0.0073,
-        "0010001000000000": 0.0068,
-        "0100000000000000": 0.0087,
-        "0000000100000000": 0.0066,
-        "0000010001000000": 0.007,
-        "0000000000000100": 0.0068,
-        "0000001000100000": 0.0067,
-        "0000000011000000": 0.0102,
-        "0000000000010000": 0.0087,
-        "0000000000110000": 0.0081,
-        "0000000010000000": 0.008,
-        "0000000100010000": 0.008,
-        "0000001100000000": 0.0075,
-        "0000000000001000": 0.0088,
-        "0000000000001100": 0.0066,
+        "1000000000000000000000000": (1 - p_noise) ** 2,  # No noise
+        "0000000000000000000000000": p_noise * (1 - p_noise),  # X bitflip
+        "1000000000000000000000011": (1 - p_noise) * p_noise,  # CZ bitflip
+        "0000000000000000000000011": p_noise**2,  # X & CZ bitflip
     }
+
+    output = qsharp.run("Test()", shots=500, noise=noise, seed=17, type="clifford")
+    result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
         expect,
-        tolerance=0.005,
+        tolerance=0.02,
     )
 
     # Same execution should work with the operation itself.
-    output = qsharp.run(
-        qdk.code.IsingModel2DEvolution,
-        10_000,
-        4,
-        4,
-        math.pi / 2,
-        math.pi / 2,
-        10.0,
-        10,
-        noise=noise,
-        seed=17,
-        type="clifford",
-    )
+    output = qsharp.run(qdk.code.Test, 500, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
         expect,
-        tolerance=0.005,
+        tolerance=0.02,
     )
 
 
 def test_clifford_run_mixed_noise():
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qsharp.eval(QSHARP_OP_25_QUBITS)
 
+    p_noise = 0.2
     noise = NoiseConfig()
-    noise.rx.set_bitflip(0.008)
-    noise.rx.loss = 0.005
-    noise.rzz.set_depolarizing(0.008)
-    noise.rzz.loss = 0.005
+    noise.x.set_bitflip(p_noise)
+    noise.cz.XI = p_noise
+    noise.cz.IL = p_noise
 
-    output = qsharp.run(
-        "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 4.0, 4)",
-        shots=10_000,
-        noise=noise,
-        seed=228,
-        type="clifford",
-    )
+    output = qsharp.run("Test()", shots=500, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
-        # Reasonable results obtained from manual run
         {
-            "0000000000-00000": 0.01,
-            "0000000000001000": 0.0055,
-            "000000000-000000": 0.0104,
-            "0000000000000000": 0.0854,
-            "0100000000000000": 0.0062,
-            "0000-00000000000": 0.0098,
-            "-000000000000000": 0.0066,
-            "0-00000000000000": 0.0084,
-            "00000-0000000000": 0.0116,
-            "00000000000-0000": 0.0069,
-            "00-0000000000000": 0.0104,
-            "0000000001000000": 0.0057,
-            "00000000-0000000": 0.0108,
-            "0010000000000000": 0.0054,
-            "000000-000000000": 0.0113,
-            "0000000000010000": 0.0067,
-            "00000000000000-0": 0.0092,
-            "000000000000-000": 0.0072,
-            "0000000000100000": 0.0074,
-            "0000000010000000": 0.0056,
-            "0000010000000000": 0.0065,
-            "0001000000000000": 0.0052,
-            "0000000000000-00": 0.0087,
-            "0000000-00000000": 0.0081,
-            "000000000000000-": 0.0052,
-            "0000000100000000": 0.0052,
+            "1000000000000000000000000": (1 - p_noise) * (1 - 2 * p_noise),  # No noise
+            "0000000000000000000000000": p_noise * (1 - 2 * p_noise),  # X bitflip
+            "1000000000000000000000010": (1 - p_noise) * p_noise,  # CZ bitflip
+            "100000000000000000000000-": (1 - p_noise) * p_noise,  # CZ loss
+            "0000000000000000000000010": p_noise**2,  # X bitflip + CZ bitflip
+            "000000000000000000000000-": p_noise**2,  # X bitflip + CZ loss
         },
-        tolerance=0.005,
+        tolerance=0.02,
     )
 
 
