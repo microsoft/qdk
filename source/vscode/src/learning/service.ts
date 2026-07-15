@@ -768,6 +768,7 @@ export class LearningService {
 
     // 5. Required packages import in the venv.
     if (venvPython) {
+      // TODO (acasey): are these supposed to come from the course metadata or are these just a baseline for all courses?
       const report = await env.importsReport(courseRoot, [
         "qdk",
         "qsharp_widgets",
