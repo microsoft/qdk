@@ -4,9 +4,9 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use crate::debug::Frame;
-use crate::output::GenericReceiver;
+use crate::function_evaluator::FunctionEvaluator;
 use crate::val::{self, Value};
-use crate::{Env, noise::PauliNoise, val::unwrap_tuple};
+use crate::{noise::PauliNoise, val::unwrap_tuple};
 use ndarray::Array2;
 use num_bigint::{BigInt, BigUint};
 use num_complex::Complex;
@@ -17,7 +17,7 @@ use qdk_simulators::{
     stabilizer_simulator::StabilizerSimulator,
 };
 use qsc_data_structures::index_map::IndexMap;
-use qsc_fir::fir::{ExecGraphConfig, PackageStoreLookup};
+use qsc_fir::fir::PackageStoreLookup;
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
 
@@ -559,8 +559,6 @@ pub struct SparseSim {
     /// Random number generator to sample any noise.
     /// Noise is not applied when rng is None.
     pub rng: Option<StdRng>,
-    /// Helper to evaluate classical arithmetic functions.
-    pub arithmetic_evaluator: ArithmeticEvaluator,
 }
 
 impl Default for SparseSim {
@@ -579,7 +577,6 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: None,
-            arithmetic_evaluator: ArithmeticEvaluator::default(),
         }
     }
 
@@ -599,7 +596,6 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: Some(StdRng::from_rng(&mut rand::rng())),
-            arithmetic_evaluator: ArithmeticEvaluator::default(),
         }
     }
 
@@ -727,19 +723,27 @@ impl SparseSim {
         &mut self,
         arg: Value,
         globals: &impl PackageStoreLookup,
-    ) -> Option<Result<Value, String>> {
+    ) -> Result<Value, String> {
         let [function_val, qubits_val] = unwrap_tuple(arg);
+        let mut function_evaluator = FunctionEvaluator::new(function_val)?;
         let qubits = qubits_val
             .unwrap_array()
             .iter()
             .filter_map(|q| q.clone().unwrap_qubit().try_deref().map(|q| q.0))
             .collect::<Vec<_>>();
+
         let func = |x| {
-            self.arithmetic_evaluator
-                .evaluate(globals, &function_val, x)
+            let result = function_evaluator.evaluate(globals, Value::BigInt(BigInt::from(x)))?;
+            let Value::BigInt(output) = result else {
+                return Err("classical arithmetic function must return a BigInt".to_string());
+            };
+            output
+                .to_biguint()
+                .ok_or_else(|| "function result must be non-negative".to_string())
         };
-        let result = self.sim.apply_arithmetic_gate(func, &qubits);
-        Some(result.map(|()| Value::unit()))
+
+        self.sim.apply_arithmetic_gate(func, &qubits)?;
+        Ok(Value::unit())
     }
 }
 
@@ -1179,7 +1183,7 @@ impl Backend for SparseSim {
                 }
                 Some(Ok(Value::unit()))
             }
-            "ApplyClassicalFunctionInternal" => self.apply_classical_function(arg, globals),
+            "ApplyClassicalFunctionInternal" => Some(self.apply_classical_function(arg, globals)),
             _ => None,
         }
     }
@@ -1511,55 +1515,5 @@ fn check_normalized_angle(theta: f64) -> Result<(), String> {
         Ok(())
     } else {
         Err("angle must be a multiple of PI/2 in Clifford simulation".to_string())
-    }
-}
-
-/// A zero-sized backend used only to evaluate classical arithmetic functions.
-struct ClassicalBackend;
-
-impl Backend for ClassicalBackend {}
-
-/// Helper to evaluate classical arithmetic functions for usage in `ApplyClassicalFunctionInternal`.
-#[derive(Default)]
-pub struct ArithmeticEvaluator {
-    /// Evaluation environment, allocated once and reused across basis states.
-    env: Env,
-}
-
-impl ArithmeticEvaluator {
-    /// Evaluates Q# function on the given input.
-    fn evaluate(
-        &mut self,
-        globals: &impl PackageStoreLookup,
-        function_val: &Value,
-        input: BigUint,
-    ) -> Result<BigUint, String> {
-        let package = match function_val {
-            Value::Closure(closure) => closure.id.package,
-            Value::Global(id, _) => id.package,
-            _ => return Err("classical arithmetic function must be callable".to_string()),
-        };
-        let mut scratch = ClassicalBackend;
-        let mut backend = TracingBackend::no_tracer(&mut scratch);
-        let mut sink = std::io::sink();
-        let mut receiver = GenericReceiver::new(&mut sink);
-        let result = crate::invoke(
-            package,
-            None,
-            globals,
-            ExecGraphConfig::NoDebug,
-            &mut self.env,
-            &mut backend,
-            &mut receiver,
-            function_val.clone(),
-            Value::BigInt(BigInt::from(input)),
-        )
-        .map_err(|(err, _)| err.to_string())?;
-        let Value::BigInt(output) = result else {
-            return Err("classical arithmetic function must return a BigInt".to_string());
-        };
-        output
-            .to_biguint()
-            .ok_or_else(|| "function result must be non-negative".to_string())
     }
 }

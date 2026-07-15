@@ -20,6 +20,7 @@ mod tests;
 pub mod backend;
 pub mod debug;
 mod error;
+pub mod function_evaluator;
 pub mod intrinsic;
 pub mod noise;
 pub mod output;
