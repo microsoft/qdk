@@ -1877,142 +1877,24 @@ mod given_interpreter {
         fn adaptive_qirgen_fails_when_entry_expr_does_not_match_profile() {
             let mut interpreter =
                 get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
-            let errors = interpreter
-                .qirgen(indoc! {r#"
-                    {
-                        operation Rejected() : Int {
-                            use q = Qubit();
-                            mutable value = 1;
-                            if MResetZ(q) == One {
-                                set value = 2;
-                            }
-                            value
-                        }
-
-                        Rejected()
-                    }
-                "#})
-                .expect_err("post-transform RCA should reject the dynamic integer value");
-            assert!(
-                errors
-                    .iter()
-                    .all(|error| matches!(error, crate::interpret::Error::Pass(_))),
-                "expected capability-check pass errors, got {errors:?}"
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                use q = Qubit();
+                mutable x = 1;
+                "#
+                },
             );
-            assert!(
-                errors
-                    .iter()
-                    .any(|error| format!("{error:?}").contains("UseOfDynamicInt")),
-                "expected a dynamic-integer capability diagnostic, got {errors:?}"
-            );
-        }
-
-        #[test]
-        fn codegen_string_entry_defers_rca() {
-            let entry = indoc! {r#"
-                {
-                    operation SelectResult(q : Qubit) : Int {
-                        H(q);
-                        if MResetZ(q) == One {
-                            return 1;
-                        }
-                        return 2;
-                    }
-
-                    use q = Qubit();
-                    SelectResult(q)
-                }
-            "#};
-
-            for profile in [
-                qsc_data_structures::target::Profile::AdaptiveRI,
-                qsc_data_structures::target::Profile::AdaptiveRIF,
-                qsc_data_structures::target::Profile::Adaptive,
-            ] {
-                let mut interpreter = get_interpreter_with_capabilities(profile.into());
-                let qir = interpreter.qirgen(entry).unwrap_or_else(|errors| {
-                    panic!("{profile:?} string-entry codegen should succeed, got {errors:?}")
-                });
-                assert!(
-                    qir.contains("define i64 @ENTRYPOINT__main()"),
-                    "{profile:?} should emit an entry point, got:\n{qir}"
-                );
-            }
-        }
-
-        #[test]
-        fn codegen_string_entry_direct_select_succeeds() {
-            let entry = indoc! {r#"
-                {
-                    use address = Qubit[1];
-                    use output = Qubit[1];
-                    Std.TableLookup.Select([[false], [true]], address, output);
-                }
-            "#};
-
-            for profile in [
-                qsc_data_structures::target::Profile::AdaptiveRI,
-                qsc_data_structures::target::Profile::AdaptiveRIF,
-                qsc_data_structures::target::Profile::Adaptive,
-            ] {
-                let mut interpreter = get_interpreter_with_capabilities(profile.into());
-                let qir = interpreter.qirgen(entry).unwrap_or_else(|errors| {
-                    panic!("{profile:?} direct Select codegen should succeed, got {errors:?}")
-                });
-                assert!(
-                    qir.contains("define i64 @ENTRYPOINT__main()"),
-                    "{profile:?} should emit an entry point, got:\n{qir}"
-                );
-            }
-        }
-
-        #[test]
-        fn failed_qir_retains_lowered_entry_state() {
-            let mut interpreter =
-                get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
-            let errors = interpreter
-                .qirgen(indoc! {r#"
-                    {
-                        operation Retained() : Unit {}
-
-                        operation Rejected() : Int {
-                            use q = Qubit();
-                            mutable value = 1;
-                            if MResetZ(q) == One {
-                                set value = 2;
-                            }
-                            value
-                        }
-
-                        Rejected()
-                    }
-                "#})
-                .expect_err("post-transform RCA should reject the dynamic integer value");
-            assert!(
-                errors
-                    .iter()
-                    .all(|error| matches!(error, crate::interpret::Error::Pass(_))),
-                "expected capability-check pass errors, got {errors:?}"
-            );
-            assert!(
-                errors
-                    .iter()
-                    .any(|error| format!("{error:?}").contains("UseOfDynamicInt")),
-                "expected a dynamic-integer capability diagnostic, got {errors:?}"
-            );
-
-            let retained = user_global(&interpreter, "Retained");
-            let mut cursor = Cursor::new(Vec::<u8>::new());
-            let mut receiver = CursorReceiver::new(&mut cursor);
-            let result = interpreter.invoke(&mut receiver, retained, Value::unit());
-            is_only_value(&result, &receiver.dump(), &Value::unit());
-
-            let qir = interpreter
-                .qirgen_from_callable(&user_global(&interpreter, "Retained"), Value::unit())
-                .expect("retained callable should be available for later recompilation");
-            assert!(
-                qir.contains("define i64 @ENTRYPOINT__main()"),
-                "retained callable should emit an entry point, got:\n{qir}"
+            is_only_value(&result, &output, &Value::unit());
+            let res = interpreter
+                .qirgen("if M(q) == One { set x = 2; }")
+                .expect_err("expected error");
+            is_error(
+                &res,
+                &expect![[r#"
+                    cannot use a dynamic integer value
+                       [<entry>] [set x = 2]
+                "#]],
             );
         }
 

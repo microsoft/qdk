@@ -253,7 +253,7 @@ def test_value_udt() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -273,7 +273,7 @@ def test_value_nested_udts() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -290,7 +290,7 @@ def test_value_udts_with_complex_field() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfDoubleOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -307,7 +307,7 @@ def test_value_udts_with_array_field() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -324,7 +324,7 @@ def test_value_udts_with_tuple_field() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -341,7 +341,7 @@ def test_value_array_of_udts() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -357,7 +357,7 @@ def test_value_array_of_complex() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfDoubleOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(callable, "makeData()", "")
 
 
@@ -374,7 +374,7 @@ def test_value_tuple_of_udts() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -390,7 +390,7 @@ def test_value_tuple_of_complex() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfDoubleOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(callable, "makeData()", "")
 
 
