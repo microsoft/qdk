@@ -351,7 +351,6 @@ pub mod qir {
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         callable: qsc_hir::hir::ItemId,
-        assigner: &mut qsc_fir::assigner::Assigner,
     ) {
         let callable_store_id = qsc_fir::fir::StoreItemId {
             package: qsc_lowerer::map_hir_package_to_fir(callable.package),
@@ -378,7 +377,8 @@ pub mod qir {
             (callable_decl.span, ty)
         };
 
-        let entry_expr_id = assigner.next_expr();
+        let entry_expr_id =
+            qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_package_id)).next_expr();
         let package = fir_store.get_mut(fir_package_id);
         package.exprs.insert(
             entry_expr_id,
@@ -2215,7 +2215,7 @@ pub mod qir {
         callable: qsc_hir::hir::ItemId,
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
-        let (mut fir_store, fir_package_id, mut assigner) =
+        let (mut fir_store, fir_package_id, _assigner) =
             lower_to_fir(package_store, callable.package, None);
 
         if callable_has_arrow_input(&fir_store, callable) {
@@ -2231,7 +2231,7 @@ pub mod qir {
             });
         }
 
-        seed_entry_with_callable(&mut fir_store, fir_package_id, callable, &mut assigner);
+        seed_entry_with_callable(&mut fir_store, fir_package_id, callable);
         let warnings = run_codegen_pipeline(
             package_store,
             callable.package,
