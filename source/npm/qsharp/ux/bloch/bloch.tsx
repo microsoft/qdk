@@ -630,6 +630,12 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function applyGate(gate: Gate) {
     const info = resolveGate(gate);
     if (!info || !renderer.current) return;
+
+    // Branch from the inspected step if mid-inspect, otherwise append.
+    const base = cursor < gates.length ? gates.slice(0, cursor) : gates;
+    // Enforce the gate cap: refuse to grow the sequence past the limit.
+    if (base.length >= MAX_GATE_SEQUENCE_LENGTH) return;
+
     // Stop playback first; snapToTarget=false since we snap or animate next.
     stopPlayback(false);
 
@@ -643,9 +649,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     // Truncate future steps if the user is mid-inspect, then snap the
     // renderer there silently before kicking off the animated rotation
     // for the newly-applied gate.
-    let base = gates;
     if (cursor < gates.length) {
-      base = gates.slice(0, cursor);
       renderer.current.snapTo(gatesToSteps(base));
     }
     renderer.current.animateStep(info.rotateAxis, info.rotateAngle);
@@ -974,17 +978,28 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     }
   }, [rzDecompString, rotationAxis]);
 
+  // Length of the sequence a new action would branch from: the inspected
+  // prefix when mid-inspect, otherwise the whole sequence. Used to disable
+  // the add controls once the gate cap is reached (the append handlers
+  // enforce the same limit defensively).
+  const branchLength = Math.min(cursor, gates.length);
+  const atGateCap = branchLength >= MAX_GATE_SEQUENCE_LENGTH;
+
   // Append a run of gates (a native rotation or its decomposition) as one
   // undoable action: truncate any inspected-future steps, clear redo, and
   // animate the new gates in.
   function appendGates(run: Gate[]) {
     if (!renderer.current || run.length === 0) return;
+    // Branch from the inspected step if inspecting; otherwise append.
+    const base = cursor < gates.length ? gates.slice(0, cursor) : gates;
+    // Enforce the gate cap: skip the action if the whole run wouldn't fit
+    // (a decomposition can add many gates at once, so we don't add a
+    // partial run).
+    if (base.length + run.length > MAX_GATE_SEQUENCE_LENGTH) return;
     stopPlayback(false);
     cancelDraft();
     // The whole run is appended as one undoable action.
     pushHistory(gates);
-    // Branch from the inspected step if inspecting; otherwise append.
-    const base = cursor < gates.length ? gates.slice(0, cursor) : gates;
     const next = [...base, ...run];
     setGates(next);
     // Leave the dial angle as-is so the user can add the rotation again.
@@ -1300,11 +1315,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                       type="button"
                       class="qs-bloch-rz-apply"
                       onClick={applyRotation}
-                      disabled={isPlaying || rzAngle === 0}
+                      disabled={isPlaying || rzAngle === 0 || atGateCap}
                       title={
-                        rzAngle === 0
-                          ? "Set a non-zero angle to add a rotation"
-                          : `Append a native ${AXIS_TO_ROTATION[rotationAxis]} gate to the sequence`
+                        atGateCap
+                          ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                          : rzAngle === 0
+                            ? "Set a non-zero angle to add a rotation"
+                            : `Append a native ${AXIS_TO_ROTATION[rotationAxis]} gate to the sequence`
                       }
                     >
                       Add rotation
@@ -1313,11 +1330,19 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                       type="button"
                       class="qs-bloch-rz-apply"
                       onClick={applyDecomposition}
-                      disabled={isPlaying || decompositionGates.length === 0}
+                      disabled={
+                        isPlaying ||
+                        decompositionGates.length === 0 ||
+                        branchLength + decompositionGates.length >
+                          MAX_GATE_SEQUENCE_LENGTH
+                      }
                       title={
-                        decompositionGates.length === 0
-                          ? "Set a non-zero angle to add a decomposition"
-                          : "Append the Clifford+T decomposition to the sequence"
+                        branchLength + decompositionGates.length >
+                        MAX_GATE_SEQUENCE_LENGTH
+                          ? `Decomposition would exceed the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                          : decompositionGates.length === 0
+                            ? "Set a non-zero angle to add a decomposition"
+                            : "Append the Clifford+T decomposition to the sequence"
                       }
                     >
                       Add decomposition
@@ -1348,7 +1373,12 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                     key={kind}
                     type="button"
                     onClick={() => applyGate({ kind })}
-                    disabled={isPlaying}
+                    disabled={isPlaying || atGateCap}
+                    title={
+                      atGateCap
+                        ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                        : undefined
+                    }
                   >
                     {resolveGate({ kind }).label}
                   </button>
@@ -1473,13 +1503,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 <span class="qs-bloch-gate-editor-status">
                   <span
                     class={
-                      typedGates.length > MAX_GATE_SEQUENCE_LENGTH
+                      typedGates.length >= MAX_GATE_SEQUENCE_LENGTH
                         ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
                         : "qs-bloch-gate-editor-count"
                     }
                     title={
-                      typedGates.length > MAX_GATE_SEQUENCE_LENGTH
-                        ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                      typedGates.length >= MAX_GATE_SEQUENCE_LENGTH
+                        ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap; remove gates to add more`
                         : ""
                     }
                   >
