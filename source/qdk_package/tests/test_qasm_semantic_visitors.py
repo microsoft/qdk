@@ -16,7 +16,7 @@ match.
 from typing import Any, Callable, Dict, List, Tuple
 
 from qdk.openqasm import semantic
-from qdk.openqasm.semantic import QASMNode, QASMVisitor
+from qdk.openqasm.semantic import QASMNode, QASMVisitor, Statement
 
 # A single program exercising a broad range of OpenQASM 3 constructs so that as
 # many distinct semantic node types as possible appear in the analyzed tree.
@@ -69,29 +69,29 @@ end;
 # or loses more exotic node kinds over time.
 _REQUIRED_TYPES = {
     "Program",
-    "QubitDecl",
-    "QubitArrayDecl",
-    "ClassicalDecl",
-    "GateCall",
-    "GateDefinition",
-    "Def",
-    "ResolvedIdent",
-    "BinaryOpExpr",
-    "UnaryOpExpr",
-    "Literal",
-    "IndexedExpr",
-    "Paren",
+    "QubitDeclaration",
+    "QubitArrayDeclaration",
+    "ClassicalDeclaration",
+    "QuantumGate",
+    "QuantumGateDefinition",
+    "SubroutineDefinition",
+    "Identifier",
+    "BinaryExpression",
+    "UnaryExpression",
+    "LiteralExpression",
+    "IndexExpression",
+    "ParenExpression",
     "FunctionCall",
     "Cast",
-    "IfStmt",
-    "ForLoop",
+    "BranchingStatement",
+    "ForInLoop",
     "WhileLoop",
-    "Return",
-    "Measure",
-    "Reset",
-    "Barrier",
-    "Assign",
-    "Block",
+    "ReturnStatement",
+    "QuantumMeasurement",
+    "QuantumReset",
+    "QuantumBarrier",
+    "ClassicalAssignment",
+    "CompoundStatement",
 }
 
 _MIN_DISTINCT_TYPES = 35
@@ -160,3 +160,37 @@ def test_every_semantic_visit_callback_dispatches() -> None:
     # And every present type does have a dedicated callback method.
     for name in present:
         assert hasattr(all_callbacks_visitor, f"visit_{name}")
+
+
+def test_error_statement_callback_dispatches() -> None:
+    # A deliberately-invalid program (a trailing binary operator with no
+    # right-hand operand) makes the analyzer emit an error statement node.
+    result = semantic.analyze("OPENQASM 3.0; int a = 1 + ; ")
+    assert result.has_errors
+
+    error_nodes: List[Any] = []
+
+    class Collector(QASMVisitor):
+        def generic_visit(self, node: Any) -> None:
+            if type(node).__name__ == "ErrorStatement":
+                error_nodes.append(node)
+            super().generic_visit(node)
+
+    Collector().visit(result.program)
+    assert error_nodes, "expected at least one ErrorStatement node in the tree"
+    for node in error_nodes:
+        assert isinstance(node, Statement)
+
+    fired: List[Any] = []
+
+    class ErrorVisitor(QASMVisitor):
+        def visit_ErrorStatement(self, node: Any) -> None:
+            fired.append(node)
+            self.generic_visit(node)
+
+    ErrorVisitor().visit(result.program)
+    assert len(fired) >= 1
+    for node in fired:
+        assert type(node).__name__ == "ErrorStatement"
+        assert isinstance(node, Statement)
+

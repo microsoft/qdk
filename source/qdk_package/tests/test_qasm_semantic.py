@@ -3,15 +3,15 @@
 
 from qdk.openqasm import parser, semantic
 from qdk.openqasm.semantic import (
-    BinaryOpExpr,
-    ClassicalDecl,
+    BinaryExpression,
+    ClassicalDeclaration,
     Diagnostic,
     Expression,
-    GateCall,
+    Identifier,
     Program,
     QASMNode,
     QASMVisitor,
-    ResolvedIdent,
+    QuantumGate,
     Severity,
     Span,
     Statement,
@@ -35,7 +35,7 @@ def test_analyze_returns_semantic_program() -> None:
 def test_semantic_node_names_and_isinstance() -> None:
     result = semantic.analyze(_STDGATES)
     gate = result.program.statements[-1]
-    assert type(gate).__name__ == "GateCall"
+    assert type(gate).__name__ == "QuantumGate"
     assert isinstance(gate, Statement)
     assert isinstance(gate, QASMNode)
     assert not isinstance(gate, Expression)
@@ -44,9 +44,9 @@ def test_semantic_node_names_and_isinstance() -> None:
 def test_semantic_expression_carries_type_and_const_value() -> None:
     result = semantic.analyze("OPENQASM 3.0; const int a = 1 + 2;")
     decl = result.program.statements[-1]
-    assert isinstance(decl, ClassicalDecl)
+    assert isinstance(decl, ClassicalDeclaration)
     init = decl.init_expr
-    assert isinstance(init, BinaryOpExpr)
+    assert isinstance(init, BinaryExpression)
     assert isinstance(init, Expression)
     assert isinstance(init.ty, Type)
     assert init.const_value == 3
@@ -55,9 +55,9 @@ def test_semantic_expression_carries_type_and_const_value() -> None:
 def test_resolved_identifier_exposes_symbol() -> None:
     result = semantic.analyze(_STDGATES)
     gate = result.program.statements[-1]
-    assert isinstance(gate, GateCall)
+    assert isinstance(gate, QuantumGate)
     operand = gate.qubits[0]
-    assert isinstance(operand, ResolvedIdent)
+    assert isinstance(operand, Identifier)
     symbol = operand.symbol
     assert isinstance(symbol, Symbol)
     assert symbol.name == "q"
@@ -66,9 +66,9 @@ def test_resolved_identifier_exposes_symbol() -> None:
 def test_symbol_table_lookup_by_id() -> None:
     result = semantic.analyze(_STDGATES)
     gate = result.program.statements[-1]
-    assert isinstance(gate, GateCall)
+    assert isinstance(gate, QuantumGate)
     operand = gate.qubits[0]
-    assert isinstance(operand, ResolvedIdent)
+    assert isinstance(operand, Identifier)
     symbol = result.symbols.get(operand.symbol_id)
     assert isinstance(symbol, Symbol)
     assert symbol.name == "q"
@@ -150,7 +150,7 @@ def test_visitor_counts_semantic_gate_calls_and_recurses() -> None:
         def __init__(self) -> None:
             self.count = 0
 
-        def visit_GateCall(self, node: object) -> None:
+        def visit_QuantumGate(self, node: object) -> None:
             self.count += 1
             self.generic_visit(node)
 

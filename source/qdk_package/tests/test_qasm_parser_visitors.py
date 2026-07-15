@@ -15,7 +15,7 @@ present in the tree (collected independently), and that both counts match.
 from typing import Any, Callable, Dict, List, Tuple
 
 from qdk.openqasm import parser
-from qdk.openqasm.parser import QASMNode, QASMVisitor
+from qdk.openqasm.parser import QASMNode, QASMVisitor, Statement
 
 # A single program exercising a broad range of OpenQASM 3 constructs so that as
 # many distinct syntactic node types as possible appear in the parsed tree.
@@ -159,3 +159,37 @@ def test_every_syntactic_visit_callback_dispatches() -> None:
     # And every present type does have a dedicated callback method.
     for name in present:
         assert hasattr(all_callbacks_visitor, f"visit_{name}")
+
+
+def test_error_statement_callback_dispatches() -> None:
+    # A deliberately-invalid program (a trailing binary operator with no
+    # right-hand operand) makes the parser emit an error statement node.
+    result = parser.parse("OPENQASM 3.0; int a = 1 + ; ")
+    assert result.has_errors
+
+    error_nodes: List[Any] = []
+
+    class Collector(QASMVisitor):
+        def generic_visit(self, node: Any) -> None:
+            if type(node).__name__ == "ErrorStatement":
+                error_nodes.append(node)
+            super().generic_visit(node)
+
+    Collector().visit(result.program)
+    assert error_nodes, "expected at least one ErrorStatement node in the tree"
+    for node in error_nodes:
+        assert isinstance(node, Statement)
+
+    fired: List[Any] = []
+
+    class ErrorVisitor(QASMVisitor):
+        def visit_ErrorStatement(self, node: Any) -> None:
+            fired.append(node)
+            self.generic_visit(node)
+
+    ErrorVisitor().visit(result.program)
+    assert len(fired) >= 1
+    for node in fired:
+        assert type(node).__name__ == "ErrorStatement"
+        assert isinstance(node, Statement)
+

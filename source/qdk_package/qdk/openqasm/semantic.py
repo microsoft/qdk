@@ -20,17 +20,18 @@ Use :func:`analyze` as the entry point::
     program = result.program
 
 Every node derives from :class:`QASMNode`. Expressions derive from
-:class:`Expression` (and :class:`Expr`, which adds ``ty``, ``const_value``,
-and ``symbol``); statements derive from :class:`Statement` (and
-:class:`Stmt`, which adds ``annotations``). There is no ``kind``
-discriminant: dispatch on a node's concrete type using :func:`isinstance` or
-``type(node).__name__``, and traverse uniformly with each node's ``children()``
-method.
+:class:`Expression` (and :class:`SemanticExpression`, which adds ``ty``,
+``const_value``, and ``symbol``); statements derive from :class:`Statement`
+(and :class:`SemanticStatement`, which adds ``annotations``). There is no
+``kind`` discriminant: dispatch on a node's concrete type using
+:func:`isinstance` or ``type(node).__name__``, and traverse uniformly with each
+node's ``children()`` method.
 
 The node classes present clean, un-prefixed Python names (for example
-``GateCall`` and ``BinaryOpExpr``). They keep ``Sem``-prefixed identifiers in
-the native layer and live in the ``qdk._native._semantic`` submodule to avoid
-colliding with the syntactic layer's ``openqasm3``-parity names.
+``QuantumGate`` and ``BinaryExpression``). They keep ``Sem``-prefixed
+identifiers in the native layer and live in the ``qdk._native._semantic``
+submodule to avoid colliding with the syntactic layer's ``openqasm3``-parity
+names.
 
 Nodes are eagerly materialized and hold no reference back into the analyzer, so
 they may be freely retained, inspected across threads, and traversed after the
@@ -58,12 +59,12 @@ from ._visitor import QASMVisitor
 # The semantic node classes present clean, un-prefixed Python names from the
 # `qdk._native._semantic` native submodule. Each class keeps its `Sem`-prefixed
 # Rust identifier (for example `SemGateCall`) but is exposed here without the
-# prefix (`GateCall`). Isolating the family in a submodule avoids colliding with
-# the syntactic layer's `openqasm3`-parity names in the flat `qdk._native`.
+# prefix (`QuantumGate`). Isolating the family in a submodule avoids colliding
+# with the syntactic layer's `openqasm3`-parity names in the flat `qdk._native`.
 
 # Category bases and projections.
-Expr = _semantic.Expr
-Stmt = _semantic.Stmt
+SemanticExpression = _semantic.SemanticExpression
+SemanticStatement = _semantic.SemanticStatement
 Program = _semantic.Program
 Type = _semantic.Type
 Symbol = _semantic.Symbol
@@ -71,56 +72,56 @@ SymbolTable = _semantic.SymbolTable
 HardwareQubit = _semantic.HardwareQubit
 
 # Expression leaf nodes.
-ErrExpr = _semantic.ErrExpr
-ResolvedIdent = _semantic.ResolvedIdent
-CapturedResolvedIdent = _semantic.CapturedResolvedIdent
-UnaryOpExpr = _semantic.UnaryOpExpr
-BinaryOpExpr = _semantic.BinaryOpExpr
-Literal = _semantic.Literal
+ErrorExpression = _semantic.ErrorExpression
+Identifier = _semantic.Identifier
+CapturedIdentifier = _semantic.CapturedIdentifier
+UnaryExpression = _semantic.UnaryExpression
+BinaryExpression = _semantic.BinaryExpression
+LiteralExpression = _semantic.LiteralExpression
 FunctionCall = _semantic.FunctionCall
 BuiltinFunctionCall = _semantic.BuiltinFunctionCall
 Cast = _semantic.Cast
-IndexedExpr = _semantic.IndexedExpr
-Paren = _semantic.Paren
-Measure = _semantic.Measure
+IndexExpression = _semantic.IndexExpression
+ParenExpression = _semantic.ParenExpression
+QuantumMeasurement = _semantic.QuantumMeasurement
 RuntimeSizeof = _semantic.RuntimeSizeof
-EvaluatedDurationof = _semantic.EvaluatedDurationof
-Concat = _semantic.Concat
+DurationOf = _semantic.DurationOf
+Concatenation = _semantic.Concatenation
 
 # Statement leaf nodes.
-AliasDecl = _semantic.AliasDecl
-Assign = _semantic.Assign
-Barrier = _semantic.Barrier
+AliasStatement = _semantic.AliasStatement
+ClassicalAssignment = _semantic.ClassicalAssignment
+QuantumBarrier = _semantic.QuantumBarrier
 Box = _semantic.Box
-Block = _semantic.Block
-Break = _semantic.Break
-Calibration = _semantic.Calibration
-CalibrationGrammar = _semantic.CalibrationGrammar
-ClassicalDecl = _semantic.ClassicalDecl
-Continue = _semantic.Continue
-Def = _semantic.Def
-DefCal = _semantic.DefCal
-Delay = _semantic.Delay
-End = _semantic.End
-ExprStmt = _semantic.ExprStmt
-ExternDecl = _semantic.ExternDecl
-ForLoop = _semantic.ForLoop
-GateCall = _semantic.GateCall
-IfStmt = _semantic.IfStmt
+CompoundStatement = _semantic.CompoundStatement
+BreakStatement = _semantic.BreakStatement
+CalibrationStatement = _semantic.CalibrationStatement
+CalibrationGrammarDeclaration = _semantic.CalibrationGrammarDeclaration
+ClassicalDeclaration = _semantic.ClassicalDeclaration
+ContinueStatement = _semantic.ContinueStatement
+SubroutineDefinition = _semantic.SubroutineDefinition
+CalibrationDefinition = _semantic.CalibrationDefinition
+DelayInstruction = _semantic.DelayInstruction
+EndStatement = _semantic.EndStatement
+ExpressionStatement = _semantic.ExpressionStatement
+ExternDeclaration = _semantic.ExternDeclaration
+ForInLoop = _semantic.ForInLoop
+QuantumGate = _semantic.QuantumGate
+BranchingStatement = _semantic.BranchingStatement
 Include = _semantic.Include
-IndexedAssign = _semantic.IndexedAssign
+IndexedClassicalAssignment = _semantic.IndexedClassicalAssignment
 InputDeclaration = _semantic.InputDeclaration
 OutputDeclaration = _semantic.OutputDeclaration
-MeasureArrow = _semantic.MeasureArrow
+QuantumMeasurementStatement = _semantic.QuantumMeasurementStatement
 Pragma = _semantic.Pragma
-GateDefinition = _semantic.GateDefinition
-QubitDecl = _semantic.QubitDecl
-QubitArrayDecl = _semantic.QubitArrayDecl
-Reset = _semantic.Reset
-Return = _semantic.Return
-Switch = _semantic.Switch
+QuantumGateDefinition = _semantic.QuantumGateDefinition
+QubitDeclaration = _semantic.QubitDeclaration
+QubitArrayDeclaration = _semantic.QubitArrayDeclaration
+QuantumReset = _semantic.QuantumReset
+ReturnStatement = _semantic.ReturnStatement
+SwitchStatement = _semantic.SwitchStatement
 WhileLoop = _semantic.WhileLoop
-ErrStmt = _semantic.ErrStmt
+ErrorStatement = _semantic.ErrorStatement
 
 __all__ = [
     "analyze",
@@ -133,61 +134,61 @@ __all__ = [
     "QASMNode",
     "Expression",
     "Statement",
-    "Expr",
-    "Stmt",
+    "SemanticExpression",
+    "SemanticStatement",
     "Program",
     "Type",
     "Symbol",
     "SymbolTable",
     "HardwareQubit",
-    "ErrExpr",
-    "ResolvedIdent",
-    "CapturedResolvedIdent",
-    "UnaryOpExpr",
-    "BinaryOpExpr",
-    "Literal",
+    "ErrorExpression",
+    "Identifier",
+    "CapturedIdentifier",
+    "UnaryExpression",
+    "BinaryExpression",
+    "LiteralExpression",
     "FunctionCall",
     "BuiltinFunctionCall",
     "Cast",
-    "IndexedExpr",
-    "Paren",
-    "Measure",
+    "IndexExpression",
+    "ParenExpression",
+    "QuantumMeasurement",
     "RuntimeSizeof",
-    "EvaluatedDurationof",
-    "Concat",
-    "AliasDecl",
-    "Assign",
-    "Barrier",
+    "DurationOf",
+    "Concatenation",
+    "AliasStatement",
+    "ClassicalAssignment",
+    "QuantumBarrier",
     "Box",
-    "Block",
-    "Break",
-    "Calibration",
-    "CalibrationGrammar",
-    "ClassicalDecl",
-    "Continue",
-    "Def",
-    "DefCal",
-    "Delay",
-    "End",
-    "ExprStmt",
-    "ExternDecl",
-    "ForLoop",
-    "GateCall",
-    "IfStmt",
+    "CompoundStatement",
+    "BreakStatement",
+    "CalibrationStatement",
+    "CalibrationGrammarDeclaration",
+    "ClassicalDeclaration",
+    "ContinueStatement",
+    "SubroutineDefinition",
+    "CalibrationDefinition",
+    "DelayInstruction",
+    "EndStatement",
+    "ExpressionStatement",
+    "ExternDeclaration",
+    "ForInLoop",
+    "QuantumGate",
+    "BranchingStatement",
     "Include",
-    "IndexedAssign",
+    "IndexedClassicalAssignment",
     "InputDeclaration",
     "OutputDeclaration",
-    "MeasureArrow",
+    "QuantumMeasurementStatement",
     "Pragma",
-    "GateDefinition",
-    "QubitDecl",
-    "QubitArrayDecl",
-    "Reset",
-    "Return",
-    "Switch",
+    "QuantumGateDefinition",
+    "QubitDeclaration",
+    "QubitArrayDeclaration",
+    "QuantumReset",
+    "ReturnStatement",
+    "SwitchStatement",
     "WhileLoop",
-    "ErrStmt",
+    "ErrorStatement",
 ]
 
 

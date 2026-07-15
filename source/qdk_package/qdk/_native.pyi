@@ -1817,7 +1817,7 @@ class _semantic:
 
     The semantic OpenQASM node classes keep their ``Sem``-prefixed Rust
     identifiers but are exposed to Python under clean, un-prefixed names inside
-    this attribute-only submodule (for example ``SemGateCall`` -> ``GateCall``).
+    this attribute-only submodule (for example ``SemGateCall`` -> ``QuantumGate``).
     Modeling the submodule as a nested class lets pyright resolve
     ``_semantic.<Name>`` from the single ``_native.pyi`` stub without a stub
     package or ``sys.modules`` registration. Sibling references between the
@@ -1862,7 +1862,7 @@ class _semantic:
         def lookup(self, name: str) -> "Optional[_semantic.Symbol]": ...
         def symbols(self) -> "List[_semantic.Symbol]": ...
 
-    class Expr(Expression):
+    class SemanticExpression(Expression):
         """The base of every semantic expression node."""
 
         @property
@@ -1872,7 +1872,7 @@ class _semantic:
         @property
         def symbol(self) -> "Optional[_semantic.Symbol]": ...
 
-    class Stmt(Statement):
+    class SemanticStatement(Statement):
         """The base of every semantic statement node."""
 
         @property
@@ -1898,12 +1898,12 @@ class _semantic:
 
     # --- semantic expression nodes ---
 
-    class ErrExpr(Expr):
+    class ErrorExpression(SemanticExpression):
         """An expression that could not be resolved."""
 
         def children(self) -> List[QASMNode]: ...
 
-    class ResolvedIdent(Expr):
+    class Identifier(SemanticExpression):
         """A reference to a resolved symbol."""
 
         @property
@@ -1912,7 +1912,7 @@ class _semantic:
         def symbol_id(self) -> int: ...
         def children(self) -> List[QASMNode]: ...
 
-    class CapturedResolvedIdent(Expr):
+    class CapturedIdentifier(SemanticExpression):
         """A reference to a symbol captured from an enclosing scope."""
 
         @property
@@ -1921,7 +1921,7 @@ class _semantic:
         def symbol_id(self) -> int: ...
         def children(self) -> List[QASMNode]: ...
 
-    class UnaryOpExpr(Expr):
+    class UnaryExpression(SemanticExpression):
         """A unary operator expression."""
 
         @property
@@ -1930,7 +1930,7 @@ class _semantic:
         def operand(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class BinaryOpExpr(Expr):
+    class BinaryExpression(SemanticExpression):
         """A binary operator expression."""
 
         @property
@@ -1941,7 +1941,7 @@ class _semantic:
         def rhs(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Literal(Expr):
+    class LiteralExpression(SemanticExpression):
         """A literal expression."""
 
         @property
@@ -1950,7 +1950,7 @@ class _semantic:
         def elements(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class FunctionCall(Expr):
+    class FunctionCall(SemanticExpression):
         """A call to a resolved function."""
 
         @property
@@ -1961,7 +1961,7 @@ class _semantic:
         def args(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class BuiltinFunctionCall(Expr):
+    class BuiltinFunctionCall(SemanticExpression):
         """A call to a built-in function."""
 
         @property
@@ -1970,7 +1970,7 @@ class _semantic:
         def args(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Cast(Expr):
+    class Cast(SemanticExpression):
         """A type cast expression."""
 
         @property
@@ -1981,7 +1981,7 @@ class _semantic:
         def kind(self) -> str: ...
         def children(self) -> List[QASMNode]: ...
 
-    class IndexedExpr(Expr):
+    class IndexExpression(SemanticExpression):
         """An indexing expression."""
 
         @property
@@ -1990,21 +1990,21 @@ class _semantic:
         def indices(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Paren(Expr):
+    class ParenExpression(SemanticExpression):
         """A parenthesized expression."""
 
         @property
         def operand(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Measure(Expr):
+    class QuantumMeasurement(SemanticExpression):
         """A measurement expression."""
 
         @property
         def qubits(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class RuntimeSizeof(Expr):
+    class RuntimeSizeof(SemanticExpression):
         """A runtime ``sizeof`` expression."""
 
         @property
@@ -2015,14 +2015,14 @@ class _semantic:
         def array_rank(self) -> int: ...
         def children(self) -> List[QASMNode]: ...
 
-    class EvaluatedDurationof(Expr):
+    class DurationOf(SemanticExpression):
         """An evaluated ``durationof`` expression."""
 
         @property
         def body(self) -> List[Statement]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Concat(Expr):
+    class Concatenation(SemanticExpression):
         """A concatenation expression."""
 
         @property
@@ -2031,7 +2031,7 @@ class _semantic:
 
     # --- semantic statement nodes ---
 
-    class AliasDecl(Stmt):
+    class AliasStatement(SemanticStatement):
         """An alias declaration statement."""
 
         @property
@@ -2040,7 +2040,7 @@ class _semantic:
         def exprs(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Assign(Stmt):
+    class ClassicalAssignment(SemanticStatement):
         """An assignment statement."""
 
         @property
@@ -2049,14 +2049,14 @@ class _semantic:
         def rhs(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Barrier(Stmt):
+    class QuantumBarrier(SemanticStatement):
         """A barrier statement."""
 
         @property
         def qubits(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Box(Stmt):
+    class Box(SemanticStatement):
         """A box statement."""
 
         @property
@@ -2065,33 +2065,33 @@ class _semantic:
         def body(self) -> List[Statement]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Block(Stmt):
+    class CompoundStatement(SemanticStatement):
         """A block of statements."""
 
         @property
         def statements(self) -> List[Statement]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Break(Stmt):
+    class BreakStatement(SemanticStatement):
         """A break statement."""
 
         def children(self) -> List[QASMNode]: ...
 
-    class Calibration(Stmt):
+    class CalibrationStatement(SemanticStatement):
         """A calibration statement."""
 
         @property
         def content(self) -> str: ...
         def children(self) -> List[QASMNode]: ...
 
-    class CalibrationGrammar(Stmt):
+    class CalibrationGrammarDeclaration(SemanticStatement):
         """A calibration grammar statement."""
 
         @property
         def name(self) -> str: ...
         def children(self) -> List[QASMNode]: ...
 
-    class ClassicalDecl(Stmt):
+    class ClassicalDeclaration(SemanticStatement):
         """A classical variable declaration statement."""
 
         @property
@@ -2102,12 +2102,12 @@ class _semantic:
         def init_expr(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Continue(Stmt):
+    class ContinueStatement(SemanticStatement):
         """A continue statement."""
 
         def children(self) -> List[QASMNode]: ...
 
-    class Def(Stmt):
+    class SubroutineDefinition(SemanticStatement):
         """A subroutine definition statement."""
 
         @property
@@ -2120,14 +2120,14 @@ class _semantic:
         def body(self) -> List[Statement]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class DefCal(Stmt):
+    class CalibrationDefinition(SemanticStatement):
         """A ``defcal`` statement."""
 
         @property
         def content(self) -> str: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Delay(Stmt):
+    class DelayInstruction(SemanticStatement):
         """A delay statement."""
 
         @property
@@ -2136,19 +2136,19 @@ class _semantic:
         def qubits(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class End(Stmt):
+    class EndStatement(SemanticStatement):
         """An end statement."""
 
         def children(self) -> List[QASMNode]: ...
 
-    class ExprStmt(Stmt):
+    class ExpressionStatement(SemanticStatement):
         """An expression statement."""
 
         @property
         def expr(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class ExternDecl(Stmt):
+    class ExternDeclaration(SemanticStatement):
         """An extern declaration statement."""
 
         @property
@@ -2159,7 +2159,7 @@ class _semantic:
         def return_types(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class ForLoop(Stmt):
+    class ForInLoop(SemanticStatement):
         """A ``for`` loop statement."""
 
         @property
@@ -2172,7 +2172,7 @@ class _semantic:
         def body(self) -> Statement: ...
         def children(self) -> List[QASMNode]: ...
 
-    class GateCall(Stmt):
+    class QuantumGate(SemanticStatement):
         """A gate call statement."""
 
         @property
@@ -2187,7 +2187,7 @@ class _semantic:
         def duration(self) -> Optional[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class IfStmt(Stmt):
+    class BranchingStatement(SemanticStatement):
         """An ``if`` statement."""
 
         @property
@@ -2198,14 +2198,14 @@ class _semantic:
         def else_block(self) -> Optional[Statement]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Include(Stmt):
+    class Include(SemanticStatement):
         """An include statement."""
 
         @property
         def filename(self) -> str: ...
         def children(self) -> List[QASMNode]: ...
 
-    class IndexedAssign(Stmt):
+    class IndexedClassicalAssignment(SemanticStatement):
         """An indexed assignment statement."""
 
         @property
@@ -2216,7 +2216,7 @@ class _semantic:
         def rhs(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class InputDeclaration(Stmt):
+    class InputDeclaration(SemanticStatement):
         """An input declaration statement."""
 
         @property
@@ -2225,7 +2225,7 @@ class _semantic:
         def ty_exprs(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class OutputDeclaration(Stmt):
+    class OutputDeclaration(SemanticStatement):
         """An output declaration statement."""
 
         @property
@@ -2236,7 +2236,7 @@ class _semantic:
         def init_expr(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class MeasureArrow(Stmt):
+    class QuantumMeasurementStatement(SemanticStatement):
         """A measurement-to-target statement."""
 
         @property
@@ -2245,7 +2245,7 @@ class _semantic:
         def target(self) -> Optional[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Pragma(Stmt):
+    class Pragma(SemanticStatement):
         """A pragma statement."""
 
         @property
@@ -2254,7 +2254,7 @@ class _semantic:
         def value(self) -> Optional[str]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class GateDefinition(Stmt):
+    class QuantumGateDefinition(SemanticStatement):
         """A quantum gate definition statement."""
 
         @property
@@ -2267,14 +2267,14 @@ class _semantic:
         def body(self) -> List[Statement]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class QubitDecl(Stmt):
+    class QubitDeclaration(SemanticStatement):
         """A qubit declaration statement."""
 
         @property
         def name(self) -> Optional[str]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class QubitArrayDecl(Stmt):
+    class QubitArrayDeclaration(SemanticStatement):
         """A qubit array declaration statement."""
 
         @property
@@ -2283,21 +2283,21 @@ class _semantic:
         def size(self) -> Expression: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Reset(Stmt):
+    class QuantumReset(SemanticStatement):
         """A reset statement."""
 
         @property
         def qubits(self) -> List[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Return(Stmt):
+    class ReturnStatement(SemanticStatement):
         """A return statement."""
 
         @property
         def value(self) -> Optional[Expression]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class Switch(Stmt):
+    class SwitchStatement(SemanticStatement):
         """A switch statement."""
 
         @property
@@ -2310,7 +2310,7 @@ class _semantic:
         def default(self) -> List[Statement]: ...
         def children(self) -> List[QASMNode]: ...
 
-    class WhileLoop(Stmt):
+    class WhileLoop(SemanticStatement):
         """A ``while`` loop statement."""
 
         @property
@@ -2319,7 +2319,7 @@ class _semantic:
         def body(self) -> Statement: ...
         def children(self) -> List[QASMNode]: ...
 
-    class ErrStmt(Stmt):
+    class ErrorStatement(SemanticStatement):
         """A statement that could not be resolved."""
 
         def children(self) -> List[QASMNode]: ...
