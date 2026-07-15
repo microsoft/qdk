@@ -289,6 +289,7 @@ export class DropInCourseProvider implements CourseProvider {
           exercises?: unknown;
         };
         if (Array.isArray(parsed.exercises)) {
+          // TODO (acasey): validate the rest of the parsed input?
           notebookExercises = parsed.exercises.filter(
             (e): e is NotebookExerciseInfo =>
               !!e &&

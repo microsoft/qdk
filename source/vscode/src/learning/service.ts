@@ -1121,9 +1121,9 @@ export class LearningService {
       await this.pythonRunner.rematerializeUnit(this.activeCourse, unit.id);
       // Delete the sentinel file if present.
       if (unit.notebookRel) {
-        const unitDir = this.notebookFileUri(unit.notebookRel);
+        const workingCopyUri = this.notebookFileUri(unit.notebookRel);
         const sentinelUri = vscode.Uri.joinPath(
-          unitDir,
+          workingCopyUri,
           "..",
           ".qdk-unit-complete",
         );
@@ -1446,6 +1446,7 @@ export class LearningService {
     const descriptors = await registry.listCourses();
     for (const descriptor of descriptors) {
       try {
+        // TODO (acasey): do this lazily?
         const course = await registry.loadCourse(descriptor.id);
         courses.set(course.id, course);
       } catch {
@@ -2152,6 +2153,7 @@ export class LearningService {
     }
   }
 
+  // TODO (acasey): check for clones
   private async uriExists(uri: vscode.Uri): Promise<boolean> {
     try {
       await vscode.workspace.fs.stat(uri);

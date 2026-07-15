@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import { assert } from "chai";
-import { type ExtensionApi } from "../../src/extension";
+import { type ExtensionApi } from "../../../src/extension";
 import { activateExtension } from "../extensionUtils";
 
 type LearningService = NonNullable<ExtensionApi["learning"]>;
@@ -14,11 +14,19 @@ suite("QDK Learning multi-course", function suite() {
     const api = await activateExtension();
     // The learning feature is desktop-only, so this suite is skipped in the
     // web (browser) test host where no learning service is exposed.
+    // TODO (acasey): then why does index.browser.ts invoke this file?
     if (!api.learning) {
       this.skip();
     }
     service = api.learning!;
-    await service.tryInitialize({ createIfMissing: true });
+    const foundWorkspace = await service.tryInitialize({
+      createIfMissing: true,
+    });
+    if (!foundWorkspace) {
+      assert.fail(
+        "No workspace folder — the learning test-workspace fixture is missing",
+      );
+    }
   });
 
   test("Katas is the default course", async () => {
@@ -28,6 +36,7 @@ suite("QDK Learning multi-course", function suite() {
       "the built-in Katas course should always be available",
     );
     assert.equal(service.getActiveCourseId(), "katas");
+    assert.fail("The test ran");
   });
 
   test("Drop-in python-notebook course is discovered", async function test() {

@@ -370,6 +370,7 @@ export class LessonPanelManager {
           break;
         }
         case "reset": {
+          // TODO (acasey): is this text appropriate for all course flavors?
           const confirmed = await vscode.window.showWarningMessage(
             "Reset this unit to the original notebook? Your current work will be lost.",
             { modal: true },
