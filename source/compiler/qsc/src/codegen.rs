@@ -169,7 +169,7 @@ pub mod qir {
     /// removed during dead-code elimination. Pinning preserves these for specialization.
     pub fn run_codegen_pipeline_to(
         package_store: &PackageStore,
-        package_id: qsc_hir::hir::PackageId,
+        _package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         stage: qsc_fir_transforms::PipelineStage,
@@ -195,14 +195,16 @@ pub mod qir {
             stage,
             pinned_items,
         );
-        let source_package = package_store
-            .get(package_id)
-            .expect("package should be in store");
         if !pipeline_result.errors.is_empty() {
             return Err(pipeline_result
                 .errors
                 .into_iter()
-                .map(|e| Error::FirTransform(WithSource::from_map(&source_package.sources, e)))
+                .map(|error| {
+                    Error::FirTransform(crate::compile::attach_fir_transform_source(
+                        package_store,
+                        error,
+                    ))
+                })
                 .collect());
         }
 
@@ -211,7 +213,12 @@ pub mod qir {
         Ok(pipeline_result
             .warnings
             .into_iter()
-            .map(|w| Error::FirTransform(WithSource::from_map(&source_package.sources, w)))
+            .map(|warning| {
+                Error::FirTransform(crate::compile::attach_fir_transform_source(
+                    package_store,
+                    warning,
+                ))
+            })
             .collect())
     }
 
@@ -228,7 +235,7 @@ pub mod qir {
     /// contract as [`run_codegen_pipeline_to`].
     fn run_codegen_signature_preserving_subpipeline(
         package_store: &PackageStore,
-        package_id: qsc_hir::hir::PackageId,
+        _package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         seeds: &[qsc_fir::fir::StoreItemId],
@@ -239,13 +246,15 @@ pub mod qir {
             seeds,
         );
         if !pipeline_result.errors.is_empty() {
-            let source_package = package_store
-                .get(package_id)
-                .expect("package should be in store");
             return Err(pipeline_result
                 .errors
                 .into_iter()
-                .map(|e| Error::FirTransform(WithSource::from_map(&source_package.sources, e)))
+                .map(|error| {
+                    Error::FirTransform(crate::compile::attach_fir_transform_source(
+                        package_store,
+                        error,
+                    ))
+                })
                 .collect());
         }
 

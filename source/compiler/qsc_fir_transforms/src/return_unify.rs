@@ -125,6 +125,14 @@ pub enum Error {
     ),
 }
 
+/// A return-unification diagnostic paired with the FIR package that owns its
+/// source label.
+#[derive(Clone, Debug)]
+pub(crate) struct OwnedError {
+    pub package: PackageId,
+    pub error: Error,
+}
+
 impl Error {
     /// Returns true if this error is a non-fatal warning that should not
     /// trigger pipeline abort.
@@ -351,7 +359,7 @@ pub fn unify_returns(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
-) -> (Vec<Error>, FxHashSet<StoreItemId>) {
+) -> (Vec<OwnedError>, FxHashSet<StoreItemId>) {
     unify_returns_impl_cross_package(
         store,
         package_id,
@@ -375,7 +383,7 @@ pub fn unify_returns_with_seeds(
     package_id: PackageId,
     assigners: &mut PackageAssigners,
     seeds: &[StoreItemId],
-) -> (Vec<Error>, FxHashSet<StoreItemId>) {
+) -> (Vec<OwnedError>, FxHashSet<StoreItemId>) {
     unify_returns_impl_cross_package(
         store, package_id, assigners, seeds, /* run_simplify */ true,
     )
@@ -416,7 +424,7 @@ fn unify_returns_impl_cross_package(
     assigners: &mut PackageAssigners,
     seeds: &[StoreItemId],
     run_simplify: bool,
-) -> (Vec<Error>, FxHashSet<StoreItemId>) {
+) -> (Vec<OwnedError>, FxHashSet<StoreItemId>) {
     let reachable = if seeds.is_empty() {
         collect_reachable_from_entry(store, package_id)
     } else {
@@ -436,6 +444,7 @@ fn unify_returns_impl_cross_package(
         let owning_pkg = store_id.package;
         let item_id = store_id.item;
         let assigner = assigners.get_mut(store, owning_pkg);
+        let mut callable_errors = Vec::new();
         process_callable_returns(
             store,
             owning_pkg,
@@ -444,9 +453,13 @@ fn unify_returns_impl_cross_package(
             &udt_pure_tys,
             &mut arrow_default_cache,
             run_simplify,
-            &mut errors,
+            &mut callable_errors,
             &mut skipped,
         );
+        errors.extend(callable_errors.into_iter().map(|error| OwnedError {
+            package: owning_pkg,
+            error,
+        }));
     }
 
     (errors, skipped)

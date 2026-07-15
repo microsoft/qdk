@@ -39,6 +39,14 @@ pub enum Error {
     UnsupportedReturnType(String, String, #[label("unsupported return type")] Span),
 }
 
+/// An intrinsic-precheck diagnostic paired with the FIR package that owns its
+/// source label.
+#[derive(Clone, Debug)]
+pub(crate) struct OwnedError {
+    pub package: PackageId,
+    pub error: Error,
+}
+
 /// Returns `true` when `ty` is a tuple (non-unit) or UDT, which are
 /// unsupported in intrinsic callable signatures.
 fn is_unsupported_intrinsic_type(ty: &Ty) -> bool {
@@ -52,7 +60,7 @@ fn is_unsupported_intrinsic_type(ty: &Ty) -> bool {
 /// Validates that reachable intrinsic callables in `package_id` have no tuple
 /// or UDT parameter/return types.
 #[must_use]
-pub fn validate_intrinsic_types(store: &PackageStore, package_id: PackageId) -> Vec<Error> {
+pub fn validate_intrinsic_types(store: &PackageStore, package_id: PackageId) -> Vec<OwnedError> {
     let reachable = reachability::collect_reachable_from_entry(store, package_id);
     let mut errors = Vec::new();
 
@@ -77,11 +85,14 @@ pub fn validate_intrinsic_types(store: &PackageStore, package_id: PackageId) -> 
 
         for param in package.derive_callable_input_params(decl) {
             if is_unsupported_intrinsic_type(&param.ty) {
-                errors.push(Error::UnsupportedParamType(
-                    name.clone(),
-                    format!("{}", param.ty),
-                    decl.span,
-                ));
+                errors.push(OwnedError {
+                    package: item_id.package,
+                    error: Error::UnsupportedParamType(
+                        name.clone(),
+                        format!("{}", param.ty),
+                        decl.span,
+                    ),
+                });
             }
         }
 
@@ -90,11 +101,10 @@ pub fn validate_intrinsic_types(store: &PackageStore, package_id: PackageId) -> 
         let skip_tuple_return = decl.attrs.contains(&Attr::Measurement)
             && matches!(&decl.output, Ty::Tuple(items) if !items.is_empty());
         if !skip_tuple_return && is_unsupported_intrinsic_type(&decl.output) {
-            errors.push(Error::UnsupportedReturnType(
-                name,
-                format!("{}", decl.output),
-                decl.span,
-            ));
+            errors.push(OwnedError {
+                package: item_id.package,
+                error: Error::UnsupportedReturnType(name, format!("{}", decl.output), decl.span),
+            });
         }
     }
 

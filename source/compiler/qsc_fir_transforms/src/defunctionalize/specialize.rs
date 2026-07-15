@@ -23,8 +23,8 @@
 //! arrow types appear on reachable callable parameters or expressions.
 
 use super::types::{
-    AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, Error, SpecKey,
-    compose_functors, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, Error, OwnedError,
+    SpecKey, compose_functors, peel_body_functors,
 };
 use super::{
     build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
@@ -129,9 +129,9 @@ pub(super) fn specialize(
     store: &mut PackageStore,
     analysis: &AnalysisResult,
     assigners: &mut PackageAssigners,
-) -> (FxHashMap<SpecKey, StoreItemId>, Vec<Error>) {
+) -> (FxHashMap<SpecKey, StoreItemId>, Vec<OwnedError>) {
     let mut dedup: FxHashMap<SpecKey, StoreItemId> = FxHashMap::default();
-    let mut errors: Vec<Error> = Vec::new();
+    let mut errors: Vec<OwnedError> = Vec::new();
 
     // Build a lookup from each HOF's StoreItemId => CallableParam. This
     // lowest-index entry serves the per-row path, used by single-arrow-param
@@ -249,16 +249,19 @@ fn group_call_sites_by_expression(analysis: &AnalysisResult) -> Vec<Vec<&CallSit
 fn try_decline_multiple_callable_arrays(
     store: &PackageStore,
     group: &[&CallSite],
-    errors: &mut Vec<Error>,
+    errors: &mut Vec<OwnedError>,
 ) -> bool {
     let package = store.get(group[0].call_pkg_id);
     if has_multiple_forwarded_callable_arrays(package, group) {
         let span = package.get_expr(group[0].call_expr_id).span;
         if !errors
             .iter()
-            .any(|e| matches!(e, Error::UnsupportedMultipleCallableArrays(s) if *s == span))
+            .any(|e| matches!(e.error, Error::UnsupportedMultipleCallableArrays(s) if s == span))
         {
-            errors.push(Error::UnsupportedMultipleCallableArrays(span));
+            errors.push(OwnedError {
+                package: group[0].call_pkg_id,
+                error: Error::UnsupportedMultipleCallableArrays(span),
+            });
         }
         return true;
     }
@@ -398,7 +401,7 @@ fn specialize_per_row_group(
     param_lookup: &FxHashMap<StoreItemId, &CallableParam>,
     param_by_position: &FxHashMap<(StoreItemId, usize, Vec<usize>), &CallableParam>,
     dedup: &mut FxHashMap<SpecKey, StoreItemId>,
-    errors: &mut Vec<Error>,
+    errors: &mut Vec<OwnedError>,
     assigners: &mut PackageAssigners,
 ) {
     for call_site in group {
@@ -416,7 +419,10 @@ fn specialize_per_row_group(
         if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
             let package = store.get(call_site.call_pkg_id);
             let span = package.get_expr(call_site.call_expr_id).span;
-            errors.push(Error::DynamicCallable(span));
+            errors.push(OwnedError {
+                package: call_site.call_pkg_id,
+                error: Error::DynamicCallable(span),
+            });
             continue;
         }
 
@@ -471,7 +477,7 @@ fn specialize_per_row_group(
 fn report_excessive_specializations(
     store: &PackageStore,
     dedup: &FxHashMap<SpecKey, StoreItemId>,
-    errors: &mut Vec<Error>,
+    errors: &mut Vec<OwnedError>,
 ) {
     // Count specializations per HOF and emit a warning when the threshold
     // is exceeded. Group dedup entries by the HOF callable_id embedded in
@@ -489,7 +495,10 @@ fn report_excessive_specializations(
             } else {
                 (format!("Item({hof_id})"), Span::default())
             };
-            errors.push(Error::ExcessiveSpecializations(name, *count, span));
+            errors.push(OwnedError {
+                package: hof_id.package,
+                error: Error::ExcessiveSpecializations(name, *count, span),
+            });
         }
     }
 }

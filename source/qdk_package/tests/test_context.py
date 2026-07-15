@@ -27,6 +27,56 @@ def test_compile() -> None:
     assert isinstance(program._repr_qir_(), bytes)
 
 
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        pytest.param(qdk.TargetProfile.Adaptive_RI, id="adaptive-ri"),
+        pytest.param(qdk.TargetProfile.Adaptive_RIF, id="adaptive-rif"),
+        pytest.param(qdk.TargetProfile.Adaptive, id="adaptive"),
+    ],
+)
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(
+            """
+            {
+                operation SelectResult(q : Qubit) : Int {
+                    H(q);
+                    if MResetZ(q) == One {
+                        return 1;
+                    }
+                    return 2;
+                }
+
+                use q = Qubit();
+                SelectResult(q)
+            }
+            """,
+            id="return-unification-before-rca",
+        ),
+        pytest.param(
+            """
+            {
+                use address = Qubit[1];
+                use output = Qubit[1];
+                Std.TableLookup.Select([[false], [true]], address, output);
+            }
+            """,
+            id="direct-table-lookup-select",
+        ),
+    ],
+)
+def test_compile_adaptive_string_entry_across_profiles(
+    target_profile: qdk.TargetProfile, entry: str
+) -> None:
+    ctx = qdk.Context(target_profile=target_profile)
+    qir = ctx.compile(entry)._repr_qir_()
+    assert isinstance(qir, bytes)
+    assert qir
+    assert b'"qir_profiles"="adaptive_profile"' in qir
+
+
 def test_circuit() -> None:
     ctx = qdk.Context()
     ctx.eval("operation Program() : Result { use q = Qubit(); H(q); MResetZ(q) }")

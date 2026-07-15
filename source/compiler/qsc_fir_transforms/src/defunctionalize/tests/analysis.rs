@@ -1315,6 +1315,65 @@ fn udt_field_from_parameter() {
 }
 
 #[test]
+fn constructor_and_factory_return_field_projection_resolve_distinctly() {
+    let source = r#"
+        newtype Config = (Count : Int, Apply : Qubit => Unit);
+
+        function MakeConfig(angle : Double) : Config {
+            Config(1, q => Rx(angle, q))
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            let direct = Config(0, H);
+            direct::Apply(q);
+            let factory = MakeConfig(0.25);
+            factory::Apply(q);
+        }
+        "#;
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let reachable = collect_reachable_from_entry(&fir_store, fir_pkg_id);
+    let package = fir_store.get(fir_pkg_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, fir_pkg_id, &reachable)
+        .map(|(id, _)| id)
+        .collect();
+    let reachable_expr_ids =
+        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+    let collapsed_spans =
+        super::super::prepass::run(&mut fir_store, fir_pkg_id, &reachable_expr_ids);
+    let result = defunc_analysis::analyze(&mut fir_store, fir_pkg_id, &reachable, &collapsed_spans);
+
+    assert_eq!(
+        result.direct_call_sites.len(),
+        2,
+        "both projected callable fields should be recorded"
+    );
+    assert!(
+        result.direct_call_sites.iter().any(|site| {
+            matches!(
+                &site.callable,
+                ConcreteCallable::Global { item_id, .. }
+                    if resolve_item_name(&fir_store, item_id) == "H"
+            )
+        }),
+        "the constructor field should resolve directly from its argument"
+    );
+    let factory_captures = result.direct_call_sites.iter().find_map(|site| {
+        if let ConcreteCallable::Closure { captures, .. } = &site.callable {
+            Some(captures)
+        } else {
+            None
+        }
+    });
+    assert_eq!(
+        factory_captures.map(Vec::len),
+        Some(1),
+        "the factory field should follow the function return and recover its angle capture"
+    );
+}
+
+#[test]
 fn identity_closure_over_global_callable_collapses() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {

@@ -18,7 +18,7 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
     ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
-    PatId, StoreItemId, UnOp,
+    PatId, StoreExprId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::Ty;
 
@@ -406,6 +406,14 @@ pub enum ConcreteCallableKey {
 /// analysis.
 pub type LatticeStates = FxHashMap<LocalItemId, Vec<(LocalVarId, CalleeLattice)>>;
 
+/// A defunctionalization diagnostic paired with the FIR package that owns its
+/// source label.
+#[derive(Clone, Debug)]
+pub(crate) struct OwnedError {
+    pub package: PackageId,
+    pub error: Error,
+}
+
 /// Output of the analysis phase.
 #[derive(Clone, Debug, Default)]
 pub struct AnalysisResult {
@@ -419,7 +427,7 @@ pub struct AnalysisResult {
     /// (over-defined), recorded so the driver can emit a `DynamicCallable`
     /// diagnostic with the call-site span. `Bottom` callees are excluded to
     /// avoid spurious errors on intermediate fixpoint iterations.
-    pub unresolved_direct_call_sites: Vec<ExprId>,
+    pub unresolved_direct_call_sites: Vec<StoreExprId>,
     /// Per-callable lattice states for all callable-typed local variables
     /// after flow analysis.
     pub lattice_states: LatticeStates,

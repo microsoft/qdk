@@ -61,13 +61,13 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
     ExprId, ExprKind, ItemId, ItemKind, LocalItemId, Package, PackageId, PackageLookup,
-    PackageStore, Res, StoreItemId,
+    PackageStore, Res, StoreExprId, StoreItemId,
 };
 use qsc_fir::ty::Ty;
 use rustc_hash::{FxHashMap, FxHashSet};
 use types::{
-    AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, SpecKey,
-    peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, OwnedError,
+    SpecKey, peel_body_functors,
 };
 
 /// Lower bound on the analysis => specialize => rewrite iteration limit.
@@ -106,13 +106,25 @@ const MAX_ITERATIONS: usize = 20;
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
+#[cfg(test)]
 pub(crate) fn defunctionalize(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
 ) -> Vec<Error> {
-    let mut errors: Vec<Error> = Vec::new();
-    let mut warnings: Vec<Error> = Vec::new();
+    defunctionalize_with_owners(store, package_id, assigners)
+        .into_iter()
+        .map(|error| error.error)
+        .collect()
+}
+
+pub(crate) fn defunctionalize_with_owners(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+) -> Vec<OwnedError> {
+    let mut errors: Vec<OwnedError> = Vec::new();
+    let mut warnings: Vec<OwnedError> = Vec::new();
     // Start at the floor; `check_convergence` raises this to the dynamically
     // computed limit after the first iteration, once the analysis has reported
     // how many callable values actually need resolving.
@@ -126,12 +138,12 @@ pub(crate) fn defunctionalize(
     // only if the loop terminates with work remaining (see
     // `emit_fixpoint_error`), so transient forwarding calls resolved by a later
     // specialization never reach that terminal state.
-    let mut unresolved_direct_call_sites: Vec<ExprId> = Vec::new();
+    let mut unresolved_direct_call_sites: Vec<StoreExprId> = Vec::new();
 
     // Capture the initial callable-value count for before/after progress
     // tracking, mirroring LLVM's DevirtSCCRepeatedPass: detect when an
     // iteration fails to reduce the remaining work set.
-    let (_, mut prev_remaining_count, _) = remaining_callable_value_info(store, package_id);
+    let (_, mut prev_remaining_count, _, _) = remaining_callable_value_info(store, package_id);
 
     while iteration_count < max_iterations {
         iteration_count += 1;
@@ -141,7 +153,7 @@ pub(crate) fn defunctionalize(
         // parameter forwarding like `Inner(op, q)` in a not-yet-specialized
         // HOF) disappear once the outer HOF is specialized, so only the final
         // iteration's emissions survive.
-        errors.retain(|e| !matches!(e, Error::DynamicCallable(_)));
+        errors.retain(|e| !matches!(e.error, Error::DynamicCallable(_)));
 
         let reachable = collect_reachable_from_entry(store, package_id);
 
@@ -206,9 +218,9 @@ pub(crate) fn defunctionalize(
     // a more actionable error has already fired.
     if errors
         .iter()
-        .any(|e| matches!(e, Error::UnsupportedMultipleCallableArrays(_)))
+        .any(|e| matches!(e.error, Error::UnsupportedMultipleCallableArrays(_)))
     {
-        errors.retain(|e| !matches!(e, Error::DynamicCallable(_)));
+        errors.retain(|e| !matches!(e.error, Error::DynamicCallable(_)));
     }
 
     emit_fixpoint_error(
@@ -245,8 +257,8 @@ fn run_specialization(
     store: &mut PackageStore,
     analysis: &AnalysisResult,
     assigners: &mut PackageAssigners,
-    errors: &mut Vec<Error>,
-    warnings: &mut Vec<Error>,
+    errors: &mut Vec<OwnedError>,
+    warnings: &mut Vec<OwnedError>,
 ) -> FxHashMap<SpecKey, StoreItemId> {
     let (spec_map, mut spec_errors) = if analysis.call_sites.is_empty() {
         (Default::default(), Vec::new())
@@ -257,18 +269,20 @@ fn run_specialization(
     // iteration does not discard them.
     warnings.append(
         &mut (spec_errors
-            .extract_if(.., |e| matches!(e, Error::ExcessiveSpecializations(..)))
+            .extract_if(.., |e| {
+                matches!(e.error, Error::ExcessiveSpecializations(..))
+            })
             .collect()),
     );
-    spec_errors.retain(|e| !matches!(e, Error::ExcessiveSpecializations(..)));
+    spec_errors.retain(|e| !matches!(e.error, Error::ExcessiveSpecializations(..)));
     // `UnsupportedMultipleCallableArrays` is intentionally not swept by the
     // per-iteration `DynamicCallable` retain, so the guarded group re-reports it
     // every fixpoint iteration. Drop any whose span already survives in `errors`
     // so a single diagnostic persists across iterations rather than one copy per
     // pass.
-    spec_errors.retain(|e| match e {
+    spec_errors.retain(|e| match &e.error {
         Error::UnsupportedMultipleCallableArrays(span) => !errors.iter().any(
-            |existing| matches!(existing, Error::UnsupportedMultipleCallableArrays(s) if s == span),
+            |existing| matches!(existing.error, Error::UnsupportedMultipleCallableArrays(s) if s == *span),
         ),
         _ => true,
     });
@@ -410,7 +424,7 @@ fn check_convergence(
     max_iterations: &mut usize,
     prev_remaining_count: &mut usize,
 ) -> bool {
-    let (has_remaining, remaining_count, _) = remaining_callable_value_info(store, package_id);
+    let (has_remaining, remaining_count, _, _) = remaining_callable_value_info(store, package_id);
 
     let made_progress = remaining_count < *prev_remaining_count || !analysis.call_sites.is_empty();
     *prev_remaining_count = remaining_count;
@@ -447,21 +461,24 @@ fn emit_fixpoint_error(
     store: &PackageStore,
     package_id: PackageId,
     iteration_count: usize,
-    unresolved_direct_call_sites: &[ExprId],
-    errors: &mut Vec<Error>,
+    unresolved_direct_call_sites: &[StoreExprId],
+    errors: &mut Vec<OwnedError>,
 ) {
-    let (has_remaining, remaining_count, span) = remaining_callable_value_info(store, package_id);
+    let (has_remaining, remaining_count, owner, span) =
+        remaining_callable_value_info(store, package_id);
     if has_remaining && errors.is_empty() {
         if unresolved_direct_call_sites.is_empty() {
-            errors.push(Error::FixpointNotReached(
-                iteration_count,
-                remaining_count,
-                span,
-            ));
+            errors.push(OwnedError {
+                package: owner,
+                error: Error::FixpointNotReached(iteration_count, remaining_count, span),
+            });
         } else {
-            let package = store.get(package_id);
-            for &call_expr_id in unresolved_direct_call_sites {
-                errors.push(Error::DynamicCallable(package.get_expr(call_expr_id).span));
+            for &call_site in unresolved_direct_call_sites {
+                let package = store.get(call_site.package);
+                errors.push(OwnedError {
+                    package: call_site.package,
+                    error: Error::DynamicCallable(package.get_expr(call_site.expr).span),
+                });
             }
         }
     }
@@ -699,17 +716,20 @@ fn collect_all_expr_ids(package: &Package, expr_id: ExprId, ids: &mut FxHashSet<
 /// Checks whether any reachable callable value still requires
 /// defunctionalization work.
 ///
-/// Returns `(has_remaining, count, first_span)` in a single reachability scan.
+/// Returns `(has_remaining, count, first_package, first_span)` in a single
+/// reachability scan.
 fn remaining_callable_value_info(
     store: &PackageStore,
     package_id: PackageId,
-) -> (bool, usize, Span) {
+) -> (bool, usize, PackageId, Span) {
     let reachable = collect_reachable_from_entry(store, package_id);
     let mut count = 0;
+    let mut first_package = package_id;
     let mut first_span = Span::default();
 
-    let mut record_remaining = |span: Span| {
+    let mut record_remaining = |owner: PackageId, span: Span| {
         if count == 0 {
+            first_package = owner;
             first_span = span;
         }
         count += 1;
@@ -731,7 +751,7 @@ fn remaining_callable_value_info(
         if let ItemKind::Callable(decl) = &item.kind {
             let input_pat = package.get_pat(decl.input);
             if ty_contains_arrow_through_udts(store, &input_pat.ty) {
-                record_remaining(input_pat.span);
+                record_remaining(store_id.package, input_pat.span);
             }
 
             crate::walk_utils::for_each_expr_in_callable_impl(
@@ -739,7 +759,7 @@ fn remaining_callable_value_info(
                 &decl.implementation,
                 &mut |_expr_id, expr| {
                     if matches!(expr.kind, ExprKind::Closure(_, _)) {
-                        record_remaining(expr.span);
+                        record_remaining(store_id.package, expr.span);
                     }
                     // Count indirect calls through arrow-typed local variables.
                     // After defunc iteration 1 specializes HOFs and removes callable
@@ -756,7 +776,7 @@ fn remaining_callable_value_info(
                         if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
                             && ty_contains_arrow(&base_expr.ty)
                         {
-                            record_remaining(base_expr.span);
+                            record_remaining(store_id.package, base_expr.span);
                         }
                     }
                 },
@@ -768,7 +788,7 @@ fn remaining_callable_value_info(
     if let Some(entry_id) = package.entry {
         crate::walk_utils::for_each_expr(package, entry_id, &mut |_expr_id, expr| {
             if matches!(expr.kind, ExprKind::Closure(_, _)) {
-                record_remaining(expr.span);
+                record_remaining(package_id, expr.span);
             }
             // Same indirect-call check as callable body walker.
             if let ExprKind::Call(callee_id, _) = &expr.kind {
@@ -777,13 +797,13 @@ fn remaining_callable_value_info(
                 if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
                     && ty_contains_arrow(&base_expr.ty)
                 {
-                    record_remaining(base_expr.span);
+                    record_remaining(package_id, base_expr.span);
                 }
             }
         });
     }
 
-    (count > 0, count, first_span)
+    (count > 0, count, first_package, first_span)
 }
 
 /// Checks whether a type contains an arrow type anywhere within its structure.

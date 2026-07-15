@@ -94,6 +94,7 @@ pub(crate) mod walk_utils;
 use miette::Diagnostic;
 use qsc_fir::fir::{ExecGraphIdx, ItemKind, PackageId, PackageStore, StoreItemId};
 use rustc_hash::FxHashSet;
+use std::fmt::{self, Display, Formatter};
 use thiserror::Error;
 
 use crate::package_assigners::PackageAssigners;
@@ -170,6 +171,66 @@ pub enum PipelineError {
     #[diagnostic(code("Qdk.Qsc.FirTransform.TupleDecomposeArgPromoteFixpointNotReached"))]
     #[diagnostic(severity(Warning))]
     TupleDecomposeArgPromoteFixpointNotReached(usize),
+
+    /// The HIR package corresponding to a diagnostic's owning FIR package was
+    /// not available when attaching source text.
+    #[error("internal compiler error: source package for FIR package {0:?} is missing")]
+    #[diagnostic(code("Qdk.Qsc.FirTransform.MissingDiagnosticSourcePackage"))]
+    MissingDiagnosticSourcePackage(PackageId),
+}
+
+/// A pipeline diagnostic paired with the FIR package that owns its source
+/// labels.
+#[derive(Clone, Debug)]
+pub struct OwnedPipelineError {
+    pub package: PackageId,
+    pub error: PipelineError,
+}
+
+impl Display for OwnedPipelineError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(&self.error, f)
+    }
+}
+
+impl std::error::Error for OwnedPipelineError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
+
+impl Diagnostic for OwnedPipelineError {
+    fn code<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.error.code()
+    }
+
+    fn severity(&self) -> Option<miette::Severity> {
+        self.error.severity()
+    }
+
+    fn help<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.error.help()
+    }
+
+    fn url<'a>(&'a self) -> Option<Box<dyn Display + 'a>> {
+        self.error.url()
+    }
+
+    fn source_code(&self) -> Option<&dyn miette::SourceCode> {
+        self.error.source_code()
+    }
+
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = miette::LabeledSpan> + '_>> {
+        self.error.labels()
+    }
+
+    fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>> {
+        self.error.related()
+    }
+
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        Some(&self.error)
+    }
 }
 
 /// Warning-aware result for the FIR transform pipeline.
@@ -182,10 +243,10 @@ pub enum PipelineError {
 pub struct PipelineResult {
     /// Fatal transform diagnostics that prevent consuming the FIR as successful
     /// output for the requested stage.
-    pub errors: Vec<PipelineError>,
+    pub errors: Vec<OwnedPipelineError>,
     /// Non-fatal transform diagnostics emitted while producing successful FIR
     /// output for the requested stage.
-    pub warnings: Vec<PipelineError>,
+    pub warnings: Vec<OwnedPipelineError>,
 }
 
 impl PipelineResult {
@@ -285,10 +346,13 @@ fn run_pipeline_to_impl(
     let (ru_errors, skipped) = return_unify::unify_returns(store, package_id, &mut assigners);
     let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
         .into_iter()
-        .partition(return_unify::Error::is_warning);
+        .partition(|error| error.error.is_warning());
     result
         .warnings
-        .extend(ru_warnings.into_iter().map(PipelineError::from));
+        .extend(ru_warnings.into_iter().map(|error| OwnedPipelineError {
+            package: error.package,
+            error: PipelineError::from(error.error),
+        }));
     // Return unification currently emits only warnings: callables it cannot
     // convert are left un-rewritten (their residual `Return` nodes are carried
     // through downstream stages and the invariant checker skips them via
@@ -296,7 +360,13 @@ fn run_pipeline_to_impl(
     // `return_unify::Error` variant, keeping the schedule from advancing past a
     // genuinely unrecoverable callable; today `ru_fatal` is always empty.
     if !ru_fatal.is_empty() {
-        result.errors = ru_fatal.into_iter().map(PipelineError::from).collect();
+        result.errors = ru_fatal
+            .into_iter()
+            .map(|error| OwnedPipelineError {
+                package: error.package,
+                error: PipelineError::from(error.error),
+            })
+            .collect();
         return result;
     }
     invariants::check_with_skip(
@@ -371,18 +441,28 @@ fn run_defunc_and_lowering_stages(
     assigners: &mut PackageAssigners,
     skipped: &FxHashSet<StoreItemId>,
 ) -> bool {
-    let defunc_diagnostics = defunctionalize::defunctionalize(store, package_id, assigners);
+    let defunc_diagnostics =
+        defunctionalize::defunctionalize_with_owners(store, package_id, assigners);
     let (warnings, fatal_errors): (Vec<_>, Vec<_>) = defunc_diagnostics
         .into_iter()
-        .partition(defunctionalize::Error::is_warning);
+        .partition(|error| error.error.is_warning());
     // Append rather than overwrite so warnings surfaced by return unification
     // (the warn-and-delegate diagnostics for unconvertible early returns) are
     // preserved alongside defunctionalization warnings.
     result
         .warnings
-        .extend(warnings.into_iter().map(PipelineError::from));
+        .extend(warnings.into_iter().map(|error| OwnedPipelineError {
+            package: error.package,
+            error: PipelineError::from(error.error),
+        }));
     if !fatal_errors.is_empty() {
-        result.errors = fatal_errors.into_iter().map(PipelineError::from).collect();
+        result.errors = fatal_errors
+            .into_iter()
+            .map(|error| OwnedPipelineError {
+                package: error.package,
+                error: PipelineError::from(error.error),
+            })
+            .collect();
         return true;
     }
 
@@ -575,11 +655,12 @@ fn tuple_decompose_arg_promote_fixed_point(
         if rounds >= TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP {
             // This isn't reachable in practice but provides an escape mechanism
             // if somehow an adversarial input is created.
-            result
-                .warnings
-                .push(PipelineError::TupleDecomposeArgPromoteFixpointNotReached(
+            result.warnings.push(OwnedPipelineError {
+                package: package_id,
+                error: PipelineError::TupleDecomposeArgPromoteFixpointNotReached(
                     TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP,
-                ));
+                ),
+            });
             break;
         }
     }
@@ -596,7 +677,10 @@ fn perform_intrinsic_type_validation(
         return Some(PipelineResult {
             errors: precheck_errors
                 .into_iter()
-                .map(PipelineError::from)
+                .map(|error| OwnedPipelineError {
+                    package: error.package,
+                    error: PipelineError::from(error.error),
+                })
                 .collect(),
             ..Default::default()
         });
@@ -605,10 +689,20 @@ fn perform_intrinsic_type_validation(
 }
 
 /// Validates all explicit pinned items before seeded reachability consumes them.
-fn validate_pinned_items(store: &PackageStore, pinned_items: &[StoreItemId]) -> Vec<PipelineError> {
+fn validate_pinned_items(
+    store: &PackageStore,
+    pinned_items: &[StoreItemId],
+) -> Vec<OwnedPipelineError> {
     pinned_items
         .iter()
-        .filter_map(|item_id| validate_pinned_item(store, *item_id).err())
+        .filter_map(|item_id| {
+            validate_pinned_item(store, *item_id)
+                .err()
+                .map(|error| OwnedPipelineError {
+                    package: item_id.package,
+                    error,
+                })
+        })
         .collect()
 }
 
@@ -821,15 +915,24 @@ pub fn run_signature_preserving_subpipeline(
         return_unify::unify_returns_with_seeds(store, package_id, &mut assigners, seeds);
     let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
         .into_iter()
-        .partition(return_unify::Error::is_warning);
+        .partition(|error| error.error.is_warning());
     result
         .warnings
-        .extend(ru_warnings.into_iter().map(PipelineError::from));
+        .extend(ru_warnings.into_iter().map(|error| OwnedPipelineError {
+            package: error.package,
+            error: PipelineError::from(error.error),
+        }));
     // A fatal return_unify error means the affected callable was intentionally
     // left un-rewritten; abort before the PostSignaturePreserving check would
     // fail on the residual Return nodes.
     if !ru_fatal.is_empty() {
-        result.errors = ru_fatal.into_iter().map(PipelineError::from).collect();
+        result.errors = ru_fatal
+            .into_iter()
+            .map(|error| OwnedPipelineError {
+                package: error.package,
+                error: PipelineError::from(error.error),
+            })
+            .collect();
         return result;
     }
 

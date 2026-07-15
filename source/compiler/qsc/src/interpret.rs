@@ -387,8 +387,11 @@ impl Interpreter {
                     return Err(transform_result
                         .errors
                         .into_iter()
-                        .map(|e| {
-                            Error::FirTransform(WithSource::from_map(&source_package.sources, e))
+                        .map(|error| {
+                            Error::FirTransform(crate::compile::attach_fir_transform_source(
+                                compiler.package_store(),
+                                error,
+                            ))
                         })
                         .collect());
                 }
@@ -997,7 +1000,7 @@ impl Interpreter {
             return self.prepare_codegen_source_package();
         }
 
-        let _ = self.compile_entry_expr(expr)?;
+        let _ = self.compile_entry_expr_for_codegen(expr)?;
 
         prepare_codegen_fir_from_fir_store(
             self.compiler.package_store(),
@@ -1663,6 +1666,21 @@ impl Interpreter {
         &mut self,
         expr: &str,
     ) -> std::result::Result<(ExecGraph, Option<PackageStoreComputeProperties>), Vec<Error>> {
+        self.compile_and_lower_entry_expr(expr, false)
+    }
+
+    fn compile_entry_expr_for_codegen(
+        &mut self,
+        expr: &str,
+    ) -> std::result::Result<(ExecGraph, Option<PackageStoreComputeProperties>), Vec<Error>> {
+        self.compile_and_lower_entry_expr(expr, true)
+    }
+
+    fn compile_and_lower_entry_expr(
+        &mut self,
+        expr: &str,
+        defer_capability_check: bool,
+    ) -> std::result::Result<(ExecGraph, Option<PackageStoreComputeProperties>), Vec<Error>> {
         let increment = self
             .compiler
             .compile_entry_expr(expr)
@@ -1670,7 +1688,11 @@ impl Interpreter {
 
         // `lower` will update the entry expression in the FIR store,
         // and it will always return an empty list of statements.
-        let (graph, compute_properties) = self.lower(&increment)?;
+        let (graph, compute_properties) = if defer_capability_check {
+            self.lower_without_fir_passes(&increment)
+        } else {
+            self.lower(&increment)?
+        };
 
         // The AST and HIR packages in `increment` only contain an entry
         // expression and no statements. The HIR *can* contain items if the entry
@@ -1697,10 +1719,17 @@ impl Interpreter {
             return self.run_fir_passes(unit_addition);
         }
 
+        Ok(self.lower_without_fir_passes(unit_addition))
+    }
+
+    fn lower_without_fir_passes(
+        &mut self,
+        unit_addition: &qsc_frontend::incremental::Increment,
+    ) -> (ExecGraph, Option<PackageStoreComputeProperties>) {
         self.lower_and_update_package(unit_addition);
         let graph = self.lowerer.take_exec_graph();
         self.fir_store.get_mut(self.package).entry_exec_graph = graph.clone();
-        Ok((graph, None))
+        (graph, None)
     }
 
     fn lower_and_update_package(&mut self, unit: &qsc_frontend::incremental::Increment) {
@@ -1727,6 +1756,7 @@ impl Interpreter {
             // and revert the update to the lowerer/FIR store.
             let fir_package = self.fir_store.get_mut(self.package);
             self.lowerer.revert_last_increment(fir_package);
+            let _ = self.lowerer.take_exec_graph();
 
             let source_package = self
                 .compiler
