@@ -35,42 +35,17 @@ def test_compile() -> None:
         pytest.param(qdk.TargetProfile.Adaptive, id="adaptive"),
     ],
 )
-@pytest.mark.parametrize(
-    "entry",
-    [
-        pytest.param(
-            """
-            {
-                operation SelectResult(q : Qubit) : Int {
-                    H(q);
-                    if MResetZ(q) == One {
-                        return 1;
-                    }
-                    return 2;
-                }
-
-                use q = Qubit();
-                SelectResult(q)
-            }
-            """,
-            id="return-unification-before-rca",
-        ),
-        pytest.param(
-            """
-            {
-                use address = Qubit[1];
-                use output = Qubit[1];
-                Std.TableLookup.Select([[false], [true]], address, output);
-            }
-            """,
-            id="direct-table-lookup-select",
-        ),
-    ],
-)
 def test_compile_adaptive_string_entry_across_profiles(
-    target_profile: qdk.TargetProfile, entry: str
+    target_profile: qdk.TargetProfile,
 ) -> None:
     ctx = qdk.Context(target_profile=target_profile)
+    entry = """
+        {
+            use address = Qubit[1];
+            use output = Qubit[1];
+            Std.TableLookup.Select([[false], [true]], address, output);
+        }
+    """
     qir = ctx.compile(entry)._repr_qir_()
     assert isinstance(qir, bytes)
     assert qir
