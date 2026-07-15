@@ -457,10 +457,10 @@ impl<'a> Analyzer<'a> {
                         .find_local_compute_kind(local_var_id)
                         .map_or(ComputeKind::Static, |v| v.compute_kind)
                 })
-                .chain(self.derive_arg_compute_kinds(&arg_exprs))
+                .chain(self.derive_arg_compute_kinds(callable_decl.kind, &arg_exprs))
                 .collect()
         } else {
-            self.derive_arg_compute_kinds(&arg_exprs)
+            self.derive_arg_compute_kinds(callable_decl.kind, &arg_exprs)
         };
         let mut compute_kind =
             application_generator_set.generate_application_compute_kind(&arg_compute_kinds);
@@ -1537,12 +1537,35 @@ impl<'a> Analyzer<'a> {
             .clear_current_spec_context()
     }
 
-    fn derive_arg_compute_kinds(&self, args: &Vec<ExprId>) -> Vec<ComputeKind> {
+    fn derive_arg_compute_kinds(
+        &self,
+        callable_kind: CallableKind,
+        args: &Vec<ExprId>,
+    ) -> Vec<ComputeKind> {
         let application_instance = self.get_current_application_instance();
         let mut args_compute_kinds = Vec::<ComputeKind>::with_capacity(args.len());
         for arg_expr_id in args {
             let arg_compute_kind = application_instance.get_expr_compute_kind(*arg_expr_id);
-            args_compute_kinds.push(*arg_compute_kind);
+            let arg_expr_ty = &self.get_expr(*arg_expr_id).ty;
+            if callable_kind == CallableKind::Function
+                && matches!(
+                    arg_compute_kind,
+                    ComputeKind::Dynamic {
+                        value_kind: ValueKind::Constant,
+                        ..
+                    }
+                )
+                && !is_any_result(arg_expr_ty)
+            {
+                // If the argument to a function call is a dynamic constant that does not include any `Result` types,
+                // then we can treat it as if it were static. This matches the behavior of partial eval, where dynamic constants
+                // fall back to their static values when possible.
+                // We skip this for `Result` types because comparison between dynamic constant results are the critical source of
+                // dynamic variables in program execution and must be preserved across function call boundaries.
+                args_compute_kinds.push(ComputeKind::Static);
+            } else {
+                args_compute_kinds.push(*arg_compute_kind);
+            }
         }
         args_compute_kinds
     }
