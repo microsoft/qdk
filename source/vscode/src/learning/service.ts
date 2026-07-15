@@ -1035,41 +1035,48 @@ export class LearningService {
       throw new Error(this._progressLoadingError);
     }
 
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      parsed.version === 1 &&
-      typeof parsed.completions === "object" &&
-      parsed.completions !== null &&
-      typeof parsed.position === "object" &&
-      parsed.position !== null
-    ) {
-      ws.progressData = parsed as ProgressFileData;
-      // Validate saved position references a known unit and activity
-      if (ws.catalog.units.length > 0) {
-        const unit = ws.catalog.units.find(
-          (k) => k.id === ws.progressData.position.unitId,
-        );
-        const activityValid =
-          unit &&
-          unit.activities.some(
-            (s) => s.id === ws.progressData.position.activityId,
-          );
-        if (!activityValid) {
-          ws.progressData.position = {
-            courseId: ws.catalog.id,
-            unitId: ws.catalog.units[0].id,
-            activityId: ws.catalog.units[0].activities[0]?.id ?? "",
-          };
-        }
-      }
-      return;
+    if (!parsed || typeof parsed !== "object") {
+      this._progressLoadingError =
+        "The qdk-learning.json file is corrupt (not a JSON object). Fix or delete the file to continue.";
+      throw new Error(this._progressLoadingError);
     }
 
-    // File exists but has unexpected structure.
-    this._progressLoadingError =
-      "The qdk-learning.json file is corrupt (unexpected structure). Fix or delete the file to continue.";
-    throw new Error(this._progressLoadingError);
+    if (parsed.version !== 1) {
+      this._progressLoadingError = `The qdk-learning.json file has an unsupported version (${JSON.stringify(parsed.version)}). Fix or delete the file to continue.`;
+      throw new Error(this._progressLoadingError);
+    }
+
+    if (typeof parsed.completions !== "object" || parsed.completions === null) {
+      this._progressLoadingError =
+        'The qdk-learning.json file is missing or has an invalid "completions" field. Fix or delete the file to continue.';
+      throw new Error(this._progressLoadingError);
+    }
+
+    if (typeof parsed.position !== "object" || parsed.position === null) {
+      this._progressLoadingError =
+        'The qdk-learning.json file is missing or has an invalid "position" field. Fix or delete the file to continue.';
+      throw new Error(this._progressLoadingError);
+    }
+
+    ws.progressData = parsed as ProgressFileData;
+    // Validate saved position references a known unit and activity
+    if (ws.catalog.units.length > 0) {
+      const unit = ws.catalog.units.find(
+        (k) => k.id === ws.progressData.position.unitId,
+      );
+      const activityValid =
+        unit &&
+        unit.activities.some(
+          (s) => s.id === ws.progressData.position.activityId,
+        );
+      if (!activityValid) {
+        ws.progressData.position = {
+          courseId: ws.catalog.id,
+          unitId: ws.catalog.units[0].id,
+          activityId: ws.catalog.units[0].activities[0]?.id ?? "",
+        };
+      }
+    }
   }
 
   private async saveProgress(): Promise<void> {
