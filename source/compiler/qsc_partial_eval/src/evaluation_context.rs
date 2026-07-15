@@ -300,6 +300,16 @@ impl EvalControlFlow {
             Self::Return(_) => true,
         }
     }
+
+    pub fn map_value<F>(self, f: F) -> Self
+    where
+        F: FnOnce(Value) -> Value,
+    {
+        match self {
+            Self::Continue(value) => Self::Continue(f(value)),
+            Self::Return(value) => Self::Return(f(value)),
+        }
+    }
 }
 
 fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {

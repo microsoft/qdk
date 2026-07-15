@@ -29,7 +29,7 @@ fn unsupported_param_type_has_diagnostic_code() {
     let code = error.code().expect("should have diagnostic code");
     assert_eq!(
         code.to_string(),
-        "Qsc.FirTransform.UnsupportedIntrinsicParamType"
+        "Qdk.Qsc.FirTransform.UnsupportedIntrinsicParamType"
     );
 }
 

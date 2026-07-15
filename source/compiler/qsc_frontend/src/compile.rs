@@ -93,7 +93,7 @@ pub type Dependencies = [(PackageId, Option<Arc<str>>)];
 pub struct Error(pub(super) ErrorKind);
 
 impl Error {
-    /// If this is an unresolved-name error (diagnostic code `Qsc.Resolve.NotFound`),
+    /// If this is an unresolved-name error (diagnostic code `Qdk.Qsc.Resolve.NotFound`),
     /// returns the unresolved name and the span where it appears, otherwise `None`.
     ///
     /// This covers both a name that genuinely doesn't exist and a name that exists
@@ -109,7 +109,7 @@ impl Error {
         }
     }
 
-    /// If this is a type-mismatch error (diagnostic code `Qsc.TypeCk.TyMismatch`),
+    /// If this is a type-mismatch error (diagnostic code `Qdk.Qsc.TypeCk.TyMismatch`),
     /// returns (expected, actual, span), otherwise `None`.
     #[must_use]
     pub fn ty_mismatch(&self) -> Option<(&typeck::TyInfo, &typeck::TyInfo, Span)> {

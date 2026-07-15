@@ -198,7 +198,7 @@ class NeutralAtomDevice(Device):
         """
 
         try:
-            from qsharp_widgets import Atoms
+            from qsharp_widgets import Atoms  # type: ignore[import-not-found]
         except ImportError:
             raise ImportError(
                 "The qsharp-widgets package is required for showing atom trace visualization. "
@@ -211,7 +211,7 @@ class NeutralAtomDevice(Device):
         )
         from ._scheduler import Schedule
         from pyqir import Module, Context
-        from IPython.display import display
+        from IPython.display import display  # type: ignore[import-not-found]
 
         start_time = time.monotonic()
         telemetry_events.on_neutral_atom_trace()

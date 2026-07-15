@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn depolarize1_yields_expected_qir() {
@@ -66,14 +67,14 @@ fn depolarize1_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: DEPOLARIZE1
-           ,----
-         1 | DEPOLARIZE1 0 1
-           : ^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: DEPOLARIZE1
+               ,----
+             1 | DEPOLARIZE1 0 1
+               : ^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -163,14 +164,14 @@ fn depolarize2_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingProbability
 
-          x missing probability argument in instruction: DEPOLARIZE2
-           ,----
-         1 | DEPOLARIZE2 0 1 2 3
-           : ^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x missing probability argument in instruction: DEPOLARIZE2
+               ,----
+             1 | DEPOLARIZE2 0 1 2 3
+               : ^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -180,7 +181,7 @@ fn depolarize2_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-            Stim.OddTargetCount
+            Qdk.Stim.Compiler.OddTargetCount
 
               x instruction DEPOLARIZE2 requires an even number of targets
                ,----
@@ -208,38 +209,38 @@ fn heralded_pauli_channel_1_yields_error() {
 #[test]
 #[ignore = "unsupported instruction"]
 fn i_error_yields_expected_qir() {
-    let source = "
-# does nothing
-I_ERROR 0 1
+    let source = indoc! {"
+        # does nothing
+        I_ERROR 0 1
 
-# does nothing with probability 0.1, else does nothing
-I_ERROR(0.1) 0 1
+        # does nothing with probability 0.1, else does nothing
+        I_ERROR(0.1) 0 1
 
-# doesn't require a probability argument
-I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4
+        # doesn't require a probability argument
+        I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4
 
-# checks for you that the disjoint probabilities in the arguments are legal
-I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0 2 4
-";
+        # checks for you that the disjoint probabilities in the arguments are legal
+        I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0 2 4
+    "};
     check(source, &expect![[""]]);
 }
 
 #[test]
 #[ignore = "unsupported instruction"]
 fn ii_error_yields_expected_qir() {
-    let source = "
-# does nothing
-II_ERROR 0 1
+    let source = indoc! {"
+        # does nothing
+        II_ERROR 0 1
 
-# does nothing with probability 0.1, else does nothing
-II_ERROR(0.1) 0 1
+        # does nothing with probability 0.1, else does nothing
+        II_ERROR(0.1) 0 1
 
-# checks for you that the targets are two-qubit pairs
-II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
+        # checks for you that the targets are two-qubit pairs
+        II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
 
-# checks for you that the disjoint probabilities in the arguments are legal
-II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
-";
+        # checks for you that the disjoint probabilities in the arguments are legal
+        II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
+    "};
     check(source, &expect![[""]]);
 }
 

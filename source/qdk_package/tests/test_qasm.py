@@ -133,6 +133,56 @@ def test_mresetzchecked_not_present_without_qdk_inc() -> None:
     assert "undefined symbol: mresetz_checked" in str(excinfo.value)
 
 
+def test_postselectz_one() -> None:
+    result = run(
+        """
+        include "stdgates.inc";
+        include "qdk.inc";
+        qubit q1;
+        bit r;
+        h q1;
+        postselectz(1, q1);
+        r = measure q1;
+        """,
+        shots=100,
+        seed=0,
+    )
+    assert all(r == Result.One for r in result)
+
+
+def test_postselectz_zero() -> None:
+    result = run(
+        """
+        include "stdgates.inc";
+        include "qdk.inc";
+        qubit q1;
+        bit r;
+        h q1;
+        postselectz(0, q1);
+        r = measure q1;
+        """,
+        shots=100,
+        seed=0,
+    )
+    assert all(r == Result.Zero for r in result)
+
+
+def test_postselectz_not_present_without_qdk_inc() -> None:
+    with pytest.raises(QasmError) as excinfo:
+        run(
+            """
+            include "stdgates.inc";
+            qubit q1;
+            bit r;
+            postselectz(0, q1);
+            r = measure q1;
+            """,
+            shots=100,
+            seed=0,
+        )
+    assert "undefined symbol: postselectz" in str(excinfo.value)
+
+
 def test_run_with_result(capsys) -> None:
     results = run("output bit c;", 3)
     assert results == [Result.Zero, Result.Zero, Result.Zero]
@@ -310,21 +360,16 @@ def test_compile_qir_str() -> None:
 def test_compile_qir_str_with_single_arg_raises_error() -> None:
     init(target_profile=TargetProfile.Base)
     with pytest.raises(QSharpError) as excinfo:
-        compile(
-            """
+        compile("""
             include "stdgates.inc";
             input float f;
             qubit q;
             rx(f) q;
             output bit c;
             c = measure q;
-            """
-        )
-    assert (
-        str(excinfo.value)
-        == """Circuit has unbound input parameters
+            """)
+    assert str(excinfo.value) == """Circuit has unbound input parameters
   help: Parameters: f: Double"""
-    )
 
 
 # Import + Compile
@@ -630,12 +675,10 @@ def test_circuit_from_program() -> None:
         x q1;
         """,
     )
-    assert str(c) == dedent(
-        """\
+    assert str(c) == dedent("""\
         q_0    ── X ──
         q_1    ───────
-        """
-    )
+        """)
 
 
 def test_circuit_from_program_static() -> None:
@@ -653,12 +696,10 @@ def test_circuit_from_program_static() -> None:
         """,
         generation_method=CircuitGenerationMethod.Static,
     )
-    assert str(c) == dedent(
-        """\
+    assert str(c) == dedent("""\
         q_0    ── H ──── M ──── if: c_0 = |1〉 ──
                          ╘═══════════ ● ════════
-        """
-    )
+        """)
 
 
 def test_circuit_from_callable() -> None:
@@ -674,12 +715,10 @@ def test_circuit_from_callable() -> None:
         name="Foo",
     )
     c = qsharp_circuit("{ use (q1, q2) = (Qubit(), Qubit()); Foo(q1, q2); }")
-    assert str(c) == dedent(
-        """\
+    assert str(c) == dedent("""\
         q_0    ── X ──
         q_1    ───────
-        """
-    )
+        """)
 
 
 def test_circuit_from_callable_with_multiple_qubit_registers() -> None:
@@ -696,14 +735,12 @@ def test_circuit_from_callable_with_multiple_qubit_registers() -> None:
         name="Foo",
     )
     c = qsharp_circuit("{ use (qs1, qs2) = (Qubit[2], Qubit[2]); Foo(qs1, qs2); }")
-    assert str(c) == dedent(
-        """\
+    assert str(c) == dedent("""\
         q_0    ── X ──
         q_1    ───────
         q_2    ───────
         q_3    ── X ──
-        """
-    )
+        """)
 
 
 def test_circuit_from_callable_with_single_qubit_and_qubit_registers() -> None:
@@ -724,15 +761,13 @@ def test_circuit_from_callable_with_single_qubit_and_qubit_registers() -> None:
     c = qsharp_circuit(
         "{ use (qs1, a, qs2) = (Qubit[2], Qubit(), Qubit[2]); Foo(qs1, a, qs2); }"
     )
-    assert str(c) == dedent(
-        """\
+    assert str(c) == dedent("""\
         q_0    ── X ──
         q_1    ───────
         q_2    ── X ──
         q_3    ───────
         q_4    ── X ──
-        """
-    )
+        """)
 
 
 def test_circuit_from_callable_with_args() -> None:
@@ -749,12 +784,10 @@ def test_circuit_from_callable_with_args() -> None:
         name="Foo",
     )
     c = qsharp_circuit("{ use qs = Qubit[2]; Foo(2, qs); }")
-    assert str(c) == dedent(
-        """\
+    assert str(c) == dedent("""\
         q_0    ── X ──
         q_1    ── X ──
-        """
-    )
+        """)
 
 
 def test_circuit_with_measure_from_callable() -> None:
@@ -764,12 +797,10 @@ def test_circuit_with_measure_from_callable() -> None:
         name="Foo",
     )
     c = qsharp_circuit("{ use q = Qubit(); Foo(q); }")
-    assert str(c) == dedent(
-        """\
+    assert str(c) == dedent("""\
         q_0    ── H ──── M ──
                          ╘═══
-        """
-    )
+        """)
 
 
 def test_circuit_from_callable_static() -> None:
@@ -791,20 +822,17 @@ def test_circuit_from_callable_static() -> None:
         code.qasm_import.Foo,
         generation_method=CircuitGenerationMethod.Static,
     )
-    assert str(c) == dedent(
-        """\
+    assert str(c) == dedent("""\
         q_0    ── H ──── M ──── if: c_0 = |1〉 ──
                          ╘═══════════ ● ════════
-        """
-    )
+        """)
 
 
 # Estimate
 
 
 def test_qasm_estimation() -> None:
-    res = estimate(
-        """
+    res = estimate("""
         include "stdgates.inc";
         const int SIZE = 10;
         qubit[SIZE] q;
@@ -812,8 +840,7 @@ def test_qasm_estimation() -> None:
             t q[i];
             measure q[i];
         }
-        """
-    )
+        """)
     assert res["status"] == "success"
     assert res["physicalCounts"] is not None
     assert res.logical_counts == LogicalCounts(
@@ -838,7 +865,7 @@ def test_qasm_estimate_succeeds_for_dynamic_bool_program_rejected_by_compile() -
         if (c) { x q; }
         """
 
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfDynamicBool"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfDynamicBool"):
         compile(source, target_profile=TargetProfile.Base)
 
     res = estimate(source)

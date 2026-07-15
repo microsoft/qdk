@@ -298,42 +298,42 @@ struct CorrelatedGroup {
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub enum Error {
     #[error("unsupported instruction: {name}")]
-    #[diagnostic(code("Stim.UnsupportedInstruction"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedInstruction"))]
     UnsupportedInstruction {
         name: String,
         #[label]
         span: Span,
     },
     #[error("unknown instruction: {name}")]
-    #[diagnostic(code("Stim.UnknownInstruction"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.UnknownInstruction"))]
     UnknownInstruction {
         name: String,
         #[label]
         span: Span,
     },
     #[error("unsupported argument in instruction: {instruction}")]
-    #[diagnostic(code("Stim.UnsupportedArgument"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedArgument"))]
     UnsupportedArgument {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("unsupported target in instruction: {instruction}")]
-    #[diagnostic(code("Stim.UnsupportedTarget"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedTarget"))]
     UnsupportedTarget {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("measurement record target in an unsupported position in instruction: {instruction}")]
-    #[diagnostic(code("Stim.MisplacedMeasurementRecord"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
     MisplacedMeasurementRecord {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("measurement record control cannot be negated in instruction: {instruction}")]
-    #[diagnostic(code("Stim.NegatedMeasurementRecord"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.NegatedMeasurementRecord"))]
     NegatedMeasurementRecord {
         instruction: String,
         #[label]
@@ -342,21 +342,21 @@ pub enum Error {
     #[error(
         "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
     )]
-    #[diagnostic(code("Stim.MeasurementRecordWithoutQubit"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordWithoutQubit"))]
     MeasurementRecordWithoutQubit {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("missing probability argument in instruction: {instruction}")]
-    #[diagnostic(code("Stim.MissingProbability"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.MissingProbability"))]
     MissingProbability {
         instruction: String,
         #[label]
         span: Span,
     },
     #[error("instruction {instruction} requires an even number of targets")]
-    #[diagnostic(code("Stim.OddTargetCount"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.OddTargetCount"))]
     OddTargetCount {
         instruction: String,
         #[label]
@@ -365,32 +365,32 @@ pub enum Error {
     #[error(
         "else_correlated_error must be preceded by a correlated_error or else_correlated_error instruction"
     )]
-    #[diagnostic(code("Stim.OrphanedElseCorrelatedError"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.OrphanedElseCorrelatedError"))]
     OrphanedElseCorrelatedError {
         #[label]
         span: Span,
     },
     #[error("measurement record is out of bounds")]
-    #[diagnostic(code("Stim.MeasurementRecordOutOfBounds"))]
+    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfBounds"))]
     MeasurementRecordOutOfBounds {
         #[label]
         span: Span,
     },
-    #[error("measurement record refers to a measurement outside the enclosing PREPARE block")]
-    #[diagnostic(code("Stim.MeasurementRecordOutOfScope"))]
+    #[error("measurement record refers to a measurement outside the enclosing SELECT block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfScope"))]
     MeasurementRecordOutOfScope {
         #[label]
         span: Span,
     },
-    #[error("require must appear inside a PREPARE block")]
-    #[diagnostic(code("Stim.RequireOutsidePrepareBlock"))]
-    RequireOutsidePrepareBlock {
+    #[error("require must appear inside a SELECT block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.RequireOutsideSelectBlock"))]
+    RequireOutsideSelectBlock {
         #[label]
         span: Span,
     },
-    #[error("prepare instruction must start a block")]
-    #[diagnostic(code("Stim.PrepareWithoutBlock"))]
-    PrepareWithoutBlock {
+    #[error("select instruction must start a block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.SelectWithoutBlock"))]
+    SelectWithoutBlock {
         #[label]
         span: Span,
     },
@@ -417,10 +417,17 @@ impl AllowedRecPosition {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    TopLevel,
+    Select(u32), // The u32 is a unique id for the select scope
+}
+
 struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
-    record_map: Vec<Option<u32>>, // index = result id, value = owning scope (if none then the result is not in a block)
-    scope_stack: Vec<u32>,        // active nested scopes; last() = current
+    record_scopes: Vec<Scope>,                   // indexed by result id
+    scope_parents: Vec<Scope>,                   // indexed by select scope id, value = parent scope
+    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
 }
 
@@ -428,7 +435,8 @@ impl IdMap {
     fn new() -> Self {
         Self {
             qubit_map: FxHashMap::default(),
-            record_map: Vec::new(),
+            record_scopes: Vec::new(),
+            scope_parents: Vec::new(),
             scope_stack: Vec::new(),
             name_counters: FxHashMap::default(),
         }
@@ -441,36 +449,56 @@ impl IdMap {
         format!("{prefix}_{id}")
     }
 
-    fn enter_scope(&mut self) {
-        let counter = self.name_counters.entry("scope").or_insert(0);
-        let id = *counter;
-        *counter += 1;
-        self.scope_stack.push(id);
+    fn enter_select_scope(&mut self) {
+        let parent = self.current_scope();
+        let id = self.scope_parents.len() as u32;
+        self.scope_parents.push(parent);
+        self.scope_stack.push(Scope::Select(id));
     }
 
-    fn exit_scope(&mut self) {
+    fn exit_select_scope(&mut self) {
         self.scope_stack.pop();
     }
 
-    fn current_scope(&self) -> Option<u32> {
-        self.scope_stack.last().copied()
+    fn current_scope(&self) -> Scope {
+        self.scope_stack.last().copied().unwrap_or(Scope::TopLevel)
     }
 
-    fn in_prepare_block(&self) -> bool {
-        !self.scope_stack.is_empty()
-    }
-
-    fn scope_of(&self, id: u32) -> Option<u32> {
-        match self.record_map.get(id as usize) {
+    fn scope_of_record(&self, id: u32) -> Scope {
+        match self.record_scopes.get(id as usize) {
             Some(&scope) => scope,
             None => unreachable!("record id not found"), // this is a compiler invariant
         }
     }
 
+    fn parent_of(&self, scope: Scope) -> Scope {
+        let Scope::Select(id) = scope else {
+            return Scope::TopLevel;
+        };
+        self.scope_parents
+            .get(id as usize)
+            .copied()
+            .expect("cannot get the parent of a scope that has not been entered")
+    }
+
+    fn is_descendant_or_equal(&self, scope: Scope, ancestor: Scope) -> bool {
+        if scope == ancestor {
+            return true;
+        }
+        match scope {
+            Scope::Select(_) => self.is_descendant_or_equal(self.parent_of(scope), ancestor),
+            Scope::TopLevel => false,
+        }
+    }
+
+    fn record_in_scope(&self, record_id: u32) -> bool {
+        self.is_descendant_or_equal(self.scope_of_record(record_id), self.current_scope())
+    }
+
     fn allocate_record(&mut self) -> u32 {
-        let id = self.record_map.len() as u32;
-        let current_scope = self.current_scope();
-        self.record_map.push(current_scope);
+        let id = self.record_scopes.len() as u32;
+        let scope = self.current_scope();
+        self.record_scopes.push(scope);
         id
     }
 
@@ -480,7 +508,7 @@ impl IdMap {
     }
 
     fn num_results(&self) -> u32 {
-        self.record_map.len() as u32
+        self.record_scopes.len() as u32
     }
 
     fn num_qubits(&self) -> u32 {
@@ -488,8 +516,8 @@ impl IdMap {
     }
 }
 
-fn prepare_label(scope: u32) -> String {
-    format!("prepare_{scope}")
+fn select_label(scope: u32) -> String {
+    format!("select_{scope}")
 }
 
 struct Compiler<'noise> {
@@ -533,12 +561,12 @@ impl<'noise> Compiler<'noise> {
             ..
         } = block;
 
-        self.id_map.enter_scope();
+        self.id_map.enter_select_scope();
         self.compile_instruction(block_instruction);
         for item in items {
             self.compile_item(item);
         }
-        self.id_map.exit_scope();
+        self.id_map.exit_select_scope();
     }
 
     fn compile_line(&mut self, line: &Line) {
@@ -930,7 +958,7 @@ impl<'noise> Compiler<'noise> {
 
             // Control Flow
             "REPEAT" => self.unsupported(instruction),
-            "PREPARE" => self.compile_prepare(instruction),
+            "SELECT" => self.compile_select(instruction),
             "REQUIRE" => self.compile_require(instruction),
 
             // Annotations
@@ -1083,7 +1111,7 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q0, q1]);
     }
 
-    fn compile_prepare(&mut self, instruction: &Instruction) {
+    fn compile_select(&mut self, instruction: &Instruction) {
         if !instruction.targets.is_empty() {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
@@ -1104,21 +1132,21 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        let Some(scope) = self.id_map.current_scope() else {
-            self.push_error(Error::PrepareWithoutBlock {
+        let Scope::Select(scope) = self.id_map.current_scope() else {
+            self.push_error(Error::SelectWithoutBlock {
                 span: instruction.span,
             });
             return;
         };
 
-        let label = prepare_label(scope);
+        let label = select_label(scope);
         self.writer.write_jump(&label); // terminate the previous block
         self.writer.write_label(&label); // start the new block
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {
-        if !self.id_map.in_prepare_block() {
-            self.push_error(Error::RequireOutsidePrepareBlock {
+        if matches!(self.id_map.current_scope(), Scope::TopLevel) {
+            self.push_error(Error::RequireOutsideSelectBlock {
                 span: instruction.span,
             });
             return;
@@ -1165,10 +1193,10 @@ impl<'noise> Compiler<'noise> {
             parity = temp;
         }
 
-        let Some(scope) = self.id_map.current_scope() else {
-            unreachable!("REQUIRE runs inside a prepare block");
+        let Scope::Select(scope) = self.id_map.current_scope() else {
+            unreachable!("REQUIRE runs inside a select block");
         };
-        let restart_label = prepare_label(scope);
+        let restart_label = select_label(scope);
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
             .write_branch(&parity, &restart_label, &continue_label);
@@ -1182,7 +1210,7 @@ impl<'noise> Compiler<'noise> {
             return None;
         };
 
-        if self.id_map.scope_of(result_id) != self.id_map.current_scope() {
+        if !self.id_map.record_in_scope(result_id) {
             self.push_error(Error::MeasurementRecordOutOfScope { span: target.span });
             return None;
         }

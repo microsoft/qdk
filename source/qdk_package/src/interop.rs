@@ -591,6 +591,7 @@ fn estimate_qasm(
 /// Args:
 ///     source (str): An `OpenQASM` program. Alternatively, a callable can be provided,
 ///         which must be an already imported global callable.
+///     config (&CircuitConfig): Circuit generation options.
 ///     `read_file` (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
 ///     `list_directory` (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
 ///     `resolve_path` (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.

@@ -564,6 +564,10 @@ impl<'a> Analyzer<'a> {
             && if let ComputeKind::Dynamic {
                 runtime_features, ..
             } = &ir_function_compute_kind
+            // ...and the computed runtime features of the resulting IR function does not require qubit allocation when the target doesn't support it...
+            && (!runtime_features.contains(RuntimeFeatureFlags::QubitAllocation) || self.target_capabilities.contains(TargetCapabilityFlags::DynamicQubitAllocation))
+            // ...and the computed runtime features of the function do not involve call to unresolved callee...
+            && !runtime_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee)
             // ...and those computed runtime features are all supported by the target capabilities...
             && get_missing_runtime_features(*runtime_features, self.target_capabilities)
                 .is_empty()
@@ -571,7 +575,7 @@ impl<'a> Analyzer<'a> {
                 && (matches!(
                     &callable_decl.output,
                     Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
-                ) || matches!(&callable_decl.output, Ty::Tuple(inner) if inner.is_empty()))
+                ) || callable_decl.output == Ty::UNIT)
             {
                 // ...then we can emit the callable as an IR function, and we update the compute kind of the call expression to reflect the
                 // capabilities of that IR function.

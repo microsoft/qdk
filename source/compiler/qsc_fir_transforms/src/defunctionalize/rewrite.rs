@@ -4328,7 +4328,7 @@ fn build_expr_data_from_elements(package: &Package, elements: Vec<ExprId>) -> (E
 /// Returns `None` for a `Struct` literal or an out-of-range index. A
 /// `Struct`-literal-bound deep local is intentionally left to decline: analysis
 /// cannot resolve a concrete callable through a `Struct` literal, so such a call
-/// site is already reported as `Qsc.Defunctionalize.DynamicCallable` upstream of
+/// site is already reported as `Qdk.Qsc.Defunctionalize.DynamicCallable` upstream of
 /// this rewrite and never reaches here. Extending this helper to recurse through
 /// `Struct` fields would therefore be dead code unless analysis is separately
 /// taught to resolve concrete callables through struct literals.

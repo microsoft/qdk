@@ -158,7 +158,7 @@ impl VSDiagnostic {
             write!(message, "\n\nhelp: {help}").expect("message should be writable");
         }
 
-        // e.g. Qsc.Eval.ReleasedQubitNotZero
+        // e.g. Qdk.Qsc.Eval.ReleasedQubitNotZero
         let code = err.code().map(|c| c.to_string());
 
         // e.g. https://aka.ms/qdk.qir

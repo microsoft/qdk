@@ -107,7 +107,7 @@ pub enum Error {
     CapabilityError(CapabilityError),
 
     #[error("cannot use a dynamic value returned from a runtime-resolved callable")]
-    #[diagnostic(code("Qsc.PartialEval.UnexpectedDynamicValue"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnexpectedDynamicValue"))]
     #[diagnostic(help("try invoking the desired callable directly"))]
     UnexpectedDynamicValue(#[label] PackageSpan),
 
@@ -115,40 +115,40 @@ pub enum Error {
     #[diagnostic(help(
         "variables of type `{0}` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures"
     ))]
-    #[diagnostic(code("Qsc.PartialEval.UnsupportedType"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedType"))]
     UnsupportedCustomIntrinsicType(String, #[label] PackageSpan),
 
     #[error("partial evaluation failed with error: {0}")]
-    #[diagnostic(code("Qsc.PartialEval.EvaluationFailed"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.EvaluationFailed"))]
     EvaluationFailed(String, #[label] PackageSpan),
 
     #[error("unsupported Result literal in output")]
     #[diagnostic(help(
         "Result literals `One` and `Zero` cannot be included in generated QIR output recording."
     ))]
-    #[diagnostic(code("Qsc.PartialEval.OutputResultLiteral"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.OutputResultLiteral"))]
     OutputResultLiteral(#[label] PackageSpan),
 
     #[error("an unexpected error occurred related to: {0}")]
-    #[diagnostic(code("Qsc.PartialEval.Unexpected"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.Unexpected"))]
     #[diagnostic(help(
         "this is probably a bug, please consider reporting this as an issue to the development team"
     ))]
     Unexpected(String, #[label] PackageSpan),
 
     #[error("failed to evaluate: {0} is not supported")]
-    #[diagnostic(code("Qsc.PartialEval.Unimplemented"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.Unimplemented"))]
     Unimplemented(String, #[label] PackageSpan),
 
     #[error("unsupported call into test callable")]
-    #[diagnostic(code("Qsc.PartialEval.UnsupportedTestCallable"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedTestCallable"))]
     #[diagnostic(help(
         "callables with the `@Test` annotation should not be called from non-test code."
     ))]
     UnsupportedTestCallable(#[label] PackageSpan),
 
     #[error("unsupported use of simulation-only intrinsic `{0}`")]
-    #[diagnostic(code("Qsc.PartialEval.UnsupportedSimulationIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.PartialEval.UnsupportedSimulationIntrinsic"))]
     UnsupportedSimulationIntrinsic(String, #[label] PackageSpan),
 }
 
@@ -1281,7 +1281,7 @@ impl<'a> PartialEvaluator<'a> {
     fn eval_dynamic_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let expr = self.get_expr(expr_id);
         let expr_package_span = self.get_expr_package_span(expr_id);
-        match &expr.kind {
+        let expr_control_flow = match &expr.kind {
             ExprKind::Array(exprs) => self.eval_expr_array(exprs),
             ExprKind::ArrayLit(_) => Err(Error::Unexpected(
                 "array literal should have been classically evaluated".to_string(),
@@ -1368,6 +1368,11 @@ impl<'a> PartialEvaluator<'a> {
             ExprKind::While(condition_expr_id, body_block_id) => {
                 self.eval_expr_while(expr_id, *condition_expr_id, *body_block_id)
             }
+        }?;
+        if self.is_variable_expr(expr_id) {
+            Ok(expr_control_flow)
+        } else {
+            Ok(expr_control_flow.map_value(|value| self.value_into_static_mapping(value)))
         }
     }
 
@@ -1608,12 +1613,7 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             spec_decl
                 .filter(|spec_decl| {
-                    self.is_ir_function_eligible(
-                        store_item_id,
-                        functor_app,
-                        spec_decl,
-                        callable_decl,
-                    )
+                    self.is_ir_function_eligible(store_item_id, spec_decl, callable_decl)
                 })
                 .map(|_| {
                     args.iter()
@@ -2106,7 +2106,6 @@ impl<'a> PartialEvaluator<'a> {
     fn is_ir_function_eligible(
         &self,
         store_item_id: StoreItemId,
-        functor_app: FunctorApp,
         spec_decl: &SpecDecl,
         callable_decl: &CallableDecl,
     ) -> bool {
@@ -2116,6 +2115,9 @@ impl<'a> PartialEvaluator<'a> {
             .capabilities
             .contains(TargetCapabilityFlags::CallSupport)
         {
+            // In this case, we know the target can't support any IR function calls, so always return false.
+            // This is needed because when the target does not have that support we don't emit the `MustBeInlined`
+            // capability on the call site.
             return false;
         }
 
@@ -2144,19 +2146,6 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // The base phase emits VOID (Unit-returning) IR functions and scalar-returning IR
-        // functions for the non-composite value types Int/Double/Bool. `Result` and `Qubit` returns
-        // have no by-value single-exit representation in the base-phase RIR and must continue to
-        // inline.
-        if callable_decl.output != Ty::UNIT
-            && !matches!(
-                callable_decl.output,
-                Ty::Prim(Prim::Int | Prim::Double | Prim::Bool)
-            )
-        {
-            return false;
-        }
-
         // Every flattened input-parameter leaf must be a non-composite scalar/qubit type that can
         // be threaded as an RIR variable operand. Composite (tuple/array/arrow) leaves, as well as
         // `Result` leaves (which have no evaluator-variable representation), force the whole callable
@@ -2177,53 +2166,7 @@ impl<'a> PartialEvaluator<'a> {
             return false;
         }
 
-        // Callables whose bodies contain calls that RCA could not
-        // statically resolve, and callables that transitively allocate qubits (unless dynamic qubit
-        // allocation is enabled) must be inlined. These are surfaced as inherent runtime features of
-        // the specialization by RCA. Unresolved-callee paths surface as
-        // `CallToUnresolvedCallee`; in all such cases the specialization is inlined.
-        let inherent_features = self.spec_inherent_runtime_features(store_item_id, functor_app);
-        if inherent_features.contains(RuntimeFeatureFlags::CallToUnresolvedCallee) {
-            return false;
-        }
-        if inherent_features.contains(RuntimeFeatureFlags::QubitAllocation)
-            && !self
-                .program
-                .config
-                .capabilities
-                .contains(TargetCapabilityFlags::DynamicQubitAllocation)
-        {
-            return false;
-        }
-
         true
-    }
-
-    /// Reads the inherent runtime features of a resolved callable specialization from RCA. This
-    /// mirrors the specialization selection in `get_call_compute_kind` and is used by the
-    /// IR-function eligibility predicate to detect recursion and transitive qubit allocation.
-    fn spec_inherent_runtime_features(
-        &self,
-        store_item_id: StoreItemId,
-        functor_app: FunctorApp,
-    ) -> RuntimeFeatureFlags {
-        let ItemComputeProperties::Callable(callable_compute_properties) =
-            self.compute_properties.get_item(store_item_id)
-        else {
-            return RuntimeFeatureFlags::empty();
-        };
-        let generator_set = match (functor_app.adjoint, functor_app.controlled) {
-            (false, 0) => Some(&callable_compute_properties.body),
-            (false, _) => callable_compute_properties.ctl.as_ref(),
-            (true, 0) => callable_compute_properties.adj.as_ref(),
-            (true, _) => callable_compute_properties.ctl_adj.as_ref(),
-        };
-        match generator_set.map(|gen_set| gen_set.inherent) {
-            Some(ComputeKind::Dynamic {
-                runtime_features, ..
-            }) => runtime_features,
-            _ => RuntimeFeatureFlags::empty(),
-        }
     }
 
     /// Reports whether the resolved specialization has a `Dynamic` inherent compute kind, i.e.
@@ -4135,6 +4078,20 @@ impl<'a> PartialEvaluator<'a> {
             _ => unreachable!("unassignable pattern should be disallowed by compiler"),
         }
         Ok(())
+    }
+
+    fn value_into_static_mapping(&self, value: Value) -> Value {
+        match value {
+            Value::Var(var) => {
+                let current_scope = self.eval_context.get_current_scope();
+                if let Some(literal) = current_scope.get_static_value(var.id.into()) {
+                    map_rir_literal_to_eval_value(*literal).unwrap_or(Value::Var(var))
+                } else {
+                    value
+                }
+            }
+            _ => value,
+        }
     }
 
     fn generate_output_recording_instructions(

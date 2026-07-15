@@ -876,7 +876,7 @@ fn entry_parse_error() {
             .code()
             .expect("expected error code")
             .to_string(),
-        "Qsc.Parse.Token"
+        "Qdk.Qsc.Parse.Token"
     );
 
     assert_eq!(
