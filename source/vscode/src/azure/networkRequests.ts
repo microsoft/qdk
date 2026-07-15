@@ -27,7 +27,13 @@ export async function azureRequest(
 
   try {
     log.debug(`Fetching ${uri} with method ${method}`);
-    log.trace("Request headers & body: ", headers, body);
+    log.trace(
+      "Request headers & body: ",
+      headers.map(([k, v]) =>
+        k === "Authorization" ? [k, "REDACTED"] : [k, v],
+      ),
+      body,
+    );
     const response = await fetch(uri, {
       headers,
       method,
