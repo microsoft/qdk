@@ -94,6 +94,7 @@ def _get_test_callables(context: Context) -> list[Callable]:
 
 
 def run_tests(
+    *,
     context: Optional[Context] = None,
     seed: Optional[int] = None,
     regex: Optional[str] = None,

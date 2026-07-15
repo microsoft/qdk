@@ -20,7 +20,7 @@ _LIB_DIR = str(Path(__file__).resolve().parents[3] / "library")
     ],
 )
 def test_library(library_name: str):
-    run_tests(Context(project_root=f"{_LIB_DIR}/{library_name}"))
+    run_tests(context=Context(project_root=f"{_LIB_DIR}/{library_name}"))
 
 
 # Use this test case for library development.
@@ -28,4 +28,4 @@ def test_library(library_name: str):
 # pytest source/qdk_package/tests-integration/test_libraries.py::test_single -s
 def test_single():
     ctx = Context(project_root=f"{_LIB_DIR}/table_lookup")
-    run_tests(ctx, verbose=3, regex="TestLookupMatchesStd")
+    run_tests(context=ctx, verbose=3, regex="TestLookupMatchesStd")
