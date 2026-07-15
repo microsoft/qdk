@@ -5,16 +5,14 @@ import { getGateLocationString } from "../../utils.js";
 import { InteractionContext } from "./interactionContext.js";
 
 /**
- * `KeyboardController` — translates document-level keyboard events
- * into editor-state changes. Today the only behavior is the
- * Ctrl-toggle that swaps the `moving` / `copying` CSS classes on
- * the container while a gate is selected, so the cursor and ghost
- * preview reflect the current drop semantics.
+ * `KeyboardController` — translates document-level keyboard events into editor-state changes. Today
+ * the only behavior is the Ctrl-toggle that swaps the `moving` / `copying` CSS classes on the
+ * container while a gate is selected, so the cursor and ghost preview reflect the current drop
+ * semantics.
  *
- * Owns its document `keydown` / `keyup` listeners; `dispose()`
- * removes them. No state of its own — the only mutable signal it
- * consults is whether `interaction.selectedOperation` has a
- * location string.
+ * Owns its document `keydown` / `keyup` listeners; `dispose()` removes them. No state of its own —
+ * the only mutable signal it consults is whether `interaction.selectedOperation` has a location
+ * string.
  */
 export class KeyboardController {
   constructor(private readonly ctx: InteractionContext) {
@@ -28,9 +26,8 @@ export class KeyboardController {
   }
 
   /**
-   * Ctrl-down while a placed (non-toolbox) gate is selected switches
-   * the cursor/ghost into "copy" mode. Picks up the location off the
-   * selected op rather than tracking selection separately.
+   * Ctrl-down while a placed (non-toolbox) gate is selected switches the cursor/ghost into "copy"
+   * mode. Picks up the location off the selected op rather than tracking selection separately.
    */
   readonly onKeyDown = (ev: KeyboardEvent) => {
     if (!ev.ctrlKey) return;

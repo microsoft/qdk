@@ -6,14 +6,12 @@ import { CircuitModel } from "../../data/circuitModel.js";
 import { getMinMaxRegIdx, getOperationRegisters } from "../../utils.js";
 
 /*
- * `gridPrimitives.ts` — low-level component-grid operations shared
- * across the Action layer.
+ * `gridPrimitives.ts` — low-level component-grid operations shared across the Action layer.
  *
- * Structural primitives every higher-level action builds on:
- * inserting/removing an op into a column, detecting and resolving
- * sibling-column overlaps, measuring an op's drawn span, and
- * renumbering per-wire measurement results. Depend only on the Data
- * layer and `utils.ts`, so they sit at the bottom of the import DAG.
+ * Structural primitives every higher-level action builds on: inserting/removing an op into a
+ * column, detecting and resolving sibling-column overlaps, measuring an op's drawn span, and
+ * renumbering per-wire measurement results. Depend only on the Data layer and `utils.ts`, so they
+ * sit at the bottom of the import DAG.
  */
 
 /** Determines whether two register index ranges overlap. */
@@ -36,12 +34,10 @@ const _isClassicallyControlled = (operation: Operation): boolean => {
 /**
  * Update measurement-result indices for a specific wire.
  *
- * Walks the entire grid tree (including nested children) and
- * renumbers every measurement on `wireIndex` in document order, then
- * sets `model.qubits[wireIndex].numResults` to the total. Recursing
- * into children is essential: the renderer reads any measurement's
- * results, including ones inside expanded groups, and throws on an
- * uncounted nested measurement.
+ * Walks the entire grid tree (including nested children) and renumbers every measurement on
+ * `wireIndex` in document order, then sets `model.qubits[wireIndex].numResults` to the total.
+ * Recursing into children is essential: the renderer reads any measurement's results, including
+ * ones inside expanded groups, and throws on an uncounted nested measurement.
  */
 const updateMeasurementLines = (model: CircuitModel, wireIndex: number) => {
   model.ensureQubitCount(wireIndex);
@@ -83,8 +79,8 @@ const addOp = (
   insertNewColumn =
     insertNewColumn || _isClassicallyControlled(sourceOperation);
 
-  // Check if there are any existing operations in the target
-  // column within the wire range of the new operation
+  // Check if there are any existing operations in the target column within the wire range of the
+  // new operation
   if (!insertNewColumn) {
     const [minTarget, maxTarget] = getMinMaxRegIdx(sourceOperation);
     for (const op of targetOperationParent[colIndex].components) {
@@ -163,14 +159,11 @@ const moveArrayElement = <T>(arr: T[], from: number, to: number) => {
 };
 
 /**
- * Walk `op` and every descendant to find the lowest and highest
- * quantum wire (registers with `result` undefined; classical-ref
- * entries are skipped, as they reference a producer's wire). Used by
- * `moveOperation` to refuse a unit-shift that would push a wire
- * below 0 and to know how far to grow the model. Walking the subtree
- * matters for groups whose root `.targets` may miss deeply nested
- * wires. Returns `[-1, -1]` if the subtree references no quantum
- * wires.
+ * Walk `op` and every descendant to find the lowest and highest quantum wire (registers with
+ * `result` undefined; classical-ref entries are skipped, as they reference a producer's wire). Used
+ * by `moveOperation` to refuse a unit-shift that would push a wire below 0 and to know how far to
+ * grow the model. Walking the subtree matters for groups whose root `.targets` may miss deeply
+ * nested wires. Returns `[-1, -1]` if the subtree references no quantum wires.
  */
 const getSubtreeMinMaxWire = (op: Operation): [number, number] => {
   let min = Number.POSITIVE_INFINITY;
@@ -193,10 +186,9 @@ const getSubtreeMinMaxWire = (op: Operation): [number, number] => {
 };
 
 /**
- * Resolves overlapping operations in each column of the component grid.
- * For each column, splits overlapping operations into separate columns so that
- * no two operations in the same column overlap on their register ranges.
- * Modifies the component grid in-place.
+ * Resolves overlapping operations in each column of the component grid. For each column, splits
+ * overlapping operations into separate columns so that no two operations in the same column overlap
+ * on their register ranges. Modifies the component grid in-place.
  */
 const resolveOverlappingOperations = (parentArray: ComponentGrid): void => {
   // Helper to resolve a single column into non-overlapping columns
@@ -240,10 +232,8 @@ const resolveOverlappingOperations = (parentArray: ComponentGrid): void => {
 };
 
 /**
- * Recursive variant of `resolveOverlappingOperations` — resolves
- * overlaps in every column at every nesting level of the grid.
- * Used by `moveQubit`, which can widen group spans anywhere in the
- * tree.
+ * Recursive variant of `resolveOverlappingOperations` — resolves overlaps in every column at every
+ * nesting level of the grid. Used by `moveQubit`, which can widen group spans anywhere in the tree.
  */
 const resolveOverlappingOperationsRecursive = (grid: ComponentGrid): void => {
   resolveOverlappingOperations(grid);

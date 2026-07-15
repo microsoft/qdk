@@ -30,8 +30,8 @@ export enum GateType {
 }
 
 /**
- * Rendering data used to store information pertaining to a given
- * operation for rendering its corresponding SVG.
+ * Rendering data used to store information pertaining to a given operation for rendering its
+ * corresponding SVG.
  */
 export interface GateRenderData {
   /** Gate type. */
@@ -43,8 +43,8 @@ export interface GateRenderData {
   /** Array of y coords of control registers. */
   controlsY: number[];
   /** Array of y coords of target registers.
-   *  For `GateType.Unitary` or `GateType.ControlledUnitary`, this is an array of groups of
-   *  y coords, where each group represents a unitary box to be rendered separately.
+   *  For `GateType.Unitary` or `GateType.ControlledUnitary`, this is an array of groups of y
+   *  coords, where each group represents a unitary box to be rendered separately.
    */
   targetsY: (number | number[])[];
   /** Gate label. */
@@ -64,31 +64,27 @@ export interface GateRenderData {
   /** Link href and title for clickable gate. */
   link?: { href: string; title: string };
   /**
-   * Labels for the classical control registers (when present, this op
-   * has at least one classical control). Aligned with `controlsY` by
-   * index: a numeric entry is a classical control with a known id, a
-   * `null` entry is a classical control whose id couldn't be resolved,
-   * and an `undefined` entry marks a quantum control that shares the
-   * op's `controls` array with classical refs. The formatter uses the
-   * `undefined` entries to route those controls through the standard
+   * Labels for the classical control registers (when present, this op has at least one classical
+   * control). Aligned with `controlsY` by index: a numeric entry is a classical control with a
+   * known id, a `null` entry is a classical control whose id couldn't be resolved, and an
+   * `undefined` entry marks a quantum control that shares the op's `controls` array with classical
+   * refs. The formatter uses the `undefined` entries to route those controls through the standard
    * control-dot render path instead of the classical-circle path.
    */
   classicalControlIds?: (number | null | undefined)[];
   /**
-   * Classical control registers used by this operation or any descendant.
-   * Used by processOperations to decide which classical wires may pass through
-   * this gate body without forcing a split.
+   * Classical control registers used by this operation or any descendant. Used by processOperations
+   * to decide which classical wires may pass through this gate body without forcing a split.
    */
   classicalControlRegs?: Register[];
   /**
    * @internal Used during layout to surface child-scope geometry from
-   * `_processChildren` up to the parent's `_fillRenderDataX`. Cleared
-   * (set to `undefined`) once consumed. Not used outside `process.ts`.
+   * `_processChildren` up to the parent's `_fillRenderDataX`. Cleared (set to `undefined`) once
+   * consumed. Not used outside `process.ts`.
    *
-   * Holds the recursive `processOperations` call's `localScope` (in
-   * the child's local startX-anchored coords) and any deeper scopes.
-   * The parent's `_fillRenderDataX` shifts these by the group's
-   * `offset` and merges them into its absolute scope accumulator.
+   * Holds the recursive `processOperations` call's `localScope` (in the child's local
+   * startX-anchored coords) and any deeper scopes. The parent's `_fillRenderDataX` shifts these by
+   * the group's `offset` and merges them into its absolute scope accumulator.
    */
   _childLayout?: {
     localScope: LayoutScope;

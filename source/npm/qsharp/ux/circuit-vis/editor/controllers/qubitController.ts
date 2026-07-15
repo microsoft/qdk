@@ -17,19 +17,14 @@ import { getQubitLabelElems } from "../../utils.js";
  *
  * Two surfaces:
  *
- * 1. **Drag a qubit label.** Mousedown on a qubit-label spawns
- *    swap and insert-between dropzones along every other wire;
- *    mouseup on one dispatches `moveQubit` (Action layer) and
- *    re-renders.
- * 2. **Remove a qubit line.** `removeQubitLineWithConfirmation`
- *    is invoked from two callers: (a) the context menu (via
- *    `CircuitEvents`'s thin delegate, kept for backward compat),
- *    and (b) the drag controller's document-mouseup handler when
- *    a qubit label is dragged off the circuit.
+ * 1. **Drag a qubit label.** Mousedown on a qubit-label spawns swap and insert-between dropzones
+ *    along every other wire; mouseup on one dispatches `moveQubit` (Action layer) and re-renders.
+ * 2. **Remove a qubit line.** `removeQubitLineWithConfirmation` is invoked from two callers: (a)
+ *    the context menu (via `CircuitEvents`'s thin delegate, kept for backward compat), and (b) the
+ *    drag controller's document-mouseup handler when a qubit label is dragged off the circuit.
  *
- * No `dispose()` — the qubit-label elements live inside the SVG,
- * which is replaced wholesale on each `enableEvents` re-run, so
- * their listeners die with the element.
+ * No `dispose()` — the qubit-label elements live inside the SVG, which is replaced wholesale on
+ * each `enableEvents` re-run, so their listeners die with the element.
  */
 export class QubitController {
   constructor(private readonly ctx: InteractionContext) {
@@ -37,9 +32,8 @@ export class QubitController {
   }
 
   /**
-   * Remove a qubit line, prompting first if it has any operations
-   * attached. Public because the drag controller's drag-out-delete
-   * path needs to invoke it from a different mouseup handler.
+   * Remove a qubit line, prompting first if it has any operations attached. Public because the drag
+   * controller's drag-out-delete path needs to invoke it from a different mouseup handler.
    */
   removeQubitLineWithConfirmation(qubitIdx: number): void {
     const numOperations = this.ctx.model.qubitUseCounts[qubitIdx];
@@ -85,9 +79,8 @@ export class QubitController {
     if (sourceWire == null) return;
     this.ctx.interaction.selectedWire = sourceWire;
 
-    // Dropzones ON each wire (skip self). Exclude the trailing
-    // ghost wire — it's a placeholder for adding new qubits, not
-    // a real swap target.
+    // Dropzones ON each wire (skip self). Exclude the trailing ghost wire — it's a placeholder for
+    // adding new qubits, not a real swap target.
     for (
       let targetWire = 0;
       targetWire < this.ctx.wireData.length - 1;
@@ -106,9 +99,8 @@ export class QubitController {
       this.ctx.overlayLayer.appendChild(dropzone);
     }
 
-    // Dropzones BETWEEN wires (including before-first and after-last,
-    // but not after the ghost wire). Skip the source's own bracket
-    // positions since "insert between" at them is a no-op.
+    // Dropzones BETWEEN wires (including before-first and after-last, but not after the ghost
+    // wire). Skip the source's own bracket positions since "insert between" at them is a no-op.
     for (let i = 0; i <= this.ctx.wireData.length - 1; i++) {
       if (i === sourceWire || i === sourceWire + 1) continue;
       const dropzone = createWireDropzone(

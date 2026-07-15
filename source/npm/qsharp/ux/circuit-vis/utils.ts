@@ -83,9 +83,8 @@ const getMinGateWidth = ({
 };
 
 /**
- * Estimate string width in pixels based on character types and font size.
- * This may not match the true rendered width, but should be close enough for
- * calculating layout.
+ * Estimate string width in pixels based on character types and font size. This may not match the
+ * true rendered width, but should be close enough for calculating layout.
  *
  * @param text - The text string to measure.
  * @param fontSize - The font size in pixels (default is labelFontSize).
@@ -146,28 +145,23 @@ const _getStringWidth = (
 };
 
 /**
- * Find targets of an operation's children by recursively walking
- * through all of its children's controls, targets, and (for
- * measurements) qubits + results. Note that this intentionally
- * ignores the direct targets of `operation` itself; it's the
- * union of the *descendants'* register sets.
+ * Find targets of an operation's children by recursively walking through all of its children's
+ * controls, targets, and (for measurements) qubits + results. Note that this intentionally ignores
+ * the direct targets of `operation` itself; it's the union of the *descendants'* register sets.
  *
- * Used by the action layer to refresh a group's cached
- * `.targets`/`.results` after its children have been mutated (see
- * `moveOperation` and `_pruneEmptyAncestors` in
+ * Used by the action layer to refresh a group's cached `.targets`/`.results` after its children
+ * have been mutated (see `moveOperation` and `_pruneEmptyAncestors` in
  * [`actions/circuitActions.ts`](actions/circuitActions.ts)).
  *
- * Output registers are deduplicated by **full register identity**
- * — the `(qubit, result)` tuple — not by `qubit` alone. A bare-qubit
- * ref `{qubit: 0}` and a classical-register ref `{qubit: 0,
- * result: 0}` are distinct and both survive if both appear among
- * the descendants. Preserving `result` keeps the classical-control
- * visual-extent line that classically-conditional unitaries record
- * in `targets` from being lost on refresh.
+ * Output registers are deduplicated by **full register identity** — the `(qubit, result)` tuple —
+ * not by `qubit` alone. A bare-qubit ref `{qubit: 0}` and a classical-register ref `{qubit: 0,
+ * result: 0}` are distinct and both survive if both appear among the descendants. Preserving
+ * `result` keeps the classical-control visual-extent line that classically-conditional unitaries
+ * record in `targets` from being lost on refresh.
  *
  * @param operation The operation to find targets for.
- * @returns An array of registers with unique `(qubit, result)`
- *   identities; `result` is preserved when present.
+ * @returns An array of registers with unique `(qubit, result)` identities; `result` is preserved
+ *   when present.
  */
 const getChildTargets = (operation: Operation): Register[] | [] => {
   const _recurse = (operation: Operation) => {
@@ -207,11 +201,9 @@ const getChildTargets = (operation: Operation): Register[] | [] => {
     }),
   );
 
-  // Dedup by full register identity (qubit + result). `undefined`
-  // result and an explicit result are distinct register kinds (see
-  // dedup contract in the doc comment); we use a unique sentinel
-  // in the key to avoid collisions like
-  // `qubit=0, result=undefined` vs `qubit=0:undefined-as-string`.
+  // Dedup by full register identity (qubit + result). `undefined` result and an explicit result are
+  // distinct register kinds (see dedup contract in the doc comment); we use a unique sentinel in
+  // the key to avoid collisions like `qubit=0, result=undefined` vs `qubit=0:undefined-as-string`.
   const seen = new Set<string>();
   const out: Register[] = [];
   for (const reg of registers) {
@@ -221,11 +213,9 @@ const getChildTargets = (operation: Operation): Register[] | [] => {
         : `${reg.qubit}:c${reg.result}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    // Rebuild fresh objects rather than aliasing the descendants'
-    // own register references — callers assign the returned array
-    // straight into `parent.targets`/`.results`, and we don't want
-    // a later mutation on a child's register to mutate the parent's
-    // cached extent.
+    // Rebuild fresh objects rather than aliasing the descendants' own register references — callers
+    // assign the returned array straight into `parent.targets`/`.results`, and we don't want a
+    // later mutation on a child's register to mutate the parent's cached extent.
     out.push(
       reg.result === undefined
         ? { qubit: reg.qubit }
@@ -247,24 +237,20 @@ const getGateLocationString = (operation: Operation): string | null => {
 };
 
 /**
- * Get the minimum and maximum drawn-row indices for a given
- * operation. Bare qubit row `q` is index `q`; classical-result
- * rows (registers with `.result !== undefined`) sit BELOW their
- * owning qubit row and are encoded as `q + 0.5` so the inclusive
- * range correctly distinguishes them from a quantum entry at
- * `q + 1` and from a quantum entry at `q` itself.
+ * Get the minimum and maximum drawn-row indices for a given operation. Bare qubit row `q` is index
+ * `q`; classical-result rows (registers with `.result !== undefined`) sit BELOW their owning qubit
+ * row and are encoded as `q + 0.5` so the inclusive range correctly distinguishes them from a
+ * quantum entry at `q + 1` and from a quantum entry at `q` itself.
  *
- * Used exclusively for sibling-overlap checks (`_doesOverlap`)
- * in the action layer. Callers that need integer wire indices
- * should use `getQuantumWireRange` instead.
+ * Used exclusively for sibling-overlap checks (`_doesOverlap`) in the action layer. Callers that
+ * need integer wire indices should use `getQuantumWireRange` instead.
  *
  * @param operation The operation for which to get the row indices.
  * @returns A tuple containing the minimum and maximum row indices.
  */
 function getMinMaxRegIdx(operation: Operation): [number, number] {
-  // Classical-register rows sit immediately below their owning
-  // qubit row (between qubit `q` and qubit `q+1`). Encode them as
-  // `q + 0.5` so the inclusive-range overlap check correctly
+  // Classical-register rows sit immediately below their owning qubit row (between qubit `q` and
+  // qubit `q+1`). Encode them as `q + 0.5` so the inclusive-range overlap check correctly
   // distinguishes a quantum row at `q` from a classical row of `q`.
   const rows = getOperationRegisters(operation).map((r) =>
     r.result !== undefined ? r.qubit + 0.5 : r.qubit,
@@ -276,21 +262,18 @@ function getMinMaxRegIdx(operation: Operation): [number, number] {
 }
 
 /**
- * Like `getMinMaxRegIdx`, but excludes classical-control registers
- * (those whose `.result` is set). The qubit field of a classical
- * control points at the producing measurement's qubit wire, which
- * isn't really "part of" the consumer op's body — it's just a
- * back-reference used to draw the connector down to the classical
- * wire row.
+ * Like `getMinMaxRegIdx`, but excludes classical-control registers (those whose `.result` is set).
+ * The qubit field of a classical control points at the producing measurement's qubit wire, which
+ * isn't really "part of" the consumer op's body — it's just a back-reference used to draw the
+ * connector down to the classical wire row.
  *
- * Use this for any decision about which wires belong to an op's
- * editable scope: child-drop scope of an expanded group, shift-
- * extend reach of a parent group, multi-leg drop targets for a
- * selected op. Using `getMinMaxRegIdx` for those would wrongly
- * sweep in the producing measurement's qubit wire.
+ * Use this for any decision about which wires belong to an op's editable scope: child-drop scope of
+ * an expanded group, shift-extend reach of a parent group, multi-leg drop targets for a selected
+ * op. Using `getMinMaxRegIdx` for those would wrongly sweep in the producing measurement's qubit
+ * wire.
  *
- * Returns `[-1, -1]` if the op has no quantum-only registers
- * (shouldn't happen for any valid op, but defensive).
+ * Returns `[-1, -1]` if the op has no quantum-only registers (shouldn't happen for any valid op,
+ * but defensive).
  */
 const getQuantumWireRange = (operation: Operation): [number, number] => {
   const qRegs = getOperationRegisters(operation).filter(
@@ -302,14 +285,12 @@ const getQuantumWireRange = (operation: Operation): [number, number] => {
 };
 
 /**
- * Get every `Register` referenced by an operation, including both
- * its controls and its targets/qubits/results. Returned references
- * are the live objects on the operation, so callers may mutate
- * `reg.qubit` / `reg.result` in place to renumber wires.
+ * Get every `Register` referenced by an operation, including both its controls and its
+ * targets/qubits/results. Returned references are the live objects on the operation, so callers may
+ * mutate `reg.qubit` / `reg.result` in place to renumber wires.
  *
- * Mirrors the union that `getMinMaxRegIdx` walks; centralized here
- * so the action layer and the data layer don't each re-spell the
- * per-`kind` switch.
+ * Mirrors the union that `getMinMaxRegIdx` walks; centralized here so the action layer and the data
+ * layer don't each re-spell the per-`kind` switch.
  *
  * @param operation The operation to enumerate registers for.
  * @returns All registers (controls + targets/qubits/results) of `operation`.
@@ -335,26 +316,21 @@ const getOperationRegisters = (operation: Operation): Register[] => {
 };
 
 /**
- * Vertical extent of an op on the wire grid, expressed as a pair
- * of `Register` endpoints. Either endpoint may land on a qubit
- * row (no `.result`) or on a classical-result row (`.result` set).
+ * Vertical extent of an op on the wire grid, expressed as a pair of `Register` endpoints. Either
+ * endpoint may land on a qubit row (no `.result`) or on a classical-result row (`.result` set).
  *
- * Geometry. Classical-result rows sit immediately BELOW their
- * owning qubit row — the rendered stack on a qubit `q_c` with
- * results `r0..rN` reads, top to bottom:
+ * Geometry. Classical-result rows sit immediately BELOW their owning qubit row — the rendered stack
+ * on a qubit `q_c` with results `r0..rN` reads, top to bottom:
  *
  *     q_c,  q_c.r0,  q_c.r1, ...,  q_c.rN,  q_(c+1), ...
  *
- * Endpoints are compared by `.qubit` first, then by `.result`
- * (with `undefined` sorting above any concrete result index, i.e.
- * the bare qubit row sits above its own classical-result rows).
+ * Endpoints are compared by `.qubit` first, then by `.result` (with `undefined` sorting above any
+ * concrete result index, i.e. the bare qubit row sits above its own classical-result rows).
  *
- * The returned endpoints are FRESH register objects (not aliases
- * of the op's own registers) so callers can keep them around
- * without risking mutation of the source op.
+ * The returned endpoints are FRESH register objects (not aliases of the op's own registers) so
+ * callers can keep them around without risking mutation of the source op.
  *
- * Returns `null` if the op carries no registers at all (defensive
- * — no valid op should hit this).
+ * Returns `null` if the op carries no registers at all (defensive — no valid op should hit this).
  *
  * @param operation The operation to measure.
  * @returns `[min, max]` register endpoints, or `null` if empty.
@@ -362,9 +338,8 @@ const getOperationRegisters = (operation: Operation): Register[] => {
 const getWireRange = (operation: Operation): [Register, Register] | null => {
   const regs = getOperationRegisters(operation);
   if (regs.length === 0) return null;
-  // `result === undefined` sorts ABOVE any concrete result index
-  // on the same qubit (bare qubit row sits above its r0 row).
-  // Encode `undefined` as -1 for the comparison key.
+  // `result === undefined` sorts ABOVE any concrete result index on the same qubit (bare qubit row
+  // sits above its r0 row). Encode `undefined` as -1 for the comparison key.
   const key = (r: Register) => r.result ?? -1;
   let minReg = regs[0];
   let maxReg = regs[0];
@@ -393,7 +368,7 @@ const getWireRange = (operation: Operation): [Register, Register] | null => {
 
 /**********************
  *  Finder Functions  *
- **********************/
+ * *********************/
 
 /**
  * Find the surrounding gate element of a host element.
@@ -406,17 +381,16 @@ const findGateElem = (hostElem: SVGElement): SVGElement | null => {
 };
 
 /**
- * Walk a path of `[colIdx, opIdx]` segments from a root grid down through
- * nested operation children, returning the grid reached at the end.
+ * Walk a path of `[colIdx, opIdx]` segments from a root grid down through nested operation
+ * children, returning the grid reached at the end.
  *
- * Returns `null` if any segment is out of bounds — for example because the
- * model has changed since the location was captured (a stale `data-location`
- * attribute on a DOM node, or a hand-constructed location that addresses an
- * op that no longer exists).
+ * Returns `null` if any segment is out of bounds — for example because the model has changed since
+ * the location was captured (a stale `data-location` attribute on a DOM node, or a hand-constructed
+ * location that addresses an op that no longer exists).
  *
- * Note: matches the long-standing semantic that an interior op missing a
- * `children` array does *not* fail the walk; the walk stays on the same
- * grid for that step. Out-of-bounds is the only thing that produces `null`.
+ * Note: matches the long-standing semantic that an interior op missing a `children` array does
+ * *not* fail the walk; the walk stays on the same grid for that step. Out-of-bounds is the only
+ * thing that produces `null`.
  */
 const _walkToGrid = (
   componentGrid: ComponentGrid,
@@ -436,13 +410,13 @@ const _walkToGrid = (
 /**
  * Find the parent operation of the operation specified by location.
  *
- * Navigates via [`Location`](data/location.ts) so the addressing
- * format is owned by exactly one module.
+ * Navigates via [`Location`](data/location.ts) so the addressing format is owned by exactly one
+ * module.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
- * @returns The parent operation, or `null` if the location is empty,
- *   shallower than two segments, or addresses an op that does not exist.
+ * @returns The parent operation, or `null` if the location is empty, shallower than two segments,
+ *   or addresses an op that does not exist.
  */
 const findParentOperation = (
   componentGrid: ComponentGrid,
@@ -468,34 +442,34 @@ const findParentOperation = (
 /**
  * Find the parent component grid of an operation based on its location.
  *
- * Navigates via [`Location`](data/location.ts) so the addressing
- * format is owned by exactly one module.
+ * Navigates via [`Location`](data/location.ts) so the addressing format is owned by exactly one
+ * module.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
- * @returns The parent grid of components, or `null` if the location is
- *   empty or addresses an op nested below a missing ancestor.
+ * @returns The parent grid of components, or `null` if the location is empty or addresses an op
+ *   nested below a missing ancestor.
  */
 const findParentArray = (
   componentGrid: ComponentGrid,
   location: string | null,
 ): ComponentGrid | null => {
   if (!location) return null;
-  // Drop the last segment — it addresses the op itself; we want the grid that
-  // contains it, which is keyed by its parent's segments.
+  // Drop the last segment — it addresses the op itself; we want the grid that contains it, which is
+  // keyed by its parent's segments.
   return _walkToGrid(componentGrid, Location.parse(location).parent().segments);
 };
 
 /**
  * Find an operation based on its location.
  *
- * Navigates via [`Location`](data/location.ts) so the addressing
- * format is owned by exactly one module.
+ * Navigates via [`Location`](data/location.ts) so the addressing format is owned by exactly one
+ * module.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
- * @returns The operation at the given location, or `null` if the location
- *   is empty or addresses an op that does not exist.
+ * @returns The operation at the given location, or `null` if the location is empty or addresses an
+ *   op that does not exist.
  */
 const findOperation = (
   componentGrid: ComponentGrid,
@@ -514,31 +488,26 @@ const findOperation = (
 };
 
 /**
- * Set of qubit wires covered by EXTERNAL SIBLINGS of the op at
- * `location` in that op's outer column. "External sibling" =
- * another op sharing the same column in the op's containing array
+ * Set of qubit wires covered by EXTERNAL SIBLINGS of the op at `location` in that op's outer
+ * column. "External sibling" = another op sharing the same column in the op's containing array
  * (i.e., NOT a descendant inside the op's own children grid).
  *
- * "Covered" follows the visual extent reported by `getWireRange`:
- * the inclusive range of qubit rows the sibling's body and any
- * classical-control connector paint into. Classical-result
- * endpoints contribute the qubit row BELOW which they sit (e.g. a
- * low endpoint at `q_c.r0` extends coverage starting at `q_(c+1)`;
- * a high endpoint at `q_c.r0` extends coverage through `q_c`).
+ * "Covered" follows the visual extent reported by `getWireRange`: the inclusive range of qubit rows
+ * the sibling's body and any classical-control connector paint into. Classical-result endpoints
+ * contribute the qubit row BELOW which they sit (e.g. a low endpoint at `q_c.r0` extends coverage
+ * starting at `q_(c+1)`; a high endpoint at `q_c.r0` extends coverage through `q_c`).
  *
- * Use this to answer "what wires would directly collide if I
- * widened this op's wire span?" — the building block for the
- * shift-extend dropzone filter, which composes this with
- * `getAncestorColumnSiblingWires` to walk the ancestor chain and
- * accumulate every collision the cascade would need to resolve.
+ * Use this to answer "what wires would directly collide if I widened this op's wire span?" — the
+ * building block for the shift-extend dropzone filter, which composes this with
+ * `getAncestorColumnSiblingWires` to walk the ancestor chain and accumulate every collision the
+ * cascade would need to resolve.
  *
- * Returns an empty set when `location` is null, doesn't resolve,
- * or addresses a top-level op with no siblings (no overlap possible).
+ * Returns an empty set when `location` is null, doesn't resolve, or addresses a top-level op with
+ * no siblings (no overlap possible).
  *
  * @param componentGrid The grid the op lives in.
  * @param location The op's location string.
- * @returns The qubit wires covered by every external sibling in
- *   the op's outer column.
+ * @returns The qubit wires covered by every external sibling in the op's outer column.
  */
 const getOuterColumnSiblingWires = (
   componentGrid: ComponentGrid,
@@ -557,15 +526,12 @@ const getOuterColumnSiblingWires = (
   for (const sibling of column.components) {
     if (sibling === selfOp) continue;
     const range = getWireRange(sibling);
-    // Defensive: a register-less op (shouldn't exist) can't cover
-    // any wire.
+    // Defensive: a register-less op (shouldn't exist) can't cover any wire.
     if (range == null) continue;
     const [minReg, maxReg] = range;
-    // Classical-result row sits between q_owner and q_(owner+1).
-    // A LOW endpoint on a classical row enters coverage at
-    // q_(owner+1); a HIGH endpoint on a classical row extends
-    // coverage through q_owner. A quantum endpoint covers its own
-    // row at either end.
+    // Classical-result row sits between q_owner and q_(owner+1). A LOW endpoint on a classical row
+    // enters coverage at q_(owner+1); a HIGH endpoint on a classical row extends coverage through
+    // q_owner. A quantum endpoint covers its own row at either end.
     const minQubit =
       minReg.result === undefined ? minReg.qubit : minReg.qubit + 1;
     const maxQubit = maxReg.qubit;
@@ -577,32 +543,27 @@ const getOuterColumnSiblingWires = (
 };
 
 /**
- * Union of `getOuterColumnSiblingWires` across the op at `location`
- * AND every ancestor of it, up to (but not including) the root grid.
+ * Union of `getOuterColumnSiblingWires` across the op at `location` AND every ancestor of it, up to
+ * (but not including) the root grid.
  *
- * Why walk the chain. The shift-extend gesture extends an
- * immediately-enclosing group, but the action layer's cascade
- * (see [`refreshAncestorTargets`](actions/circuitActions.ts) +
- * [`_resolveOverlapAfterExtend`](actions/circuitActions.ts))
- * widens every ancestor whose span doesn't already enclose the
- * drop wire — and each widening may collide with siblings IN
- * THAT ANCESTOR'S column, not just the immediate parent's.
- * Filtering only the immediate parent's siblings under-blocks: a
- * deeply nested source could be shift-dropped onto a wire owned by
- * a top-level sibling of an ancestor several levels up, leaving the
- * cascade to silently cope (or, in pathological cases, leave a
- * visible overlap).
+ * Why walk the chain. The shift-extend gesture extends an immediately-enclosing group, but the
+ * action layer's cascade (see [`refreshAncestorTargets`](actions/circuitActions.ts) +
+ * [`_resolveOverlapAfterExtend`](actions/circuitActions.ts)) widens every ancestor whose span
+ * doesn't already enclose the drop wire — and each widening may collide with siblings IN THAT
+ * ANCESTOR'S column, not just the immediate parent's. Filtering only the immediate parent's
+ * siblings under-blocks: a deeply nested source could be shift-dropped onto a wire owned by a
+ * top-level sibling of an ancestor several levels up, leaving the cascade to silently cope (or, in
+ * pathological cases, leave a visible overlap).
  *
- * Walks via location-string `parent()` rather than object
- * identity so it can be called against the live model without
- * needing the ancestor chain pre-collected.
+ * Walks via location-string `parent()` rather than object identity so it can be called against the
+ * live model without needing the ancestor chain pre-collected.
  *
  * Returns an empty set when `location` is null or doesn't resolve.
  *
  * @param componentGrid The grid the op lives in.
  * @param location The op's location string.
- * @returns The union of every ancestor's outer-column sibling
- *   wires, including the op's own outer column.
+ * @returns The union of every ancestor's outer-column sibling wires, including the op's own outer
+ *   column.
  */
 const getAncestorColumnSiblingWires = (
   componentGrid: ComponentGrid,
@@ -623,7 +584,7 @@ const getAncestorColumnSiblingWires = (
 
 /**********************
  *  Getter Functions  *
- **********************/
+ * *********************/
 
 /**
  * Get list of y values based on circuit wires.
@@ -695,9 +656,8 @@ const getQubitLabelElems = (container: HTMLElement): SVGTextElement[] => {
   return Array.from(labelGroup.querySelectorAll<SVGTextElement>("text"));
 };
 
-// Non-ASCII chars are fraught with danger. Copy/paste these when possible.
-// Use the following regex in VS Code to find invalid unicode chars
-// [^\x20-\x7e\u{03b8}-\u{03c8}\u{2020}\u{27e8}\u{27e9}]
+// Non-ASCII chars are fraught with danger. Copy/paste these when possible. Use the following regex
+// in VS Code to find invalid unicode chars [^\x20-\x7e\u{03b8}-\u{03c8}\u{2020}\u{27e8}\u{27e9}]
 
 const mathChars = {
   theta: "θ", // \u{03b8}
@@ -709,15 +669,13 @@ const mathChars = {
 };
 
 /**
- * Parse a host element's `data-wire-ys` attribute into a number
- * array. The renderer writes the wire-Y coordinates the element
- * visually spans onto this attribute as a JSON array of numbers
- * (see [`gateFormatter.ts`](renderer/formatters/gateFormatter.ts)).
+ * Parse a host element's `data-wire-ys` attribute into a number array. The renderer writes the
+ * wire-Y coordinates the element visually spans onto this attribute as a JSON array of numbers (see
+ * [`gateFormatter.ts`](renderer/formatters/gateFormatter.ts)).
  *
- * Returns `[]` when the attribute is missing or malformed — same
- * convention `_wireYs` in [`draggable.ts`](editor/draggable.ts)
- * follows. Lives in utils so the selection / drag controllers can
- * read host-element wire spans without duplicating the parse.
+ * Returns `[]` when the attribute is missing or malformed — same convention `_wireYs` in
+ * [`draggable.ts`](editor/draggable.ts) follows. Lives in utils so the selection / drag controllers
+ * can read host-element wire spans without duplicating the parse.
  */
 const parseWireYs = (elem: Element): number[] => {
   const wireYsAttr = elem.getAttribute("data-wire-ys");
@@ -734,34 +692,27 @@ const parseWireYs = (elem: Element): number[] => {
 };
 
 /**
- * Given a click's SVG-space Y coordinate, the list of wire-Ys the
- * clicked host element spans, and the circuit's full wire-Y array,
- * return the index (into `wireData`) of the wire whose Y is
+ * Given a click's SVG-space Y coordinate, the list of wire-Ys the clicked host element spans, and
+ * the circuit's full wire-Y array, return the index (into `wireData`) of the wire whose Y is
  * **closest to the click**.
  *
- * Used by the selection controller to pick a per-click handle for
- * multi-wire host elements (the body of a group, SWAP, multi-qubit
- * measurement, etc.), so the grabbed wire becomes the drag handle
- * rather than always pinning the gate's topmost wire to the drop
- * wire.
+ * Used by the selection controller to pick a per-click handle for multi-wire host elements (the
+ * body of a group, SWAP, multi-qubit measurement, etc.), so the grabbed wire becomes the drag
+ * handle rather than always pinning the gate's topmost wire to the drop wire.
  *
  * Behavior:
  *
- *   - `wireYs` is empty → return `-1` (no candidate). Caller
- *     should fall back to the static `data-wire` attribute.
- *   - `wireYs` has a single Y → return its `wireData` index
- *     directly. The click-Y is irrelevant for single-wire host
- *     elements (control dots, target circles, measurement
- *     crosses, ket boxes), and skipping the search avoids a
- *     pointless `getScreenCTM` call by the caller.
- *   - Multi-wire span → tie-break by smallest `|wireY - clickY|`,
- *     then by smaller `wireY` (deterministic on a tie). Returns
- *     `-1` if the winning Y isn't in `wireData` at all, which
+ *   - `wireYs` is empty → return `-1` (no candidate). Caller should fall back to the static
+ *     `data-wire` attribute.
+ *   - `wireYs` has a single Y → return its `wireData` index directly. The click-Y is irrelevant for
+ *     single-wire host elements (control dots, target circles, measurement crosses, ket boxes), and
+ *     skipping the search avoids a pointless `getScreenCTM` call by the caller.
+ *   - Multi-wire span → tie-break by smallest `|wireY - clickY|`, then by smaller `wireY`
+ *     (deterministic on a tie). Returns `-1` if the winning Y isn't in `wireData` at all, which
  *     would indicate a renderer / editor wire-table mismatch.
  *
- * Clicks above the topmost wire or below the bottommost clamp to
- * that endpoint, which is the natural "closest" behavior — no
- * special-case code needed.
+ * Clicks above the topmost wire or below the bottommost clamp to that endpoint, which is the
+ * natural "closest" behavior — no special-case code needed.
  */
 const pickClosestWireIndex = (
   clickSvgY: number,

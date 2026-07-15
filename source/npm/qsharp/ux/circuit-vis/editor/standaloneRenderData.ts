@@ -7,22 +7,19 @@ import { GateRenderData, GateType } from "../renderer/gateRenderData.js";
 import { getMinGateWidth } from "../utils.js";
 
 /**
- * Build a `GateRenderData` for a single operation rendered at
- * (`x`, `y`) without consulting real register positions.
+ * Build a `GateRenderData` for a single operation rendered at (`x`, `y`) without consulting real
+ * register positions.
  *
- * The main render path (see [process.ts](../renderer/process.ts))
- * derives gate geometry from the surrounding circuit. The editor
- * needs to render gates outside that context — toolbox icons and the
- * drag ghost in [draggable.ts](draggable.ts) — so this helper fakes a
- * single wire centered in the gate body. Width still goes through
- * `getMinGateWidth`, so a toolbox icon matches the same gate dropped
- * onto the circuit.
+ * The main render path (see [process.ts](../renderer/process.ts)) derives gate geometry from the
+ * surrounding circuit. The editor needs to render gates outside that context — toolbox icons and
+ * the drag ghost in [draggable.ts](draggable.ts) — so this helper fakes a single wire centered in
+ * the gate body. Width still goes through `getMinGateWidth`, so a toolbox icon matches the same
+ * gate dropped onto the circuit.
  *
  * Limited gate-kind support — only what the toolbox + drag ghost use.
  *
- * @param operation     Operation to render. `undefined` returns an
- *                      `Invalid`-typed render data the caller can
- *                      treat as a placeholder.
+ * @param operation     Operation to render. `undefined` returns an `Invalid`-typed render data the
+ *   caller can treat as a placeholder.
  * @param x             x coordinate at the gate's top-left.
  * @param y             y coordinate at the gate's top-left.
  * @returns             GateRenderData object.

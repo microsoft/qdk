@@ -39,17 +39,15 @@ interface ComposedSqore {
   /** SVG elements the make up the visualization. */
   elements: SVGElement[];
   /**
-   * Geometry from the layout pass. Captured here so the editor can
-   * position dropzones from the same numbers `processOperations`
-   * already computed, instead of reverse-engineering them from
-   * rendered SVG attributes. See [`layoutMap.ts`](renderer/layoutMap.ts).
+   * Geometry from the layout pass. Captured here so the editor can position dropzones from the same
+   * numbers `processOperations` already computed, instead of reverse-engineering them from rendered
+   * SVG attributes. See [`layoutMap.ts`](renderer/layoutMap.ts).
    */
   layoutMap: LayoutMap;
 }
 
 /**
- * Defines the mapping of unique location to each operation. Used for enabling
- * interactivity.
+ * Defines the mapping of unique location to each operation. Used for enabling interactivity.
  */
 type GateRegistry = {
   [location: string]: Operation;
@@ -59,9 +57,9 @@ export type EditorHandlers = {
   editCallback: (circuitGroup: CircuitGroup) => void;
   // When provided, enables the Run button in the toolbox.
   runCallback?: () => void;
-  // Optional callback to offload state visualization computation.
-  // When provided (e.g., by the VS Code webview), the state visualizer can
-  // compute state in a Web Worker without relying on globals.
+  // Optional callback to offload state visualization computation. When provided (e.g., by the VS
+  // Code webview), the state visualizer can compute state in a Web Worker without relying on
+  // globals.
   computeStateVizColumnsForCircuitModel?: (
     model: Circuit,
     opts?: PrepareStateVizOptions,
@@ -72,8 +70,8 @@ export type DrawOptions = {
   renderDepth?: number;
   renderLocations?: (l: SourceLocation[]) => { title: string; href: string };
   /**
-   * When provided, enables editing behaviors (dropzones, run button, etc.) and
-   * requires the callbacks necessary to support those behaviors.
+   * When provided, enables editing behaviors (dropzones, run button, etc.) and requires the
+   * callbacks necessary to support those behaviors.
    */
   editor?: EditorHandlers;
   /**
@@ -93,20 +91,17 @@ export class Sqore {
   zoomOnResize: boolean = true;
   zoomLevel: number = 100;
   /**
-   * Per-session view preferences (e.g. user-toggled expand/collapse
-   * state). Survives every `renderCircuit` call but is intentionally
-   * NOT serialized into the saved circuit. See
+   * Per-session view preferences (e.g. user-toggled expand/collapse state). Survives every
+   * `renderCircuit` call but is intentionally NOT serialized into the saved circuit. See
    * [`viewState.ts`](data/viewState.ts).
    */
   readonly viewState: ViewState = new ViewState();
   /**
-   * Snapshot of `op object → location string` captured at the end
-   * of the most recent render, used to migrate `viewState` keys
-   * forward when ops shift position. See `rebaseViewState`.
+   * Snapshot of `op object → location string` captured at the end of the most recent render, used
+   * to migrate `viewState` keys forward when ops shift position. See `rebaseViewState`.
    *
-   * `null` means "no prior render yet" (first draw) or "the prior
-   * snapshot is no longer valid" (after `updateCircuit` replaces
-   * the underlying tree). In both cases the next render skips the
+   * `null` means "no prior render yet" (first draw) or "the prior snapshot is no longer valid"
+   * (after `updateCircuit` replaces the underlying tree). In both cases the next render skips the
    * rebase and just refreshes the snapshot.
    */
   private lastLocationMap: Map<Operation, string> | null = null;
@@ -154,19 +149,16 @@ export class Sqore {
   }
 
   /**
-   * Replace the underlying circuit and re-render in place, preserving
-   * everything that lives on `this` (most importantly `viewState`,
-   * but also the cached container, zoom level, and the editor's
-   * event registrations).
+   * Replace the underlying circuit and re-render in place, preserving everything that lives on
+   * `this` (most importantly `viewState`, but also the cached container, zoom level, and the
+   * editor's event registrations).
    *
-   * Intended for hosts that receive **external** circuit updates —
-   * e.g. the VS Code editor parsing an `onDidChangeTextDocument` into
-   * a fresh `CircuitGroup`. Using this instead of a new `Sqore`
-   * preserves `viewState` (so user-expanded groups stay expanded)
-   * and avoids a re-render flicker.
+   * Intended for hosts that receive **external** circuit updates — e.g. the VS Code editor parsing
+   * an `onDidChangeTextDocument` into a fresh `CircuitGroup`. Using this instead of a new `Sqore`
+   * preserves `viewState` (so user-expanded groups stay expanded) and avoids a re-render flicker.
    *
-   * Hosts that want a fully clean instance (e.g. opening a different
-   * circuit in the same panel) should keep using `qviz.draw(...)`.
+   * Hosts that want a fully clean instance (e.g. opening a different circuit in the same panel)
+   * should keep using `qviz.draw(...)`.
    *
    * @param circuitGroup The new circuit group to render.
    */
@@ -179,12 +171,10 @@ export class Sqore {
       throw new Error(`No circuit found. Please provide a valid circuit.`);
     }
     this.circuitGroup = circuitGroup;
-    // We only render the first circuit in the group today; matches
-    // the constructor's behavior.
+    // We only render the first circuit in the group today; matches the constructor's behavior.
     this.circuit = circuitGroup.circuits[0];
-    // External replacement: the new circuit's op object identities
-    // have no relation to the prior tree. Drop the rebase snapshot
-    // so the next render doesn't try to migrate viewState against
+    // External replacement: the new circuit's op object identities have no relation to the prior
+    // tree. Drop the rebase snapshot so the next render doesn't try to migrate viewState against
     // stale identities (which would silently drop every entry).
     this.lastLocationMap = null;
     if (this.container != null) {
@@ -193,8 +183,7 @@ export class Sqore {
   }
 
   /**
-   * Window resize handler to recalculate and set the zoom level
-   * based on the new window width.
+   * Window resize handler to recalculate and set the zoom level based on the new window width.
    */
   private onResize() {
     if (!this.zoomOnResize) {
@@ -232,13 +221,12 @@ export class Sqore {
    * Update the width of the SVG element based on the zoom level.
    */
   updateSvgWidth(svg: SVGElement, zoomLevel: number) {
-    // The width attribute contains the true width.
-    // We'll leave this attribute untouched, so we can use it again if the
-    // zoom level is ever updated.
+    // The width attribute contains the true width. We'll leave this attribute untouched, so we can
+    // use it again if the zoom level is ever updated.
     const width = svg.getAttribute("width")!;
 
-    // We'll set the width in the style attribute to (true width * zoom level).
-    // This value takes precedence over the true width in the width attribute.
+    // We'll set the width in the style attribute to (true width * zoom level). This value takes
+    // precedence over the true width in the width attribute.
     svg.setAttribute(
       "style",
       `max-width: ${width}; width: ${(parseInt(width) * (zoomLevel || 100)) / 100}; height: auto`,
@@ -263,19 +251,16 @@ export class Sqore {
   /**
    * Render circuit into `container`.
    *
-   * Always deep-copies `this.circuit` so the rendered grid can be
-   * mutated freely (location stamps, default-expand flags, ViewState
-   * overrides) without touching the saved circuit.
+   * Always deep-copies `this.circuit` so the rendered grid can be mutated freely (location stamps,
+   * default-expand flags, ViewState overrides) without touching the saved circuit.
    *
    * @param container HTML element for rendering visualization into.
    */
   private renderCircuit(container: HTMLElement): void {
-    // Migrate viewState keys to track ops whose locations shifted
-    // due to mutations between renders (drag-and-drop, gate insert,
-    // qubit-line edits, etc.). MUST run BEFORE the deep copy below,
-    // because the rebase compares op object identities against the
-    // live `this.circuit.componentGrid` — the JSON copy would break
-    // that identity link.
+    // Migrate viewState keys to track ops whose locations shifted due to mutations between renders
+    // (drag-and-drop, gate insert, qubit-line edits, etc.). MUST run BEFORE the deep copy below,
+    // because the rebase compares op object identities against the live
+    // `this.circuit.componentGrid` — the JSON copy would break that identity link.
     this.rebaseViewState();
 
     // Create copy of circuit to prevent mutation
@@ -288,13 +273,13 @@ export class Sqore {
       ),
     );
 
-    // Apply default-expansion passes first — these match the original
-    // behavior for any op without an explicit user choice.
+    // Apply default-expansion passes first — these match the original behavior for any op without
+    // an explicit user choice.
     this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
     this.expandIfSingleOperation(_circuit.componentGrid);
 
-    // Apply user view-state overrides on top. Anything the user has
-    // explicitly expanded or collapsed wins over the defaults.
+    // Apply user view-state overrides on top. Anything the user has explicitly expanded or
+    // collapsed wins over the defaults.
     this.viewState.applyTo(_circuit.componentGrid);
 
     // Create visualization components
@@ -325,23 +310,20 @@ export class Sqore {
       );
     }
 
-    // Snapshot the live op → location map for the next render's
-    // rebase. Built from `this.circuit` (the live model), NOT the
-    // deep copy, so the op object identities here match the ones
-    // the editor's mutations will operate on between now and the
-    // next render.
+    // Snapshot the live op → location map for the next render's rebase. Built from `this.circuit`
+    // (the live model), NOT the deep copy, so the op object identities here match the ones the
+    // editor's mutations will operate on between now and the next render.
     this.lastLocationMap = this.buildLiveLocationMap(
       this.circuit.componentGrid,
     );
   }
 
   /**
-   * Walk `grid` in render order (the same `Location.root().child(...)`
-   * scheme `fillGateRegistry` uses) and build a map from each op
-   * object reference to its current location string.
+   * Walk `grid` in render order (the same `Location.root().child(...)` scheme `fillGateRegistry`
+   * uses) and build a map from each op object reference to its current location string.
    *
-   * Walks the live model — callers must NOT pass a deep copy, since
-   * identity-based lookups are the point.
+   * Walks the live model — callers must NOT pass a deep copy, since identity-based lookups are the
+   * point.
    */
   private buildLiveLocationMap(grid: ComponentGrid): Map<Operation, string> {
     const map = new Map<Operation, string>();
@@ -361,31 +343,26 @@ export class Sqore {
   }
 
   /**
-   * Migrate `viewState` keys forward across mutations that may have
-   * shifted ops to new locations.
+   * Migrate `viewState` keys forward across mutations that may have shifted ops to new locations.
    *
-   * Uses object identity against `this.lastLocationMap` (captured at
-   * the end of the previous render) so user expand/collapse choices
-   * follow their op when its string location changes — e.g. dragging
-   * a gate into column 0 shifts every other op's column index by 1.
+   * Uses object identity against `this.lastLocationMap` (captured at the end of the previous
+   * render) so user expand/collapse choices follow their op when its string location changes — e.g.
+   * dragging a gate into column 0 shifts every other op's column index by 1.
    *
-   * No-op on the first render (no prior snapshot) and after
-   * `updateCircuit` invalidates the snapshot. The rebase logic itself
-   * lives in [`ViewState.rebase`](data/viewState.ts).
+   * No-op on the first render (no prior snapshot) and after `updateCircuit` invalidates the
+   * snapshot. The rebase logic itself lives in [`ViewState.rebase`](data/viewState.ts).
    */
   private rebaseViewState(): void {
     const prev = this.lastLocationMap;
     if (prev == null) return;
     const next = this.buildLiveLocationMap(this.circuit.componentGrid);
 
-    // Build a (prev-location → new-location) fallback map from any
-    // ops that carry a `sqore-prev-location` stamp. The stamp is set
-    // by [`moveOperation`](actions/circuitActions.ts) when it
-    // deep-clones the source op — the clone has a new object identity
-    // so the identity lookup against `next` would miss and drop the
-    // ViewState entry; the stamp lets us recover the choice by
-    // matching on the pre-move location. Consumed (deleted) here so
-    // it never leaks into the rendered SVG.
+    // Build a (prev-location → new-location) fallback map from any ops that carry a
+    // `sqore-prev-location` stamp. The stamp is set by [`moveOperation`](actions/circuitActions.ts)
+    // when it deep-clones the source op — the clone has a new object identity so the identity
+    // lookup against `next` would miss and drop the ViewState entry; the stamp lets us recover the
+    // choice by matching on the pre-move location. Consumed (deleted) here so it never leaks into
+    // the rendered SVG.
     const prevLocationFallback = new Map<string, string>();
     for (const [op, newLoc] of next) {
       const stamp = op.dataAttributes?.["sqore-prev-location"];
@@ -395,9 +372,8 @@ export class Sqore {
       }
     }
 
-    // For every op we tracked at the last render, compute its old
-    // and new location. Build the (oldLoc → newLoc | null) remap
-    // that `ViewState.rebase` consumes.
+    // For every op we tracked at the last render, compute its old and new location. Build the
+    // (oldLoc → newLoc | null) remap that `ViewState.rebase` consumes.
     const remap = new Map<string, string | null>();
     for (const [op, oldLoc] of prev) {
       const newLoc = next.get(op) ?? prevLocationFallback.get(oldLoc);
@@ -438,8 +414,8 @@ export class Sqore {
         onlyComponent.dataAttributes["expanded"] !== "false" &&
         onlyComponent.children != null
       ) {
-        // We already have the only-component in hand, so set the
-        // attr directly rather than walking the grid for it.
+        // We already have the only-component in hand, so set the attr directly rather than walking
+        // the grid for it.
         onlyComponent.dataAttributes["expanded"] = "true";
       }
     }
@@ -491,14 +467,14 @@ export class Sqore {
 
     const { qubits, componentGrid } = circuit;
 
-    // Calculate the row heights, which may vary depending on how many
-    // expanded group borders need to fit between qubit wires.
+    // Calculate the row heights, which may vary depending on how many expanded group borders need
+    // to fit between qubit wires.
     const rowHeights = getRowHeights(qubits, componentGrid);
 
     const isEditable = this.options.editor != null;
 
-    // Draw the qubit labels.
-    // Also calculate other register render data to be used later in the rendering.
+    // Draw the qubit labels. Also calculate other register render data to be used later in the
+    // rendering.
     const { qubitLabels, registers, svgHeight } = formatInputs(
       qubits,
       rowHeights,
@@ -521,12 +497,11 @@ export class Sqore {
 
     // Assemble the LayoutMap from the layout pass.
     //
-    // - The top-level scope is keyed by `""` (matches the existing
-    //   `LayoutMap` convention; see [`layoutMap.ts`](renderer/layoutMap.ts)).
-    // - `childScopes` is already keyed by each parent op's location
-    //   string, with absolute coords.
-    // - `wireYs` mirrors the y-coords of the real qubit wires before
-    //   any editor chrome (e.g. the ghost qubit wire) is added.
+    // - The top-level scope is keyed by `""` (matches the existing `LayoutMap` convention; see
+    //   [`layoutMap.ts`](renderer/layoutMap.ts)).
+    // - `childScopes` is already keyed by each parent op's location string, with absolute coords.
+    // - `wireYs` mirrors the y-coords of the real qubit wires before any editor chrome (e.g. the
+    //   ghost qubit wire) is added.
     const layoutMap: LayoutMap = emptyLayoutMap();
     layoutMap.scopes.set("", localScope);
     for (const [key, scope] of childScopes) {
@@ -589,16 +564,14 @@ export class Sqore {
   }
 
   /**
-   * Depth-first traversal to assign a unique location string to
-   * `operation`. The operation is assigned `location.toString()` and
-   * its `i`th child in its `colIndex` column is recursively given
-   * `location.child(colIndex, i)`.
+   * Depth-first traversal to assign a unique location string to `operation`. The operation is
+   * assigned `location.toString()` and its `i`th child in its `colIndex` column is recursively
+   * given `location.child(colIndex, i)`.
    *
-   * Takes a [`Location`](data/location.ts) value rather than a raw
-   * string, so the addressing format is owned by exactly one module.
-   * The string form is still what gets stored in
-   * `dataAttributes["location"]` / used as `gateRegistry` keys, since
-   * the rest of the codebase reads those as strings.
+   * Takes a [`Location`](data/location.ts) value rather than a raw string, so the addressing format
+   * is owned by exactly one module. The string form is still what gets stored in
+   * `dataAttributes["location"]` / used as `gateRegistry` keys, since the rest of the codebase
+   * reads those as strings.
    *
    * @param operation Operation to be assigned.
    * @param location  Hierarchical location to assign to `operation`.
@@ -608,12 +581,12 @@ export class Sqore {
     const locationStr = location.toString();
     operation.dataAttributes["location"] = locationStr;
 
-    // Note: `dataAttributes["expanded"]` is intentionally not defaulted here.
-    // Expansion is controlled by:
+    // Note: `dataAttributes["expanded"]` is intentionally not defaulted here. Expansion is
+    // controlled by:
     // - `renderDepth` (see `expandOperationsToDepth`),
     // - user interaction (expand/collapse), and
-    // - `expandIfSingleOperation`, which auto-expands a single top-level op
-    //   unless it has been explicitly collapsed.
+    // - `expandIfSingleOperation`, which auto-expands a single top-level op unless it has been
+    //   explicitly collapsed.
     this.gateRegistry[locationStr] = operation;
     operation.children?.forEach((col, colIndex) =>
       col.components.forEach((childOp, i) => {
@@ -635,10 +608,9 @@ export class Sqore {
   /**
    * Add interactive click handlers for expand/collapse functionality.
    *
-   * Each chevron click writes the user's choice into `this.viewState`
-   * and then re-renders. ViewState survives the deep-copy that happens
-   * inside `renderCircuit`, so the choice persists across editor
-   * mutations rather than being lost on the next refresh.
+   * Each chevron click writes the user's choice into `this.viewState` and then re-renders.
+   * ViewState survives the deep-copy that happens inside `renderCircuit`, so the choice persists
+   * across editor mutations rather than being lost on the next refresh.
    *
    * @param container HTML element containing visualized circuit.
    */
@@ -691,13 +663,12 @@ export class Sqore {
 /**
  * Recursively computes vertical space required to render group borders.
  *
- * The resulting `heightAboveWire` and `heightBelowWire` values per qubit are
- * later used by `formatInputs` to leave sufficient space between qubit wires.
- * `heightAboveFirstClassical` is similar but applies to the gap between a
- * qubit's wire and its first classical sub-wire — used to reserve room for
- * the label of any classically-controlled group whose box top sits in that
- * gap (the producing measurement's classical sub-wire is the group's
- * `controlY`, and the label lives just above it).
+ * The resulting `heightAboveWire` and `heightBelowWire` values per qubit are later used by
+ * `formatInputs` to leave sufficient space between qubit wires. `heightAboveFirstClassical` is
+ * similar but applies to the gap between a qubit's wire and its first classical sub-wire — used to
+ * reserve room for the label of any classically-controlled group whose box top sits in that gap
+ * (the producing measurement's classical sub-wire is the group's `controlY`, and the label lives
+ * just above it).
  *
  * @param qubits Array of qubits in the circuit.
  * @param componentGrid Grid of circuit components to traverse.
@@ -767,25 +738,20 @@ function updateRowHeights(
   for (const col of componentGrid) {
     for (const component of col.components) {
       if (isExpandedGroup(component)) {
-        // The group's dashed box top is anchored at the topmost reg's
-        // y and the bottom at the bottommost reg's y. Each border
-        // bumps a row-height counter chosen by which layout row its y
-        // lands in:
+        // The group's dashed box top is anchored at the topmost reg's y and the bottom at the
+        // bottommost reg's y. Each border bumps a row-height counter chosen by which layout row its
+        // y lands in:
         //
-        //   - Pure qubit ref `{q}`, q has no classical sub-wires →
-        //     gap above/below q's wire (`heightAboveWire` /
-        //     `heightBelowWire`).
-        //   - Pure qubit ref `{q}`, q has classical sub-wires → top
-        //     goes to `heightAboveWire`; bottom lands in the gap
-        //     before q's first classical sub-wire
+        //   - Pure qubit ref `{q}`, q has no classical sub-wires → gap above/below q's wire
+        //     (`heightAboveWire` / `heightBelowWire`).
+        //   - Pure qubit ref `{q}`, q has classical sub-wires → top goes to `heightAboveWire`;
+        //     bottom lands in the gap before q's first classical sub-wire
         //     (`bottomBordersAboveFirstClassical`).
         //   - Classical sub-wire ref `{q, r}` → top lands in that gap
-        //     (`heightAboveFirstClassical`); bottom goes to
-        //     `heightBelowWire`.
+        //     (`heightAboveFirstClassical`); bottom goes to `heightBelowWire`.
         //
-        // The two "above first classical" counters differ because top
-        // borders carry labels (stack at `groupTopPadding`) while
-        // bottom borders don't (stack at `groupBottomPadding`).
+        // The two "above first classical" counters differ because top borders carry labels (stack
+        // at `groupTopPadding`) while bottom borders don't (stack at `groupBottomPadding`).
         const regs = getOperationRegisters(component);
         if (regs.length === 0) continue;
 
@@ -793,22 +759,19 @@ function updateRowHeights(
         const minQubit = Math.min(...qubits);
         const maxQubit = Math.max(...qubits);
 
-        // For minQubit: the *topmost* anchor ref is a pure qubit
-        // ref if one exists on minQubit (pure refs sit above any
-        // classical sub-wires); otherwise it's a classical ref.
+        // For minQubit: the *topmost* anchor ref is a pure qubit ref if one exists on minQubit
+        // (pure refs sit above any classical sub-wires); otherwise it's a classical ref.
         const minQubitHasPureRef = regs.some(
           (r) => r.qubit === minQubit && r.result == null,
         );
 
-        // For maxQubit: the *bottommost* anchor ref is a classical
-        // ref if any exist on maxQubit (classical sub-wires sit
-        // below the qubit wire); otherwise it's the pure qubit ref.
+        // For maxQubit: the *bottommost* anchor ref is a classical ref if any exist on maxQubit
+        // (classical sub-wires sit below the qubit wire); otherwise it's the pure qubit ref.
         const maxQubitHasClassicalRef = regs.some(
           (r) => r.qubit === maxQubit && r.result != null,
         );
 
-        // Track which counters we bumped so we can decrement
-        // after recursion.
+        // Track which counters we bumped so we can decrement after recursion.
         let bumpedAboveWireQ: number | null = null;
         let bumpedTopFirstClassicalQ: number | null = null;
         let bumpedBottomFirstClassicalQ: number | null = null;
@@ -836,11 +799,9 @@ function updateRowHeights(
           !maxQubitHasClassicalRef &&
           (numResultsByQubit[maxQubit] ?? 0) > 0
         ) {
-          // Bottom anchor is a pure qubit ref on a qubit that has
-          // classical sub-wires below it. The border y sits in
-          // the gap between maxQubit's wire and its first
-          // classical sub-wire, but unlike top borders has no
-          // label, so it uses the smaller bottom-border counter.
+          // Bottom anchor is a pure qubit ref on a qubit that has classical sub-wires below it. The
+          // border y sits in the gap between maxQubit's wire and its first classical sub-wire, but
+          // unlike top borders has no label, so it uses the smaller bottom-border counter.
           rowHeights[maxQubit].currentBottomBordersAboveFirstClassical++;
           rowHeights[maxQubit].bottomBordersAboveFirstClassical = Math.max(
             rowHeights[maxQubit].bottomBordersAboveFirstClassical,
@@ -884,8 +845,8 @@ function updateRowHeights(
 }
 
 /**
- * An "expanded group" here is any operation that is to be rendered showing
- * its children, with a dashed box around the children.
+ * An "expanded group" here is any operation that is to be rendered showing its children, with a
+ * dashed box around the children.
  */
 export function isExpandedGroup(component: Operation) {
   const expandedAttr = component.dataAttributes?.["expanded"];

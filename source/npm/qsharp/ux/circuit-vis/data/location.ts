@@ -2,35 +2,30 @@
 // Licensed under the MIT license.
 
 /**
- * `Location` — value type for hierarchical addresses inside a
- * circuit's `componentGrid`.
+ * `Location` — value type for hierarchical addresses inside a circuit's `componentGrid`.
  *
- * An operation's address is a string of the form `"col,op"` (top
- * level) or `"col,op-col,op-..."` (nested inside expanded groups).
- * This module owns the parse/compose of that format. The string form
- * is what's stored on the wire (SVG `data-location` /
- * `data-dropzone-location` attributes, `Operation.dataAttributes
- * .location`, `LayoutMap.scopes` keys); `Location` is the in-memory
+ * An operation's address is a string of the form `"col,op"` (top level) or `"col,op-col,op-..."`
+ * (nested inside expanded groups). This module owns the parse/compose of that format. The string
+ * form is what's stored on the wire (SVG `data-location` / `data-dropzone-location` attributes,
+ * `Operation.dataAttributes .location`, `LayoutMap.scopes` keys); `Location` is the in-memory
  * representation callers operate on.
  *
- * Immutable: every "mutation" returns a new `Location` and the
- * underlying `_segments` array is frozen.
+ * Immutable: every "mutation" returns a new `Location` and the underlying `_segments` array is
+ * frozen.
  *
- * The empty location is the root scope: `Location.root()` (and
- * `Location.parse("")`) represents the top-level grid, with string
- * form `""`.
+ * The empty location is the root scope: `Location.root()` (and `Location.parse("")`) represents the
+ * top-level grid, with string form `""`.
  */
 export class Location {
   /**
-   * Frozen segments. Each tuple is `[colIndex, opIndex]` for one
-   * level of nesting, ordered root-to-leaf.
+   * Frozen segments. Each tuple is `[colIndex, opIndex]` for one level of nesting, ordered
+   * root-to-leaf.
    */
   readonly segments: ReadonlyArray<readonly [number, number]>;
 
   /**
-   * Cached root singleton. Shared because `Location` is immutable
-   * and the empty case is hit by every top-level dropzone /
-   * `parent()` chain that bottoms out.
+   * Cached root singleton. Shared because `Location` is immutable and the empty case is hit by
+   * every top-level dropzone / `parent()` chain that bottoms out.
    */
   private static readonly _ROOT = new Location(Object.freeze([]));
 
@@ -51,8 +46,7 @@ export class Location {
    *   - `"0,1"` → one segment.
    *   - `"0,1-2,3"` → two segments.
    *
-   * Throws "Invalid location" for any segment that isn't exactly
-   * `<int>,<int>`.
+   * Throws "Invalid location" for any segment that isn't exactly `<int>,<int>`.
    */
   static parse(s: string): Location {
     if (s === "") return Location._ROOT;
@@ -72,9 +66,8 @@ export class Location {
   }
 
   /**
-   * Build a `Location` from already-parsed segments. Useful when the
-   * caller already has the numeric tuples (e.g. sqore building child
-   * locations during render).
+   * Build a `Location` from already-parsed segments. Useful when the caller already has the numeric
+   * tuples (e.g. sqore building child locations during render).
    */
   static of(...segments: ReadonlyArray<readonly [number, number]>): Location {
     if (segments.length === 0) return Location._ROOT;
@@ -96,9 +89,8 @@ export class Location {
   }
 
   /**
-   * Last `(colIndex, opIndex)` segment, or `null` if this is the
-   * root location. Most callers that ask for `.last()` are about to
-   * dereference into the parent scope's grid at that `(col, op)`.
+   * Last `(colIndex, opIndex)` segment, or `null` if this is the root location. Most callers that
+   * ask for `.last()` are about to dereference into the parent scope's grid at that `(col, op)`.
    */
   last(): readonly [number, number] | null {
     return this.segments.length === 0
@@ -107,9 +99,8 @@ export class Location {
   }
 
   /**
-   * The location of the scope that *contains* this op. Drops the last
-   * segment; `.parent()` on root returns root (so chained walks
-   * terminate cleanly). For an op at `"0,1-2,3"`, the parent is
+   * The location of the scope that *contains* this op. Drops the last segment; `.parent()` on root
+   * returns root (so chained walks terminate cleanly). For an op at `"0,1-2,3"`, the parent is
    * `"0,1"`.
    */
   parent(): Location {
@@ -118,8 +109,7 @@ export class Location {
   }
 
   /**
-   * Append a `(col, op)` segment, producing the location of a child
-   * inside *this* scope.
+   * Append a `(col, op)` segment, producing the location of a child inside *this* scope.
    */
   child(col: number, op: number): Location {
     return new Location(
@@ -131,8 +121,8 @@ export class Location {
   }
 
   /**
-   * Canonical string form. Round-trips with `parse`:
-   * `Location.parse(loc.toString()).equals(loc) === true`.
+   * Canonical string form. Round-trips with `parse`: `Location.parse(loc.toString()).equals(loc)
+   * === true`.
    */
   toString(): string {
     return this.segments.map(([c, o]) => `${c},${o}`).join("-");
@@ -153,17 +143,14 @@ export class Location {
   }
 
   /**
-   * `true` if this location comes strictly *before* `other` in
-   * document order — the order the renderer visits ops in a
-   * depth-first walk of the grid.
+   * `true` if this location comes strictly *before* `other` in document order — the order the
+   * renderer visits ops in a depth-first walk of the grid.
    *
-   * Segment-by-segment: compare `(col, op)` lexicographically; if all
-   * compared segments are equal, the shorter location (an ancestor)
-   * comes first. Equal locations return `false`.
+   * Segment-by-segment: compare `(col, op)` lexicographically; if all compared segments are equal,
+   * the shorter location (an ancestor) comes first. Equal locations return `false`.
    *
-   * Not the same as "producer must precede consumer": ops in the same
-   * column are simultaneous, not before/after. Use
-   * `inEarlierColumnThan` for that.
+   * Not the same as "producer must precede consumer": ops in the same column are simultaneous, not
+   * before/after. Use `inEarlierColumnThan` for that.
    */
   before(other: Location): boolean {
     const n = Math.min(this.segments.length, other.segments.length);
@@ -177,24 +164,19 @@ export class Location {
   }
 
   /**
-   * `true` if this location is in a strictly **earlier column** than
-   * `other` — i.e. an op here is guaranteed to finish before an op at
-   * `other` starts, in real time-step order, with ancestor groups
-   * projecting their column onto everything they contain.
+   * `true` if this location is in a strictly **earlier column** than `other` — i.e. an op here is
+   * guaranteed to finish before an op at `other` starts, in real time-step order, with ancestor
+   * groups projecting their column onto everything they contain.
    *
-   * Used to enforce "producer measurement must finish before its
-   * classical consumer starts" in the dropzone filter and the
-   * `moveOperation` safety net. `before` is wrong for this: two
-   * ops in the same column are simultaneous, and a consumer promoted
-   * to the producer's outer column shares that column even as a
-   * sibling.
+   * Used to enforce "producer measurement must finish before its classical consumer starts" in the
+   * dropzone filter and the `moveOperation` safety net. `before` is wrong for this: two ops in the
+   * same column are simultaneous, and a consumer promoted to the producer's outer column shares
+   * that column even as a sibling.
    *
-   * Walks segment-by-segment from the root: at each shared level, an
-   * earlier column wins immediately, a later column loses, and equal
-   * columns recurse deeper. Equal columns with differing op-indices
-   * are siblings at the same time-step (not earlier); an
-   * ancestor-vs-descendant pair shares the column at every level (not
-   * earlier).
+   * Walks segment-by-segment from the root: at each shared level, an earlier column wins
+   * immediately, a later column loses, and equal columns recurse deeper. Equal columns with
+   * differing op-indices are siblings at the same time-step (not earlier); an
+   * ancestor-vs-descendant pair shares the column at every level (not earlier).
    */
   inEarlierColumnThan(other: Location): boolean {
     const n = Math.min(this.segments.length, other.segments.length);
@@ -203,13 +185,12 @@ export class Location {
       const [bc, bo] = other.segments[i];
       if (ac < bc) return true;
       if (ac > bc) return false;
-      // Same column; differing op-indices mean sibling subtrees at
-      // the same time-step.
+      // Same column; differing op-indices mean sibling subtrees at the same time-step.
       if (ao !== bo) return false;
       // Same (col, op) — keep walking.
     }
-    // One location ran out: ancestor-vs-descendant or equal, both
-    // meaning "same column at every shared level".
+    // One location ran out: ancestor-vs-descendant or equal, both meaning "same column at every
+    // shared level".
     return false;
   }
 }

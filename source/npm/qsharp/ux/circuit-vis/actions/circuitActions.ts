@@ -42,32 +42,26 @@ import {
 } from "./circuit-actions/move.js";
 
 /*
- * `circuitActions.ts` — the Action layer in the Data / Action / View
- * architecture.
+ * `circuitActions.ts` — the Action layer in the Data / Action / View architecture.
  *
- * Each exported function takes a `CircuitModel` first and mutates it
- * in place — no DOM, interaction state, or rendering. They return the
- * new/affected `Operation` or a `boolean` status, and (being pure
- * data mutations) can be tested directly against a freshly built
- * `CircuitModel` with no JSDOM.
+ * Each exported function takes a `CircuitModel` first and mutates it in place — no DOM, interaction
+ * state, or rendering. They return the new/affected `Operation` or a `boolean` status, and (being
+ * pure data mutations) can be tested directly against a freshly built `CircuitModel` with no JSDOM.
  *
- * This is the orchestration + public API layer; the mechanical
- * helpers live in sibling modules: `gridPrimitives` (column
- * insert/remove, overlap, span), `ancestors` (chain capture),
- * `derivedTargets` (the eager `.targets` cascade), `move` (move
- * geometry), `classicalRefs` (producer/consumer analysis).
+ * This is the orchestration + public API layer; the mechanical helpers live in sibling modules:
+ * `gridPrimitives` (column insert/remove, overlap, span), `ancestors` (chain capture),
+ * `derivedTargets` (the eager `.targets` cascade), `move` (move geometry), `classicalRefs`
+ * (producer/consumer analysis).
  */
 
 /**
  * Move an operation in the circuit.
  *
- * After the move, both the source-side and dest-side ancestor chains
- * are walked innermost-out by `refreshAncestorTargets` and each
- * still-attached ancestor's derived `.targets`/`.results` is rebuilt
- * from its post-move children, maintaining the invariant that an
- * ancestor's `.targets` is the union of its descendants' wires. The
- * target location string is authoritative about which group the op
- * lands in.
+ * After the move, both the source-side and dest-side ancestor chains are walked innermost-out by
+ * `refreshAncestorTargets` and each still-attached ancestor's derived `.targets`/`.results` is
+ * rebuilt from its post-move children, maintaining the invariant that an ancestor's `.targets` is
+ * the union of its descendants' wires. The target location string is authoritative about which
+ * group the op lands in.
  *
  * @param model The circuit model to mutate.
  * @param sourceLocation The location string of the source operation.
@@ -91,39 +85,35 @@ const moveOperation = (
 
   if (originalOperation == null) return null;
 
-  // Resolve source-side parent references BEFORE any mutation:
-  // `moveX` may splice a fresh column into a grid on the source's
-  // path, invalidating its location string. The array reference
-  // stays valid as its contents shift.
+  // Resolve source-side parent references BEFORE any mutation: `moveX` may splice a fresh column
+  // into a grid on the source's path, invalidating its location string. The array reference stays
+  // valid as its contents shift.
   const sourceOperationParent = findParentArray(
     model.componentGrid,
     sourceLocation,
   );
   if (sourceOperationParent == null) return null;
 
-  // Capture the source ancestor chain BEFORE any mutation so the
-  // empty-group cleanup at the tail keeps valid references after
-  // `moveX` splices columns.
+  // Capture the source ancestor chain BEFORE any mutation so the empty-group cleanup at the tail
+  // keeps valid references after `moveX` splices columns.
   const ancestorChain = collectAncestorChain(model, sourceLocation);
 
-  // Dest ancestor chain, captured pre-move for the dest-side
-  // cascade below. Empty for a top-level drop.
+  // Dest ancestor chain, captured pre-move for the dest-side cascade below. Empty for a top-level
+  // drop.
   const destAncestorChain: AncestorRung[] = collectAncestorChain(
     model,
     targetLocation,
   );
 
-  // Dest containing array (the grid the moved op lives in directly),
-  // captured pre-move; falls back to the top-level grid.
+  // Dest containing array (the grid the moved op lives in directly), captured pre-move; falls back
+  // to the top-level grid.
   const destContainingArray: ComponentGrid =
     findParentArray(model.componentGrid, targetLocation) ?? model.componentGrid;
 
-  // Safety net: refuse the move if it would place the source before
-  // one of its external classical-register producers in document
-  // order. The dropzone filter in
-  // [`DragController`](../editor/controllers/dragController.ts) hides
-  // invalid dropzones at drag-start; this catches any path that
-  // bypasses it. Compares PRE-mutation locations via
+  // Safety net: refuse the move if it would place the source before one of its external
+  // classical-register producers in document order. The dropzone filter in
+  // [`DragController`](../editor/controllers/dragController.ts) hides invalid dropzones at
+  // drag-start; this catches any path that bypasses it. Compares PRE-mutation locations via
   // [`Location.inEarlierColumnThan`](../data/location.ts).
   const externalProducerLocs = collectExternalProducerLocations(
     model.componentGrid,
@@ -143,19 +133,17 @@ const moveOperation = (
   );
 
   // Stamp the clone with a one-shot "previous location" marker so
-  // [`Sqore.rebaseViewState`](../sqore.ts) can transfer the user's
-  // expand/collapse state across the move. The JSON deep-clone below
-  // breaks object identity, so the identity lookup would otherwise
-  // miss and drop the ViewState entry. The stamp is consumed on the
-  // next rebase, so it never leaks into the rendered SVG.
+  // [`Sqore.rebaseViewState`](../sqore.ts) can transfer the user's expand/collapse state across the
+  // move. The JSON deep-clone below breaks object identity, so the identity lookup would otherwise
+  // miss and drop the ViewState entry. The stamp is consumed on the next rebase, so it never leaks
+  // into the rendered SVG.
   if (newSourceOperation.dataAttributes == null) {
     newSourceOperation.dataAttributes = {};
   }
   newSourceOperation.dataAttributes["sqore-prev-location"] = sourceLocation;
 
-  // Capture pre-move measurement wires from the live source, to
-  // refresh per-wire `numResults` counters after the move (see the
-  // `updateMeasurementLines` sweep at the tail).
+  // Capture pre-move measurement wires from the live source, to refresh per-wire `numResults`
+  // counters after the move (see the `updateMeasurementLines` sweep at the tail).
   const affectedMeasurementWires = new Set<number>();
   collectMeasurementWires(originalOperation, affectedMeasurementWires);
 
@@ -165,8 +153,8 @@ const moveOperation = (
   // Update operation's targets and controls
   moveY(newSourceOperation, sourceWire, targetWire, movingControl);
 
-  // Capture POST-shift measurement wires too, so the sweep covers
-  // both the wires measurements left and the wires they landed on.
+  // Capture POST-shift measurement wires too, so the sweep covers both the wires measurements left
+  // and the wires they landed on.
   collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
 
   // Move horizontally
@@ -180,20 +168,16 @@ const moveOperation = (
 
   removeOp(model, originalOperation, sourceOperationParent);
 
-  // Source-side cleanup: prune any ancestor groups whose children
-  // just collapsed to empty (cascades upward), then refresh the
-  // surviving ancestors' derived `.targets`. Prune before refresh:
-  // `_isOperationEmpty` reads `children`, so refreshing a
-  // soon-to-be-deleted rung is wasted work.
+  // Source-side cleanup: prune any ancestor groups whose children just collapsed to empty (cascades
+  // upward), then refresh the surviving ancestors' derived `.targets`. Prune before refresh:
+  // `_isOperationEmpty` reads `children`, so refreshing a soon-to-be-deleted rung is wasted work.
   const survivedSourceChain = pruneEmptyAncestors(ancestorChain);
   refreshAncestorTargets(survivedSourceChain);
 
-  // Dest-side cleanup. Centralized post-widening cascade: the
-  // newly-moved op vs its own column siblings, plus every dest
-  // ancestor whose `.targets` no longer encloses its child's wire
-  // span (with the collision resolver firing on each). Always-on
-  // because the target location is authoritative; no-op for a
-  // top-level drop or when every dest ancestor was pruned.
+  // Dest-side cleanup. Centralized post-widening cascade: the newly-moved op vs its own column
+  // siblings, plus every dest ancestor whose `.targets` no longer encloses its child's wire span
+  // (with the collision resolver firing on each). Always-on because the target location is
+  // authoritative; no-op for a top-level drop or when every dest ancestor was pruned.
   resolveSpanChange(
     {
       op: newSourceOperation,
@@ -202,10 +186,9 @@ const moveOperation = (
     destAncestorChain,
   );
 
-  // Refresh per-wire `numResults` counters for every wire that may
-  // have gained or lost a measurement. `addOp` / `removeOp` only
-  // fire this for TOP-LEVEL measurements; a measurement crossing
-  // wires inside a moved group is only kept in step here.
+  // Refresh per-wire `numResults` counters for every wire that may have gained or lost a
+  // measurement. `addOp` / `removeOp` only fire this for TOP-LEVEL measurements; a measurement
+  // crossing wires inside a moved group is only kept in step here.
   for (const wire of affectedMeasurementWires) {
     if (wire >= 0 && wire < model.qubits.length) {
       updateMeasurementLines(model, wire);
@@ -218,31 +201,26 @@ const moveOperation = (
 };
 
 /**
- * Move a measurement that has downstream classical consumers,
- * propagating the effects to those consumers.
+ * Move a measurement that has downstream classical consumers, propagating the effects to those
+ * consumers.
  *
- * Wraps `moveOperation` with the bookkeeping to keep the
- * classical producer→consumer graph consistent. The caller (the
- * editor's prompt layer) is expected to have already:
+ * Wraps `moveOperation` with the bookkeeping to keep the classical producer→consumer graph
+ * consistent. The caller (the editor's prompt layer) is expected to have already:
  *   1. Called `collectMeasurementConsumers` on the M.
  *   2. Partitioned the result against `targetLocation` by
- *      [`Location.inEarlierColumnThan`](../data/location.ts) into
- *      survivors (their classical refs get remapped) and invalidated
- *      consumers (passed as `invalidatedConsumers`, cascade-deleted).
+ *      [`Location.inEarlierColumnThan`](../data/location.ts) into survivors (their classical refs
+ *      get remapped) and invalidated consumers (passed as `invalidatedConsumers`, cascade-deleted).
  *   3. Confirmed the cascade with the user.
  *
- * Wire-remap detail: `moveOperation`'s tail-end
- * `updateMeasurementLines` sweep renumbers result indices on every
- * affected wire, so we snapshot each measurement's pre-move
- * `(qubit, result)` keys and compare with post-move keys to build a
- * complete remap (also catching consumers of OTHER Ms on the
- * renumbered wires). The moved M becomes a new object reference, so
- * its pre-move keys are captured separately and paired positionally.
+ * Wire-remap detail: `moveOperation`'s tail-end `updateMeasurementLines` sweep renumbers result
+ * indices on every affected wire, so we snapshot each measurement's pre-move `(qubit, result)` keys
+ * and compare with post-move keys to build a complete remap (also catching consumers of OTHER Ms on
+ * the renumbered wires). The moved M becomes a new object reference, so its pre-move keys are
+ * captured separately and paired positionally.
  *
- * Ordering: move first, then cascade-delete — the pre-move
- * `targetLocation` is still valid against the unmodified grid, and
- * cascade-delete uses object-reference predicates that survive the
- * move's column splices.
+ * Ordering: move first, then cascade-delete — the pre-move `targetLocation` is still valid against
+ * the unmodified grid, and cascade-delete uses object-reference predicates that survive the move's
+ * column splices.
  *
  * Returns the moved M op, or `null` if `moveOperation` refused it.
  */
@@ -258,9 +236,8 @@ const moveMeasurementWithDependents = (
   const mOp = findOperation(model.componentGrid, sourceLocation);
   if (mOp == null || mOp.kind !== "measurement") return null;
 
-  // Snapshot every M's pre-move (qubit, result) keys by object
-  // identity. Other Ms renumbered by the tail-end
-  // `updateMeasurementLines` sweep need their consumers updated too.
+  // Snapshot every M's pre-move (qubit, result) keys by object identity. Other Ms renumbered by the
+  // tail-end `updateMeasurementLines` sweep need their consumers updated too.
   const preMoveKeysByRef = new Map<
     Operation,
     { qubit: number; result: number }[]
@@ -283,12 +260,12 @@ const moveMeasurementWithDependents = (
   };
   walkMeasurements(model.componentGrid);
 
-  // The moving M's pre-keys captured SEPARATELY: it becomes a new
-  // object post-move (deep-cloned), so the by-ref map won't have it.
+  // The moving M's pre-keys captured SEPARATELY: it becomes a new object post-move (deep-cloned),
+  // so the by-ref map won't have it.
   const movedMPreKeys = preMoveKeysByRef.get(mOp) ?? [];
 
-  // Move M. The standard path handles its wire change, column
-  // placement, and the global `updateMeasurementLines` renumbering.
+  // Move M. The standard path handles its wire change, column placement, and the global
+  // `updateMeasurementLines` renumbering.
   const movedM = moveOperation(
     model,
     sourceLocation,
@@ -300,17 +277,15 @@ const moveMeasurementWithDependents = (
   );
   if (movedM == null) return null;
 
-  // Cascade-delete invalidated consumers AFTER the move. The
-  // predicate matches on object identity, so shifted locations
-  // don't matter.
+  // Cascade-delete invalidated consumers AFTER the move. The predicate matches on object identity,
+  // so shifted locations don't matter.
   const invalidatedSet = new Set(invalidatedConsumers);
   if (invalidatedSet.size > 0) {
     _findAndRemoveOperations(model, (op) => invalidatedSet.has(op));
   }
 
-  // Build the (oldQubit, oldResult) → (newQubit, newResult) remap by
-  // pairing pre/post snapshots positionally per M: the moved M from
-  // `movedMPreKeys` → `movedM.results`, every other M from
+  // Build the (oldQubit, oldResult) → (newQubit, newResult) remap by pairing pre/post snapshots
+  // positionally per M: the moved M from `movedMPreKeys` → `movedM.results`, every other M from
   // `preMoveKeysByRef` → its still-live op.
   const keyRemap = new Map<string, string>();
   const recordRemap = (
@@ -337,15 +312,15 @@ const moveMeasurementWithDependents = (
     recordRemap(preList, preOp);
   }
 
-  // Apply the remap to every classical ref in the grid. Walking the
-  // whole grid catches consumers of OTHER Ms bumped by the renumber.
+  // Apply the remap to every classical ref in the grid. Walking the whole grid catches consumers of
+  // OTHER Ms bumped by the renumber.
   if (keyRemap.size > 0) {
     applyClassicalRefRemap(model.componentGrid, keyRemap);
   }
 
-  // Consumers' visual spans may have changed, widening or narrowing
-  // group `.targets` caches and introducing new collisions. Re-derive
-  // bottom-up and resolve recursively (same pattern as `moveQubit`).
+  // Consumers' visual spans may have changed, widening or narrowing group `.targets` caches and
+  // introducing new collisions. Re-derive bottom-up and resolve recursively (same pattern as
+  // `moveQubit`).
   deepRefreshDerivedTargets(model.componentGrid);
   resolveOverlappingOperationsRecursive(model.componentGrid);
 
@@ -353,24 +328,19 @@ const moveMeasurementWithDependents = (
 };
 
 /**
- * Remove a measurement and cascade-delete every op that depends on
- * its classical outputs.
+ * Remove a measurement and cascade-delete every op that depends on its classical outputs.
  *
- * Same handoff contract as `moveMeasurementWithDependents`: the
- * prompt layer collects consumers, confirms with the user, then
- * calls this with the consumer set.
+ * Same handoff contract as `moveMeasurementWithDependents`: the prompt layer collects consumers,
+ * confirms with the user, then calls this with the consumer set.
  *
- * Cascade-delete consumers FIRST so `removeOperation`'s ancestor
- * refresh runs against a grid with no dangling classical refs to the
- * deleted M (whose location may shift in the cascade, so we look it
- * back up by object reference).
+ * Cascade-delete consumers FIRST so `removeOperation`'s ancestor refresh runs against a grid with
+ * no dangling classical refs to the deleted M (whose location may shift in the cascade, so we look
+ * it back up by object reference).
  *
- * Result-index propagation: `removeOperation`'s tail-end
- * `updateMeasurementLines` sweep renumbers per-wire result indices to
- * close the gap. If OTHER Ms share that wire, their consumers keep
- * stale keys, so we snapshot every surviving M's pre-removal keys by
- * identity, remove, then build and apply a pre/post remap (same
- * mechanism as the move path). The deleted M is excluded.
+ * Result-index propagation: `removeOperation`'s tail-end `updateMeasurementLines` sweep renumbers
+ * per-wire result indices to close the gap. If OTHER Ms share that wire, their consumers keep stale
+ * keys, so we snapshot every surviving M's pre-removal keys by identity, remove, then build and
+ * apply a pre/post remap (same mechanism as the move path). The deleted M is excluded.
  */
 const removeMeasurementWithDependents = (
   model: CircuitModel,
@@ -380,10 +350,9 @@ const removeMeasurementWithDependents = (
   const mOp = findOperation(model.componentGrid, mLocation);
   if (mOp == null) return;
 
-  // Snapshot every OTHER M's pre-removal (qubit, result) keys by
-  // identity. The deleted M is excluded; surviving Ms on the same
-  // wire(s) get renumbered by `removeOperation`'s sweep and their
-  // consumers need a matching remap.
+  // Snapshot every OTHER M's pre-removal (qubit, result) keys by identity. The deleted M is
+  // excluded; surviving Ms on the same wire(s) get renumbered by `removeOperation`'s sweep and
+  // their consumers need a matching remap.
   const preRemovalKeysByRef = new Map<
     Operation,
     { qubit: number; result: number }[]
@@ -406,8 +375,8 @@ const removeMeasurementWithDependents = (
   };
   walkMeasurements(model.componentGrid);
 
-  // Cascade-delete the consumers. The predicate matches on object
-  // identity, so location-string drift doesn't matter.
+  // Cascade-delete the consumers. The predicate matches on object identity, so location-string
+  // drift doesn't matter.
   if (consumers.length > 0) {
     const consumerSet = new Set(consumers);
     _findAndRemoveOperations(model, (op) => consumerSet.has(op));
@@ -419,9 +388,8 @@ const removeMeasurementWithDependents = (
     removeOperation(model, newMLoc);
   }
 
-  // Build the remap by pairing pre/post snapshots positionally per
-  // surviving M. An M cascade-deleted with a consumer group is
-  // dropped: it isn't visited in the post-removal walk.
+  // Build the remap by pairing pre/post snapshots positionally per surviving M. An M
+  // cascade-deleted with a consumer group is dropped: it isn't visited in the post-removal walk.
   const keyRemap = new Map<string, string>();
   for (const [postOp, preList] of preRemovalKeysByRef) {
     if (postOp.kind !== "measurement") continue;
@@ -441,8 +409,8 @@ const removeMeasurementWithDependents = (
 
   if (keyRemap.size > 0) {
     applyClassicalRefRemap(model.componentGrid, keyRemap);
-    // Surviving classically-controlled groups' spans may have
-    // shifted; refresh + resolve overlaps (same as the move path).
+    // Surviving classically-controlled groups' spans may have shifted; refresh + resolve overlaps
+    // (same as the move path).
     deepRefreshDerivedTargets(model.componentGrid);
     resolveOverlappingOperationsRecursive(model.componentGrid);
   }
@@ -472,8 +440,7 @@ const addOperation = (
     JSON.stringify(sourceOperation),
   );
 
-  // Single-leg rewrite (toolbox drop, single-target clone): re-pin
-  // the op to `targetWire`.
+  // Single-leg rewrite (toolbox drop, single-target clone): re-pin the op to `targetWire`.
   if (newSourceOperation.kind === "measurement") {
     newSourceOperation.qubits = [{ qubit: targetWire }];
     // The measurement result is updated later in the updateMeasurementLines function
@@ -485,8 +452,8 @@ const addOperation = (
   }
   model.ensureQubitCount(targetWire);
 
-  // Capture the dest ancestor chain BEFORE addOp so the rung
-  // references survive any column splices. Empty when top-level.
+  // Capture the dest ancestor chain BEFORE addOp so the rung references survive any column splices.
+  // Empty when top-level.
   const destAncestorChain: AncestorRung[] = collectAncestorChain(
     model,
     targetLocation,
@@ -500,9 +467,8 @@ const addOperation = (
     insertNewColumn,
   );
 
-  // After mutating the parent group's children, the centralized
-  // post-widening cleanup re-derives every ancestor's `.targets` and
-  // resolves any sibling-column collisions the widening introduced.
+  // After mutating the parent group's children, the centralized post-widening cleanup re-derives
+  // every ancestor's `.targets` and resolves any sibling-column collisions the widening introduced.
   resolveSpanChange(
     { op: newSourceOperation, containingArray: targetOperationParent },
     destAncestorChain,
@@ -523,15 +489,14 @@ const removeOperation = (model: CircuitModel, sourceLocation: string) => {
 
   if (sourceOperation == null || sourceOperationParent == null) return null;
 
-  // Capture the source ancestor chain BEFORE removeOp so the rung
-  // references survive the splice (and any column collapse).
+  // Capture the source ancestor chain BEFORE removeOp so the rung references survive the splice
+  // (and any column collapse).
   const ancestorChain = collectAncestorChain(model, sourceLocation);
 
   removeOp(model, sourceOperation, sourceOperationParent);
 
-  // Re-derive the parent's `.targets` (and every ancestor above)
-  // from the surviving children. Narrowing-only: shrinking a span
-  // can't introduce new sibling collisions, so no resolver hook.
+  // Re-derive the parent's `.targets` (and every ancestor above) from the surviving children.
+  // Narrowing-only: shrinking a span can't introduce new sibling collisions, so no resolver hook.
   refreshAncestorTargets(ancestorChain);
 
   model.removeTrailingUnusedQubits();
@@ -571,23 +536,20 @@ const _findAndRemoveOperations = (
 
   inPlaceFilter(model.componentGrid);
 
-  // Batch removal may have stripped ops from many ancestor chains,
-  // so re-derive every group's cache in one bottom-up sweep.
+  // Batch removal may have stripped ops from many ancestor chains, so re-derive every group's cache
+  // in one bottom-up sweep.
   deepRefreshDerivedTargets(model.componentGrid);
 };
 
 /**
- * Returns true if `op` is a multi-target unitary, multi-qubit
- * measurement, or a group — i.e. an op with more than one wire-leg,
- * with no single canonical position to attach a quantum-control
+ * Returns true if `op` is a multi-target unitary, multi-qubit measurement, or a group — i.e. an op
+ * with more than one wire-leg, with no single canonical position to attach a quantum-control
  * connector.
  *
- * Gates `addControl` and `removeControl`: the editor
- * refuses to create or destroy quantum controls on such ops. Groups
- * carry classical controls only; for multi-target ops it's a
- * rendering-rule limitation. Existing quantum controls in loaded
- * `.qsc` data still render and can be dragged (the `movingControl`
- * path permutes existing controls rather than adding one).
+ * Gates `addControl` and `removeControl`: the editor refuses to create or destroy quantum controls
+ * on such ops. Groups carry classical controls only; for multi-target ops it's a rendering-rule
+ * limitation. Existing quantum controls in loaded `.qsc` data still render and can be dragged (the
+ * `movingControl` path permutes existing controls rather than adding one).
  *
  * Mirrors the structural-shape half of `moveAsUnit`.
  */
@@ -612,22 +574,20 @@ const addControl = (
   op: Unitary,
   wireIndex: number,
 ): boolean => {
-  // Refuse on multi-target ops and groups by design (see
-  // `_isMultiTargetOrGroup`). Gating here covers every entry
-  // point uniformly.
+  // Refuse on multi-target ops and groups by design (see `_isMultiTargetOrGroup`). Gating here
+  // covers every entry point uniformly.
   if (_isMultiTargetOrGroup(op)) return false;
   if (!op.controls) {
     op.controls = [];
   }
-  // Match only PURE-QUANTUM controls. A classical-ref on the same
-  // wire is a different register identity and must not block adding
-  // a new quantum control.
+  // Match only PURE-QUANTUM controls. A classical-ref on the same wire is a different register
+  // identity and must not block adding a new quantum control.
   const existingControl = op.controls.find(
     (control) => control.qubit === wireIndex && control.result === undefined,
   );
   if (!existingControl) {
-    // Capture the op's rung and ancestor chain before mutating so
-    // the references survive any column splices.
+    // Capture the op's rung and ancestor chain before mutating so the references survive any column
+    // splices.
     const rungs = findOpRungAndAncestors(model, op);
     if (rungs == null) return false;
 
@@ -636,9 +596,8 @@ const addControl = (
     model.ensureQubitCount(wireIndex);
     model.qubitUseCounts[wireIndex]++;
 
-    // Adding a control outside the op's span widens it. Run the
-    // centralized post-widening cleanup so the op (and every ancestor
-    // that widens transitively) is checked against its siblings.
+    // Adding a control outside the op's span widens it. Run the centralized post-widening cleanup
+    // so the op (and every ancestor that widens transitively) is checked against its siblings.
     resolveSpanChange(rungs.opRung, rungs.ancestorChain);
     return true;
   }
@@ -655,21 +614,18 @@ const removeControl = (
   op: Unitary,
   wireIndex: number,
 ): boolean => {
-  // Symmetric to `addControl`: refuse on multi-target ops and
-  // groups by design. The `movingControl` drag path is
-  // permutation-only and doesn't reach here. See
-  // `_isMultiTargetOrGroup`.
+  // Symmetric to `addControl`: refuse on multi-target ops and groups by design. The `movingControl`
+  // drag path is permutation-only and doesn't reach here. See `_isMultiTargetOrGroup`.
   if (_isMultiTargetOrGroup(op)) return false;
   if (op.controls) {
-    // Match only PURE-QUANTUM controls; a classical-ref entry on the
-    // same wire is the group's conditional dependency, not a
-    // removable control dot.
+    // Match only PURE-QUANTUM controls; a classical-ref entry on the same wire is the group's
+    // conditional dependency, not a removable control dot.
     const controlIndex = op.controls.findIndex(
       (control) => control.qubit === wireIndex && control.result === undefined,
     );
     if (controlIndex !== -1) {
-      // Capture ancestors before mutating, for consistency with the
-      // other mutators (narrowing can't trigger column splices).
+      // Capture ancestors before mutating, for consistency with the other mutators (narrowing can't
+      // trigger column splices).
       const ancestorChain = findAncestorChainForOp(model, op);
 
       op.controls.splice(controlIndex, 1);
@@ -692,11 +648,10 @@ const removeControl = (
  *   - `isBetween: true`  — insert before `targetWire`.
  *   - `isBetween: false` — swap with `targetWire`.
  *
- * Updates qubit IDs and every register reference (including ops
- * nested in group `children` and the cached `.targets` on groups),
- * then refreshes every group's derived `.targets` and runs the
- * overlap resolver recursively (the remap can both widen and narrow
- * spans). No-op if `sourceWire === targetWire` or either is null.
+ * Updates qubit IDs and every register reference (including ops nested in group `children` and the
+ * cached `.targets` on groups), then refreshes every group's derived `.targets` and runs the
+ * overlap resolver recursively (the remap can both widen and narrow spans). No-op if `sourceWire
+ * === targetWire` or either is null.
  */
 const moveQubit = (
   model: CircuitModel,
@@ -732,10 +687,9 @@ const moveQubit = (
     q.id = idx;
   });
 
-  // Compute the wire-index remap once and apply it to every register
-  // reference in the tree — including ops nested in group children
-  // and each group's own cached `.targets` / `.results` (independent
-  // `Register` objects, not shared with descendants).
+  // Compute the wire-index remap once and apply it to every register reference in the tree —
+  // including ops nested in group children and each group's own cached `.targets` / `.results`
+  // (independent `Register` objects, not shared with descendants).
   const remapWire = (oldWire: number): number => {
     if (isBetween) {
       if (oldWire === sourceWire) {
@@ -780,39 +734,34 @@ const moveQubit = (
   };
   remapRefsInGrid(model.componentGrid);
 
-  // Group `.targets` caches were remapped in-place above, but that
-  // may have introduced duplicate refs or stale ordering. The deep
-  // refresh re-derives each group's `.targets` from its children
+  // Group `.targets` caches were remapped in-place above, but that may have introduced duplicate
+  // refs or stale ordering. The deep refresh re-derives each group's `.targets` from its children
   // bottom-up, the canonical source of truth.
   deepRefreshDerivedTargets(model.componentGrid);
 
-  // Resolve overlaps at every nesting level: widening a group's span
-  // via the remap can introduce collisions inside that group too.
+  // Resolve overlaps at every nesting level: widening a group's span via the remap can introduce
+  // collisions inside that group too.
   resolveOverlappingOperationsRecursive(model.componentGrid);
 
   model.removeTrailingUnusedQubits();
 };
 
 /**
- * Remove a qubit line at `qubitIdx`. Caller is responsible for asking
- * the user to confirm if the wire still has operations on it; this
- * function only does the data mutation.
+ * Remove a qubit line at `qubitIdx`. Caller is responsible for asking the user to confirm if the
+ * wire still has operations on it; this function only does the data mutation.
  *
- * Decrements all references on higher-numbered wires by 1 (since their
- * indices shift down) and renumbers qubit ids to match. Operations
- * that touched `qubitIdx` are **not** removed by this call — use
- * `removeQubitWithDependents` if you want the ops on the wire
- * stripped too.
+ * Decrements all references on higher-numbered wires by 1 (since their indices shift down) and
+ * renumbers qubit ids to match. Operations that touched `qubitIdx` are **not** removed by this call
+ * — use `removeQubitWithDependents` if you want the ops on the wire stripped too.
  */
 const removeQubit = (model: CircuitModel, qubitIdx: number): void => {
   model.qubits.splice(qubitIdx, 1);
   model.qubitUseCounts.splice(qubitIdx, 1);
   model.removeTrailingUnusedQubits();
 
-  // Update all references throughout the tree — including ops nested
-  // in groups and the eager `.targets` / `.results` caches on those
-  // groups. Walking recursively keeps child refs and cached refs in
-  // lockstep, so the uniform shift preserves cache coherence.
+  // Update all references throughout the tree — including ops nested in groups and the eager
+  // `.targets` / `.results` caches on those groups. Walking recursively keeps child refs and cached
+  // refs in lockstep, so the uniform shift preserves cache coherence.
   const shiftRefsInGrid = (grid: ComponentGrid): void => {
     for (const column of grid) {
       for (const op of column.components) {
@@ -832,13 +781,12 @@ const removeQubit = (model: CircuitModel, qubitIdx: number): void => {
 };
 
 /**
- * Remove a qubit line at `qubitIdx` together with every operation
- * that touches it. Counterpart to the measurement `*WithDependents`
- * actions: strips every op with a register on `qubitIdx`, then drops
- * the wire and renumbers the higher wires down.
+ * Remove a qubit line at `qubitIdx` together with every operation that touches it. Counterpart to
+ * the measurement `*WithDependents` actions: strips every op with a register on `qubitIdx`, then
+ * drops the wire and renumbers the higher wires down.
  *
- * The strip must run BEFORE `removeQubit`, which shifts higher wires
- * down by one and would otherwise invalidate `qubitIdx` mid-cascade.
+ * The strip must run BEFORE `removeQubit`, which shifts higher wires down by one and would
+ * otherwise invalidate `qubitIdx` mid-cascade.
  */
 const removeQubitWithDependents = (
   model: CircuitModel,

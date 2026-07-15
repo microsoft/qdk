@@ -15,10 +15,10 @@ import { CircuitGroup } from "./data/circuit.js";
  *   - `editor`: When provided, enables editing behaviors and requires:
  *       - `editCallback`: Called when the circuit is edited.
  *       - `runCallback` (optional): When provided, enables the Run button.
- *       - `computeStateVizColumnsForCircuitModel` (optional): When provided,
- *         delegates async state visualization computation to the host, which
- *         is necessary for large circuits and/or when using a Web Worker (e.g. in VS Code).
- *         When omitted, state visualization will be computed on the main thread.
+ *       - `computeStateVizColumnsForCircuitModel` (optional): When provided, delegates async state
+ *         visualization computation to the host, which is necessary for large circuits and/or when
+ *         using a Web Worker (e.g. in VS Code). When omitted, state visualization will be computed
+ *         on the main thread.
  */
 export const draw = (
   circuitGroup: CircuitGroup,
@@ -27,9 +27,8 @@ export const draw = (
 ): {
   userSetZoomLevel: (zoomLevel: number) => void;
   /**
-   * Replace the rendered circuit in place, preserving per-session
-   * view state (e.g. user expand/collapse choices). See
-   * [`Sqore.updateCircuit`](sqore.ts).
+   * Replace the rendered circuit in place, preserving per-session view state (e.g. user
+   * expand/collapse choices). See [`Sqore.updateCircuit`](sqore.ts).
    */
   updateCircuit: (circuitGroup: CircuitGroup) => void;
 } => {

@@ -20,13 +20,13 @@ import { createSvgElement, group, text } from "./formatUtils.js";
 import { mathChars } from "../../utils.js";
 
 /**
- * `formatInputs` takes in an array of Qubits and outputs the SVG string of formatted
- * qubit wires and a mapping from register IDs to register rendering data.
+ * `formatInputs` takes in an array of Qubits and outputs the SVG string of formatted qubit wires
+ * and a mapping from register IDs to register rendering data.
  *
  * @param qubits List of declared qubits.
  *
- * @returns returns the SVG string of formatted qubit wires, a mapping from registers
- *          to y coord and total SVG height.
+ * @returns returns the SVG string of formatted qubit wires, a mapping from registers to y coord and
+ *   total SVG height.
  */
 const formatInputs = (
   qubits: Qubit[],
@@ -125,17 +125,13 @@ const formatInputs = (
     //             ╎└╌╌╌╌╌┘╎
     //             └╌╌╌╌╌╌╌┘
 
-    // Reserve room above the first classical sub-wire for any
-    // classically-controlled group whose box top *or* box bottom
-    // sits in the gap between this qubit's wire and its first
-    // classical sub-wire. Two stacking rates apply:
-    //   - Top borders carry the group label and stack at
-    //     `groupTopPadding` per nested level.
-    //   - Bottom borders have no label and stack at
-    //     `groupBottomPadding` per nested level. They occur when a
-    //     group's `maxQubit` is a pure qubit ref that has classical
-    //     sub-wires; without the reservation the box bottom would
-    //     cross through them.
+    // Reserve room above the first classical sub-wire for any classically-controlled group whose
+    // box top *or* box bottom sits in the gap between this qubit's wire and its first classical
+    // sub-wire. Two stacking rates apply:
+    //   - Top borders carry the group label and stack at `groupTopPadding` per nested level.
+    //   - Bottom borders have no label and stack at `groupBottomPadding` per nested level. They
+    //     occur when a group's `maxQubit` is a pure qubit ref that has classical sub-wires; without
+    //     the reservation the box bottom would cross through them.
     currY +=
       heightAboveFirstClassical * groupTopPadding +
       bottomBordersAboveFirstClassical * groupBottomPadding;

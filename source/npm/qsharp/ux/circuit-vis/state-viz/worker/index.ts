@@ -1,8 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Worker-safe exports for state visualization.
-// Intentionally avoids importing UI modules (DOM/CSS).
+// Worker-safe exports for state visualization. Intentionally avoids importing UI modules (DOM/CSS).
 
 export {
   computeAmpMapForCircuit,

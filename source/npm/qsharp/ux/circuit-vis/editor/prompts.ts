@@ -1,9 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Home for the editor's prompt dialogs: the confirm-dialog and
-// text-input primitives, plus the delete/move confirmation flows
-// and the argument-collection flow that use them.
+// Home for the editor's prompt dialogs: the confirm-dialog and text-input primitives, plus the
+// delete/move confirmation flows and the argument-collection flow that use them.
 
 import {
   collectMeasurementConsumers,
@@ -22,11 +21,11 @@ import {
 } from "../angleExpression.js";
 
 /**
- * Confirm-dialog primitive used by destructive editor flows
- * (currently only "remove a qubit line that has operations attached").
+ * Confirm-dialog primitive used by destructive editor flows (currently only "remove a qubit line
+ * that has operations attached").
  *
- * Standalone so individual controllers can use it without depending
- * on the full `CircuitEvents` class.
+ * Standalone so individual controllers can use it without depending on the full `CircuitEvents`
+ * class.
  *
  * @param message - Text shown in the prompt body.
  * @param callback - Invoked with `true` on OK, `false` on Cancel.
@@ -70,9 +69,8 @@ export const createConfirmPrompt = (
     document.removeEventListener("keydown", handleGlobalKeyDown, true);
   });
 
-  // Handle Enter (commit) and Escape (cancel) globally while the
-  // prompt is open. Capture-phase so we don't fight any descendant
-  // handlers in the editor surface.
+  // Handle Enter (commit) and Escape (cancel) globally while the prompt is open. Capture-phase so
+  // we don't fight any descendant handlers in the editor surface.
   const handleGlobalKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -93,22 +91,21 @@ export const createConfirmPrompt = (
   overlay.appendChild(confirmContainer);
   document.body.appendChild(overlay);
 
-  // Drop focus from whatever was focused so Enter/Escape go through
-  // our document-level handler instead of any input that had it.
+  // Drop focus from whatever was focused so Enter/Escape go through our document-level handler
+  // instead of any input that had it.
   if (document.activeElement) {
     (document.activeElement as HTMLElement).blur();
   }
 };
 
 /**
- * Delete an operation. If the op is a measurement with downstream
- * classical consumers, prompt the user first; on confirm, the
- * measurement is removed along with every dependent op. The
+ * Delete an operation. If the op is a measurement with downstream classical consumers, prompt the
+ * user first; on confirm, the measurement is removed along with every dependent op. The
  * non-measurement / no-consumer paths pass straight through to
  * [`removeOperation`](../actions/circuitActions.ts).
  *
- * `renderFn` runs once on every path that mutates the model. On
- * cancel, nothing mutates and `renderFn` is NOT called.
+ * `renderFn` runs once on every path that mutates the model. On cancel, nothing mutates and
+ * `renderFn` is NOT called.
  */
 export const deleteOperationWithConfirmation = (
   model: CircuitModel,
@@ -144,19 +141,15 @@ export const deleteOperationWithConfirmation = (
 };
 
 /**
- * Move an operation. If the op is a measurement with downstream
- * classical consumers, prompt before committing: on confirm, the
- * move remaps the classical refs of consumers that stay after the
- * M's new column and cascade-deletes any that would end up
- * at-or-before it. Non-measurement / no-consumer paths pass straight
- * through to [`moveOperation`](../actions/circuitActions.ts).
+ * Move an operation. If the op is a measurement with downstream classical consumers, prompt before
+ * committing: on confirm, the move remaps the classical refs of consumers that stay after the M's
+ * new column and cascade-deletes any that would end up at-or-before it. Non-measurement /
+ * no-consumer paths pass straight through to [`moveOperation`](../actions/circuitActions.ts).
  *
- * `movingControl` MUST be threaded through unchanged. The drag
- * controller routes every non-clone drag through here, including
- * control-dot drags on ordinary unitaries; hardcoding `false` would
- * make `_moveY`'s single-leg branch rewrite the op onto the
- * control's wire (turning CNOT(target=q1, ctrl=q0) into a
- * self-controlled X on q0). The M-consumer path passes `false` to
+ * `movingControl` MUST be threaded through unchanged. The drag controller routes every non-clone
+ * drag through here, including control-dot drags on ordinary unitaries; hardcoding `false` would
+ * make `_moveY`'s single-leg branch rewrite the op onto the control's wire (turning CNOT(target=q1,
+ * ctrl=q0) into a self-controlled X on q0). The M-consumer path passes `false` to
  * `moveMeasurementWithDependents` since Ms have no `controls`.
  */
 export const moveOperationWithConfirmation = (
@@ -176,9 +169,9 @@ export const moveOperationWithConfirmation = (
       sourceLocation,
     );
     if (consumers.length > 0) {
-      // Partition consumers by whether the M's new column comes
-      // strictly before them. Runs in pre-move coordinates, which is
-      // sound since splicing doesn't change relative column ordering.
+      // Partition consumers by whether the M's new column comes strictly before them. Runs in
+      // pre-move coordinates, which is sound since splicing doesn't change relative column
+      // ordering.
       const targetLocParsed = Location.parse(targetLocation);
       const survivors: { op: Operation; location: string }[] = [];
       const invalidated: { op: Operation; location: string }[] = [];
@@ -224,9 +217,8 @@ export const moveOperationWithConfirmation = (
 };
 
 /**
- * Build the body text for the M-move confirmation prompt. Emits a
- * move-only, delete-only, or combined clause depending on which
- * consumer buckets are non-empty, pluralized per-clause.
+ * Build the body text for the M-move confirmation prompt. Emits a move-only, delete-only, or
+ * combined clause depending on which consumer buckets are non-empty, pluralized per-clause.
  */
 const _buildMoveMConsumerMessage = (
   survivors: number,
@@ -249,8 +241,8 @@ const _buildMoveMConsumerMessage = (
   if (survivors > 0) {
     return `Moving this measurement: ${willBeUpdated}. Continue?`;
   }
-  // invalidated > 0 (the caller only enters this branch when
-  // consumers.length > 0, so at least one bucket is non-empty).
+  // invalidated > 0 (the caller only enters this branch when consumers.length > 0, so at least one
+  // bucket is non-empty).
   return `Moving this measurement: ${willBeDeleted}. Continue?`;
 };
 

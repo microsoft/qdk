@@ -12,12 +12,11 @@ import { toRenderData } from "./standaloneRenderData.js";
 import { GateDictionary, toolboxGateDictionary } from "./toolboxGates.js";
 
 /**
- * Build the toolbox panel: a `<div class="toolbox-panel">` holding a
- * 2-column grid of gate icons plus an optional Run button.
+ * Build the toolbox panel: a `<div class="toolbox-panel">` holding a 2-column grid of gate icons
+ * plus an optional Run button.
  *
- * The Run button only renders when `runCallback` is provided — hosts
- * that can't run circuits omit it entirely. [shell.ts](shell.ts)
- * wraps the returned element in the outer `<div class="panel">`.
+ * The Run button only renders when `runCallback` is provided — hosts that can't run circuits omit
+ * it entirely. [shell.ts](shell.ts) wraps the returned element in the outer `<div class="panel">`.
  *
  * @param runCallback   Optional Run-button click handler.
  * @returns             HTML element for the toolbox.
@@ -50,8 +49,8 @@ const createToolboxElement = (runCallback?: () => void): HTMLElement => {
   svgElem.classList.add("toolbox-panel-svg");
   _childrenSvg(svgElem, gateElems);
 
-  // Append run button only when the host provided a click handler.
-  // Hosts that can't run circuits omit the callback and get no button.
+  // Append run button only when the host provided a click handler. Hosts that can't run circuits
+  // omit the callback and get no button.
   let totalSvgHeight: number;
   if (runCallback != null) {
     const runButtonGroup = _createRunButton(
@@ -77,8 +76,8 @@ const createToolboxElement = (runCallback?: () => void): HTMLElement => {
 };
 
 /**
- * Build the Run button. Created visible and pre-wired — callers only
- * get this far if they actually want a Run button.
+ * Build the Run button. Created visible and pre-wired — callers only get this far if they actually
+ * want a Run button.
  *
  * @param buttonY      Y coordinate for the top of the button.
  * @param onClick      Click handler.
@@ -123,9 +122,8 @@ const _createRunButton = (
 };
 
 /**
- * Build a single toolbox gate icon by routing the toolbox's prototype
- * `Operation` through the same gate formatter the main render path
- * uses, keeping toolbox icons in lockstep with dropped gates.
+ * Build a single toolbox gate icon by routing the toolbox's prototype `Operation` through the same
+ * gate formatter the main render path uses, keeping toolbox icons in lockstep with dropped gates.
  *
  * @param gateDictionary - The dictionary containing gate operations.
  * @param type - The toolbox key. Example: `"H"` or `"X"`.

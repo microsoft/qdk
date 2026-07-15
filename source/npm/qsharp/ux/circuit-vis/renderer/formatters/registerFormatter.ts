@@ -12,8 +12,8 @@ import { group, line } from "./formatUtils.js";
  *
  * @param registers    Map from register IDs to register render data.
  * @param allGates     All the gates in the circuit.
- * @param endX         End x-coordinate for the whole circuit.
- *                     All wires will stretch to this x-coordinate.
+ * @param endX         End x-coordinate for the whole circuit. All wires will stretch to this
+ *                     x-coordinate.
  *
  * @returns SVG representation of register wires.
  */
@@ -41,8 +41,8 @@ const formatRegisters = (
       const ys: number[] = [];
       for (const gate of allGates.flat()) {
         if (gate.type === GateType.Group) {
-          // Don't render classical wires for a group that is expanded - the wires
-          // will be coming out of the measurement operations *inside* the group.
+          // Don't render classical wires for a group that is expanded - the wires will be coming
+          // out of the measurement operations *inside* the group.
           if (gate.isExpanded) continue;
         }
 
@@ -51,11 +51,11 @@ const formatRegisters = (
             continue;
           }
           ys.push(y);
-          // Found the gate that this classical wire originates from. Draw
-          // it starting at this gates x-coordinate.
+          // Found the gate that this classical wire originates from. Draw it starting at this gates
+          // x-coordinate.
 
-          // If this is a measurement gate, there is a vertical line
-          // going down from the gate to the wire
+          // If this is a measurement gate, there is a vertical line going down from the gate to the
+          // wire
           const verticalY =
             gate.type === GateType.Measure ? gate.controlsY[0] : undefined;
 
@@ -74,8 +74,8 @@ const formatRegisters = (
  * @param startX Start x coord.
  * @param endX   End x coord.
  * @param wireY  y coord of wire.
- * @param gateY  y coord of the measurement gate that this wire originates from.
- *               If undefined, no vertical line is drawn.
+ * @param gateY  y coord of the measurement gate that this wire originates from. If undefined, no
+ *               vertical line is drawn.
  *
  * @returns SVG representation of the given classical register.
  */

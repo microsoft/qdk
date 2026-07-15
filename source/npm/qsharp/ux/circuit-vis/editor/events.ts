@@ -34,13 +34,11 @@ const enableEvents = (
   }
   events = new CircuitEvents(container, sqore, layoutMap, useRefresh);
 
-  // Lets other modules avoid reading a stale model during a
-  // re-render where the SVG was replaced but enableEvents hasn't
-  // run yet.
+  // Lets other modules avoid reading a stale model during a re-render where the SVG was replaced
+  // but enableEvents hasn't run yet.
   currentCircuitSvg = container.querySelector("svg.qviz") as SVGElement | null;
 
-  // Signal that the model is ready so state-viz can re-render
-  // without polling.
+  // Signal that the model is ready so state-viz can re-render without polling.
   try {
     const CustomEventCtor = (globalThis as any).CustomEvent as
       | (new (type: string, init?: CustomEventInit) => CustomEvent)
@@ -58,18 +56,16 @@ const enableEvents = (
 /**
  * `CircuitEvents` — thin coordinator for the editor's View layer.
  *
- * Pure wiring: builds the shared `InteractionContext` and
- * instantiates one focused controller per slice of pointer /
- * keyboard interaction. Controllers own their listeners and
- * lifecycle; `dispose()` chains through to them. The event logic
- * lives in `controllers/`.
+ * Pure wiring: builds the shared `InteractionContext` and instantiates one focused controller per
+ * slice of pointer / keyboard interaction. Controllers own their listeners and lifecycle;
+ * `dispose()` chains through to them. The event logic lives in `controllers/`.
  *
  * Compatibility shims kept on this class:
  *
- * - `componentGrid` / `qubits` / `qubitUseCounts` getters delegate
- *   to `model` for `getCurrentCircuitModel` and `contextMenu.ts`.
- * - `_startAddingControl` / `_startRemovingControl` delegate to the
- *   drag controller so the context menu can invoke them by name.
+ * - `componentGrid` / `qubits` / `qubitUseCounts` getters delegate to `model` for
+ *   `getCurrentCircuitModel` and `contextMenu.ts`.
+ * - `_startAddingControl` / `_startRemovingControl` delegate to the drag controller so the context
+ *   menu can invoke them by name.
  */
 class CircuitEvents {
   /** The Data layer. See [circuitModel.ts](../data/circuitModel.ts). */
@@ -91,11 +87,9 @@ class CircuitEvents {
 
   private readonly keyboard: KeyboardController;
   private readonly drag: DragController;
-  // Held only because DragController injects it for the
-  // qubit-drag-out-delete path.
+  // Held only because DragController injects it for the qubit-drag-out-delete path.
   private readonly qubit: QubitController;
-  // No public methods; exists to install host-element listeners on
-  // construction.
+  // No public methods; exists to install host-element listeners on construction.
   private readonly selection: SelectionController;
 
   constructor(
@@ -109,8 +103,8 @@ class CircuitEvents {
     this.model.removeTrailingUnusedQubits();
 
     const circuitSvg = container.querySelector("svg.qviz") as SVGElement;
-    // The editor overlay (and its dropzone + ghost-qubit sub-layers)
-    // is built by createDropzones before enableEvents runs.
+    // The editor overlay (and its dropzone + ghost-qubit sub-layers) is built by createDropzones
+    // before enableEvents runs.
     const overlayLayer = container.querySelector(
       ".editor-overlay",
     ) as SVGGElement;
@@ -125,9 +119,8 @@ class CircuitEvents {
       ghostQubitLayer.style.display = "block";
     }
 
-    // Build the shared context once and hand it to every controller.
-    // `wireData` is read from the DOM since the ghost wire's y is only
-    // available there at this point.
+    // Build the shared context once and hand it to every controller. `wireData` is read from the
+    // DOM since the ghost wire's y is only available there at this point.
     const ctx: InteractionContext = {
       model: this.model,
       interaction: this.interaction,
@@ -155,16 +148,16 @@ class CircuitEvents {
   }
 
   /**
-   * Begin the wire-pick add-control flow. Delegates to the drag
-   * controller; kept here because `contextMenu.ts` invokes it by name.
+   * Begin the wire-pick add-control flow. Delegates to the drag controller; kept here because
+   * `contextMenu.ts` invokes it by name.
    */
   _startAddingControl(selectedOperation: Unitary) {
     this.drag.startAddingControl(selectedOperation);
   }
 
   /**
-   * Begin the wire-pick remove-control flow. Delegates to the drag
-   * controller; kept here because `contextMenu.ts` invokes it by name.
+   * Begin the wire-pick remove-control flow. Delegates to the drag controller; kept here because
+   * `contextMenu.ts` invokes it by name.
    */
   _startRemovingControl(selectedOperation: Unitary) {
     this.drag.startRemovingControl(selectedOperation);
@@ -173,9 +166,8 @@ class CircuitEvents {
 
 export { enableEvents, CircuitEvents };
 
-// Returns the current circuit model, but only if it matches the
-// currently-rendered SVG — prevents state-viz from computing against
-// a previous render's model mid-re-render.
+// Returns the current circuit model, but only if it matches the currently-rendered SVG — prevents
+// state-viz from computing against a previous render's model mid-re-render.
 export function getCurrentCircuitModel(
   expectedSvg?: SVGElement | null,
 ): Circuit | null {

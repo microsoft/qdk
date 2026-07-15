@@ -4,10 +4,9 @@
 import { Ket, Measurement, Operation, Unitary } from "../data/circuit.js";
 
 /**
- * Maps a toolbox key (e.g. `"RX"`, `"Reset"`) to the prototype
- * `Operation` that gets dropped into the circuit when the user
- * drags that toolbox item. Keys are also used as `data-type`
- * attributes on the rendered toolbox SVG nodes.
+ * Maps a toolbox key (e.g. `"RX"`, `"Reset"`) to the prototype `Operation` that gets dropped into
+ * the circuit when the user drags that toolbox item. Keys are also used as `data-type` attributes
+ * on the rendered toolbox SVG nodes.
  */
 interface GateDictionary {
   [index: string]: Operation;
@@ -33,13 +32,12 @@ const _makeKet = (gate: string): Ket => ({
 });
 
 /**
- * The default toolbox gate set. Order here is the order the gates
- * appear in the toolbox grid (left-to-right, top-to-bottom, 2 columns).
+ * The default toolbox gate set. Order here is the order the gates appear in the toolbox grid
+ * (left-to-right, top-to-bottom, 2 columns).
  *
- * To add a new toolbox gate: pick a stable key (used as `data-type`
- * on the SVG node and as the lookup key in `dragController.ts`),
- * map it to a prototype `Operation`, and both the toolbox view and
- * the drag handlers will pick it up automatically.
+ * To add a new toolbox gate: pick a stable key (used as `data-type` on the SVG node and as the
+ * lookup key in `dragController.ts`), map it to a prototype `Operation`, and both the toolbox view
+ * and the drag handlers will pick it up automatically.
  */
 const toolboxGateDictionary: GateDictionary = {
   RX: _makeUnitary("Rx"),

@@ -67,11 +67,10 @@ const formatGate = (renderData: GateRenderData): SVGElement => {
       const elems: SVGElement[] = [
         _unitary(label, bodyX, targetsY as number[][], bodyWidth, displayArgs),
       ];
-      // A classically-controlled Unitary can carry quantum controls
-      // mixed in alongside its classical refs. Render those as
-      // standard control dots+connectors on the column center,
-      // attached to the unitary body box's nearest edge — not as
-      // classical circles (that path is `_classicalControls`).
+      // A classically-controlled Unitary can carry quantum controls mixed in alongside its
+      // classical refs. Render those as standard control dots+connectors on the column center,
+      // attached to the unitary body box's nearest edge — not as classical circles (that path is
+      // `_classicalControls`).
       const quantumControlsY = _getQuantumControlYs(renderData);
       if (quantumControlsY.length > 0) {
         const flatTargets = (targetsY as number[][]).flat();
@@ -142,9 +141,8 @@ const _createGate = (
       renderData.link.title,
     );
 
-    // Add the gate elements as children of the link.
-    // If this operation is classically controlled, keep the control circles
-    // outside the link so they remain independently interactive.
+    // Add the gate elements as children of the link. If this operation is classically controlled,
+    // keep the control circles outside the link so they remain independently interactive.
     for (const e of svgElems) {
       linkElem.appendChild(e);
     }
@@ -154,8 +152,8 @@ const _createGate = (
     svgElems = classicalControlElems.concat(svgElems);
   }
 
-  // Zoom button comes last so it's on top of the <a> element if both are present
-  // This allows clicking the zoom button without triggering the link
+  // Zoom button comes last so it's on top of the <a> element if both are present This allows
+  // clicking the zoom button without triggering the link
   const zoomBtn: SVGElement | null = _zoomButton(renderData);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
 
@@ -183,10 +181,9 @@ const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
     _gateBoundingBox(renderData);
   const expanded = renderData.isExpanded;
 
-  // If this operation has classical controls, the overall gate bounding box includes
-  // extra space on the left for the control circles. The expand/collapse button should
-  // align with the left edge of the gate *body* (dashed box / unitary box), not the
-  // outermost bounding box.
+  // If this operation has classical controls, the overall gate bounding box includes extra space on
+  // the left for the control circles. The expand/collapse button should align with the left edge of
+  // the gate *body* (dashed box / unitary box), not the outermost bounding box.
   const hasClassicalControls =
     renderData.classicalControlIds != null && renderData.controlsY.length > 0;
 
@@ -215,8 +212,7 @@ const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
 };
 
 /**
- * Calculate the bounding box for a given operation, which
- * may itself be a group of operations.
+ * Calculate the bounding box for a given operation, which may itself be a group of operations.
  *
  * @param renderData Operation render data.
  *
@@ -236,9 +232,9 @@ const _gateBoundingBox = (
 
   const x = centerX - width / 2;
 
-  // If we are rendering a classically controlled group, we want the bounding box to go around
-  // the targets AND controls. This is because the classical control circle is rendered next
-  // to the dashed box, and needs to touch the box, like so:
+  // If we are rendering a classically controlled group, we want the bounding box to go around the
+  // targets AND controls. This is because the classical control circle is rendered next to the
+  // dashed box, and needs to touch the box, like so:
   //          ┌╌╌╌╌╌┐
   //          ╎ ┌─┐ ╎
   // ─────────┼─│X│─┼─
@@ -254,8 +250,8 @@ const _gateBoundingBox = (
   const maxY = Math.max(...ys);
   const minY = Math.min(...ys);
 
-  // Here, we want to expand the bounding box to include the whole dashed
-  // box around the group, which will be sized according to the nested depth.
+  // Here, we want to expand the bounding box to include the whole dashed box around the group,
+  // which will be sized according to the nested depth.
   //
   // Example of a grouped operation:
   //
@@ -336,9 +332,9 @@ function _style_gate_text(gate: SVGTextElement) {
   // In general, use the regular math font
   gate.classList.add("qs-maintext");
 
-  // Wrap any latin or greek letters in tspan with KaTeX_Math font
-  // Style the entire Greek + Coptic block (https://unicodeplus.com/block/0370)
-  // Note this deliberately leaves ASCII digits [0-9] non-italic
+  // Wrap any latin or greek letters in tspan with KaTeX_Math font Style the entire Greek + Coptic
+  // block (https://unicodeplus.com/block/0370) Note this deliberately leaves ASCII digits [0-9]
+  // non-italic
   const italicChars = /[a-zA-Z\u{0370}-\u{03ff}]+/gu;
 
   label = label.replace(italicChars, `<tspan class='qs-mathtext'>$&</tspan>`);
@@ -647,20 +643,17 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   const { children, label, displayArgs, x, targetsY, width } = renderData;
   const expanded = renderData.isExpanded;
 
-  // Groups support classical controls only (rendered via
-  // `_classicalControls` in `_createGate`). Quantum controls on
-  // groups are rejected at the authoring layer (see
-  // `_isMultiTargetOrGroup` in `circuitActions.ts`); if such an op
-  // arrives from an external source we let it fall through
-  // unrendered rather than carry special-case logic for an
-  // unsupported scenario.
+  // Groups support classical controls only (rendered via `_classicalControls` in `_createGate`).
+  // Quantum controls on groups are rejected at the authoring layer (see `_isMultiTargetOrGroup` in
+  // `circuitActions.ts`); if such an op arrives from an external source we let it fall through
+  // unrendered rather than carry special-case logic for an unsupported scenario.
   const hasClassicalControls = renderData.classicalControlIds != null;
 
-  // Collapsed composite: render as a single summary gate (unitary-style), but keep
-  // the GateType as Group so the UI can still offer an expand button.
+  // Collapsed composite: render as a single summary gate (unitary-style), but keep the GateType as
+  // Group so the UI can still offer an expand button.
   if (!expanded) {
-    // `targetsY` for groups is typically a flat `number[]` (not split into groups).
-    // `_unitary` expects a `number[][]` where each entry is a contiguous set of wires.
+    // `targetsY` for groups is typically a flat `number[]` (not split into groups). `_unitary`
+    // expects a `number[][]` where each entry is a contiguous set of wires.
     const normalizedTargetsY: number[][] = Array.isArray(targetsY[0])
       ? (targetsY as number[][])
       : [targetsY as number[]];
@@ -695,13 +688,10 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
     boxWidth -= controlCircleOffset;
   }
 
-  // The dashed box surrounds the CHILDREN + any classical control
-  // wires (the classical refs need to be inside / touching the box
-  // so `_classicalControls` can attach its dashed connector). Both
-  // are already merged into `targetsY` by `_opToRenderData`'s
-  // classical-control patch, so deriving box geometry from
-  // `targetsY` alone gives the right span for pure-quantum and
-  // mixed-classical cases.
+  // The dashed box surrounds the CHILDREN + any classical control wires (the classical refs need to
+  // be inside / touching the box so `_classicalControls` can attach its dashed connector). Both are
+  // already merged into `targetsY` by `_opToRenderData`'s classical-control patch, so deriving box
+  // geometry from `targetsY` alone gives the right span for pure-quantum and mixed-classical cases.
   const flatTargets = (targetsY as (number | number[])[]).flat();
   const minTargetY = Math.min(...flatTargets);
   const maxTargetY = Math.max(...flatTargets);
@@ -745,12 +735,10 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
 };
 
 /**
- * Pick out the y-coords of QUANTUM controls from `controlsY`,
- * filtering out classical-ref entries. Classical refs are marked by a
- * non-undefined entry in the parallel `classicalControlIds` array
- * (numeric id, or `null` when the id couldn't be resolved). When
- * `classicalControlIds` is absent, the op has no classical refs and
- * every control in `controlsY` is quantum.
+ * Pick out the y-coords of QUANTUM controls from `controlsY`, filtering out classical-ref entries.
+ * Classical refs are marked by a non-undefined entry in the parallel `classicalControlIds` array
+ * (numeric id, or `null` when the id couldn't be resolved). When `classicalControlIds` is absent,
+ * the op has no classical refs and every control in `controlsY` is quantum.
  */
 const _getQuantumControlYs = (renderData: GateRenderData): number[] => {
   const { controlsY, classicalControlIds } = renderData;
@@ -759,20 +747,17 @@ const _getQuantumControlYs = (renderData: GateRenderData): number[] => {
 };
 
 /**
- * Emit control dots and connector lines for each quantum control on a
- * single-target unitary body that also carries classical refs (the
- * mixed-control case in `formatGate`'s `GateType.Unitary` branch).
- * The dot sits on the control wire at the body's center x; the
- * connector runs from the dot to the nearest body edge (top edge if
- * the control is above the body, bottom if below). A control wire
- * inside the body's y range gets just the dot with no connector.
+ * Emit control dots and connector lines for each quantum control on a single-target unitary body
+ * that also carries classical refs (the mixed-control case in `formatGate`'s `GateType.Unitary`
+ * branch). The dot sits on the control wire at the body's center x; the connector runs from the dot
+ * to the nearest body edge (top edge if the control is above the body, bottom if below). A control
+ * wire inside the body's y range gets just the dot with no connector.
  *
- * Centerline x matches what `_controlledGate` uses for normal
- * `ControlledUnitary` gates so dots line up consistently.
+ * Centerline x matches what `_controlledGate` uses for normal `ControlledUnitary` gates so dots
+ * line up consistently.
  *
- * Groups (ops with `children`) do NOT use this path — quantum controls
- * on groups are rejected by the authoring layer (see
- * `_isMultiTargetOrGroup` in `circuitActions.ts`).
+ * Groups (ops with `children`) do NOT use this path — quantum controls on groups are rejected by
+ * the authoring layer (see `_isMultiTargetOrGroup` in `circuitActions.ts`).
  */
 const _renderQuantumGroupControls = (
   controlsY: number[],
@@ -792,8 +777,8 @@ const _renderQuantumGroupControls = (
       ln.style.pointerEvents = "none";
       elems.push(ln);
     }
-    // y inside [boxYTop, boxYBottom]: no extra connector — the wire
-    // already crosses the box, so the dot reads as attached.
+    // y inside [boxYTop, boxYBottom]: no extra connector — the wire already crosses the box, so the
+    // dot reads as attached.
   }
   return elems;
 };
@@ -806,9 +791,8 @@ const _classicalControls = (
   const elems: SVGElement[] = [];
 
   for (let i = 0; i < controlsY.length; i++) {
-    // `undefined` marks a QUANTUM control entry (a mix of quantum +
-    // classical refs on the same op). Those render via the standard
-    // control-dot path elsewhere — skip here so we don't draw a stray
+    // `undefined` marks a QUANTUM control entry (a mix of quantum + classical refs on the same op).
+    // Those render via the standard control-dot path elsewhere — skip here so we don't draw a stray
     // classical circle on a qubit wire.
     const idEntry = classicalControlIds?.[i];
     if (idEntry === undefined) continue;
@@ -918,9 +902,8 @@ function _labelText(label: string, x: number, y: number): SVGTextElement {
 export {
   formatGates,
   formatGate,
-  // Internal helpers exposed for direct unit testing. The leading
-  // underscore signals "test-only export"; matches the
-  // `_isMultiTargetOrGroup` convention in `actions/circuitActions.ts`.
+  // Internal helpers exposed for direct unit testing. The leading underscore signals "test-only
+  // export"; matches the `_isMultiTargetOrGroup` convention in `actions/circuitActions.ts`.
   _createGate,
   _gateBoundingBox,
   _zoomButton,

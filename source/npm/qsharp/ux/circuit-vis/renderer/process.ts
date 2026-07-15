@@ -17,15 +17,13 @@ import { Register, RegisterMap } from "../data/register.js";
 import { getMinGateWidth } from "../utils.js";
 
 /**
- * Takes in a component grid and maps the operations to `GateRenderData` objects which
- * contains information for formatting the corresponding SVG.
+ * Takes in a component grid and maps the operations to `GateRenderData` objects which contains
+ * information for formatting the corresponding SVG.
  *
- * Also returns layout info for this scope (column x-offsets and
- * widths) and a map of all *child* scopes encountered while recursing
- * into expanded groups, keyed by the parent op's location string. The
- * caller decides whether `localScope` merges into a wider `LayoutMap`
- * under `""` (top level) or under a parent op's location after
- * shifting by that op's `offset` (nested).
+ * Also returns layout info for this scope (column x-offsets and widths) and a map of all *child*
+ * scopes encountered while recursing into expanded groups, keyed by the parent op's location
+ * string. The caller decides whether `localScope` merges into a wider `LayoutMap` under `""` (top
+ * level) or under a parent op's location after shifting by that op's `offset` (nested).
  *
  * @param componentGrid Grid of circuit components.
  * @param registers  Mapping from qubit IDs to register render data.
@@ -33,9 +31,8 @@ import { getMinGateWidth } from "../utils.js";
  * @param bottomY y-coordinate of the bottommost register involved in the operation.
  * @param renderLocations Optional function to map source locations to link hrefs and titles.
  *
- * @returns An object containing `renderDataArray` (2D Array of GateRenderData objects),
- *          `svgWidth` (width of the entire SVG), and layout info
- *          (`localScope`, `childScopes`) for the LayoutMap.
+ * @returns An object containing `renderDataArray` (2D Array of GateRenderData objects), `svgWidth`
+ *   (width of the entire SVG), and layout info (`localScope`, `childScopes`) for the LayoutMap.
  */
 const processOperations = (
   componentGrid: ComponentGrid,
@@ -49,16 +46,15 @@ const processOperations = (
   maxTopPadding: number;
   maxBottomPadding: number;
   /**
-   * The local layout scope for this `processOperations` call.
-   * Coordinates are anchored at `startX` — absolute for the top-level
-   * call, and shifted by the caller's `offset` for nested calls (see
+   * The local layout scope for this `processOperations` call. Coordinates are anchored at `startX`
+   * — absolute for the top-level call, and shifted by the caller's `offset` for nested calls (see
    * `_fillRenderDataX`'s `GateType.Group` branch).
    */
   localScope: LayoutScope;
   /**
-   * Already-absolute scopes for any expanded groups encountered during
-   * this call (and recursively beneath them). Keyed by the parent op's
-   * `dataAttributes["location"]`. Does NOT include `localScope` itself.
+   * Already-absolute scopes for any expanded groups encountered during this call (and recursively
+   * beneath them). Keyed by the parent op's `dataAttributes["location"]`. Does NOT include
+   * `localScope` itself.
    */
   childScopes: Map<string, LayoutScope>;
 } => {
@@ -106,12 +102,10 @@ const processOperations = (
             break;
         }
 
-        // For ops with own classical controls, include those control
-        // wires in the body-geometry input. `_classicalControls` draws
-        // a short L-connector from each control circle to the body
-        // box; for that connector to land on the box (rather than in
-        // empty space below the body), the body must extend down to
-        // include the classical control wire's y.
+        // For ops with own classical controls, include those control wires in the body-geometry
+        // input. `_classicalControls` draws a short L-connector from each control circle to the
+        // body box; for that connector to land on the box (rather than in empty space below the
+        // body), the body must extend down to include the classical control wire's y.
         if (op.kind === "unitary" && op.controls) {
           const ownClassicalControls = op.controls.filter(
             (r) => r.result != null,
@@ -146,9 +140,9 @@ const processOperations = (
           ].includes(renderData.type) ||
             isCollapsedGroup)
         ) {
-          // Split multi-wire gate bodies into segments if there is a classical
-          // register wire between them. This prevents classical wires from
-          // visually intersecting/entering gate bodies.
+          // Split multi-wire gate bodies into segments if there is a classical register wire
+          // between them. This prevents classical wires from visually intersecting/entering gate
+          // bodies.
 
           // Get y coordinates of classical registers in the same column as this operation
           const classicalRegY: number[] = classicalRegs
@@ -187,8 +181,8 @@ const processOperations = (
       }),
   );
 
-  // Filter out invalid gates and remove empty columns.
-  // Keep column widths in sync with the filtered columns.
+  // Filter out invalid gates and remove empty columns. Keep column widths in sync with the filtered
+  // columns.
   const filteredColumns = renderDataArray
     .map((col, colIndex) => ({
       colIndex,
@@ -202,10 +196,9 @@ const processOperations = (
     ({ colIndex }) => columnsWidths[colIndex],
   );
 
-  // Fill in x coord of each gate. `_fillRenderDataX` also returns the
-  // local column x-offsets it computed, plus the merged absolute child
-  // scopes harvested from any expanded groups in this grid (their
-  // `_childLayout` field, populated by `_processChildren`).
+  // Fill in x coord of each gate. `_fillRenderDataX` also returns the local column x-offsets it
+  // computed, plus the merged absolute child scopes harvested from any expanded groups in this grid
+  // (their `_childLayout` field, populated by `_processChildren`).
   const { endX, colStartX, childScopes } = _fillRenderDataX(
     filteredArray,
     filteredColumnWidths,
@@ -255,8 +248,8 @@ const _getClassicalRegStarts = (
 };
 
 /**
- * Recursively collects classical control registers from source circuit children.
- * Used inside _opToRenderData for collapsed groups whose children have not been rendered.
+ * Recursively collects classical control registers from source circuit children. Used inside
+ * _opToRenderData for collapsed groups whose children have not been rendered.
  */
 function _collectClassicalControlsFromSourceChildren(
   children: ComponentGrid,
@@ -278,8 +271,8 @@ function _collectClassicalControlsFromSourceChildren(
 }
 
 /**
- * Maps operation to render data (e.g. gate type, position, dimensions, text)
- * required to render the image.
+ * Maps operation to render data (e.g. gate type, position, dimensions, text) required to render the
+ * image.
  *
  * @param op        Operation to be mapped into render data.
  * @param registers Array of registers.
@@ -328,9 +321,8 @@ const _opToRenderData = (
 
   const { gate, args, children, dataAttributes } = op;
 
-  // Classically-controlled operations are encoded as operations whose `controls` are
-  // classical registers (i.e. `Register.result` is set), with IDs provided via
-  // `metadata.controlResultIds`.
+  // Classically-controlled operations are encoded as operations whose `controls` are classical
+  // registers (i.e. `Register.result` is set), with IDs provided via `metadata.controlResultIds`.
   const hasClassicalControls =
     op.kind === "unitary" &&
     ((controls?.some((reg) => reg.result != null) ?? false) ||
@@ -347,14 +339,12 @@ const _opToRenderData = (
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
-  // For classically-controlled ops, include the classical-control
-  // sub-wires in `targetsY` so the wire span this op claims for layout
-  // matches the bounding-box span drawn by `_gateBoundingBox` (which
-  // merges `targetsY` with `controlsY` for its min/max). Without it, a
-  // parent group's `_processChildren` `topY === minTargetY` check
-  // fails for nested classically-controlled children and their
-  // `topPadding` doesn't propagate up, causing stacked nested
-  // conditionals to render box tops and labels at the same y.
+  // For classically-controlled ops, include the classical-control sub-wires in `targetsY` so the
+  // wire span this op claims for layout matches the bounding-box span drawn by `_gateBoundingBox`
+  // (which merges `targetsY` with `controlsY` for its min/max). Without it, a parent group's
+  // `_processChildren` `topY === minTargetY` check fails for nested classically-controlled children
+  // and their `topPadding` doesn't propagate up, causing stacked nested conditionals to render box
+  // tops and labels at the same y.
   if (op.kind === "unitary" && op.controls) {
     const ownClassicalControlYs = op.controls
       .filter((r) => r.result != null)
@@ -368,24 +358,20 @@ const _opToRenderData = (
   }
 
   if (hasClassicalControls) {
-    // Classically-controlled operations.
-    // These are treated as composite/group operations when they have children.
-    // Expanded vs. collapsed rendering is controlled via the `expanded` state.
+    // Classically-controlled operations. These are treated as composite/group operations when they
+    // have children. Expanded vs. collapsed rendering is controlled via the `expanded` state.
 
     renderData.label = gate;
 
-    // Fill in the ID to be displayed in each control wire's circle.
-    // Prefer the global id from `metadata.controlResultIds` (the
-    // trace-builder populates these so two M's on different qubits
-    // get distinct labels like `c_0` and `c_1`). When the metadata
-    // is missing (hand-authored `.qsc` files, programmatically
-    // built circuits), fall back to the control register's local
-    // `result` index.
+    // Fill in the ID to be displayed in each control wire's circle. Prefer the global id from
+    // `metadata.controlResultIds` (the trace-builder populates these so two M's on different qubits
+    // get distinct labels like `c_0` and `c_1`). When the metadata is missing (hand-authored `.qsc`
+    // files, programmatically built circuits), fall back to the control register's local `result`
+    // index.
     //
-    // Quantum controls mixed in alongside classical refs get
-    // `undefined` so the formatter routes them through the standard
-    // control-dot path instead of drawing classical circles. `null`
-    // is reserved for classical refs whose id couldn't be resolved.
+    // Quantum controls mixed in alongside classical refs get `undefined` so the formatter routes
+    // them through the standard control-dot path instead of drawing classical circles. `null` is
+    // reserved for classical refs whose id couldn't be resolved.
     renderData.classicalControlIds =
       controls?.map((reg) => {
         if (reg.result == null) return undefined;
@@ -400,8 +386,8 @@ const _opToRenderData = (
       if (isExpanded) {
         _processChildren(renderData, children!, registers, renderLocations);
 
-        // Add additional width for classical control circle.
-        // (The group width comes from children layout; it doesn't account for controls.)
+        // Add additional width for classical control circle. (The group width comes from children
+        // layout; it doesn't account for controls.)
         renderData.width += controlCircleOffset;
       }
     } else {
@@ -409,9 +395,8 @@ const _opToRenderData = (
       renderData.type = GateType.Unitary;
     }
   } else if (hasChildren) {
-    // Composite/grouped operations.
-    // Always represented as `GateType.Group` so the UI can determine expandability
-    // solely from gate type.
+    // Composite/grouped operations. Always represented as `GateType.Group` so the UI can determine
+    // expandability solely from gate type.
 
     renderData.type = GateType.Group;
     renderData.label = gate;
@@ -438,9 +423,9 @@ const _opToRenderData = (
     renderData.label = gate;
   }
 
-  // Collect classical control registers for this op and all descendants.
-  // For expanded groups, aggregate from already-rendered children to avoid re-walking source data.
-  // For collapsed groups with children, walk source data directly.
+  // Collect classical control registers for this op and all descendants. For expanded groups,
+  // aggregate from already-rendered children to avoid re-walking source data. For collapsed groups
+  // with children, walk source data directly.
   {
     const ownControls =
       op.kind === "unitary"
@@ -467,13 +452,12 @@ const _opToRenderData = (
   // If adjoint, add ' to the end of gate label
   if (isAdjoint && renderData.label.length > 0) renderData.label += "'";
 
-  // If gate has extra arguments, display them
-  // For now, we only display the first argument
+  // If gate has extra arguments, display them For now, we only display the first argument
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
-  // Minimum width is calculated based on the label and args.
-  // If this is a collapsed composite (GateType.Group with no children render data),
-  // its width should be based on the summary gate rather than the full expanded layout.
+  // Minimum width is calculated based on the label and args. If this is a collapsed composite
+  // (GateType.Group with no children render data), its width should be based on the summary gate
+  // rather than the full expanded layout.
   const minWidth = getMinGateWidth(renderData);
 
   const isCollapsedComposite =
@@ -557,8 +541,8 @@ const _splitTargetsY = (
   const qIdPosition: { [qId: number]: number } = {};
   orderedQIds.forEach((qId, i) => (qIdPosition[qId] = i));
 
-  // Sort targets by ascending y: qubit position, then qubit-only
-  // refs before their classical results, then by `result` index.
+  // Sort targets by ascending y: qubit position, then qubit-only refs before their classical
+  // results, then by `result` index.
   targets = targets.slice();
   targets.sort((a, b) => {
     const posDiff: number = qIdPosition[a.qubit] - qIdPosition[b.qubit];
@@ -571,12 +555,10 @@ const _splitTargetsY = (
   classicalRegY = classicalRegY.slice();
   classicalRegY.sort((a, b) => a - b);
 
-  // Qubit positions whose QUANTUM wire is itself a target — i.e.
-  // a `{qubit: Q}` entry with `result == null`. The body legitimately
-  // covers these wires; any other qubit position whose wire falls
-  // strictly between two consecutive target Ys forces a split (rule 4
-  // below). Built from the original targets list since membership is
-  // order-independent.
+  // Qubit positions whose QUANTUM wire is itself a target — i.e. a `{qubit: Q}` entry with `result
+  // == null`. The body legitimately covers these wires; any other qubit position whose wire falls
+  // strictly between two consecutive target Ys forces a split (rule 4 below). Built from the
+  // original targets list since membership is order-independent.
   const quantumTargetPositions = new Set<number>();
   for (const t of targets) {
     if (t.result == null) {
@@ -591,15 +573,12 @@ const _splitTargetsY = (
     const y = _getRegY(target, registers);
     const pos = qIdPosition[target.qubit];
 
-    // A target on a classical sub-wire (`{qubit: Q, result: N}`)
-    // sits BELOW its parent qubit's quantum wire, so moving from a
-    // target at position P to a classical sub-wire at position P+1
-    // visually crosses qubit P+1's quantum wire. If that wire isn't
-    // itself a quantum target, split so it passes through the gap.
-    // Generalized: split if any quantum-wire position strictly
-    // between `prevPos` and `pos` (inclusive of `pos` when
-    // `target.result != null`) isn't a quantum target. This subsumes
-    // rule 2, but rule 2's explicit check is kept above for clarity.
+    // A target on a classical sub-wire (`{qubit: Q, result: N}`) sits BELOW its parent qubit's
+    // quantum wire, so moving from a target at position P to a classical sub-wire at position P+1
+    // visually crosses qubit P+1's quantum wire. If that wire isn't itself a quantum target, split
+    // so it passes through the gap. Generalized: split if any quantum-wire position strictly
+    // between `prevPos` and `pos` (inclusive of `pos` when `target.result != null`) isn't a quantum
+    // target. This subsumes rule 2, but rule 2's explicit check is kept above for clarity.
     const upperPos = target.result == null ? pos - 1 : pos;
     let crossesUntargetedQubit = false;
     if (groups.length > 0) {
@@ -615,9 +594,8 @@ const _splitTargetsY = (
     //      1. First target register
     //      2. Non-adjacent qubit registers
     //      3. There is a classical register between current and previous register
-    //      4. The body would visually cross an intermediate quantum
-    //         wire that isn't itself a target (covers the
-    //         classical-sub-wire-skips-a-quantum-row case)
+    //      4. The body would visually cross an intermediate quantum wire that isn't itself a target
+    //         (covers the classical-sub-wire-skips-a-quantum-row case)
     if (
       groups.length === 0 ||
       pos > prevPos + 1 ||
@@ -639,25 +617,22 @@ const _splitTargetsY = (
 };
 
 /**
- * Updates the x coord of each render data object in the given 2D
- * array and returns layout info needed by `processOperations` to build
- * the `LayoutMap`.
+ * Updates the x coord of each render data object in the given 2D array and returns layout info
+ * needed by `processOperations` to build the `LayoutMap`.
  *
  * In addition to setting each gate's center x, this function:
- *  - Returns `colStartX` (the per-column left-edge x in this scope's
- *    local coordinate system, anchored at `startX`).
- *  - For each expanded group encountered, shifts the group's
- *    `_childLayout` (set by `_processChildren`) from the child's local
- *    coords to absolute coords by applying the group's `offset`, then
- *    merges those absolute child scopes into a single `childScopes`
- *    map keyed by the child's parent op's location string.
+ *  - Returns `colStartX` (the per-column left-edge x in this scope's local coordinate system,
+ *    anchored at `startX`).
+ *  - For each expanded group encountered, shifts the group's `_childLayout` (set by
+ *    `_processChildren`) from the child's local coords to absolute coords by applying the group's
+ *    `offset`, then merges those absolute child scopes into a single `childScopes` map keyed by the
+ *    child's parent op's location string.
  *
  * @param renderDataArray  2D array of render data.
  * @param columnWidths Array of column widths.
  *
- * @returns `endX` (rightmost x coord), `colStartX` (per-column
- *          left-edge x), and `childScopes` (absolute scopes from
- *          expanded groups in this grid).
+ * @returns `endX` (rightmost x coord), `colStartX` (per-column left-edge x), and `childScopes`
+ *   (absolute scopes from expanded groups in this grid).
  */
 const _fillRenderDataX = (
   renderDataArray: GateRenderData[][],
@@ -675,8 +650,8 @@ const _fillRenderDataX = (
     return x;
   });
 
-  // Absolute scopes harvested from any expanded groups in this grid,
-  // including their own (already-shifted) descendant scopes.
+  // Absolute scopes harvested from any expanded groups in this grid, including their own
+  // (already-shifted) descendant scopes.
   const childScopes = new Map<string, LayoutScope>();
 
   renderDataArray.forEach((col, colIndex) =>
@@ -687,8 +662,8 @@ const _fillRenderDataX = (
       switch (renderData.type) {
         case GateType.Group:
           {
-            // Center the group within the column, and offset nested child gates
-            // relative to the group's left edge (plus internal padding).
+            // Center the group within the column, and offset nested child gates relative to the
+            // group's left edge (plus internal padding).
             const groupLeftX = columnCenterX - renderData.width / 2;
 
             // Subtract startX offset from nested gates and add offset and padding
@@ -700,13 +675,11 @@ const _fillRenderDataX = (
             // Offset each x coord in children gates
             _offsetChildrenX(renderData.children, offset);
 
-            // LayoutMap accumulation: shift the child layout info
-            // (computed in the child's local coords) by `offset`,
-            // making it absolute. Key the child's `localScope` under
-            // *this* group's location — the scope key the editor looks
-            // up when emitting dropzones inside this group's body.
-            // Deeper scopes are in the same child-local system, so
-            // they get shifted by `offset` too.
+            // LayoutMap accumulation: shift the child layout info (computed in the child's local
+            // coords) by `offset`, making it absolute. Key the child's `localScope` under *this*
+            // group's location — the scope key the editor looks up when emitting dropzones inside
+            // this group's body. Deeper scopes are in the same child-local system, so they get
+            // shifted by `offset` too.
             const childLayout = renderData._childLayout;
             if (childLayout != null) {
               const myLocation = renderData.dataAttributes?.["location"];
@@ -795,11 +768,10 @@ function _processChildren(
   renderData.bottomPadding =
     childrenInstrs.maxBottomPadding + groupBottomPadding;
 
-  // Stash the child layout info on the parent's render data so that
-  // when the parent's `_fillRenderDataX` runs later, it can shift the
-  // child's local coords to absolute (using the group's `offset`) and
-  // merge them into the parent call's `childScopes` accumulator.
-  // See `_fillRenderDataX` for where this is consumed.
+  // Stash the child layout info on the parent's render data so that when the parent's
+  // `_fillRenderDataX` runs later, it can shift the child's local coords to absolute (using the
+  // group's `offset`) and merge them into the parent call's `childScopes` accumulator. See
+  // `_fillRenderDataX` for where this is consumed.
   renderData._childLayout = {
     localScope: childrenInstrs.localScope,
     childScopes: childrenInstrs.childScopes,

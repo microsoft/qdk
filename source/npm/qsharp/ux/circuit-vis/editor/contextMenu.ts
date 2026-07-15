@@ -59,8 +59,8 @@ const addContextMenuToHostElem = (
       hostElem.classList.contains("control-dot") && dataWire != null;
 
     const deleteOption = _createContextMenuItem("Delete", () => {
-      // Route through the prompt-aware wrapper so deleting a
-      // measurement with downstream consumers confirms first.
+      // Route through the prompt-aware wrapper so deleting a measurement with downstream consumers
+      // confirms first.
       deleteOperationWithConfirmation(
         circuitEvents.model,
         selectedLocation,
@@ -74,10 +74,9 @@ const addContextMenuToHostElem = (
     ) {
       contextMenu.appendChild(deleteOption);
     } else if (isControl) {
-      // Hide "Remove control" when the parent op is multi-target /
-      // a group, mirroring the action-layer gating in
-      // `_isMultiTargetOrGroup`. Existing controls can still be
-      // moved via control-drag.
+      // Hide "Remove control" when the parent op is multi-target / a group, mirroring the
+      // action-layer gating in `_isMultiTargetOrGroup`. Existing controls can still be moved via
+      // control-drag.
       if (!_isMultiTargetOrGroup(selectedOperation)) {
         const removeControlOption = _createContextMenuItem(
           "Remove control",
@@ -95,15 +94,13 @@ const addContextMenuToHostElem = (
         circuitEvents.renderFn();
       });
 
-      // Multi-target unitaries and groups don't get Add / Remove
-      // Control: groups carry no quantum controls and multi-target
-      // bodies have no canonical control attachment point. Mirrors
+      // Multi-target unitaries and groups don't get Add / Remove Control: groups carry no quantum
+      // controls and multi-target bodies have no canonical control attachment point. Mirrors
       // `_isMultiTargetOrGroup` at the action layer.
       const allowControlAuthoring = !_isMultiTargetOrGroup(selectedOperation);
 
-      // Groups (any op with `children`) don't get "Toggle Adjoint":
-      // adjointing a group would have to propagate the marker through
-      // the subtree, and groups with a measurement or Reset aren't
+      // Groups (any op with `children`) don't get "Toggle Adjoint": adjointing a group would have
+      // to propagate the marker through the subtree, and groups with a measurement or Reset aren't
       // adjointable at all.
       const allowAdjoint = selectedOperation.children == null;
 

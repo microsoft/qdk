@@ -6,19 +6,16 @@ import { Register } from "../../data/register.js";
 import { findOperation, getOperationRegisters } from "../../utils.js";
 
 /*
- * `classicalRefs.ts` — classical-register producer/consumer
- * analysis for the Action layer.
+ * `classicalRefs.ts` — classical-register producer/consumer analysis for the Action layer.
  *
- * Measurements produce classical registers; classically-controlled
- * ops consume them. This module keeps that graph consistent across
- * moves and deletes (document-order constraints, cascade-deletes,
- * result-index remaps). Pure grid walks over the Data layer — no DOM.
+ * Measurements produce classical registers; classically-controlled ops consume them. This module
+ * keeps that graph consistent across moves and deletes (document-order constraints,
+ * cascade-deletes, result-index remaps). Pure grid walks over the Data layer — no DOM.
  */
 
 /**
- * Collect the classical-register IDs produced by any measurement in
- * `op`'s subtree (including `op`). Keyed `"<qubit>:<result>"`, the
- * pair a consumer's classical control reads.
+ * Collect the classical-register IDs produced by any measurement in `op`'s subtree (including
+ * `op`). Keyed `"<qubit>:<result>"`, the pair a consumer's classical control reads.
  */
 const collectInternalClassicalRegs = (op: Operation): Set<string> => {
   const set = new Set<string>();
@@ -43,17 +40,13 @@ const collectInternalClassicalRegs = (op: Operation): Set<string> => {
 };
 
 /**
- * Map every classical register to the location string of the
- * measurement that produces it (`"<qubit>:<result>"` → location).
- * Locations use the editor's hierarchical format (`"0,1"`,
- * `"0,1-2,3"`), as compared by
- * [`Location.inEarlierColumnThan`](../../data/location.ts).
+ * Map every classical register to the location string of the measurement that produces it
+ * (`"<qubit>:<result>"` → location). Locations use the editor's hierarchical format (`"0,1"`,
+ * `"0,1-2,3"`), as compared by [`Location.inEarlierColumnThan`](../../data/location.ts).
  *
- * Used by `collectExternalProducerLocations` (and indirectly the
- * dropzone filter and `moveOperation` safety net) to enforce
- * "producer column strictly earlier than consumer." If a key has
- * multiple producers (shouldn't happen in a well-formed circuit),
- * the last one wins.
+ * Used by `collectExternalProducerLocations` (and indirectly the dropzone filter and
+ * `moveOperation` safety net) to enforce "producer column strictly earlier than consumer." If a key
+ * has multiple producers (shouldn't happen in a well-formed circuit), the last one wins.
  */
 const _indexProducers = (grid: ComponentGrid): Map<string, string> => {
   const map = new Map<string, string>();
@@ -77,23 +70,21 @@ const _indexProducers = (grid: ComponentGrid): Map<string, string> => {
 };
 
 /**
- * For the operation at `subtreeLocation`, return the locations of
- * every measurement that produces a classical register the subtree
- * consumes — but only producers living OUTSIDE the subtree. Internal
- * producers travel with the consumer when the subtree moves as a
- * unit, so they impose no drop-target constraint; external producers
- * stay put, so the consumer's new position must come after them.
+ * For the operation at `subtreeLocation`, return the locations of every measurement that produces a
+ * classical register the subtree consumes — but only producers living OUTSIDE the subtree. Internal
+ * producers travel with the consumer when the subtree moves as a unit, so they impose no
+ * drop-target constraint; external producers stay put, so the consumer's new position must come
+ * after them.
  *
  * Used by:
  *   - The dropzone-filter pass in
- *     [`DragController.onGateMouseDown`](../../editor/controllers/dragController.ts)
- *     to hide drop targets that would invert producer-before-consumer.
- *   - The `moveOperation` safety net (returns `null` if a producer
- *     ends up after the consumer) as defense in depth.
+ *     [`DragController.onGateMouseDown`](../../editor/controllers/dragController.ts) to hide drop
+ *     targets that would invert producer-before-consumer.
+ *   - The `moveOperation` safety net (returns `null` if a producer ends up after the consumer) as
+ *     defense in depth.
  *
- * Returns `[]` if the op has no external classical consumers or the
- * subtree doesn't exist. Producers whose location can't be resolved
- * are skipped.
+ * Returns `[]` if the op has no external classical consumers or the subtree doesn't exist.
+ * Producers whose location can't be resolved are skipped.
  */
 const collectExternalProducerLocations = (
   rootGrid: ComponentGrid,
@@ -102,12 +93,11 @@ const collectExternalProducerLocations = (
   const subtree = findOperation(rootGrid, subtreeLocation);
   if (subtree == null) return [];
 
-  // Collect internal producers (their `"qubit:result"` keys) so
-  // we can exclude them from the constraint check.
+  // Collect internal producers (their `"qubit:result"` keys) so we can exclude them from the
+  // constraint check.
   const internalProducers = collectInternalClassicalRegs(subtree);
 
-  // Walk the subtree and collect every classical-ref's key
-  // that is NOT in the internal set.
+  // Walk the subtree and collect every classical-ref's key that is NOT in the internal set.
   const externalKeys = new Set<string>();
   const collectRefs = (op: Operation): void => {
     for (const r of getOperationRegisters(op)) {
@@ -125,8 +115,7 @@ const collectExternalProducerLocations = (
   collectRefs(subtree);
   if (externalKeys.size === 0) return [];
 
-  // Map every measurement in the grid to its location, then look
-  // up each external key.
+  // Map every measurement in the grid to its location, then look up each external key.
   const producers = _indexProducers(rootGrid);
   const locations: string[] = [];
   for (const key of externalKeys) {
@@ -137,24 +126,20 @@ const collectExternalProducerLocations = (
 };
 
 /**
- * For the measurement at `mLocation`, find every downstream
- * consumer: any op whose register fields hold a classical-ref
- * `(qubit, result)` matching one of this M's `results`. Returned
- * entries pair the consumer op (object reference) with its location
- * string. Walks into nested children; the M op itself is excluded.
+ * For the measurement at `mLocation`, find every downstream consumer: any op whose register fields
+ * hold a classical-ref `(qubit, result)` matching one of this M's `results`. Returned entries pair
+ * the consumer op (object reference) with its location string. Walks into nested children; the M op
+ * itself is excluded.
  *
- * Only `.controls` count as consumption (not `.targets`): a consumer
- * is an op whose execution is GATED by the M's signal, which for
- * unitaries is a `.controls` entry with `result` defined. A group's
- * `.targets` is a derived cache that propagates a classically-
- * controlled child's ref up into every ancestor; treating those as
- * consumption would falsely flag every enclosing group and the
- * cascade-delete would wipe out unrelated siblings. A classically-
- * controlled group is still flagged correctly via its own
- * `.controls`.
+ * Only `.controls` count as consumption (not `.targets`): a consumer is an op whose execution is
+ * GATED by the M's signal, which for unitaries is a `.controls` entry with `result` defined. A
+ * group's `.targets` is a derived cache that propagates a classically-controlled child's ref up
+ * into every ancestor; treating those as consumption would falsely flag every enclosing group and
+ * the cascade-delete would wipe out unrelated siblings. A classically-controlled group is still
+ * flagged correctly via its own `.controls`.
  *
- * Returns `[]` if the location isn't a measurement, the M has no
- * classical results, or nothing references them.
+ * Returns `[]` if the location isn't a measurement, the M has no classical results, or nothing
+ * references them.
  */
 const collectMeasurementConsumers = (
   rootGrid: ComponentGrid,
@@ -202,15 +187,12 @@ const collectMeasurementConsumers = (
 };
 
 /**
- * Walk the grid and remap every classical-ref entry's
- * `(qubit, result)` pair according to `keyRemap`. Visits both
- * the op's own register-bearing fields AND the cached
- * `.targets` / `.controls` on group ops (which hold their own
- * `Register` objects, independent of descendant ops — see
- * [`_dedupRegistersByIdentity`](derivedTargets.ts)).
+ * Walk the grid and remap every classical-ref entry's `(qubit, result)` pair according to
+ * `keyRemap`. Visits both the op's own register-bearing fields AND the cached `.targets` /
+ * `.controls` on group ops (which hold their own `Register` objects, independent of descendant ops
+ * — see [`_dedupRegistersByIdentity`](derivedTargets.ts)).
  *
- * Only classical refs (`result !== undefined`) are touched;
- * quantum refs are left alone.
+ * Only classical refs (`result !== undefined`) are touched; quantum refs are left alone.
  */
 const applyClassicalRefRemap = (
   grid: ComponentGrid,
@@ -228,24 +210,17 @@ const applyClassicalRefRemap = (
   const walk = (g: ComponentGrid): void => {
     for (const col of g) {
       for (const op of col.components) {
-        // Walk the op's CONSUMER-side register fields only. A
-        // measurement's `.results` is the PRODUCER side: its
-        // (qubit, result) keys were authoritatively assigned by
-        // the `updateMeasurementLines` sweep that ran inside
-        // `moveOperation`. Feeding those producer values back
-        // through the consumer remap would double-remap them —
-        // any M whose freshly-assigned result index happened to
-        // match another M's pre-move key would get rewritten a
-        // second time, collapsing two Ms onto the same key and
-        // orphaning the consumer that was supposed to reference
-        // the original M. So for measurements we only visit
-        // `.qubits` (no-op for the remap since they have
-        // `result === undefined`, but kept for symmetry); for
-        // unitaries and kets we visit all registers, because
-        // their `.targets` and `.controls` are all references
-        // to producers elsewhere — including group ops whose
-        // eager `.targets` cache holds classical refs aliased
-        // from descendant consumers.
+        // Walk the op's CONSUMER-side register fields only. A measurement's `.results` is the
+        // PRODUCER side: its (qubit, result) keys were authoritatively assigned by the
+        // `updateMeasurementLines` sweep that ran inside `moveOperation`. Feeding those producer
+        // values back through the consumer remap would double-remap them — any M whose
+        // freshly-assigned result index happened to match another M's pre-move key would get
+        // rewritten a second time, collapsing two Ms onto the same key and orphaning the consumer
+        // that was supposed to reference the original M. So for measurements we only visit
+        // `.qubits` (no-op for the remap since they have `result === undefined`, but kept for
+        // symmetry); for unitaries and kets we visit all registers, because their `.targets` and
+        // `.controls` are all references to producers elsewhere — including group ops whose eager
+        // `.targets` cache holds classical refs aliased from descendant consumers.
         if (op.kind === "measurement") {
           for (const reg of op.qubits) remapRegister(reg);
         } else {
@@ -261,12 +236,10 @@ const applyClassicalRefRemap = (
 };
 
 /**
- * Walk the grid for an op matching `target` by object identity
- * and return its hierarchical location string, or `null` if not
- * found. Used by callers (e.g. `removeMeasurementWithDependents`)
- * that capture an op reference BEFORE a mutation that may shift
- * its location, then need a fresh location string AFTER the
- * mutation.
+ * Walk the grid for an op matching `target` by object identity and return its hierarchical location
+ * string, or `null` if not found. Used by callers (e.g. `removeMeasurementWithDependents`) that
+ * capture an op reference BEFORE a mutation that may shift its location, then need a fresh location
+ * string AFTER the mutation.
  */
 const findLocationByRef = (
   grid: ComponentGrid,

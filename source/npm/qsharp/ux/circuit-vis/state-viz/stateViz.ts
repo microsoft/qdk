@@ -1,16 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// State visualization renderer.
-// Defines the renderable column/types and updates the `.state-panel` DOM
-// (SVG/HTML) to display probabilities/phases, given either an amp map or
-// pre-prepared columns.
+// State visualization renderer. Defines the renderable column/types and updates the `.state-panel`
+// DOM (SVG/HTML) to display probabilities/phases, given either an amp map or pre-prepared columns.
 
 export type RenderOptions = {
   maxColumns?: number;
   phaseColorMap?: (phaseRad: number) => string;
-  // Fill color for the aggregated "Others" column.
-  // Default comes from VIZ.defaultOthersColor.
+  // Fill color for the aggregated "Others" column. Default comes from VIZ.defaultOthersColor.
   othersColor?: string;
   minColumnWidth?: number; // minimum width per column to avoid label collisions
   minPanelWidthPx?: number; // prescribed minimum panel width in pixels
@@ -67,8 +64,8 @@ const VIZ = {
 
 export const createStatePanel = (): HTMLElement => {
   try {
-    // Allows host environments (e.g., VS Code webview) to react to panel creation
-    // without needing a direct import hook.
+    // Allows host environments (e.g., VS Code webview) to react to panel creation without needing a
+    // direct import hook.
     (globalThis as any).dispatchEvent?.(
       new CustomEvent("qsharp:stateviz:create"),
     );
@@ -178,8 +175,8 @@ export const renderMessageStatePanel = (
   panel.style.flexBasis = `${VIZ.emptyStateFlexBasisPx}px`;
 };
 
-// Put the panel into a blank (non-message) state.
-// This is used when the circuit is non-empty but state data isn't available yet.
+// Put the panel into a blank (non-message) state. This is used when the circuit is non-empty but
+// state data isn't available yet.
 export const renderBlankStatePanel = (panel: HTMLElement): void => {
   const svg = panel.querySelector("svg.state-svg") as SVGSVGElement | null;
   if (svg) {
@@ -188,8 +185,8 @@ export const renderBlankStatePanel = (panel: HTMLElement): void => {
   panel.classList.remove("message");
   const msg = panel.querySelector(".state-panel-message");
   if (msg) msg.remove();
-  // If we were previously in message state, restore sizing control back to CSS
-  // (or subsequent renders) instead of keeping the message-state flex-basis.
+  // If we were previously in message state, restore sizing control back to CSS (or subsequent
+  // renders) instead of keeping the message-state flex-basis.
   panel.style.flexBasis = "";
 };
 
@@ -199,8 +196,8 @@ export const updateStatePanelFromColumns = (
   columns: StateColumn[],
   opts: RenderOptions = {},
 ): void => {
-  // Content visibility restored via CSS when not in empty mode
-  // Remove empty mode to reveal content via CSS
+  // Content visibility restored via CSS when not in empty mode Remove empty mode to reveal content
+  // via CSS
   panel.classList.remove("message");
   const msg = panel.querySelector(".state-panel-message");
   if (msg) msg.remove();
@@ -248,10 +245,10 @@ type LayoutMetrics = {
   phaseColor: (phi: number) => string;
 };
 
-// The animation speed for the state viz panel can be set via the passed in options
-// argument, or via CSS custom property `--stateAnimMs` on the panel element.
-// This function computes the effective animation duration in milliseconds from
-// these sources, with the CSS value taking precedence over the options argument.
+// The animation speed for the state viz panel can be set via the passed in options argument, or via
+// CSS custom property `--stateAnimMs` on the panel element. This function computes the effective
+// animation duration in milliseconds from these sources, with the CSS value taking precedence over
+// the options argument.
 const getAnimationMs = (panel: HTMLElement, opts: RenderOptions): number => {
   let animationMs = VIZ.defaultAnimationMs;
   if (

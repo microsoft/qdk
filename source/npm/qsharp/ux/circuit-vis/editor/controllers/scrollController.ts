@@ -4,20 +4,17 @@
 import { InteractionState } from "../../actions/interactionState.js";
 
 /**
- * `enableAutoScroll` — install document-level mousemove listener that
- * scrolls the nearest scrollable ancestor of `circuitSvg` whenever
- * the cursor approaches an edge. Self-removes on the next `mouseup`.
+ * `enableAutoScroll` — install document-level mousemove listener that scrolls the nearest
+ * scrollable ancestor of `circuitSvg` whenever the cursor approaches an edge. Self-removes on the
+ * next `mouseup`.
  *
- * Invoked at drag start by both the gate-drag flow and the
- * qubit-label drag flow, hence the standalone shape.
+ * Invoked at drag start by both the gate-drag flow and the qubit-label drag flow, hence the
+ * standalone shape.
  *
- * @param circuitSvg  The rendered `svg.qviz` root; used as the
- *                    starting point for the scrollable-ancestor
- *                    search.
- * @param interaction Session state. Reads/writes
- *                    `disableLeftAutoScroll` so that the drag flow
- *                    can opt out of left-edge auto-scroll once the
- *                    user has moved the cursor far enough right.
+ * @param circuitSvg  The rendered `svg.qviz` root; used as the starting point for the
+ *   scrollable-ancestor search.
+ * @param interaction Session state. Reads/writes `disableLeftAutoScroll` so that the drag flow can
+ *   opt out of left-edge auto-scroll once the user has moved the cursor far enough right.
  */
 export const enableAutoScroll = (
   circuitSvg: SVGElement,

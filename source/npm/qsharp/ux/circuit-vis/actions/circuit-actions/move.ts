@@ -11,11 +11,9 @@ import { addOp } from "./gridPrimitives.js";
 /*
  * `move.ts` — the geometry of moving an operation.
  *
- * Splits a move into horizontal (`moveX`: which column/grid) and
- * vertical (`moveY`: which wires) components. The `moveOperation`
- * orchestrator in `circuitActions.ts` drives these and handles the
- * surrounding ancestor/measurement bookkeeping. Depends on
- * `gridPrimitives`; no DOM.
+ * Splits a move into horizontal (`moveX`: which column/grid) and vertical (`moveY`: which wires)
+ * components. The `moveOperation` orchestrator in `circuitActions.ts` drives these and handles the
+ * surrounding ancestor/measurement bookkeeping. Depends on `gridPrimitives`; no DOM.
  */
 
 /**
@@ -49,9 +47,8 @@ const moveX = (
 };
 
 /**
- * Collect the wires that carry at least one measurement anywhere in
- * `op`'s subtree, so their per-wire `numResults` counters can be
- * refreshed after a move.
+ * Collect the wires that carry at least one measurement anywhere in `op`'s subtree, so their
+ * per-wire `numResults` counters can be refreshed after a move.
  */
 const collectMeasurementWires = (op: Operation, set: Set<number>): void => {
   if (op.kind === "measurement") {
@@ -69,15 +66,12 @@ const collectMeasurementWires = (op: Operation, set: Set<number>): void => {
 /**
  * Move an operation vertically by changing its controls and targets.
  *
- * Pure mutator on `sourceOperation` — no grid walks, no model
- * touches. The parent-operation `targets`/`results` refresh runs at
- * the end of `moveOperation` instead, against the post-removal
- * children grid (otherwise the parent would keep claiming the
- * departed child's wires).
+ * Pure mutator on `sourceOperation` — no grid walks, no model touches. The parent-operation
+ * `targets`/`results` refresh runs at the end of `moveOperation` instead, against the post-removal
+ * children grid (otherwise the parent would keep claiming the departed child's wires).
  *
- * Rewires the grabbed leg (one target or one control) to
- * `targetWire`, leaving the other legs in place ("rewire one leg of
- * a CNOT").
+ * Rewires the grabbed leg (one target or one control) to `targetWire`, leaving the other legs in
+ * place ("rewire one leg of a CNOT").
  */
 const moveY = (
   sourceOperation: Operation,

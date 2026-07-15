@@ -16,15 +16,14 @@ import { createToolboxElement } from "./toolbox.js";
  * - Tags the container/wrapper with editor layout classes.
  * - Mounts the state-visualization panel (when the host supports it).
  *
- * Idempotent — safe to re-call on every render; pre-existing elements
- * are reused so the SVG element identity stays stable. Called only in
- * editor mode, once per `renderCircuit`.
+ * Idempotent — safe to re-call on every render; pre-existing elements are reused so the SVG element
+ * identity stays stable. Called only in editor mode, once per `renderCircuit`.
  *
  * @param container         HTML element holding the rendered circuit.
- * @param computeStateVizColumnsForCircuitModel  Optional state-viz
- *   compute callback. When provided, enables the state-viz panel.
- * @param runCallback       Optional Run-button click handler. When
- *   omitted, no Run button is rendered.
+ * @param computeStateVizColumnsForCircuitModel  Optional state-viz compute callback. When provided,
+ *   enables the state-viz panel.
+ * @param runCallback       Optional Run-button click handler. When omitted, no Run button is
+ *   rendered.
  */
 const mountEditorShell = (
   container: HTMLElement,
@@ -70,8 +69,8 @@ const attachToolboxPanelIfMissing = (
   createToolboxFn: () => HTMLElement,
 ): void => {
   if (container.querySelector(".panel") != null) return;
-  // The toolbox sits inside a `.panel` div, prepended so it lives to
-  // the left of the circuit wrapper in the editor's flex layout.
+  // The toolbox sits inside a `.panel` div, prepended so it lives to the left of the circuit
+  // wrapper in the editor's flex layout.
   const panelElem = document.createElement("div");
   panelElem.className = "panel";
   panelElem.appendChild(createToolboxFn());
