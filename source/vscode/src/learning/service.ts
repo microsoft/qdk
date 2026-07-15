@@ -1046,13 +1046,21 @@ export class LearningService {
       throw new Error(this._progressLoadingError);
     }
 
-    if (typeof parsed.completions !== "object" || parsed.completions === null) {
+    if (
+      typeof parsed.completions !== "object" ||
+      parsed.completions === null ||
+      Array.isArray(parsed.completions)
+    ) {
       this._progressLoadingError =
         'The qdk-learning.json file is missing or has an invalid "completions" field. Fix or delete the file to continue.';
       throw new Error(this._progressLoadingError);
     }
 
-    if (typeof parsed.position !== "object" || parsed.position === null) {
+    if (
+      typeof parsed.position !== "object" ||
+      parsed.position === null ||
+      Array.isArray(parsed.position)
+    ) {
       this._progressLoadingError =
         'The qdk-learning.json file is missing or has an invalid "position" field. Fix or delete the file to continue.';
       throw new Error(this._progressLoadingError);
