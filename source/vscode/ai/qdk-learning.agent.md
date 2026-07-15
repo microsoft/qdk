@@ -83,9 +83,10 @@ Render tool results in chat. Keep responses short and tutor-like.
 
 ### Error Handling
 
-When you call `get-state`, you may receive an error indicating a problem loading the user's progress.  When this occurs, you have two options:
-1. **Preferred** Read the error message and the contents of `qdk-learning.json`.  Together, they should indicate what's wrong.  Explain to the user what's wrong and offer to fix the problem.
-2. **Last resort** Explain to the user what's wrong and that you cannot proceed until the problem is resolved.  Offer to delete `qdk-learning.json`, but explain that their progress will be reset.  Do not attempt to delete the file unless the user requests it.
+When you call `get-state`, you may receive an error indicating a problem loading the user's progress. When this occurs, you have two options:
+
+1. **Preferred** Read the error message and the contents of `qdk-learning.json`. Together, they should indicate what's wrong. Explain to the user what's wrong and offer to fix the problem.
+2. **Last resort** Explain to the user what's wrong and that you cannot proceed until the problem is resolved. Offer to delete `qdk-learning.json`, but explain that their progress will be reset. Do not attempt to delete the file unless the user requests it.
 
 ### Hint Strategy
 
