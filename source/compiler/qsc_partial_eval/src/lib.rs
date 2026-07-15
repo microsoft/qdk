@@ -2660,7 +2660,11 @@ impl<'a> PartialEvaluator<'a> {
             )
             .map_err(Error::from),
             Value::Var(var) => {
-                self.eval_expr_dynamic_index(&array, var, array_package_span, index_package_span)
+                let array_ty = &self.get_expr(array_expr_id).ty;
+                let Ty::Array(elem_ty) = array_ty else {
+                    panic!("expected array type in index expression");
+                };
+                self.eval_expr_dynamic_index(&array, var, array_package_span, elem_ty)
             }
             _ => panic!("invalid kind of value for index"),
         }?;
@@ -4647,10 +4651,9 @@ impl<'a> PartialEvaluator<'a> {
         array: &Rc<Vec<Value>>,
         var: Var,
         array_package_span: PackageSpan,
-        index_package_span: PackageSpan,
+        array_elem_ty: &Ty,
     ) -> Result<Value, Error> {
-        let array_literal =
-            convert_to_array_literal(array, array_package_span, index_package_span)?;
+        let array_literal = convert_to_array_literal(array, array_package_span, array_elem_ty)?;
         let array_elem_ty = array_literal.ty;
 
         let const_array_id = if let Some(idx) = self
@@ -5089,21 +5092,9 @@ fn try_get_eval_var_type(value: &Value) -> Option<VarTy> {
 fn convert_to_array_literal(
     array: &Rc<Vec<Value>>,
     array_package_span: PackageSpan,
-    index_package_span: PackageSpan,
+    array_elem_ty: &Ty,
 ) -> Result<rir::ArrayLiteral, Error> {
-    if array.is_empty() {
-        // Even though we don't know what the index value is, we know any index into an empty array is out of range,
-        // so just return an error with index 0 here.
-        return Err(EvalError::IndexOutOfRange(0, index_package_span).into());
-    }
-
-    let elem_varty = try_get_eval_var_type(&array[0]).ok_or_else(|| {
-        Error::Unimplemented(
-            format!("array element type `{}`", array[0].type_name()),
-            array_package_span,
-        )
-    })?;
-    let rir::Ty::Prim(elem_rir_prim_ty) = map_eval_var_type_to_rir_type(elem_varty) else {
+    let Ok(rir::Ty::Prim(elem_rir_prim_ty)) = map_fir_type_to_rir_type(array_elem_ty) else {
         return Err(Error::Unexpected(
             "array with non-primitive RIR type".to_string(),
             array_package_span,
