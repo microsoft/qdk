@@ -30,7 +30,9 @@ export async function azureRequest(
     log.trace(
       "Request headers & body: ",
       headers.map(([k, v]) =>
-        k === "Authorization" ? [k, "REDACTED"] : [k, v],
+        k === "Authorization" || k === "x-ms-quantum-api-key"
+          ? [k, "REDACTED"]
+          : [k, v],
       ),
       body,
     );
