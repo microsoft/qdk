@@ -1,6 +1,6 @@
 # Playground
 
-This is a simple web site built using the Monaco editor and the qsharp npm package.
+This is a simple web site built using the Monaco editor and the qsharp npm package. A live version is hosted at https://microsoft.github.io/qdk/, and requires no installation.
 
 ## Building the Playground Locally
 
