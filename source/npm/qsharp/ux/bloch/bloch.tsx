@@ -20,10 +20,14 @@ import { Rotations, Ket0, Vec2 } from "../cplx.js";
 import { Markdown } from "../renderers.js";
 import { detectThemeChange, ensureTheme } from "../themeObserver.js";
 import {
-  gateInfo,
+  Gate,
+  GateKind,
+  RotationGateKind,
+  resolveGate,
+  parseGateSequence,
+  formatGateSequence,
+  FIXED_GATE_KINDS,
   MAX_GATE_SEQUENCE_LENGTH,
-  sanitizeGateSequence,
-  VALID_GATE_CODES,
 } from "./blochGates.js";
 import { BlochRenderer, DEFAULT_ROTATION_TIME_MS } from "./blochRenderer.js";
 
@@ -74,6 +78,44 @@ function TransportIcon({ name }: { name: TransportIconName }) {
   );
 }
 
+/** Structural equality for a gate token (kind plus rotation angle). */
+function gateEqual(a: Gate, b: Gate): boolean {
+  return a.kind === b.kind && (a.angle ?? 0) === (b.angle ?? 0);
+}
+
+/** Structural equality for gate sequences. */
+function gatesEqual(a: Gate[], b: Gate[]): boolean {
+  return a.length === b.length && a.every((g, i) => gateEqual(g, b[i]));
+}
+
+// Maps the dial's axis selection to its rotation-gate kind.
+const AXIS_TO_ROTATION: Record<"X" | "Y" | "Z", RotationGateKind> = {
+  X: "Rx",
+  Y: "Ry",
+  Z: "Rz",
+};
+
+// Decodes a legacy single-character Clifford+T decomposition string (as
+// stored in rz-array.json) into structured gate tokens.
+const LEGACY_CODE_TO_KIND: Record<string, GateKind> = {
+  X: "X",
+  Y: "Y",
+  Z: "Z",
+  H: "H",
+  S: "S",
+  s: "S'",
+  T: "T",
+  t: "T'",
+};
+function decompStringToGates(s: string): Gate[] {
+  const out: Gate[] = [];
+  for (const ch of s) {
+    const kind = LEGACY_CODE_TO_KIND[ch];
+    if (kind) out.push({ kind });
+  }
+  return out;
+}
+
 export interface BlochSphereProps {
   /** Gate codes (X Y Z H S s T t) to replay on mount. Sanitized and
    * length-capped, so it's safe to pass straight from an untrusted URL. */
@@ -107,11 +149,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   //
   // Applying a new gate while inspecting commits the truncation (later rows
   // are discarded), mirroring "navigate back, then act" in browsers.
-  const [gates, setGates] = useState<string[]>([]);
+  const [gates, setGates] = useState<Gate[]>([]);
   const [cursor, setCursor] = useState(0);
-  const [past, setPast] = useState<string[][]>([]);
-  const [future, setFuture] = useState<string[][]>([]);
+  const [past, setPast] = useState<Gate[][]>([]);
+  const [future, setFuture] = useState<Gate[][]>([]);
   const [rzAngle, setRzAngle] = useState(0);
+  // Which axis the angle dial targets, so it can emit Rx/Ry/Rz.
+  const [rotationAxis, setRotationAxis] = useState<"X" | "Y" | "Z">("Z");
   // While the user is typing in the Rz readout, this holds the in-progress
   // text; null means the field mirrors the live (snapped) angle instead.
   const [rzInputDraft, setRzInputDraft] = useState<string | null>(null);
@@ -160,12 +204,21 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // can't fire after the component is gone.
   const GATE_TEXT_DEBOUNCE_MS = 150;
   const [draftText, setDraftText] = useState<string | null>(null);
-  const displayValue = draftText ?? gates.join("");
+  const displayValue = draftText ?? formatGateSequence(gates);
+  // Parse the visible text once per change for the count breakdown and the
+  // gate-cap indicator (both work off token counts, not characters).
+  const typedGates = useMemo(
+    () => parseGateSequence(displayValue).gates,
+    [displayValue],
+  );
   // Pending-commit timer, the text awaiting commit, and a snapshot of
   // `gates` from the start of an editing burst (so the burst is one undo).
   const draftTimerRef = useRef<number | null>(null);
   const draftPendingRef = useRef<string | null>(null);
-  const draftBaseRef = useRef<string[]>([]);
+  const draftBaseRef = useRef<Gate[]>([]);
+  // Whether the current editing burst has already pushed its history entry,
+  // so multiple debounced commits in one burst collapse to a single undo.
+  const draftPushedRef = useRef(false);
 
   // Measured natural width (px) of the widest trace row, fed back as an
   // explicit column width so the wide equations don't clip or scroll.
@@ -175,11 +228,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
 
   // Convert gate codes to the {axis, angle} steps `snapTo` expects, keeping
   // the renderer ignorant of gate codes.
-  function gatesToSteps(codes: string[]) {
-    return codes.map((c) => ({
-      axis: gateInfo[c].rotateAxis,
-      angle: gateInfo[c].rotateAngle,
-    }));
+  function gatesToSteps(gs: Gate[]) {
+    return gs.map((g) => {
+      const info = resolveGate(g);
+      return { axis: info.rotateAxis, angle: info.rotateAngle };
+    });
   }
 
   useEffect(() => {
@@ -193,24 +246,23 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     // shows its final state and the user can add gates without first
     // overwriting it. They can still Play/step back through the trace.
     if (props.initialGates) {
-      const { gates: cleaned, modified } = sanitizeGateSequence(
+      const { gates: cleaned, modified } = parseGateSequence(
         props.initialGates,
       );
       if (modified) {
         console.warn(
-          `BlochSphere: ignored unknown gates or excess length in initialGates ` +
-            `(input length ${props.initialGates.length}, applied ${cleaned.length}). ` +
-            `Valid gate codes are: ${VALID_GATE_CODES}.`,
+          `BlochSphere: ignored unrecognized tokens or excess length in ` +
+            `initialGates (input "${props.initialGates}", applied ` +
+            `${cleaned.length} gates).`,
         );
       }
-      if (cleaned) {
-        const arr = cleaned.split("");
-        setGates(arr);
+      if (cleaned.length) {
+        setGates(cleaned);
         // Snap the sphere to the end of the sequence and park the cursor
         // there, matching the latest trace step.
-        r.snapTo(gatesToSteps(arr));
-        setCursor(arr.length);
-        props.onGatesChanged?.(cleaned);
+        r.snapTo(gatesToSteps(cleaned));
+        setCursor(cleaned.length);
+        props.onGatesChanged?.(formatGateSequence(cleaned));
       }
     }
     // Live theme switches (e.g. VS Code light/dark toggled while open).
@@ -243,11 +295,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // trace rows can never disagree with the underlying gate list.
   const traceEntries = useMemo(() => {
     let prior: Vec2 = Ket0;
-    return gates.map((code, i) => {
-      const info = gateInfo[code];
+    return gates.map((gate, i) => {
+      const info = resolveGate(gate);
       const next = info.matrix.mulVec2(prior);
-      const latex = `$$ ${info.display} | \\psi \\rangle_{${i}} =
-        ${info.latex}
+      const latex = `$$ ${info.latexName} | \\psi \\rangle_{${i}} =
+        ${info.matrixLatex}
         \\cdot ${prior.toLaTeX()}
         = ${next.toLaTeX()}
         $$`;
@@ -396,7 +448,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const blochAngles = useMemo(() => {
     const rot = new Rotations();
     for (let i = 0; i < cursor; i++) {
-      const info = gateInfo[gates[i]];
+      const info = resolveGate(gates[i]);
       switch (info.rotateAxis) {
         case "X":
           rot.rotateX(info.rotateAngle);
@@ -426,7 +478,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const currentStateLatex = useMemo(() => {
     let state: Vec2 = Ket0;
     for (let i = 0; i < cursor; i++) {
-      state = gateInfo[gates[i]].matrix.mulVec2(state);
+      state = resolveGate(gates[i]).matrix.mulVec2(state);
     }
     return `$$ | \\psi \\rangle = ${state.toLaTeX()} $$`;
   }, [gates, cursor]);
@@ -471,8 +523,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
    */
   function playFromIndex(pos: number) {
     if (!renderer.current) return;
-    const code = gates[pos];
-    const info = gateInfo[code];
+    const gate = gates[pos];
+    const info = gate ? resolveGate(gate) : undefined;
     if (!info) {
       // Defensive: inputs are sanitized, but bail cleanly if one slips by.
       stopPlayback(false);
@@ -531,7 +583,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     // the qubit retraces its arc backward. queueGate lays down trail dots
     // along the reverse path; they overlap the existing trail, and the
     // onComplete snapTo wipes and rebuilds the trail for [0..target-1].
-    const info = gateInfo[gates[cursor - 1]];
+    const info = resolveGate(gates[cursor - 1]);
     r.animateStep(info.rotateAxis, -info.rotateAngle, () => {
       r.snapTo(gatesToSteps(gates.slice(0, target)));
       setCursor(target);
@@ -545,7 +597,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     const r = renderer.current;
     // Same guard as stepBack: align the renderer with `cursor` first.
     r.snapTo(gatesToSteps(gates.slice(0, cursor)));
-    const info = gateInfo[gates[cursor]];
+    const info = resolveGate(gates[cursor]);
     r.animateStep(info.rotateAxis, info.rotateAngle, () => {
       setCursor(target);
     });
@@ -566,7 +618,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
    * clear the redo stack. Call once at the start of every gate-changing
    * action.
    */
-  function pushHistory(prev: string[]) {
+  function pushHistory(prev: Gate[]) {
     setPast((p) => [...p, prev]);
     setFuture([]);
   }
@@ -575,8 +627,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
    * Apply one new gate. If inspecting an earlier step, the future part of
    * the sequence is truncated (browser back-then-navigate semantics).
    */
-  function applyGate(code: string) {
-    const info = gateInfo[code];
+  function applyGate(gate: Gate) {
+    const info = resolveGate(gate);
     if (!info || !renderer.current) return;
     // Stop playback first; snapToTarget=false since we snap or animate next.
     stopPlayback(false);
@@ -597,10 +649,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       renderer.current.snapTo(gatesToSteps(base));
     }
     renderer.current.animateStep(info.rotateAxis, info.rotateAngle);
-    const next = [...base, code];
+    const next = [...base, gate];
     setGates(next);
     setCursor(next.length);
-    props.onGatesChanged?.(next.join(""));
+    props.onGatesChanged?.(formatGateSequence(next));
   }
 
   /**
@@ -634,7 +686,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     fullMountRef.current = true;
     setGates(prev);
     setCursor(prev.length);
-    props.onGatesChanged?.(prev.join(""));
+    props.onGatesChanged?.(formatGateSequence(prev));
   }
 
   /**
@@ -653,7 +705,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     fullMountRef.current = true;
     setGates(next);
     setCursor(next.length);
-    props.onGatesChanged?.(next.join(""));
+    props.onGatesChanged?.(formatGateSequence(next));
   }
 
   function clear() {
@@ -683,24 +735,30 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       draftTimerRef.current = null;
     }
     draftPendingRef.current = null;
+    draftPushedRef.current = false;
     if (draftText !== null) setDraftText(null);
   }
 
   /**
-   * Handle a keystroke in the gate textbox: sanitize immediately, show the
-   * result right away, and debounce the expensive sphere/trace update.
+   * Handle a keystroke in the gate textbox. Multi-character tokens
+   * (`Rx(1.57)`, `SX'`) can't be sanitized per keystroke, so we keep the
+   * raw text and defer parsing to the debounced commit, which extracts
+   * whatever valid tokens it can (an in-progress token like `Rx(1.5` is
+   * simply skipped until it's complete).
    */
   function gateTextInput(e: Event) {
     const value = (e.target as HTMLInputElement).value;
-    const clean = sanitizeGateSequence(value).gates;
     // Typing interrupts any in-flight animation; the pending commit snaps
     // to the right place, so we snap nowhere here.
     if (isPlayingRef.current) stopPlayback(false);
     // First keystroke of a burst: snapshot the pre-edit sequence so the
-    // whole burst undoes as one step.
-    if (draftText === null) draftBaseRef.current = gates;
-    setDraftText(clean);
-    draftPendingRef.current = clean;
+    // whole burst undoes as one step, and arm the (once-per-burst) push.
+    if (draftText === null) {
+      draftBaseRef.current = gates;
+      draftPushedRef.current = false;
+    }
+    setDraftText(value);
+    draftPendingRef.current = value;
     if (draftTimerRef.current !== null) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = window.setTimeout(
       commitDraftText,
@@ -709,12 +767,28 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   /**
+   * Reformat the textbox to the canonical form when it loses focus and end
+   * the editing burst. Flushes any pending debounced commit first so the
+   * last keystrokes aren't dropped.
+   */
+  function gateTextBlur() {
+    if (draftTimerRef.current !== null) {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+      commitDraftText();
+    }
+    draftPendingRef.current = null;
+    draftPushedRef.current = false;
+    setDraftText(null);
+  }
+
+  /**
    * Snap to `arr[0..fromIndex]` then animate the remaining gates one at a
    * time. Shared by the actions that append a run and want the tail to
    * animate in (live-text commits, the Rz "Add to sequence" button).
    * Reads from `arr` because the caller's setGates hasn't flushed yet.
    */
-  function animateTailFrom(arr: string[], fromIndex: number) {
+  function animateTailFrom(arr: Gate[], fromIndex: number) {
     if (!renderer.current) return;
     renderer.current.snapTo(gatesToSteps(arr.slice(0, fromIndex)));
     if (fromIndex >= arr.length) {
@@ -726,7 +800,8 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     setIsPlaying(true);
     const chain = (pos: number) => {
       if (!renderer.current) return;
-      const info = gateInfo[arr[pos]];
+      const gate = arr[pos];
+      const info = gate ? resolveGate(gate) : undefined;
       if (!info) {
         isPlayingRef.current = false;
         setIsPlaying(false);
@@ -758,28 +833,29 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   function commitDraftText() {
     draftTimerRef.current = null;
     const text = draftPendingRef.current;
-    draftPendingRef.current = null;
     if (text === null || !renderer.current) return;
-    const arr = text.split("");
-    const prev = draftBaseRef.current;
-    // Nothing changed this burst (e.g. pasting identical text): drop the
-    // draft without a history step, else undo gets a no-op entry.
-    if (prev.join("") === text) {
-      if (draftText !== null) setDraftText(null);
-      return;
-    }
+    const arr = parseGateSequence(text).gates;
+    const current = gates;
+    // Nothing changed (e.g. re-parsing to the same sequence): bail without
+    // a history step so undo doesn't get a no-op entry.
+    if (gatesEqual(current, arr)) return;
     stopPlayback(false);
-    // Record the pre-burst sequence as a single undoable step.
-    setPast((p) => [...p, prev]);
-    setFuture([]);
+    // Push one history entry per editing burst (the pre-edit snapshot), so
+    // the whole burst -- even across several debounced commits -- undoes in
+    // a single step.
+    if (!draftPushedRef.current) {
+      setPast((p) => [...p, draftBaseRef.current]);
+      setFuture([]);
+      draftPushedRef.current = true;
+    }
     setGates(arr);
-    setDraftText(null);
-    props.onGatesChanged?.(text);
+    props.onGatesChanged?.(formatGateSequence(arr));
 
     // Shared leading run between old and new; snap to it, animate the rest.
-    const maxPrefix = Math.min(prev.length, arr.length);
+    const maxPrefix = Math.min(current.length, arr.length);
     let prefix = 0;
-    while (prefix < maxPrefix && prev[prefix] === arr[prefix]) prefix++;
+    while (prefix < maxPrefix && gateEqual(current[prefix], arr[prefix]))
+      prefix++;
     animateTailFrom(arr, prefix);
   }
 
@@ -869,26 +945,61 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     }
   }
 
-  // Map the current Rz angle to its precomputed Clifford+T decomposition
-  // (empty string at angle 0 = identity).
+  // Map the current dial angle to its precomputed Rz Clifford+T
+  // decomposition (empty at angle 0 = identity), then adapt it to the
+  // selected axis via Clifford conjugation:
+  //   Rx = H Rz H ,   Ry = S H Rz H S\u2020
   const rzAngleIdx = Math.round(rzAngle * 200) % rzOps.length;
-  const rzDecomposition = rzOps[rzAngleIdx] ?? "";
+  const rzDecompString = rzOps[rzAngleIdx] ?? "";
+  const rotationGate: Gate = {
+    kind: AXIS_TO_ROTATION[rotationAxis],
+    angle: rzAngle,
+  };
+  const decompositionGates = useMemo<Gate[]>(() => {
+    if (rzDecompString.length === 0) return [];
+    const d = decompStringToGates(rzDecompString);
+    switch (rotationAxis) {
+      case "X":
+        return [{ kind: "H" }, ...d, { kind: "H" }];
+      case "Y":
+        return [
+          { kind: "S'" },
+          { kind: "H" },
+          ...d,
+          { kind: "H" },
+          { kind: "S" },
+        ];
+      default:
+        return d;
+    }
+  }, [rzDecompString, rotationAxis]);
 
-  // Append the current Rz decomposition like a gate button does: truncate
-  // any inspected-future steps, clear redo, and animate the new gates in.
-  function applyRzDecomposition() {
-    if (!renderer.current || rzDecomposition.length === 0) return;
+  // Append a run of gates (a native rotation or its decomposition) as one
+  // undoable action: truncate any inspected-future steps, clear redo, and
+  // animate the new gates in.
+  function appendGates(run: Gate[]) {
+    if (!renderer.current || run.length === 0) return;
     stopPlayback(false);
     cancelDraft();
-    // The whole decomposition is appended as one undoable action.
+    // The whole run is appended as one undoable action.
     pushHistory(gates);
     // Branch from the inspected step if inspecting; otherwise append.
     const base = cursor < gates.length ? gates.slice(0, cursor) : gates;
-    const next = [...base, ...rzDecomposition.split("")];
+    const next = [...base, ...run];
     setGates(next);
     // Leave the dial angle as-is so the user can add the rotation again.
-    props.onGatesChanged?.(next.join(""));
+    props.onGatesChanged?.(formatGateSequence(next));
     animateTailFrom(next, base.length);
+  }
+
+  // Append the native rotation gate for the current axis + angle.
+  function applyRotation() {
+    appendGates([rotationGate]);
+  }
+
+  // Append the Clifford+T decomposition for the current axis + angle.
+  function applyDecomposition() {
+    appendGates(decompositionGates);
   }
 
   // Memoized trace rows. Keying on the values they depend on (entries +
@@ -961,7 +1072,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               </button>
               <span class="qs-bloch-gate-overlay-text" aria-hidden="true">
                 <span class="qs-bloch-gate-overlay-label">Gate sequence:</span>{" "}
-                {gates.length > 0 ? gates.join("") : "\u2014"}
+                {gates.length > 0 ? formatGateSequence(gates) : "\u2014"}
               </span>
             </div>
           )}
@@ -1133,8 +1244,32 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                   );
                 })()}
                 <div class="qs-bloch-rz-info">
+                  <div
+                    class="qs-bloch-rz-axis"
+                    role="group"
+                    aria-label="Rotation axis"
+                  >
+                    {(["X", "Y", "Z"] as const).map((ax) => (
+                      <button
+                        key={ax}
+                        type="button"
+                        class={
+                          "qs-bloch-rz-axis-btn" +
+                          (rotationAxis === ax
+                            ? " qs-bloch-rz-axis-btn-active"
+                            : "")
+                        }
+                        onClick={() => setRotationAxis(ax)}
+                        aria-pressed={rotationAxis === ax}
+                        disabled={isPlaying}
+                        title={`Target the Bloch ${ax} axis (R${ax.toLowerCase()})`}
+                      >
+                        R{ax.toLowerCase()}
+                      </button>
+                    ))}
+                  </div>
                   <span class="qs-bloch-rz-readout">
-                    {"Rz("}
+                    {AXIS_TO_ROTATION[rotationAxis] + "("}
                     <input
                       class="qs-bloch-rz-input"
                       type="text"
@@ -1160,26 +1295,41 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                     />
                     {" rad)"}
                   </span>
-                  <button
-                    type="button"
-                    class="qs-bloch-rz-apply"
-                    onClick={applyRzDecomposition}
-                    disabled={isPlaying || rzDecomposition.length === 0}
-                    title={
-                      rzDecomposition.length === 0
-                        ? "Set a non-zero angle to add an Rz rotation"
-                        : "Append this Rz decomposition to the gate sequence"
-                    }
-                  >
-                    Add to sequence
-                  </button>
+                  <div class="qs-bloch-rz-actions">
+                    <button
+                      type="button"
+                      class="qs-bloch-rz-apply"
+                      onClick={applyRotation}
+                      disabled={isPlaying || rzAngle === 0}
+                      title={
+                        rzAngle === 0
+                          ? "Set a non-zero angle to add a rotation"
+                          : `Append a native ${AXIS_TO_ROTATION[rotationAxis]} gate to the sequence`
+                      }
+                    >
+                      Add rotation
+                    </button>
+                    <button
+                      type="button"
+                      class="qs-bloch-rz-apply"
+                      onClick={applyDecomposition}
+                      disabled={isPlaying || decompositionGates.length === 0}
+                      title={
+                        decompositionGates.length === 0
+                          ? "Set a non-zero angle to add a decomposition"
+                          : "Append the Clifford+T decomposition to the sequence"
+                      }
+                    >
+                      Add decomposition
+                    </button>
+                  </div>
                   <div class="qs-bloch-rz-decomposition" aria-live="polite">
                     <span class="qs-bloch-rz-decomposition-label">
                       Decomposition:
                     </span>
                     <span class="qs-bloch-rz-decomposition-gates">
-                      {rzDecomposition.length > 0
-                        ? rzDecomposition
+                      {decompositionGates.length > 0
+                        ? formatGateSequence(decompositionGates)
                         : "identity (no gates)"}
                     </span>
                   </div>
@@ -1193,25 +1343,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 role="group"
                 aria-label="Apply gate"
               >
-                {(
-                  [
-                    ["X", "X"],
-                    ["Y", "Y"],
-                    ["Z", "Z"],
-                    ["H", "H"],
-                    ["S", "S"],
-                    ["s", "S†"],
-                    ["T", "T"],
-                    ["t", "T†"],
-                  ] as const
-                ).map(([code, label]) => (
+                {FIXED_GATE_KINDS.map((kind) => (
                   <button
-                    key={code}
+                    key={kind}
                     type="button"
-                    onClick={() => applyGate(code)}
+                    onClick={() => applyGate({ kind })}
                     disabled={isPlaying}
                   >
-                    {label}
+                    {resolveGate({ kind }).label}
                   </button>
                 ))}
               </div>
@@ -1256,12 +1395,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                   class="qs-bloch-gate-editor-input"
                   value={displayValue}
                   onInput={gateTextInput}
+                  onBlur={gateTextBlur}
                   spellcheck={false}
                   autocomplete="off"
                   autocorrect="off"
                   autocapitalize="off"
                   aria-label="Gate program"
-                  placeholder="Type a gate sequence (X Y Z H S s T t)"
+                  placeholder="Type a gate sequence, e.g. H Rx(1.57) SX X S'"
                 />
                 {props.actionSlot}
               </div>
@@ -1274,22 +1414,34 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
                 <span class="qs-bloch-gate-editor-breakdown">
                   {(() => {
-                    const counts: Record<string, number> = {};
-                    for (const ch of displayValue) {
-                      counts[ch] = (counts[ch] ?? 0) + 1;
+                    // Group typed gates by kind (rotations aggregate across
+                    // angles into a single Rx/Ry/Rz chip).
+                    const counts = {} as Record<GateKind, number>;
+                    for (const g of typedGates) {
+                      counts[g.kind] = (counts[g.kind] ?? 0) + 1;
                     }
+                    const order: GateKind[] = [
+                      ...FIXED_GATE_KINDS,
+                      "Rx",
+                      "Ry",
+                      "Rz",
+                    ];
                     const chips = [];
-                    for (const code of VALID_GATE_CODES) {
-                      const n = counts[code] ?? 0;
+                    for (const kind of order) {
+                      const n = counts[kind] ?? 0;
                       if (n === 0) continue;
+                      const label =
+                        kind === "Rx" || kind === "Ry" || kind === "Rz"
+                          ? kind
+                          : resolveGate({ kind }).label;
                       chips.push(
                         <span
-                          key={code}
+                          key={kind}
                           class="qs-bloch-gate-editor-chip"
-                          title={`${n}× ${gateInfo[code].display}`}
+                          title={`${n}× ${label}`}
                         >
                           <span class="qs-bloch-gate-editor-chip-name">
-                            {gateInfo[code].display}
+                            {label}
                           </span>
                           <span class="qs-bloch-gate-editor-chip-count">
                             {n}
@@ -1297,7 +1449,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                         </span>,
                       );
                     }
-                    const tCount = (counts["T"] ?? 0) + (counts["t"] ?? 0);
+                    const tCount = (counts["T"] ?? 0) + (counts["T'"] ?? 0);
                     if (chips.length === 0) {
                       return (
                         <span class="qs-bloch-gate-editor-empty">no gates</span>
@@ -1321,17 +1473,17 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 <span class="qs-bloch-gate-editor-status">
                   <span
                     class={
-                      displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                      typedGates.length > MAX_GATE_SEQUENCE_LENGTH
                         ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
                         : "qs-bloch-gate-editor-count"
                     }
                     title={
-                      displayValue.length > MAX_GATE_SEQUENCE_LENGTH
+                      typedGates.length > MAX_GATE_SEQUENCE_LENGTH
                         ? `Sequence exceeds the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
                         : ""
                     }
                   >
-                    {displayValue.length} / {MAX_GATE_SEQUENCE_LENGTH}
+                    {typedGates.length} / {MAX_GATE_SEQUENCE_LENGTH}
                   </span>
                 </span>
               </div>

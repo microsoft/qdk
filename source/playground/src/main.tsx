@@ -49,7 +49,14 @@ import {
 // Set up the Markdown renderer with KaTeX support
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
-import { setRenderer, BlochSphere } from "qsharp-lang/ux";
+import {
+  setRenderer,
+  BlochSphere,
+  parseGateSequence,
+  formatGateSequence,
+  encodeGatesUrl,
+  decodeGatesUrl,
+} from "qsharp-lang/ux";
 
 const md = markdownIt("commonmark");
 md.use((mk as any).default, {
@@ -113,11 +120,17 @@ function App(props: {
         ? "bloch"
         : "sample-Minimal",
   );
-  // Holds the latest applied-gate sequence reported by <BlochSphere>. We use
-  // a ref rather than state so we don't re-render the world on every gate
-  // press; the value is only read when the user clicks the share button.
+  // Holds the latest applied-gate sequence reported by <BlochSphere>, in the
+  // readable canonical form (e.g. "H Rx(1.57) SX"). We use a ref rather than
+  // state so we don't re-render the world on every gate press; the value is
+  // only read when the user clicks the share button. The URL stores the
+  // ultra-compact encoding, so we decode it once on load.
   const blochGatesRef = useRef<string>(
-    new URLSearchParams(window.location.search).get("gates") ?? "",
+    formatGateSequence(
+      decodeGatesUrl(
+        new URLSearchParams(window.location.search).get("gates") ?? "",
+      ).gates,
+    ),
   );
   // The initial gate string we hand to <BlochSphere> on first mount, captured
   // once so React/Preact's strict reconciliation rules don't try to replay
@@ -238,7 +251,13 @@ function App(props: {
     newURL.searchParams.set("view", "bloch");
     const gates = blochGatesRef.current;
     if (gates) {
-      newURL.searchParams.set("gates", gates);
+      // Store the compact encoding in the URL rather than the readable
+      // form (which contains spaces/parens/apostrophes that bloat when
+      // percent-encoded).
+      newURL.searchParams.set(
+        "gates",
+        encodeGatesUrl(parseGateSequence(gates).gates),
+      );
     } else {
       newURL.searchParams.delete("gates");
     }

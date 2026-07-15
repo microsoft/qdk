@@ -396,6 +396,55 @@
   opacity: 0.5;
   cursor: default;
 }
+/* Axis picker: a small segmented control (Rx / Ry / Rz) that chooses which
+   Bloch axis the dial's rotation targets. The active axis is highlighted. */
+.qs-bloch-rz-axis {
+  display: inline-flex;
+  gap: 0;
+}
+.qs-bloch-rz-axis-btn {
+  height: 25px;
+  padding: 0 10px;
+  background: var(--qdk-menu-fill);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-left-width: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+.qs-bloch-rz-axis-btn:first-child {
+  border-left-width: 1px;
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+.qs-bloch-rz-axis-btn:last-child {
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+.qs-bloch-rz-axis-btn:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-rz-axis-btn:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-rz-axis-btn-active {
+  background: var(--qdk-atom-fill);
+  color: var(--qdk-atom-foreground, var(--qdk-host-foreground));
+}
+.qs-bloch-rz-axis-btn-active:hover:not(:disabled) {
+  background: var(--qdk-atom-fill);
+}
+.qs-bloch-rz-axis-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* Row holding the two append buttons (native rotation + decomposition). */
+.qs-bloch-rz-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 /* Read-only display of the gate sequence the current Rz angle decomposes
    into. Updates live as the dial moves. The container has a FIXED height
    so the row's overall height never changes as the decomposition length

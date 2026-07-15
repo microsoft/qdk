@@ -25,9 +25,11 @@ import {
   compare,
 } from "../dist/ux/cplx.js";
 import {
-  VALID_GATE_CODES,
   MAX_GATE_SEQUENCE_LENGTH,
-  sanitizeGateSequence,
+  parseGateSequence,
+  formatGateSequence,
+  encodeGatesUrl,
+  decodeGatesUrl,
 } from "../dist/ux/bloch/blochGates.js";
 import { Vector3 } from "three";
 
@@ -273,53 +275,103 @@ describe("It has correct path entries", () => {
   });
 });
 
-describe("sanitizeGateSequence", () => {
-  it("passes through a valid sequence unchanged", () => {
-    const r = sanitizeGateSequence("XYZHSsTt");
-    assert.strictEqual(r.gates, "XYZHSsTt");
+describe("parseGateSequence", () => {
+  it("parses the whitespace-separated canonical form", () => {
+    const r = parseGateSequence("H Rx(1.5708) SX X S'");
     assert.strictEqual(r.modified, false);
+    assert.deepStrictEqual(r.gates, [
+      { kind: "H" },
+      { kind: "Rx", angle: 1.5708 },
+      { kind: "SX" },
+      { kind: "X" },
+      { kind: "S'" },
+    ]);
   });
 
   it("returns empty for falsy input", () => {
     for (const v of ["", undefined, null]) {
-      const r = sanitizeGateSequence(v);
-      assert.strictEqual(r.gates, "");
+      const r = parseGateSequence(v);
+      assert.deepStrictEqual(r.gates, []);
       assert.strictEqual(r.modified, false);
     }
   });
 
-  it("strips unknown characters and reports modification", () => {
-    // Includes a mix of clearly invalid chars (space, punctuation, digit,
-    // unicode) interleaved with valid gates. Note that lowercase `s` and
-    // `t` are themselves valid (S† and T†), so this string deliberately
-    // avoids them.
-    const r = sanitizeGateSequence("X y Z h<br>1\u2603");
-    assert.strictEqual(r.gates, "XZ");
-    assert.strictEqual(r.modified, true);
-  });
-
-  it("preserves case-sensitive variants (S vs s, T vs t)", () => {
-    const r = sanitizeGateSequence("SsTtSsTt");
-    assert.strictEqual(r.gates, "SsTtSsTt");
+  it("is case-insensitive and tolerates arbitrary whitespace", () => {
+    const r = parseGateSequence("  x \t y  z\nrz(0.5) sx ");
+    assert.deepStrictEqual(r.gates, [
+      { kind: "X" },
+      { kind: "Y" },
+      { kind: "Z" },
+      { kind: "Rz", angle: 0.5 },
+      { kind: "SX" },
+    ]);
     assert.strictEqual(r.modified, false);
   });
 
-  it("caps length at MAX_GATE_SEQUENCE_LENGTH", () => {
-    const overflow = "X".repeat(MAX_GATE_SEQUENCE_LENGTH + 5);
-    const r = sanitizeGateSequence(overflow);
+  it("drops incomplete or garbage tokens and reports modification", () => {
+    // `Rx(1.5` is an in-progress rotation (no closing paren) and `Q` is
+    // unknown; both are dropped, so the result is flagged modified.
+    const r = parseGateSequence("H Rx(1.5 Q X");
+    assert.deepStrictEqual(r.gates, [{ kind: "H" }, { kind: "X" }]);
+    assert.strictEqual(r.modified, true);
+  });
+
+  it("only allows the adjoint apostrophe on S, T, and SX", () => {
+    const r = parseGateSequence("S' T' SX' X'");
+    // X' is invalid (X is its own inverse); the whole token is dropped.
+    assert.deepStrictEqual(r.gates, [
+      { kind: "S'" },
+      { kind: "T'" },
+      { kind: "SX'" },
+    ]);
+    assert.strictEqual(r.modified, true);
+  });
+
+  it("caps the number of gates at MAX_GATE_SEQUENCE_LENGTH", () => {
+    const overflow = "X ".repeat(MAX_GATE_SEQUENCE_LENGTH + 5);
+    const r = parseGateSequence(overflow);
     assert.strictEqual(r.gates.length, MAX_GATE_SEQUENCE_LENGTH);
     assert.strictEqual(r.modified, true);
   });
+});
 
-  it("counts both filtering and capping toward modified", () => {
-    // Mostly noise with a few valid gates that don't exceed the cap;
-    // length still differs from the input, so modified is true.
-    const r = sanitizeGateSequence("..X..Y..Z..");
-    assert.strictEqual(r.gates, "XYZ");
-    assert.strictEqual(r.modified, true);
+describe("formatGateSequence", () => {
+  it("renders the canonical whitespace-separated form", () => {
+    const gates = [
+      { kind: "H" },
+      { kind: "Rx", angle: 1.5708 },
+      { kind: "SX" },
+      { kind: "S'" },
+      { kind: "T'" },
+      { kind: "SX'" },
+    ];
+    assert.strictEqual(formatGateSequence(gates), "H Rx(1.5708) SX S' T' SX'");
   });
 
-  it("VALID_GATE_CODES contains exactly the supported gates", () => {
-    assert.strictEqual(VALID_GATE_CODES, "XYZHSsTt");
+  it("round-trips through parse -> format", () => {
+    const text = "H Rx(1.5708) SX X S' T' SX' Ry(0.25) Rz(3.14159)";
+    const gates = parseGateSequence(text).gates;
+    assert.strictEqual(formatGateSequence(gates), text);
+  });
+});
+
+describe("URL gate codec", () => {
+  it("encodes gates into an ultra-compact self-delimiting form", () => {
+    const gates = parseGateSequence("H Rx(1.5708) SX X S'").gates;
+    assert.strictEqual(encodeGatesUrl(gates), "Hx1.5708VXs");
+  });
+
+  it("round-trips through encode -> decode", () => {
+    const text = "H Rx(1.5708) SX X S' T' SX' Ry(0.25) Rz(3.14159)";
+    const gates = parseGateSequence(text).gates;
+    const decoded = decodeGatesUrl(encodeGatesUrl(gates));
+    assert.strictEqual(decoded.modified, false);
+    assert.deepStrictEqual(decoded.gates, gates);
+  });
+
+  it("decodes an empty string to no gates", () => {
+    const r = decodeGatesUrl("");
+    assert.deepStrictEqual(r.gates, []);
+    assert.strictEqual(r.modified, false);
   });
 });
