@@ -37,6 +37,7 @@ import Std.Measurement.MeasureBigInt;
 /// # Output
 /// The integer values held by the registers after `op` has been applied,
 /// in the same order as the inputs.
+@Config(Unrestricted)
 operation TestArithmeticOp(
     op : (Qubit[][]) => Unit,
     widths : Int[],
@@ -79,6 +80,7 @@ function UnpackInts(packed_args : BigInt, widths : Int[]) : BigInt[] {
 }
 
 // Uncontrolled version of ApplyClassicalFunction, implemented natively.
+@Config(Unrestricted)
 operation ApplyClassicalFunctionInternal(f : (BigInt) -> BigInt, target : Qubit[]) : Unit {
     body intrinsic;
 }
@@ -114,6 +116,7 @@ operation ApplyClassicalFunctionInternal(f : (BigInt) -> BigInt, target : Qubit[
 /// bijective on those inputs.
 /// ## target
 /// The little-endian qubit register to transform.
+@Config(Unrestricted)
 operation ApplyClassicalFunction(f : (BigInt) -> BigInt, target : Qubit[]) : Unit is Ctl {
     body (...) {
         ApplyClassicalFunctionInternal(f, target);
@@ -145,6 +148,7 @@ operation ApplyClassicalFunction(f : (BigInt) -> BigInt, target : Qubit[]) : Uni
 /// ## regs
 /// The little-endian registers that hold the input values and are updated
 /// in place.
+@Config(Unrestricted)
 operation ApplyClassicalFunctionN(f : (BigInt[]) -> (BigInt[]), regs : Qubit[][]) : Unit is Ctl {
     let widths = Mapped(Length, regs);
     ApplyClassicalFunction(x -> PackInts(f(UnpackInts(x, widths)), widths), Flattened(regs));
