@@ -1928,6 +1928,7 @@ dependencies = [
  "num-complex",
  "num-traits",
  "pyo3",
+ "qdk_openqasm",
  "qdk_simulators",
  "qre",
  "qsc",

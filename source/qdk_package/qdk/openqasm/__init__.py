@@ -23,8 +23,15 @@ Key exports:
   semantics during compilation.
 - :class:`~qdk.openqasm.QasmError` — raised when an OpenQASM source cannot
   be parsed or compiled.
+- :mod:`~qdk.openqasm.parser` — the syntactic AST: :func:`parse` and the
+  read-only ``openqasm3``-style node classes it produces.
+- :mod:`~qdk.openqasm.semantic` — the resolved semantic AST: :func:`analyze`
+  and the richly-typed ``Sem*`` node classes it produces.
+- :class:`~qdk.openqasm.parser.QASMVisitor` — a read-only visitor base for
+  walking either the syntactic or semantic AST.
 """
 
+from . import parser, semantic
 from ._circuit import circuit
 from ._compile import compile
 from ._estimate import estimate
@@ -38,6 +45,8 @@ __all__ = [
     "estimate",
     "import_openqasm",
     "run",
+    "parser",
+    "semantic",
     "ProgramType",
     "OutputSemantics",
     "QasmError",
