@@ -29,6 +29,8 @@ import {
   expectOp,
   gate,
   group,
+  meas,
+  qubits,
 } from "../_helpers.mjs";
 
 // ---------------------------------------------------------------------------
@@ -73,6 +75,172 @@ test("moveOperation: moving a child out of a group updates the group's targets t
 
   // Group now only contains Z on wire 1.
   expectOp(at(model, "0,0"), { Group: { targets: [1] } });
+});
+
+// ---------------------------------------------------------------------------
+// Dragging a group as a rigid unit.
+//
+// Moving a group shifts the group's own `.targets` AND recursively
+// every register reference in its children grid by the same delta,
+// so the box and its contents stay aligned.
+// ---------------------------------------------------------------------------
+
+test("moveOperation: dragging a group shifts the box AND all child register refs", () => {
+  // Group with children H@0, CNOT(target=1, ctrl=0). Drag wire 0
+  // → wire 2 (delta = +2). Box and children all shift by +2.
+  const model = build(
+    circuit(4, [
+      [group("Group", [[gate("H", 0), gate("CNOT", 1, { ctrls: [0] })]])],
+    ]),
+  );
+
+  const moved = moveOperation(model, "0,0", "0,0", 0, 2, false, false);
+  assert.ok(moved);
+
+  expectOp(at(model, "0,0"), {
+    Group: {
+      targets: [2, 3],
+      children: [[{ H: 2 }, { CNOT: { targets: [3], ctrls: [2] } }]],
+    },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Classical-control anchoring on a moved group's children.
+// ---------------------------------------------------------------------------
+
+test("moveOperation: moving a group with a classically-controlled child anchors the classical control", () => {
+  // External M produces the classical reg; the producer stays put, so
+  // X's target shifts but its classical control must anchor on q0.
+  const model = build(
+    circuit(qubits(4, { 0: 1 }), [
+      [meas(0)],
+      [group("Group", [[gate("X", 1, { ctrls: [{ q: 0, r: 0 }] })]])],
+    ]),
+  );
+
+  // drag the group q1 → q2 (delta = +1)
+  moveOperation(model, "1,0", "1,0", 1, 2, false, false);
+
+  expectOp(at(model, "1,0"), {
+    Group: {
+      children: [[{ X: { targets: [2], ctrls: [{ q: 0, r: 0 }] } }]],
+    },
+  });
+});
+
+test("moveOperation: moving a group whose internal measurement produces the classical reg shifts the consumer", () => {
+  // The producing M is INSIDE the moved subtree, so the classical reg
+  // moves too; the consumer's classical control shifts in lockstep.
+  const model = build(
+    circuit(qubits(4, { 1: 1 }), [
+      [
+        group("Group", [
+          [meas(1)],
+          [gate("X", 1, { ctrls: [{ q: 1, r: 0 }] })],
+        ]),
+      ],
+    ]),
+  );
+
+  // drag the group q1 → q2 (delta = +1)
+  moveOperation(model, "0,0", "0,0", 1, 2, false, false);
+
+  expectOp(at(model, "0,0"), {
+    Group: {
+      children: [
+        [{ M: { qubits: [2], results: [{ q: 2, r: 0 }] } }],
+        [{ X: { targets: [2], ctrls: [{ q: 2, r: 0 }] } }],
+      ],
+    },
+  });
+
+  // numResults bookkeeping must follow the measurement.
+  assert.equal(
+    model.qubits[1].numResults,
+    undefined,
+    "wire 1 must no longer claim a classical register",
+  );
+  assert.equal(
+    model.qubits[2].numResults,
+    1,
+    "wire 2 must now claim the classical register",
+  );
+});
+
+test("moveOperation: unit-moving a multi-target gate with an external classical control anchors that control", () => {
+  // Multi-target gates take the same rigid unit-shift path as groups.
+  // External M produces the classical reg, so the quantum targets
+  // shift but the classical control must anchor on q0.
+  const model = build(
+    circuit(qubits(5, { 0: 1 }), [
+      [meas(0)],
+      [gate("Foo", [1, 2], { ctrls: [{ q: 0, r: 0 }], conditional: true })],
+    ]),
+  );
+
+  // drag the gate q1 → q3 (delta = +2)
+  moveOperation(model, "1,0", "1,0", 1, 3, false, false);
+
+  // targets shift q1→q3, q2→q4; classical control anchored at q0.r0.
+  expectOp(at(model, "1,0"), {
+    Foo: { targets: [3, 4], ctrls: [{ q: 0, r: 0 }], conditional: true },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bounds-checking for unit-shift moves on groups.
+// ---------------------------------------------------------------------------
+
+test("moveOperation: refuses a unit-shift that would push wires below 0", () => {
+  // Group spans wires 1-2. Grabbing on q2 and dropping on q0 is a
+  // delta = -2 shift, which would push the group's low wire (1) to -1.
+  const circuitLiteral = circuit(4, [
+    [group("Group", [[gate("X", 1), gate("Y", 2)]])],
+  ]);
+  const before = JSON.stringify(circuitLiteral);
+  const model = build(circuitLiteral);
+
+  // grab q2, drop on q0 → delta = -2, low wire 1 would underflow to -1
+  const result = moveOperation(model, "0,0", "0,0", 2, 0, false, false);
+
+  assert.equal(result, null, "move must be refused");
+  assert.equal(
+    JSON.stringify({
+      qubits: model.qubits,
+      componentGrid: model.componentGrid,
+    }),
+    before,
+    "refusal must not mutate the model",
+  );
+});
+
+test("moveOperation: a unit-shift whose lowest wire lands exactly on 0 is allowed", () => {
+  // Boundary: span [1, 2] shifted by -1 lands on [0, 1] — exactly on 0
+  // is still in-range, so the move succeeds.
+  const model = build(
+    circuit(4, [[group("Group", [[gate("X", 1), gate("Y", 2)]])]]),
+  );
+
+  // grab q1, drop on q0 (delta = -1)
+  const result = moveOperation(model, "0,0", "0,0", 1, 0, false, false);
+  assert.ok(result, "move must succeed when min post-shift wire is exactly 0");
+
+  expectOp(at(model, "0,0"), { Group: { targets: [0, 1] } });
+});
+
+test("moveOperation: a unit-shift on a single-child group is bounded by the derived min wire", () => {
+  // The bounds check uses the derived min wire (here [1], from the lone
+  // X@1), not any pre-declared span: shift -1 → [0] is in-range.
+  const model = build(circuit(4, [[group("Group", [[gate("X", 1)]])]]));
+
+  // grab q1, drop on q0 (delta = -1)
+  const result = moveOperation(model, "0,0", "0,0", 1, 0, false, false);
+  assert.ok(result, "move must succeed when derived min post-shift wire is 0");
+
+  expectOp(at(model, "0,0"), {
+    Group: { targets: [0], children: [[{ X: 0 }]] },
+  });
 });
 
 // ---------------------------------------------------------------------------
