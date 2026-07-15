@@ -9,6 +9,7 @@ use super::{
 };
 use expect_test::expect;
 use qsc::TargetCapabilityFlags;
+use qsc_data_structures::target::Profile;
 
 #[test]
 fn check_rca_for_function_in_core_package() {
@@ -2361,6 +2362,310 @@ fn check_rca_for_base_z() {
                                 value_kind: Constant
                             variable: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                value_kind: Constant"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_tablelookup_select() {
+    let compilation_context = CompilationContext::default();
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "Select",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicDouble | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | UseOfDynamicIndex | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | QubitAllocation)
+                                value_kind: Constant
+                adj: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | ReturnWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | ReturnWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                ctl: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicDouble | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                ctl-adj: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicDouble | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | CallToUnresolvedCallee | QubitAllocation)
+                                value_kind: Constant"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_adaptive_tablelookup_select() {
+    let compilation_context = CompilationContext::new(Profile::Adaptive.into());
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "Select",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicDouble | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | UseOfDynamicIndex | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                adj: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | ReturnWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | ReturnWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                ctl: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicDouble | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                ctl-adj: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicDouble | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicExponent | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [1]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | UseOfDynamicGeneric | QubitAllocation)
+                                value_kind: Constant
+                        [2]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | UseOfDynamicallySizedArray | CallToUnresolvedCallee | UseOfDynamicIndex | QubitAllocation)
                                 value_kind: Constant"#]],
     );
 }
