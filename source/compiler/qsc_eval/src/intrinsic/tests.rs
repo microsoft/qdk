@@ -4,6 +4,7 @@
 use std::f64::consts;
 
 use crate::backend::{Backend, SparseSim};
+use crate::debug::Frame;
 use crate::tests::eval_graph;
 use crate::{Env, val};
 use crate::{
@@ -17,7 +18,7 @@ use num_bigint::BigInt;
 use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_data_structures::source::SourceMap;
 use qsc_data_structures::target::TargetCapabilityFlags;
-use qsc_fir::fir::{self, ExecGraphConfig, PackageStoreLookup};
+use qsc_fir::fir::{self, ExecGraphConfig};
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
@@ -148,12 +149,15 @@ impl Backend for CustomSim {
         &mut self,
         name: &str,
         arg: Value,
-        globals: &impl PackageStoreLookup,
+        function_callback: &mut dyn FnMut(
+            Value,
+            Value,
+        ) -> Result<Value, (crate::Error, Vec<Frame>)>,
     ) -> Option<Result<Value, String>> {
         match name {
             "Add1" => Some(Ok(Value::Int(arg.unwrap_int() + 1))),
             "Check" => Some(Err("cannot verify input".to_string())),
-            _ => self.sim.custom_intrinsic(name, arg, globals),
+            _ => self.sim.custom_intrinsic(name, arg, function_callback),
         }
     }
 }

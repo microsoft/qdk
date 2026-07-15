@@ -8,6 +8,7 @@ use num_complex::Complex;
 use qsc_data_structures::index_map::IndexMap;
 use qsc_eval::{
     backend::Backend,
+    debug::Frame,
     val::{Qubit, QubitRef, Result, Value},
 };
 use qsc_rir::rir::{BlockId, CallableId, VariableId};
@@ -146,7 +147,13 @@ impl Backend for QuantumIntrinsicsChecker {
         &mut self,
         name: &str,
         _arg: Value,
-        _globals: &impl qsc_fir::fir::PackageStoreLookup,
+        _function_callback: &mut dyn FnMut(
+            Value,
+            Value,
+        ) -> std::result::Result<
+            Value,
+            (qsc_eval::Error, Vec<Frame>),
+        >,
     ) -> Option<std::result::Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),

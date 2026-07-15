@@ -26,7 +26,8 @@ pub mod output;
 pub mod state;
 pub mod val;
 
-use crate::backend::{Backend, TracingBackend};
+use crate::backend::{Backend, ClassicalBackend, TracingBackend};
+use crate::output::GenericReceiver;
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
@@ -1372,6 +1373,23 @@ impl State {
                 }
             }
             _ => {
+                let mut function_callback = |callable, args| {
+                    invoke(
+                        self.source_package,
+                        None,
+                        globals,
+                        self.exec_graph_config,
+                        &mut Default::default(),
+                        &mut TracingBackend::no_tracer(&mut ClassicalBackend {}),
+                        out,
+                        callable,
+                        args,
+                    )
+                    .map_err(|(e, mut frames)| {
+                        frames.extend(call_stack.iter().cloned());
+                        (e, frames)
+                    })
+                };
                 let val = intrinsic::call(
                     name,
                     callee_span,
@@ -1380,8 +1398,8 @@ impl State {
                     &call_stack,
                     sim,
                     &mut self.rng.borrow_mut(),
-                    out,
-                    globals,
+                    &mut GenericReceiver::new(&mut std::io::sink()),
+                    &mut function_callback,
                 )?;
                 if val == Value::unit() && callee.output != Ty::UNIT {
                     return Err(Error::UnsupportedIntrinsicType(

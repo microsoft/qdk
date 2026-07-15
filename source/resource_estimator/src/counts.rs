@@ -8,7 +8,7 @@ mod memory_compute;
 
 use num_bigint::BigUint;
 use num_complex::Complex;
-use qsc::{Backend, BackendResult, interpret::Value};
+use qsc::{Backend, BackendResult, EvalError, interpret::Value};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
@@ -735,7 +735,10 @@ impl Backend for LogicalCounter {
         &mut self,
         name: &str,
         arg: Value,
-        _globals: &impl qsc::fir::PackageStoreLookup,
+        _function_callback: &mut dyn FnMut(
+            Value,
+            Value,
+        ) -> Result<Value, (EvalError, Vec<qsc::Frame>)>,
     ) -> Option<Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => {

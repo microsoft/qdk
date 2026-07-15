@@ -4,9 +4,8 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use crate::debug::Frame;
-use crate::output::GenericReceiver;
 use crate::val::{self, Value};
-use crate::{Env, noise::PauliNoise, val::unwrap_tuple};
+use crate::{noise::PauliNoise, val::unwrap_tuple};
 use ndarray::Array2;
 use num_bigint::{BigInt, BigUint};
 use num_complex::Complex;
@@ -17,7 +16,6 @@ use qdk_simulators::{
     stabilizer_simulator::StabilizerSimulator,
 };
 use qsc_data_structures::index_map::IndexMap;
-use qsc_fir::fir::{ExecGraphConfig, PackageStoreLookup};
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
 
@@ -124,7 +122,10 @@ pub trait Backend {
         &mut self,
         _name: &str,
         _arg: Value,
-        _globals: &impl PackageStoreLookup,
+        _function_callback: &mut dyn FnMut(
+            Value,
+            Value,
+        ) -> Result<Value, (crate::Error, Vec<Frame>)>,
     ) -> Option<Result<Value, String>> {
         None
     }
@@ -483,13 +484,18 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         name: &str,
         arg: Value,
         stack: &[Frame],
-        globals: &impl PackageStoreLookup,
+        function_callback: &mut dyn FnMut(
+            Value,
+            Value,
+        ) -> Result<Value, (crate::Error, Vec<Frame>)>,
     ) -> Option<Result<Value, String>> {
         if let Some(tracer) = &mut self.tracer {
             tracer.custom_intrinsic(stack, name, arg.clone());
         }
         match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg, globals),
+            OptionalBackend::Some(backend) => {
+                backend.custom_intrinsic(name, arg, function_callback)
+            }
             OptionalBackend::None(_) => {
                 match name {
                     // Special case this known intrinsic to match the simulator
@@ -559,8 +565,6 @@ pub struct SparseSim {
     /// Random number generator to sample any noise.
     /// Noise is not applied when rng is None.
     pub rng: Option<StdRng>,
-    /// Helper to evaluate classical arithmetic functions.
-    pub arithmetic_evaluator: ArithmeticEvaluator,
 }
 
 impl Default for SparseSim {
@@ -579,7 +583,6 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: None,
-            arithmetic_evaluator: ArithmeticEvaluator::default(),
         }
     }
 
@@ -599,7 +602,6 @@ impl SparseSim {
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
             rng: Some(StdRng::from_rng(&mut rand::rng())),
-            arithmetic_evaluator: ArithmeticEvaluator::default(),
         }
     }
 
@@ -726,7 +728,10 @@ impl SparseSim {
     fn apply_classical_function(
         &mut self,
         arg: Value,
-        globals: &impl PackageStoreLookup,
+        function_callback: &mut dyn FnMut(
+            Value,
+            Value,
+        ) -> Result<Value, (crate::Error, Vec<Frame>)>,
     ) -> Option<Result<Value, String>> {
         let [function_val, qubits_val] = unwrap_tuple(arg);
         let qubits = qubits_val
@@ -734,9 +739,11 @@ impl SparseSim {
             .iter()
             .filter_map(|q| q.clone().unwrap_qubit().try_deref().map(|q| q.0))
             .collect::<Vec<_>>();
-        let func = |x| {
-            self.arithmetic_evaluator
-                .evaluate(globals, &function_val, x)
+        let func = |x: BigUint| {
+            let x: BigInt = x.into();
+            function_callback(function_val.clone(), Value::BigInt(x))
+                .map_err(|(e, _)| e.to_string())
+                .map(|v| v.unwrap_big_int().try_into().expect("should be positive?"))
         };
         let result = self.sim.apply_arithmetic_gate(func, &qubits);
         Some(result.map(|()| Value::unit()))
@@ -1075,7 +1082,10 @@ impl Backend for SparseSim {
         &mut self,
         name: &str,
         arg: Value,
-        globals: &impl PackageStoreLookup,
+        function_callback: &mut dyn FnMut(
+            Value,
+            Value,
+        ) -> Result<Value, (crate::Error, Vec<Frame>)>,
     ) -> Option<Result<Value, String>> {
         // These intrinsics aren't subject to noise.
         match name {
@@ -1179,7 +1189,9 @@ impl Backend for SparseSim {
                 }
                 Some(Ok(Value::unit()))
             }
-            "ApplyClassicalFunctionInternal" => self.apply_classical_function(arg, globals),
+            "ApplyClassicalFunctionInternal" => {
+                self.apply_classical_function(arg, function_callback)
+            }
             _ => None,
         }
     }
@@ -1431,7 +1443,10 @@ impl Backend for CliffordSim {
         &mut self,
         name: &str,
         arg: Value,
-        _globals: &impl PackageStoreLookup,
+        _function_callback: &mut dyn FnMut(
+            Value,
+            Value,
+        ) -> Result<Value, (crate::Error, Vec<Frame>)>,
     ) -> Option<Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
@@ -1515,51 +1530,6 @@ fn check_normalized_angle(theta: f64) -> Result<(), String> {
 }
 
 /// A zero-sized backend used only to evaluate classical arithmetic functions.
-struct ClassicalBackend;
+pub struct ClassicalBackend;
 
 impl Backend for ClassicalBackend {}
-
-/// Helper to evaluate classical arithmetic functions for usage in `ApplyClassicalFunctionInternal`.
-#[derive(Default)]
-pub struct ArithmeticEvaluator {
-    /// Evaluation environment, allocated once and reused across basis states.
-    env: Env,
-}
-
-impl ArithmeticEvaluator {
-    /// Evaluates Q# function on the given input.
-    fn evaluate(
-        &mut self,
-        globals: &impl PackageStoreLookup,
-        function_val: &Value,
-        input: BigUint,
-    ) -> Result<BigUint, String> {
-        let package = match function_val {
-            Value::Closure(closure) => closure.id.package,
-            Value::Global(id, _) => id.package,
-            _ => return Err("classical arithmetic function must be callable".to_string()),
-        };
-        let mut scratch = ClassicalBackend;
-        let mut backend = TracingBackend::no_tracer(&mut scratch);
-        let mut sink = std::io::sink();
-        let mut receiver = GenericReceiver::new(&mut sink);
-        let result = crate::invoke(
-            package,
-            None,
-            globals,
-            ExecGraphConfig::NoDebug,
-            &mut self.env,
-            &mut backend,
-            &mut receiver,
-            function_val.clone(),
-            Value::BigInt(BigInt::from(input)),
-        )
-        .map_err(|(err, _)| err.to_string())?;
-        let Value::BigInt(output) = result else {
-            return Err("classical arithmetic function must return a BigInt".to_string());
-        };
-        output
-            .to_biguint()
-            .ok_or_else(|| "function result must be non-negative".to_string())
-    }
-}

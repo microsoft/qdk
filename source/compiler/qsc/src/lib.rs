@@ -50,7 +50,9 @@ pub mod line_column {
 }
 
 pub use qsc_eval::{
+    Error as EvalError,
     backend::{Backend, CliffordSim, SparseSim},
+    debug::Frame,
     noise::PauliNoise,
     state::{
         fmt_basis_state_label, fmt_complex, format_state_id, get_matrix_latex, get_phase,
