@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::Env;
 use crate::backend::{Backend, TracingBackend};
 use crate::output::GenericReceiver;
 use crate::val::Value;
-use crate::Env;
 use qsc_fir::fir::{ExecGraphConfig, PackageStoreLookup};
 
 /// A zero-sized backend used only to evaluate classical arithmetic functions.

@@ -2283,11 +2283,11 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-282)
                 1 = SubProgram name=Foo location=(2-29)
-                2 = SubProgram name=MResetZ location=(1-182278)
+                2 = SubProgram name=MResetZ location=(1-182300)
             dbg_locations:
                 [1]: scope=0 location=(2-363)
                 [2]: scope=1 location=(2-112) inlined_at=1
-                [3]: scope=2 location=(1-182327) inlined_at=2
+                [3]: scope=2 location=(1-182349) inlined_at=2
                 [4]: scope=1 location=(2-109) inlined_at=1
             tags:
                 [0]: 0_i

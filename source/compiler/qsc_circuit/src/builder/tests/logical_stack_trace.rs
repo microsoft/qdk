@@ -312,7 +312,7 @@ fn nested_callables() {
         &expect![[r#"
             Main@A.qs:1:4 -> qubit_allocate(q_0)
             Main@A.qs:2:4 -> Foo@A.qs:7:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:3:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
+            Main@A.qs:3:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:136:4 -> measure(MResetZ, q_0, Id(0))
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
     );
@@ -337,7 +337,7 @@ fn for_loop_debug() {
             Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> (1)@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> (2)@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> (3)@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
+            Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:136:4 -> measure(MResetZ, q_0, Id(0))
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
     );
@@ -362,7 +362,7 @@ fn for_loop_no_debug() {
             Main@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:3:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
+            Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:136:4 -> measure(MResetZ, q_0, Id(0))
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
     );
@@ -391,7 +391,7 @@ fn nested_callables_and_loop() {
             Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[1] -> (1)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[2] -> (2)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
             Main@A.qs:2:4 -> loop: 0..2@A.qs:2:18[3] -> (3)@A.qs:3:8 -> Foo@A.qs:9:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
-            Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
+            Main@A.qs:5:4 -> MResetZ@qsharp-library-source:Std/Measurement.qs:136:4 -> measure(MResetZ, q_0, Id(0))
             Main@A.qs:1:4 -> qubit_release(q_0)
         "#]],
     );
@@ -521,11 +521,11 @@ fn qubit_reuse() {
         &expect![[r#"
             Main@A.qs:2:8 -> qubit_allocate(q_0)
             Main@A.qs:3:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
-            Main@A.qs:4:8 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(0))
+            Main@A.qs:4:8 -> MResetZ@qsharp-library-source:Std/Measurement.qs:136:4 -> measure(MResetZ, q_0, Id(0))
             Main@A.qs:2:8 -> qubit_release(q_0)
             Main@A.qs:7:8 -> qubit_allocate(q_0)
             Main@A.qs:8:8 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
-            Main@A.qs:9:8 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_0, Id(1))
+            Main@A.qs:9:8 -> MResetZ@qsharp-library-source:Std/Measurement.qs:136:4 -> measure(MResetZ, q_0, Id(1))
             Main@A.qs:7:8 -> qubit_release(q_0)
         "#]],
     );
