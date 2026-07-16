@@ -101,6 +101,18 @@ test("removeQubitWithDependents strips ops on the wire and drops it", () => {
   expectGrid(model, [[{ X: 0 }], [{ Z: 1 }]]);
 });
 
+test("moveQubit: moving an interior empty wire to the bottom prunes it as a trailing unused wire", () => {
+  // Wire 1 is empty; wires 0 and 2 carry ops. Swapping the empty wire down to the bottom leaves it
+  // as the highest, unused wire, which `removeTrailingUnusedQubits` drops immediately.
+  const model = build(circuit(3, [[gate("X", 0), gate("Z", 2)]]));
+
+  moveQubit(model, 1, 2, false);
+
+  assert.equal(model.qubits.length, 2);
+  // Z shifts up from wire 2 to wire 1; the emptied trailing wire is gone.
+  expectGrid(model, [[{ X: 0 }, { Z: 1 }]]);
+});
+
 // ---------------------------------------------------------------------------
 // removeQubit / moveQubit recurse into nested groups
 // ---------------------------------------------------------------------------
