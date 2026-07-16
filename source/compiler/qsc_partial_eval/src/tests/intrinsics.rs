@@ -1405,21 +1405,14 @@ fn call_to_is_resource_estimating_yields_false() {
     let program = get_rir_program(indoc! {
         r#"
         namespace Test {
-            import Std.ResourceEstimation.*;
             @EntryPoint()
-            operation Main() : Bool {
-                IsResourceEstimating()
+            operation Main() : Int {
+                if (Std.ResourceEstimation.IsResourceEstimating()) { 1111 } else { 2222 }
             }
         }
         "#,
     });
-    assert_block_instructions(
-        &program,
-        BlockId(0),
-        &expect![[r#"
-            Block:
-                Call id(1), args( Pointer, )
-                Call id(2), args( Bool(false), Tag(0, 3), )
-                Return"#]],
-    );
+    let instructions = program.get_block(BlockId(0)).to_string();
+    assert!(instructions.contains("Integer(2222)"));
+    assert!(!instructions.contains("Integer(1111)"));
 }

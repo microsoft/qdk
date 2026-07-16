@@ -232,6 +232,12 @@ operation EnableManualMemoryComputeArchitecture() : Unit {
     EnableMemoryComputeArchitecture(0, 2);
 }
 
+/// # Summary
+/// Returns `true` when running on the resource estimator target; otherwise `false`.
+function IsResourceEstimating() : Bool {
+    body intrinsic;
+}
+
 export
     SingleVariant,
     BeginEstimateCaching,
