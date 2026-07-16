@@ -363,7 +363,9 @@ class _QidToTraceId(dict):
         return super().__getitem__(key)
 
 
-def h_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def h_pow_gate_to_trace(
+    self: HPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert an HPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(H, [op.qubits[0]])
@@ -371,7 +373,9 @@ def h_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
         yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def x_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def x_pow_gate_to_trace(
+    self: XPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert an XPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
@@ -390,7 +394,9 @@ def x_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
             yield TraceGate(RX, q, exp * pi)
 
 
-def y_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def y_pow_gate_to_trace(
+    self: YPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a YPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
@@ -409,7 +415,9 @@ def y_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
             yield TraceGate(RY, q, exp * pi)
 
 
-def z_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def z_pow_gate_to_trace(
+    self: ZPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a ZPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
@@ -428,7 +436,9 @@ def z_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
             yield TraceGate(RZ, q, exp * pi)
 
 
-def cx_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def cx_pow_gate_to_trace(
+    self: CXPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a CXPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CX, [op.qubits[0], op.qubits[1]])
@@ -436,7 +446,9 @@ def cx_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
         yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def cz_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def cz_pow_gate_to_trace(
+    self: CZPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a CZPowGate into trace instructions."""
     exp = self.exponent
     c, t = op.qubits[0], op.qubits[1]
@@ -467,7 +479,9 @@ def cz_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
             yield TraceGate(CZ, [c, t])
 
 
-def swap_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def swap_pow_gate_to_trace(
+    self: SwapPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a SwapPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(SWAP, [op.qubits[0], op.qubits[1]])
@@ -475,7 +489,9 @@ def swap_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation)
         yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def ccx_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def ccx_pow_gate_to_trace(
+    self: CCXPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a CCXPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
@@ -483,7 +499,9 @@ def ccx_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
         yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def ccz_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def ccz_pow_gate_to_trace(
+    self: CCZPowGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a CCZPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CCZ, [op.qubits[0], op.qubits[1], op.qubits[2]])
@@ -491,13 +509,17 @@ def ccz_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
         yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def measurement_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def measurement_gate_to_trace(
+    self: MeasurementGate, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a MeasurementGate into trace instructions."""
     for q in op.qubits:
         yield TraceGate(MEAS_Z, [q])
 
 
-def reset_channel_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
+def reset_channel_to_trace(
+    self: ResetChannel, context: _CirqTraceBuilder, op: cirq.Operation
+):
     """Convert a ResetChannel into trace instructions (no-op)."""
     yield from ()
 
@@ -519,7 +541,9 @@ ResetChannel._to_trace = reset_channel_to_trace
 # Decomposition overrides
 
 
-def phase_gradient_decompose(self, qubits):
+def phase_gradient_decompose(
+    self: PhaseGradientGate, qubits: Sequence[cirq.Qid]
+) -> Iterator[cirq.Operation]:
     """Override PhaseGradientGate._decompose_ to skip rotations with very small angles.
 
     The original implementation may lead to floating-point overflows for
@@ -736,7 +760,12 @@ class ReadFromMemoryGate(cirq.Gate):
             yield cirq.reset(comp_qs[i])
             yield cirq.SWAP(mem_qs[i], comp_qs[i])
 
-    def _to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation, **_kwargs):
+    def _to_trace(
+        self,
+        context: _CirqTraceBuilder,
+        op: cirq.Operation,
+        **_kwargs: object,
+    ):
         """Convert this gate into trace instructions."""
         if context._track_memory_qubits:
             comp_qs, mem_qs = self._get_qubits(op.qubits)
@@ -779,7 +808,12 @@ class WriteToMemoryGate(cirq.Gate):
             yield cirq.reset(mem_qs[i])
             yield cirq.SWAP(mem_qs[i], comp_qs[i])
 
-    def _to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation, **_kwargs):
+    def _to_trace(
+        self,
+        context: _CirqTraceBuilder,
+        op: cirq.Operation,
+        **_kwargs: object,
+    ):
         """Convert this gate into trace instructions."""
         if context._track_memory_qubits:
             comp_qs, mem_qs = self._get_qubits(op.qubits)
