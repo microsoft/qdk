@@ -8,7 +8,6 @@
 // @ts-check
 
 import { test } from "node:test";
-import assert from "node:assert/strict";
 import { removeOperation } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
 import {
   at,
