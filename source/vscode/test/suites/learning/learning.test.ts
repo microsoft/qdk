@@ -36,7 +36,6 @@ suite("QDK Learning multi-course", function suite() {
       "the built-in Katas course should always be available",
     );
     assert.equal(service.getActiveCourseId(), "katas");
-    assert.fail("The test ran");
   });
 
   test("Drop-in python-notebook course is discovered", async function test() {
@@ -51,13 +50,13 @@ suite("QDK Learning multi-course", function suite() {
     try {
       assert.equal(service.getActiveCourseId(), "circuit-diagrams");
       const units = service.listUnits();
-      assert.equal(units.length, 1, "course should have a single unit");
+      assert.equal(units.length, 2, "course should have two units");
 
       const progress = service.getProgress();
-      const activities = progress.units[0].activities;
+      const activities = progress.units[1].activities;
       const ids = activities.map((a) => a.id);
-      assert.include(ids, "build-bell");
-      assert.include(ids, "display-circuit");
+      assert.include(ids, "cat_circuit");
+      assert.include(ids, "flat_circuit");
 
       const exercises = activities.filter((a) => a.type === "exercise");
       assert.equal(exercises.length, 2, "both tasks should become exercises");
