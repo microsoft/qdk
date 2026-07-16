@@ -13,10 +13,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  addOperation,
-  moveOperation,
-} from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
+import { moveOperation } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
 import {
   at,
   build,
@@ -112,19 +109,6 @@ test("moveOperation: cleanup STOPS at the first non-empty ancestor", () => {
 // ---------------------------------------------------------------------------
 // Trailing inner-column dropzone of an expanded group.
 // ---------------------------------------------------------------------------
-
-test("addOperation: dropping on a group's trailing inner-column slot adds the op as a child", () => {
-  const model = build(circuit(2, [[group("Foo", [[gate("H", 0)]])]]));
-
-  // drop Y on Foo's trailing inner-column slot "0,0-1,0"
-  const added = addOperation(model, gate("Y", 0), "0,0-1,0", 0);
-  assert.ok(added, "addOperation should return the new op");
-
-  expectGrid(model, [["Foo"]]);
-  expectOp(at(model, "0,0"), {
-    Foo: { children: [[{ H: 0 }], [{ Y: 0 }]] },
-  });
-});
 
 test("moveOperation: moving an external gate to a group's trailing inner-column slot pulls it into the group", () => {
   const model = build(

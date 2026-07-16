@@ -1,14 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Remove-mutator tests on grouped shapes, driven through the public `removeOperation` action.
-// Counterpart to `addRemove.test.mjs` (which covers the flat, non-grouped case). Focuses on
-// stripping a leaf inside a group and the ancestor-`.targets` narrowing that follows the removal.
+// Add- and remove-mutator tests on grouped shapes, driven through the public `addOperation` and
+// `removeOperation` actions. Counterpart to `addRemove.test.mjs` (which covers the flat,
+// non-grouped case).
 
 // @ts-check
 
 import { test } from "node:test";
-import { removeOperation } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
+import assert from "node:assert/strict";
+import {
+  addOperation,
+  removeOperation,
+} from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
 import {
   at,
   build,
@@ -18,6 +22,68 @@ import {
   gate,
   group,
 } from "../_helpers.mjs";
+
+test("addOperation: dropping on a group's trailing inner-column slot adds the op as a child", () => {
+  const model = build(circuit(2, [[group("Foo", [[gate("H", 0)]])]]));
+
+  // Drop Y on Foo's trailing inner-column slot "0,0-1,0".
+  const added = addOperation(model, gate("Y", 0), "0,0-1,0", 0);
+  assert.ok(added, "addOperation should return the new op");
+
+  expectGrid(model, [["Foo"]]);
+  expectOp(at(model, "0,0"), {
+    Foo: { children: [[{ H: 0 }], [{ Y: 0 }]] },
+  });
+});
+
+test("addOperation: adding to an interior inner column on a clear wire merges into that column", () => {
+  // Foo's inner grid is [[H@0], [Z@0]]. Adding Y@1 at inner column 1 (a real, populated column)
+  // with no overlap merges Y alongside Z rather than splitting.
+  const model = build(
+    circuit(2, [[group("Foo", [[gate("H", 0)], [gate("Z", 0)]])]]),
+  );
+
+  const added = addOperation(model, gate("Y", 1), "0,0-1,0", 1);
+  assert.ok(added);
+
+  expectOp(at(model, "0,0"), {
+    Foo: { children: [[{ H: 0 }], [{ Y: 1 }, { Z: 0 }]] },
+  });
+});
+
+test("addOperation: insertNewColumn splits an interior inner column, shifting later columns right", () => {
+  // Foo's inner grid is [[H@0], [Z@0]]. Inserting Y at inner column 1 with insertNewColumn pushes
+  // the existing Z column one step right inside the group.
+  const model = build(
+    circuit(2, [[group("Foo", [[gate("H", 0)], [gate("Z", 0)]])]]),
+  );
+
+  const added = addOperation(
+    model,
+    gate("Y", 0),
+    "0,0-1,0",
+    0,
+    /* insertNewColumn */ true,
+  );
+  assert.ok(added);
+
+  expectOp(at(model, "0,0"), {
+    Foo: { children: [[{ H: 0 }], [{ Y: 0 }], [{ Z: 0 }]] },
+  });
+});
+
+test("addOperation: an overlapping insert inside a group forces a new inner column", () => {
+  // Inner column 0 already holds H@0. Adding X@0 there would collide on wire 0, so the add splits
+  // into a fresh inner column ahead of H.
+  const model = build(circuit(2, [[group("Foo", [[gate("H", 0)]])]]));
+
+  const added = addOperation(model, gate("X", 0), "0,0-0,0", 0);
+  assert.ok(added, "an overlapping insert is resolved, not rejected");
+
+  expectOp(at(model, "0,0"), {
+    Foo: { children: [[{ X: 0 }], [{ H: 0 }]] },
+  });
+});
 
 test("removeOperation strips a leaf inside an expanded group", () => {
   const model = build(
